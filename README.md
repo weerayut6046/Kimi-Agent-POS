@@ -9,8 +9,8 @@ docker compose up --build
 ```
 
 - เปิดใช้งานที่ http://localhost:3000
-- ครั้งแรก container `app` จะ sync schema (`drizzle-kit push`) และ seed ข้อมูลตัวอย่างให้อัตโนมัติ
-- บัญชีเริ่มต้นจาก seed: `admin` / PIN `1234` (เจ้าของปั๊ม), `somchai` / PIN `0000` (พนักงาน)
+- ครั้งแรก container `app` จะ apply migrations (`drizzle-kit migrate`) และ seed ข้อมูลตัวอย่างให้อัตโนมัติ
+- บัญชีเริ่มต้นจาก seed: `admin` / PIN `1234` (เจ้าของปั๊ม), `manager` / PIN `2222` (ผู้จัดการสาขา), `somchai` / PIN `0000` (พนักงาน)
 - ปรับค่าได้ผ่าน `.env` (ดูตัวอย่างใน `.env.example`) เช่น `APP_SECRET`, `DB_ROOT_PASSWORD`, `APP_PORT`
 - ข้อมูล MySQL เก็บใน volume `db_data` — ลบทิ้งทั้งหมดด้วย `docker compose down -v`
 
@@ -18,8 +18,19 @@ docker compose up --build
 
 ```bash
 npm install
-npm run dev        # dev server ที่ http://localhost:3000
-npm run db:push    # sync schema ไปยัง DATABASE_URL
+npm run dev          # dev server ที่ http://localhost:3000
+npm run db:migrate   # apply migrations ไปยัง DATABASE_URL
+```
+
+## เปลี่ยนโครงสร้างฐานข้อมูล (schema)
+
+ใช้ migration files ใน `db/migrations/` (commit เข้า git ด้วย) ไม่ใช้ `db:push` อีกต่อไป เพื่อไม่ให้ข้อมูลเดิมเสียหาย:
+
+```bash
+# 1. แก้ db/schema.ts แล้วสร้าง migration ใหม่
+npm run db:generate   # สร้างไฟล์ SQL ใน db/migrations/
+npm run db:migrate    # apply เข้า DB ที่กำลังใช้งาน
+# 2. commit ทั้ง schema.ts และ db/migrations/ — container จะ migrate เองตอน start
 ```
 
 ---

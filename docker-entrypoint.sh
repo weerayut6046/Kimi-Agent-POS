@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-echo ">> Syncing database schema (drizzle-kit push)..."
-npx drizzle-kit push --force
+echo ">> Applying database migrations (drizzle-kit migrate)..."
+npx drizzle-kit migrate
 
 if [ "${SEED_ON_START:-true}" = "true" ]; then
   echo ">> Seeding database (ข้ามอัตโนมัติถ้ามีข้อมูลอยู่แล้ว)..."

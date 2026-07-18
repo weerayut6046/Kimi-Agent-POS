@@ -28,13 +28,24 @@ const DIFF_TOLERANCE = 1; // บาท
 function DiffBadge({ diff }: { diff: number | null }) {
   if (diff == null) return null;
   const ok = Math.abs(diff) <= DIFF_TOLERANCE;
-  return ok ? (
-    <Badge className="bg-green-600 hover:bg-green-600 gap-1">
-      <CheckCircle2 className="w-3 h-3" /> ตรงกัน
-    </Badge>
-  ) : (
-    <Badge variant="destructive" gap-1 className="gap-1">
-      <AlertTriangle className="w-3 h-3" /> ต่าง {diff > 0 ? "+" : ""}{fmtMoney(diff)}
+  if (ok) {
+    return (
+      <Badge className="bg-green-600 hover:bg-green-600 gap-1">
+        <CheckCircle2 className="w-3 h-3" /> ตรงกัน
+      </Badge>
+    );
+  }
+  // บวก = เงินเกิน (เขียว) / ลบ = เงินขาด (แดง)
+  if (diff > 0) {
+    return (
+      <Badge className="bg-green-600 hover:bg-green-600 gap-1">
+        <AlertTriangle className="w-3 h-3" /> ต่าง +{fmtMoney(diff)}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="destructive" className="gap-1">
+      <AlertTriangle className="w-3 h-3" /> ต่าง {fmtMoney(diff)}
     </Badge>
   );
 }
@@ -344,12 +355,12 @@ export default function Shifts() {
 
       {/* รายละเอียดกะ */}
       <Dialog open={detailId != null} onOpenChange={(o) => !o && setDetailId(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="font-heading">รายละเอียดกะ #{detailId}</DialogTitle>
           </DialogHeader>
           {detail && (
-            <div className="space-y-3 text-sm">
+            <div className="space-y-3 text-sm min-w-0">
               <div className="grid grid-cols-2 gap-2">
                 <div>พนักงาน: <b>{detail.staffName}</b></div>
                 <div>เปิด: {fmtDateTime(detail.openedAt)}</div>
