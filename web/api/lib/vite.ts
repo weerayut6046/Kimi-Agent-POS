@@ -7,9 +7,13 @@ import path from "path";
 type App = Hono<{ Bindings: HttpBindings }>;
 
 export function serveStaticFiles(app: App) {
-  const distPath = path.resolve(import.meta.dirname, "../dist/public");
+  // Electron ตั้ง POS_STATIC_DIR ชี้ dist/public ในแพ็กเกจเสมอ
+  // ส่วน server ปกติ (node dist/boot.js) ใช้ path เทียบจากไฟล์ bundle
+  const distPath = process.env.POS_STATIC_DIR
+    ? path.resolve(process.env.POS_STATIC_DIR)
+    : path.resolve(import.meta.dirname, "../dist/public");
 
-  app.use("*", serveStatic({ root: "./dist/public" }));
+  app.use("*", serveStatic({ root: distPath }));
 
   app.notFound((c) => {
     const accept = c.req.header("accept") ?? "";

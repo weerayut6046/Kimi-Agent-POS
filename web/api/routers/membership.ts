@@ -36,7 +36,7 @@ export const membershipRouter = createRouter({
       if (dup) throw new Error("เบอร์นี้สมัครสมาชิกแล้ว");
       const count = (await db.query.members.findMany()).length;
       const memberCode = `M${String(count + 1).padStart(4, "0")}`;
-      const [{ id }] = await db.insert(members).values({ ...input, memberCode }).$returningId();
+      const [{ id }] = await db.insert(members).values({ ...input, memberCode }).returning({ id: members.id });
       return { ok: true, id, memberCode };
     }),
 
@@ -70,14 +70,14 @@ export const membershipRouter = createRouter({
       if (!m) throw new Error("ไม่พบสมาชิก");
       const next = m.points + input.points;
       if (next < 0) throw new Error("แต้มติดลบไม่ได้");
-      await db.transaction(async (tx) => {
-        await tx.update(members).set({ points: next }).where(eq(members.id, m.id));
-        await tx.insert(pointTransactions).values({
+      db.transaction((tx) => {
+        tx.update(members).set({ points: next }).where(eq(members.id, m.id)).run();
+        tx.insert(pointTransactions).values({
           memberId: m.id,
           type: "adjust",
           points: input.points,
           note: input.note,
-        });
+        }).run();
       });
       return { ok: true, points: next };
     }),
@@ -136,20 +136,20 @@ export const membershipRouter = createRouter({
       if (!rw || !rw.active) throw new Error("ไม่พบของรางวัล");
       if (rw.stock <= 0) throw new Error("ของรางวัลหมด");
       if (m.points < rw.pointsRequired) throw new Error("แต้มไม่พอ");
-      await db.transaction(async (tx) => {
-        await tx.update(members).set({ points: m.points - rw.pointsRequired }).where(eq(members.id, m.id));
-        await tx.update(rewards).set({ stock: rw.stock - 1 }).where(eq(rewards.id, rw.id));
-        await tx.insert(rewardRedemptions).values({
+      db.transaction((tx) => {
+        tx.update(members).set({ points: m.points - rw.pointsRequired }).where(eq(members.id, m.id)).run();
+        tx.update(rewards).set({ stock: rw.stock - 1 }).where(eq(rewards.id, rw.id)).run();
+        tx.insert(rewardRedemptions).values({
           memberId: m.id,
           rewardId: rw.id,
           pointsUsed: rw.pointsRequired,
-        });
-        await tx.insert(pointTransactions).values({
+        }).run();
+        tx.insert(pointTransactions).values({
           memberId: m.id,
           type: "redeem",
           points: -rw.pointsRequired,
           note: `แลกรางวัล: ${rw.name}`,
-        });
+        }).run();
       });
       return { ok: true, pointsLeft: m.points - rw.pointsRequired };
     }),

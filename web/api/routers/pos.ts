@@ -31,31 +31,31 @@ type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0
 
 /**
  * คืนสต๊อก (เฉพาะสินค้าที่ไม่ใช่น้ำมัน) และคืนแต้มสมาชิกของบิล
- * ใช้ตอนยกเลิก/ลบบิล — ต้องเรียกภายใน transaction
+ * ใช้ตอนยกเลิก/ลบบิล — ต้องเรียกภายใน transaction (sync สำหรับ better-sqlite3)
  */
-async function reverseSaleEffects(tx: DbTx, sale: Sale, items: SaleItem[], note: string) {
-  const prodRows = await tx.query.products.findMany();
+function reverseSaleEffects(tx: DbTx, sale: Sale, items: SaleItem[], note: string) {
+  const prodRows = tx.select().from(products).all();
   for (const it of items) {
     const p = prodRows.find((pr) => pr.id === it.productId);
     if (p && p.category !== "fuel") {
-      await tx
-        .update(products)
+      tx.update(products)
         .set({ stockQty: r2(p.stockQty + it.qty) })
-        .where(eq(products.id, p.id));
+        .where(eq(products.id, p.id))
+        .run();
     }
   }
   if (sale.memberId) {
-    const m = await tx.query.members.findFirst({ where: eq(members.id, sale.memberId) });
+    const m = tx.select().from(members).where(eq(members.id, sale.memberId)).get();
     if (m) {
       const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
-      await tx.update(members).set({ points: restored }).where(eq(members.id, m.id));
-      await tx.insert(pointTransactions).values({
+      tx.update(members).set({ points: restored }).where(eq(members.id, m.id)).run();
+      tx.insert(pointTransactions).values({
         memberId: m.id,
         saleId: sale.id,
         type: "adjust",
         points: -(sale.pointsEarned - sale.pointsRedeemed),
         note,
-      });
+      }).run();
     }
   }
 }
@@ -107,7 +107,7 @@ export const posRouter = createRouter({
       const [{ id: shiftId }] = await db
         .insert(shifts)
         .values({ staffId: input.staffId, staffName: input.staffName })
-        .$returningId();
+        .returning({ id: shifts.id });
       for (const rd of input.readings) {
         const nz = nozzleRows.find((n) => n.id === rd.nozzleId);
         const prod = prodRows.find((p) => p.id === nz?.productId);
@@ -151,7 +151,7 @@ export const posRouter = createRouter({
       let totalAmount = 0;
       let totalMoneyMeter = 0;
 
-      await db.transaction(async (tx) => {
+      db.transaction((tx) => {
         for (const rd of input.readings) {
           const open = readings.find((o) => o.nozzleId === rd.nozzleId);
           if (!open) throw new Error("ไม่พบเลขตั้งต้นของหัวจ่าย");
@@ -168,32 +168,32 @@ export const posRouter = createRouter({
           totalAmount = r2(totalAmount + liters * open.pricePerLiter);
           totalMoneyMeter = r2(totalMoneyMeter + money);
 
-          await tx
-            .update(shiftReadings)
+          tx.update(shiftReadings)
             .set({ closeMeter: rd.closeMeter, closeMoney: rd.closeMoney })
-            .where(eq(shiftReadings.id, open.id));
+            .where(eq(shiftReadings.id, open.id))
+            .run();
           // อัปเดตมิเตอร์หัวจ่าย (ทั้งลิตรและเงิน)
-          await tx
-            .update(nozzles)
+          tx.update(nozzles)
             .set({ currentMeter: rd.closeMeter, currentMoney: rd.closeMoney })
-            .where(eq(nozzles.id, rd.nozzleId));
+            .where(eq(nozzles.id, rd.nozzleId))
+            .run();
           // หักถังน้ำมันตามลิตรที่ขาย (มิเตอร์คือแหล่งความจริงของน้ำมันออก)
           const nz = nozzleRows.find((n) => n.id === rd.nozzleId);
           const tank = tankRows.find((t) => t.productId === nz?.productId);
           if (tank && liters > 0) {
-            await tx
-              .update(fuelTanks)
+            tx.update(fuelTanks)
               .set({ currentLiters: r2(Math.max(0, tank.currentLiters - liters)) })
-              .where(eq(fuelTanks.id, tank.id));
+              .where(eq(fuelTanks.id, tank.id))
+              .run();
           }
         }
         // ยอดขาย POS ในกะ
-        const posRows = await tx
+        const posRows = tx
           .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
           .from(sales)
-          .where(and(eq(sales.shiftId, shift.id), eq(sales.status, "completed")));
-        await tx
-          .update(shifts)
+          .where(and(eq(sales.shiftId, shift.id), eq(sales.status, "completed")))
+          .all();
+        tx.update(shifts)
           .set({
             status: "closed",
             closedAt: new Date(),
@@ -203,7 +203,8 @@ export const posRouter = createRouter({
             posAmount: r2(posRows[0]?.sum ?? 0),
             note: input.note,
           })
-          .where(eq(shifts.id, shift.id));
+          .where(eq(shifts.id, shift.id))
+          .run();
       });
       return { ok: true, totalLiters, totalAmount, totalMoneyMeter, diff: r2(totalMoneyMeter - totalAmount) };
     }),
@@ -300,9 +301,9 @@ export const posRouter = createRouter({
       const changeAmt = input.paymentMethod === "cash" ? r2(Math.max(0, input.received - total)) : 0;
       const pointsEarned = member ? Math.floor(total / earnPer) : 0;
 
-      const saleId = await db.transaction(async (tx) => {
-        const receiptNo = await nextDocNo(tx, "receipt");
-        const [{ id }] = await tx
+      const saleId = db.transaction((tx) => {
+        const receiptNo = nextDocNo(tx, "receipt");
+        const [{ id }] = tx
           .insert(sales)
           .values({
             receiptNo,
@@ -320,10 +321,11 @@ export const posRouter = createRouter({
             pointsEarned,
             pointsRedeemed: input.pointsToRedeem,
           })
-          .$returningId();
+          .returning({ id: sales.id })
+          .all();
 
         for (const l of lines) {
-          await tx.insert(saleItems).values({
+          tx.insert(saleItems).values({
             saleId: id,
             productId: l.product.id,
             name: l.product.name,
@@ -331,36 +333,36 @@ export const posRouter = createRouter({
             unit: l.product.unit,
             unitPrice: l.product.price,
             amount: l.amount,
-          });
+          }).run();
           // หักสต๊อกเฉพาะสินค้าที่ไม่ใช่น้ำมัน (น้ำมันหักผ่านมิเตอร์ตอนปิดกะ)
           if (l.product.category !== "fuel") {
-            await tx
-              .update(products)
+            tx.update(products)
               .set({ stockQty: r2(l.product.stockQty - l.qty) })
-              .where(eq(products.id, l.product.id));
+              .where(eq(products.id, l.product.id))
+              .run();
           }
         }
 
         if (member) {
           const newPoints = member.points - input.pointsToRedeem + pointsEarned;
-          await tx.update(members).set({ points: newPoints }).where(eq(members.id, member.id));
+          tx.update(members).set({ points: newPoints }).where(eq(members.id, member.id)).run();
           if (pointsEarned > 0) {
-            await tx.insert(pointTransactions).values({
+            tx.insert(pointTransactions).values({
               memberId: member.id,
               saleId: id,
               type: "earn",
               points: pointsEarned,
               note: `รับแต้มจากบิล ${receiptNo}`,
-            });
+            }).run();
           }
           if (input.pointsToRedeem > 0) {
-            await tx.insert(pointTransactions).values({
+            tx.insert(pointTransactions).values({
               memberId: member.id,
               saleId: id,
               type: "redeem",
               points: -input.pointsToRedeem,
               note: `ใช้แต้มลดบิล ${receiptNo}`,
-            });
+            }).run();
           }
         }
         return id;
@@ -426,10 +428,10 @@ export const posRouter = createRouter({
     const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
     if (!sale || sale.status === "voided") throw new Error("ยกเลิกบิลไม่ได้");
     const items = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id));
-    await db.transaction(async (tx) => {
-      await tx.update(sales).set({ status: "voided" }).where(eq(sales.id, sale.id));
+    db.transaction((tx) => {
+      tx.update(sales).set({ status: "voided" }).where(eq(sales.id, sale.id)).run();
       // คืนสต๊อกและแต้มอัตโนมัติ
-      await reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
+      reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
     });
     return { ok: true };
   }),
@@ -462,9 +464,8 @@ export const posRouter = createRouter({
       const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
       const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
 
-      await db.transaction(async (tx) => {
-        await tx
-          .update(sales)
+      db.transaction((tx) => {
+        tx.update(sales)
           .set({
             staffName: input.staffName ?? sale.staffName,
             paymentMethod,
@@ -475,20 +476,21 @@ export const posRouter = createRouter({
             changeAmt,
             pointsEarned,
           })
-          .where(eq(sales.id, sale.id));
+          .where(eq(sales.id, sale.id))
+          .run();
         // ปรับแต้มสมาชิกตามยอดใหม่ (เฉพาะส่วนต่าง)
         if (sale.memberId && pointsEarned !== sale.pointsEarned) {
           const diff = pointsEarned - sale.pointsEarned;
-          const m = await tx.query.members.findFirst({ where: eq(members.id, sale.memberId!) });
+          const m = tx.select().from(members).where(eq(members.id, sale.memberId!)).get();
           if (m) {
-            await tx.update(members).set({ points: m.points + diff }).where(eq(members.id, m.id));
-            await tx.insert(pointTransactions).values({
+            tx.update(members).set({ points: m.points + diff }).where(eq(members.id, m.id)).run();
+            tx.insert(pointTransactions).values({
               memberId: m.id,
               saleId: sale.id,
               type: "adjust",
               points: diff,
               note: `ปรับแต้มจากแก้ไขบิล ${sale.receiptNo}`,
-            });
+            }).run();
           }
         }
       });
@@ -501,13 +503,13 @@ export const posRouter = createRouter({
     const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
     if (!sale) throw new Error("ไม่พบบิล");
     const items = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id));
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       if (sale.status === "completed") {
-        await reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
+        reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
       }
-      await tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id));
-      await tx.delete(saleItems).where(eq(saleItems.saleId, sale.id));
-      await tx.delete(sales).where(eq(sales.id, sale.id));
+      tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id)).run();
+      tx.delete(saleItems).where(eq(saleItems.saleId, sale.id)).run();
+      tx.delete(sales).where(eq(sales.id, sale.id)).run();
     });
     return { ok: true };
   }),

@@ -172,9 +172,9 @@ export const catalogRouter = createRouter({
       const tank = await db.query.fuelTanks.findFirst({ where: eq(fuelTanks.id, input.id) });
       if (!tank) throw new Error("ไม่พบถัง");
       // tank_refills ไม่ได้เก็บ snapshot ชื่อถัง — ลบประวัติรับเข้าของถังนี้ไปพร้อมกัน
-      await db.transaction(async (tx) => {
-        await tx.delete(tankRefills).where(eq(tankRefills.tankId, input.id));
-        await tx.delete(fuelTanks).where(eq(fuelTanks.id, input.id));
+      db.transaction((tx) => {
+        tx.delete(tankRefills).where(eq(tankRefills.tankId, input.id)).run();
+        tx.delete(fuelTanks).where(eq(fuelTanks.id, input.id)).run();
       });
       return { ok: true };
     }),
@@ -217,9 +217,9 @@ export const catalogRouter = createRouter({
       if (!tank) throw new Error("ไม่พบถัง");
       const next = tank.currentLiters + input.liters;
       if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
-      await db.transaction(async (tx) => {
-        await tx.insert(tankRefills).values(input);
-        await tx.update(fuelTanks).set({ currentLiters: next }).where(eq(fuelTanks.id, input.tankId));
+      db.transaction((tx) => {
+        tx.insert(tankRefills).values(input).run();
+        tx.update(fuelTanks).set({ currentLiters: next }).where(eq(fuelTanks.id, input.tankId)).run();
       });
       return { ok: true, currentLiters: next };
     }),
@@ -253,7 +253,7 @@ export const catalogRouter = createRouter({
         await db
           .insert(settings)
           .values(e)
-          .onDuplicateKeyUpdate({ set: { value: e.value } });
+          .onConflictDoUpdate({ target: settings.key, set: { value: e.value } });
       }
       return { ok: true };
     }),

@@ -13,14 +13,15 @@ import {
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-async function seed() {
+/**
+ * Seed ข้อมูลเริ่มต้นถ้าฐานข้อมูลยังว่าง (เรียกได้ทั้งจาก CLI และ Electron main)
+ * @returns true ถ้า seed จริง, false ถ้ามีข้อมูลอยู่แล้ว
+ */
+export async function seedIfEmpty(): Promise<boolean> {
   const db = getDb();
 
   const existing = await db.query.staffUsers.findFirst();
-  if (existing) {
-    console.log("Database already seeded, skipping.");
-    process.exit(0);
-  }
+  if (existing) return false;
 
   console.log("Seeding database...");
 
@@ -47,8 +48,8 @@ async function seed() {
   ]);
 
   // ตู้จ่าย 2 ตู้ (ตู้ 1: GSH95 ซ้าย / DB7 ขวา, ตู้ 2: GSH91 ซ้าย / DB7 ขวา)
-  const [{ id: pump1 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 1" }).$returningId();
-  const [{ id: pump2 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 2" }).$returningId();
+  const [{ id: pump1 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 1" }).returning({ id: pumps.id });
+  const [{ id: pump2 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 2" }).returning({ id: pumps.id });
 
   const prodRows = await db.query.products.findMany();
   const pid = (code: string) => prodRows.find((p) => p.code === code)!.id;
@@ -99,8 +100,6 @@ async function seed() {
     { key: "tax_invoice_next_no", value: "1" },
   ]);
 
-  console.log("Done.");
-  process.exit(0);
+  console.log("Seed done.");
+  return true;
 }
-
-seed();

@@ -6,19 +6,21 @@ import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
 
 // https://vite.dev/config/
+// โครงโปรเจกต์: โค้ดแอปอยู่ใต้ web/ (UI + API + DB) ส่วน desktop/ เป็น Electron shell
 export default defineConfig({
+  root: "web",
   plugins: [
-    devServer({ entry: "api/boot.ts", exclude: [/^\/(?!api\/).*$/] }),
+    devServer({ entry: "web/api/boot.ts", exclude: [/^\/(?!api\/).*$/] }),
     inspectAttr(), react()],
   server: {
     port: 3000,
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@contracts": path.resolve(__dirname, "./contracts"),
-      "@db": path.resolve(__dirname, "./db"),
-      "db": path.resolve(__dirname, "./db"),
+      "@": path.resolve(__dirname, "./web/src"),
+      "@contracts": path.resolve(__dirname, "./web/contracts"),
+      "@db": path.resolve(__dirname, "./web/db"),
+      "db": path.resolve(__dirname, "./web/db"),
     },
   },
   envDir: path.resolve(__dirname),

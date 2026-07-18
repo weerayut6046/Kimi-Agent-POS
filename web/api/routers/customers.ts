@@ -44,7 +44,7 @@ export const customersRouter = createRouter({
       const dup = await db.query.customers.findFirst({ where: eq(customers.taxId, input.taxId) });
       if (dup) throw new Error(`มีลูกค้าที่ใช้เลขผู้เสียภาษีนี้แล้ว (${dup.name})`);
     }
-    const [{ id }] = await db.insert(customers).values(input).$returningId();
+    const [{ id }] = await db.insert(customers).values(input).returning({ id: customers.id });
     return db.query.customers.findFirst({ where: eq(customers.id, id) });
   }),
 

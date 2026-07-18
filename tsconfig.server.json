@@ -15,10 +15,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@contracts/*": ["./contracts/*"],
-      "@db/*": ["./db/*"]
+      "@/*": ["./web/src/*"],
+      "@contracts/*": ["./web/contracts/*"],
+      "@db/*": ["./web/db/*"]
     }
   },
-  "include": ["api", "contracts", "db"]
+  "include": ["web/api", "web/contracts", "web/db", "desktop/electron"]
 }

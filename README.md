@@ -1,8 +1,21 @@
 # POS ปั๊มน้ำมัน
 
-## รันด้วย Docker (แนะนำ)
+## Desktop App (Windows .exe)
 
-ต้องมี Docker / Docker Compose เท่านั้น ไม่ต้องลง Node.js หรือ MySQL เอง:
+สร้างไฟล์ติดตั้ง/ไฟล์พกพา:
+
+```bash
+npm install
+npm run dist:exe   # ออก installer + portable .exe ในโฟลเดอร์ release/
+```
+
+- ครั้งแรกที่เปิดแอป ระบบจะ migrate + seed ข้อมูลตัวอย่างให้อัตโนมัติ
+- ข้อมูล SQLite เก็บที่ `%APPDATA%/pos-app/pos.db` (สำรองข้อมูล = copy ไฟล์นี้)
+- พัฒนาแบบ desktop: เทอร์มินัล 1 `npm run dev` → เทอร์มินัล 2 `npm run dev:desktop`
+
+## รันด้วย Docker (Web)
+
+ต้องมี Docker / Docker Compose เท่านั้น ไม่ต้องลง Node.js เอง:
 
 ```bash
 docker compose up --build
@@ -11,26 +24,45 @@ docker compose up --build
 - เปิดใช้งานที่ http://localhost:3000
 - ครั้งแรก container `app` จะ apply migrations (`drizzle-kit migrate`) และ seed ข้อมูลตัวอย่างให้อัตโนมัติ
 - บัญชีเริ่มต้นจาก seed: `admin` / PIN `1234` (เจ้าของปั๊ม), `manager` / PIN `2222` (ผู้จัดการสาขา), `somchai` / PIN `0000` (พนักงาน)
-- ปรับค่าได้ผ่าน `.env` (ดูตัวอย่างใน `.env.example`) เช่น `APP_SECRET`, `DB_ROOT_PASSWORD`, `APP_PORT`
-- ข้อมูล MySQL เก็บใน volume `db_data` — ลบทิ้งทั้งหมดด้วย `docker compose down -v`
+- ปรับค่าได้ผ่าน `.env` (ดูตัวอย่างใน `.env.example`) เช่น `APP_SECRET`, `APP_PORT`
+- ฐานข้อมูลเป็น SQLite ไฟล์เดียว เก็บใน volume `db_data` — ลบทิ้งทั้งหมดด้วย `docker compose down -v`
 
 ## Development (ไม่ใช้ Docker)
 
 ```bash
 npm install
-npm run dev          # dev server ที่ http://localhost:3000
+npm run dev          # dev server ที่ http://localhost:3000 (ฐานข้อมูล ./data/pos.db)
 npm run db:migrate   # apply migrations ไปยัง DATABASE_URL
+```
+
+## โครงสร้างโปรเจกต์
+
+```
+├── web/               # Web app ทั้งก้อน (ใช้ทั้งแบบ browser และฝังใน desktop)
+│   ├── src/           # React frontend
+│   ├── api/           # Hono + tRPC backend
+│   ├── db/            # schema, migrations, seed (Drizzle + SQLite)
+│   ├── contracts/     # types/errors ที่แชร์กัน
+│   ├── index.html
+│   ├── drizzle.config.ts
+│   └── Dockerfile, docker-entrypoint.sh
+├── desktop/           # Desktop App (Electron)
+│   ├── electron/      # main process
+│   ├── scripts/       # pack-exe.mjs (สลับ native binary + pack)
+│   └── electron-builder.yml
+├── dist/              # build outputs (ไม่ commit)
+└── release/           # .exe outputs (ไม่ commit)
 ```
 
 ## เปลี่ยนโครงสร้างฐานข้อมูล (schema)
 
-ใช้ migration files ใน `db/migrations/` (commit เข้า git ด้วย) ไม่ใช้ `db:push` อีกต่อไป เพื่อไม่ให้ข้อมูลเดิมเสียหาย:
+ใช้ migration files ใน `web/db/migrations/` (commit เข้า git ด้วย) ไม่ใช้ `db:push` อีกต่อไป เพื่อไม่ให้ข้อมูลเดิมเสียหาย:
 
 ```bash
-# 1. แก้ db/schema.ts แล้วสร้าง migration ใหม่
-npm run db:generate   # สร้างไฟล์ SQL ใน db/migrations/
+# 1. แก้ web/db/schema.ts แล้วสร้าง migration ใหม่
+npm run db:generate   # สร้างไฟล์ SQL ใน web/db/migrations/
 npm run db:migrate    # apply เข้า DB ที่กำลังใช้งาน
-# 2. commit ทั้ง schema.ts และ db/migrations/ — container จะ migrate เองตอน start
+# 2. commit ทั้ง web/db/schema.ts และ web/db/migrations/ — container/แอปจะ migrate เองตอน start
 ```
 
 ---

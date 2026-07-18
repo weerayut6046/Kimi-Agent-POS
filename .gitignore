@@ -35,6 +35,12 @@ dist-ssr
 # Build outputs
 dist/
 build/
+release/
+release2/
+# ฐานข้อมูล SQLite ตอน dev
+data/
+# cache prebuilt native binaries (pack-exe.mjs)
+.cache/
 # Test coverage
 coverage/
 .nyc_output/

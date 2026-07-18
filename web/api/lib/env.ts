@@ -12,5 +12,6 @@ export const env = {
   appId: required("APP_ID"),
   appSecret: required("APP_SECRET"),
   isProduction: process.env.NODE_ENV === "production",
-  databaseUrl: required("DATABASE_URL"),
+  // path ไฟล์ SQLite (Electron ตั้งเป็น userData/pos.db, Docker ตั้งเป็น /data/pos.db)
+  databaseUrl: process.env.DATABASE_URL || "./data/pos.db",
 };

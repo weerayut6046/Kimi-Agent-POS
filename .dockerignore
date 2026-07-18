@@ -1,5 +1,9 @@
 node_modules
 dist
+release
+release2
+data
+.cache
 .git
 .env
 *.swp
