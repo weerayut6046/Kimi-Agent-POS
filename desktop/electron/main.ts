@@ -48,6 +48,8 @@ function isSqliteFile(full: string) {
 
 /** IPC ให้ renderer (ผ่าน preload → window.posDesktop) */
 function registerIpc() {
+  ipcMain.handle("app:version", () => app.getVersion());
+
   ipcMain.handle("dbconfig:get", () => ({
     dbPath: readConfig().dbPath ?? defaultDbPath(),
     defaultPath: defaultDbPath(),
@@ -158,6 +160,12 @@ if (!gotLock) {
         setupEnv();
         await startServer();
         createWindow(`http://127.0.0.1:${PORT}`);
+        // อัปเดตอัตโนมัติเฉพาะติดตั้งผ่าน NSIS — portable .exe อัปเดตตัวเองไม่ได้
+        // (dynamic import เพื่อไม่ให้ dev โหลด electron-updater)
+        if (!process.env.PORTABLE_EXECUTABLE_FILE) {
+          const { setupAutoUpdater } = await import("./updater");
+          setupAutoUpdater(() => BrowserWindow.getAllWindows()[0]);
+        }
       } catch (err) {
         dialog.showErrorBox(
           "เริ่มระบบไม่สำเร็จ",

@@ -9,6 +9,8 @@ declare global {
       getDbConfig(): Promise<{ dbPath: string; defaultPath: string }>;
       /** เลือก/สร้างตำแหน่งฐานข้อมูลใหม่ — สำเร็จแล้วแอปรีสตาร์ทเอง (promise อาจไม่ resolve เพราะแอปออกก่อน) */
       chooseDbPath(mode: "open" | "save"): Promise<{ changed: boolean; error?: string } | undefined>;
+      /** เลขเวอร์ชันของแอป desktop — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
+      getAppVersion(): Promise<string>;
     };
   }
 }

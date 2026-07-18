@@ -19,3 +19,7 @@ nsis:
   artifactName: POS-Pump-Setup-${version}.${ext}
 portable:
   artifactName: POS-Pump-Portable-${version}.${ext}
+publish:
+  provider: github
+  owner: weerayut6046
+  repo: Kimi-Agent-POS

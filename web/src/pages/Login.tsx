@@ -13,6 +13,7 @@ export default function Login() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [dbPath, setDbPath] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const { login } = useStaff();
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export default function Login() {
 
   useEffect(() => {
     window.posDesktop?.getDbConfig().then((c) => setDbPath(c.dbPath)).catch(() => {});
+    window.posDesktop?.getAppVersion().then(setAppVersion).catch(() => {});
   }, []);
 
   const loginMut = trpc.auth.login.useMutation({
@@ -103,6 +105,7 @@ export default function Login() {
                 </Button>
               </div>
               {restarting && <p className="text-xs text-primary font-medium">เปลี่ยนตำแหน่งแล้ว กำลังรีสตาร์ทแอป...</p>}
+              {appVersion && <p className="text-xs text-muted-foreground/70 text-right">เวอร์ชัน {appVersion}</p>}
             </div>
           )}
         </CardContent>

@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld("posDesktop", {
   getDbConfig: () => ipcRenderer.invoke("dbconfig:get"),
   /** เลือก/สร้างตำแหน่งฐานข้อมูลใหม่ (mode: "open" | "save") — สำเร็จแล้วแอปจะรีสตาร์ทเอง */
   chooseDbPath: (mode) => ipcRenderer.invoke("dbconfig:choose", mode),
+  /** เลขเวอร์ชันของแอป (app.getVersion()) — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
+  getAppVersion: () => ipcRenderer.invoke("app:version"),
 });
