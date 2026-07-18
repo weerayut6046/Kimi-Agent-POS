@@ -7,6 +7,7 @@ import Shifts from "@/pages/Shifts";
 import Stock from "@/pages/Stock";
 import Members from "@/pages/Members";
 import Sales from "@/pages/Sales";
+import TaxInvoices from "@/pages/TaxInvoices";
 import Settings from "@/pages/Settings";
 import { useStaff } from "@/hooks/useStaff";
 
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/stock" element={<Stock />} />
         <Route path="/members" element={<Members />} />
         <Route path="/sales" element={<Sales />} />
+        <Route path="/tax-invoices" element={<TaxInvoices />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

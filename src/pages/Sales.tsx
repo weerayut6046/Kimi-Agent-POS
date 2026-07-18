@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Eye, Ban, Printer, Receipt } from "lucide-react";
+import { Eye, Ban, Printer, Receipt, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -12,7 +11,10 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { fmtMoney, fmtNum, fmtDateTime, paymentLabel } from "@/lib/format";
+import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
+import { ReceiptDoc } from "@/components/ReceiptDoc";
+import { printElement } from "@/lib/printDoc";
+import { fmtMoney, fmtDateTime, paymentLabel } from "@/lib/format";
 
 export default function Sales() {
   const utils = trpc.useUtils();
@@ -21,6 +23,7 @@ export default function Sales() {
   const { data: salesList, isLoading } = trpc.pos.salesHistory.useQuery({ limit: 100 });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
   const { data: detail } = trpc.pos.saleDetail.useQuery({ id: detailId! }, { enabled: detailId != null });
@@ -93,47 +96,29 @@ export default function Sales() {
           </DialogHeader>
           {detail && (
             <div className="text-sm space-y-2">
-              <div className="text-center text-xs text-muted-foreground">
-                <div className="font-heading font-bold text-sm text-foreground">{settingMap?.shop_name}</div>
-                <div>เลขประจำตัวผู้เสียภาษี {settingMap?.tax_id}</div>
-                <div>{fmtDateTime(detail.sale.createdAt)} · {detail.sale.staffName}</div>
-                {detail.memberName && <div>สมาชิก: {detail.memberName}</div>}
-              </div>
-              <Separator />
-              <div className="space-y-1">
-                {detail.items.map((it) => (
-                  <div key={it.id} className="flex justify-between gap-2">
-                    <span className="flex-1">
-                      {it.name}
-                      <span className="block text-xs text-muted-foreground">
-                        {fmtNum(it.qty)} {it.unit} x ฿{fmtMoney(it.unitPrice)}
-                      </span>
-                    </span>
-                    <span>฿{fmtMoney(it.amount)}</span>
-                  </div>
-                ))}
-              </div>
-              <Separator />
-              <div className="space-y-1">
-                <div className="flex justify-between"><span>รวม</span><span>฿{fmtMoney(detail.sale.subtotal)}</span></div>
-                {detail.sale.discount > 0 && (
-                  <div className="flex justify-between"><span>ส่วนลด</span><span>-฿{fmtMoney(detail.sale.discount)}</span></div>
-                )}
-                <div className="flex justify-between font-heading font-bold text-base">
-                  <span>รวมสุทธิ</span><span>฿{fmtMoney(detail.sale.total)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>VAT {detail.sale.vatRate}% (รวมใน)</span><span>฿{fmtMoney(detail.sale.vatAmount)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{paymentLabel[detail.sale.paymentMethod]}</span>
-                  <span>รับ ฿{fmtMoney(detail.sale.received)} · ทอน ฿{fmtMoney(detail.sale.changeAmt)}</span>
-                </div>
+              <div id="receipt-print">
+                <ReceiptDoc
+                  sale={{ ...detail.sale, memberName: detail.memberName }}
+                  items={detail.items}
+                  settingMap={settingMap}
+                  staffName={detail.sale.staffName}
+                />
               </div>
               <DialogFooter className="gap-2 pt-2">
-                <Button variant="outline" onClick={() => window.print()}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const el = document.getElementById("receipt-print");
+                    if (el) printElement(el, "size: auto; margin: 8mm");
+                  }}
+                >
                   <Printer className="w-4 h-4 mr-2" /> พิมพ์
                 </Button>
+                {detail.sale.status === "completed" && (
+                  <Button variant="outline" onClick={() => setTaxSaleId(detail.sale.id)}>
+                    <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
+                  </Button>
+                )}
                 {detail.sale.status === "completed" && isAdmin && (
                   <Button
                     variant="destructive"
@@ -152,6 +137,9 @@ export default function Sales() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ใบกำกับภาษีเต็มรูป */}
+      <TaxInvoiceDialog saleId={taxSaleId} onClose={() => setTaxSaleId(null)} />
     </div>
   );
 }

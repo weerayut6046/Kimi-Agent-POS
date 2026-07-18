@@ -12,6 +12,23 @@ export const fmtTime = (d: Date | string) =>
 
 export const fmtDateTime = (d: Date | string) => `${fmtDate(d)} ${fmtTime(d)}`;
 
+/** วันที่แบบเอกสารภาษีไทย: 17/07/2569 (พ.ศ.) */
+export const fmtDateTH = (d: Date | string) => {
+  const dt = new Date(d);
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${dt.getFullYear() + 543}`;
+};
+
+/** วันเวลาแบบเอกสารภาษีไทย: 17/07/2569 07:39:27 */
+export const fmtDateTimeTH = (d: Date | string) => {
+  const dt = new Date(d);
+  const hh = String(dt.getHours()).padStart(2, "0");
+  const mi = String(dt.getMinutes()).padStart(2, "0");
+  const ss = String(dt.getSeconds()).padStart(2, "0");
+  return `${fmtDateTH(dt)} ${hh}:${mi}:${ss}`;
+};
+
 export const paymentLabel: Record<string, string> = {
   cash: "เงินสด",
   qr: "QR พร้อมเพย์",

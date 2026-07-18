@@ -86,6 +86,7 @@ async function seed() {
   await db.insert(settings).values([
     { key: "shop_name", value: "ปั๊มน้ำมันกลางใหญ่บริการ" },
     { key: "shop_branch", value: "สาขาหลัก" },
+    { key: "shop_address", value: "123 ถ.ตัวอย่าง ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000" },
     { key: "tax_id", value: "0105566001123" },
     { key: "shop_phone", value: "02-123-4567" },
     { key: "vat_rate", value: "7" },

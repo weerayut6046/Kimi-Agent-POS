@@ -3,6 +3,7 @@ import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Tra
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
@@ -116,6 +117,10 @@ export default function Settings() {
           <div className="space-y-1.5">
             <Label>สาขา</Label>
             <Input value={form.shop_branch ?? ""} onChange={(e) => set("shop_branch", e.target.value)} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>ที่อยู่</Label>
+            <Textarea rows={2} value={form.shop_address ?? ""} onChange={(e) => set("shop_address", e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label>เลขประจำตัวผู้เสียภาษี</Label>

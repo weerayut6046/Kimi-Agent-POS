@@ -193,6 +193,21 @@ export const tankRefills = mysqlTable("tank_refills", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ============ ใบกำกับภาษีเต็มรูป ============
+export const taxInvoices = mysqlTable("tax_invoices", {
+  id: serial("id").primaryKey(),
+  taxInvoiceNo: varchar("tax_invoice_no", { length: 32 }).notNull().unique(),
+  saleId: bigint("sale_id", { mode: "number", unsigned: true }).notNull().unique(), // 1 บิล = 1 ใบกำกับเต็มรูป
+  customerName: varchar("customer_name", { length: 255 }).notNull(),
+  customerTaxId: varchar("customer_tax_id", { length: 20 }).notNull().default(""),
+  customerBranch: varchar("customer_branch", { length: 64 }).notNull().default(""), // "สำนักงานใหญ่" หรือเลขสาขา
+  customerAddress: text("customer_address"),
+  customerPhone: varchar("customer_phone", { length: 20 }).notNull().default(""),
+  vehiclePlate: varchar("vehicle_plate", { length: 32 }).notNull().default(""), // ไม่บังคับ (ตามแบบปั๊ม)
+  issuedBy: varchar("issued_by", { length: 128 }).notNull().default(""), // พนักงานผู้ออก
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ============ ตั้งค่าร้าน ============
 export const settings = mysqlTable("settings", {
   key: varchar("key", { length: 64 }).primaryKey(),
@@ -214,3 +229,4 @@ export type Reward = typeof rewards.$inferSelect;
 export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
 export type FuelTank = typeof fuelTanks.$inferSelect;
 export type TankRefill = typeof tankRefills.$inferSelect;
+export type TaxInvoice = typeof taxInvoices.$inferSelect;

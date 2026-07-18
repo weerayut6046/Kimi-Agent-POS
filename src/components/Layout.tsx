@@ -6,6 +6,7 @@ import {
   Fuel,
   Users,
   Receipt,
+  FileText,
   Settings,
   LogOut,
   Droplet,
@@ -21,6 +22,7 @@ const menus = [
   { to: "/stock", label: "สต๊อก/ถัง", icon: Fuel },
   { to: "/members", label: "สมาชิก", icon: Users },
   { to: "/sales", label: "ประวัติขาย", icon: Receipt },
+  { to: "/tax-invoices", label: "ใบกำกับภาษี", icon: FileText },
   { to: "/settings", label: "ตั้งค่า", icon: Settings },
 ];
 

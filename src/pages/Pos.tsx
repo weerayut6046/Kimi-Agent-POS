@@ -9,6 +9,7 @@ import {
   Printer,
   BadgePercent,
   Star,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,13 +26,17 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { fmtMoney, fmtNum, fmtDateTime, paymentLabel } from "@/lib/format";
+import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
+import { ReceiptDoc } from "@/components/ReceiptDoc";
+import { printElement } from "@/lib/printDoc";
+import { fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
 import type { Product, Member } from "@db/schema";
 
 type CartLine = { product: Product; qty: number };
 
 type ReceiptData = {
   sale: {
+    id: number;
     receiptNo: string;
     createdAt: Date;
     subtotal: number;
@@ -68,6 +73,7 @@ export default function Pos() {
   const [fuelMode, setFuelMode] = useState<"liters" | "baht">("baht");
   const [fuelValue, setFuelValue] = useState("");
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
   const pointValue = Number(settingMap?.point_redeem_value ?? "1");
@@ -403,70 +409,35 @@ export default function Pos() {
       <Dialog open={!!receipt} onOpenChange={(o) => !o && setReceipt(null)}>
         <DialogContent className="max-w-sm">
           {receipt && (
-            <div id="receipt-print" className="text-sm font-mono">
-              <div className="text-center space-y-0.5">
-                <div className="font-heading font-bold text-base">{settingMap?.shop_name}</div>
-                <div className="text-xs">{settingMap?.shop_branch} โทร {settingMap?.shop_phone}</div>
-                <div className="text-xs">เลขประจำตัวผู้เสียภาษี {settingMap?.tax_id}</div>
-              </div>
-              <Separator className="my-2" />
-              <div className="text-xs space-y-0.5">
-                <div>ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ</div>
-                <div>เลขที่: {receipt.sale.receiptNo}</div>
-                <div>วันที่: {fmtDateTime(receipt.sale.createdAt)}</div>
-                <div>พนักงาน: {staff?.name}</div>
-                {receipt.sale.memberName && <div>สมาชิก: {receipt.sale.memberName}</div>}
-              </div>
-              <Separator className="my-2" />
-              <div className="space-y-1">
-                {receipt.items.map((it, i) => (
-                  <div key={i} className="flex justify-between gap-2">
-                    <span className="flex-1">
-                      {it.name}
-                      <span className="text-xs text-muted-foreground block">
-                        {fmtNum(it.qty)} {it.unit} x ฿{fmtMoney(it.unitPrice)}
-                      </span>
-                    </span>
-                    <span>฿{fmtMoney(it.amount)}</span>
-                  </div>
-                ))}
-              </div>
-              <Separator className="my-2" />
-              <div className="space-y-1">
-                <div className="flex justify-between"><span>รวม</span><span>฿{fmtMoney(receipt.sale.subtotal)}</span></div>
-                {receipt.sale.discount > 0 && (
-                  <div className="flex justify-between"><span>ส่วนลด</span><span>-฿{fmtMoney(receipt.sale.discount)}</span></div>
-                )}
-                <div className="flex justify-between font-bold text-base">
-                  <span>รวมสุทธิ</span><span>฿{fmtMoney(receipt.sale.total)}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span>ภาษีมูลค่าเพิ่ม {receipt.sale.vatRate}% (รวมใน)</span>
-                  <span>฿{fmtMoney(receipt.sale.vatAmount)}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span>{paymentLabel[receipt.sale.paymentMethod]}</span>
-                  <span>รับ ฿{fmtMoney(receipt.sale.received)} ทอน ฿{fmtMoney(receipt.sale.changeAmt)}</span>
-                </div>
-                {(receipt.sale.pointsEarned > 0 || receipt.sale.pointsRedeemed > 0) && (
-                  <div className="text-xs">
-                    {receipt.sale.pointsEarned > 0 && <div>แต้มที่ได้รับ: +{receipt.sale.pointsEarned}</div>}
-                    {receipt.sale.pointsRedeemed > 0 && <div>แต้มที่ใช้: -{receipt.sale.pointsRedeemed}</div>}
-                  </div>
-                )}
-              </div>
-              <Separator className="my-2" />
-              <div className="text-center text-xs">ขอบคุณที่ใช้บริการ</div>
+            <div id="receipt-print">
+              <ReceiptDoc
+                sale={receipt.sale}
+                items={receipt.items}
+                settingMap={settingMap}
+                staffName={staff?.name}
+              />
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => window.print()}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const el = document.getElementById("receipt-print");
+                if (el) printElement(el, "size: auto; margin: 8mm");
+              }}
+            >
               <Printer className="w-4 h-4 mr-2" /> พิมพ์
+            </Button>
+            <Button variant="outline" onClick={() => receipt && setTaxSaleId(receipt.sale.id)}>
+              <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
             </Button>
             <Button onClick={() => setReceipt(null)}>ปิด</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ใบกำกับภาษีเต็มรูป */}
+      <TaxInvoiceDialog saleId={taxSaleId} onClose={() => setTaxSaleId(null)} />
     </div>
   );
 }
