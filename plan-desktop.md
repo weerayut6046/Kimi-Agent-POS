@@ -76,7 +76,7 @@
 - [x] **D6 — ทดสอบ .exe บนเครื่องจริง (ครั้งแรก)**: เปิด `win-unpacked/POS ปั๊มน้ำมัน.exe` แล้ว migrate+seed อัตโนมัติ, server ตอบที่ 127.0.0.1:3210, ล็อกอินผ่าน ✅ — เหลือทดสอบติดตั้งผ่าน NSIS installer บนเครื่องปั๊มจริง, พิมพ์ใบเสร็จ, เปิดข้ามวัน
 - [x] **D8 — ตั้งค่าตำแหน่งฐานข้อมูล + สำรอง/กู้คืน**: เลือกวาง pos.db ที่ไหนก็ได้ (config.json ใน userData, เปลี่ยนจากหน้า Login หรือ Settings แล้วแอปรีสตาร์ท), สำรองออนไลน์ด้วย better-sqlite3 backup, กู้คืนจากไฟล์ในเครื่องหรืออัปโหลด .db, ดาวน์โหลดไฟล์สำรองผ่าน browser — ทำงานได้ทั้ง desktop และ web (router `dbadmin`, admin เท่านั้น)
 - [x] **D9 — Auto-update (electron-updater + GitHub Releases)**: แอปที่ติดตั้งผ่าน NSIS เช็กอัปเดตจาก GitHub Releases ตอนเปิดแอป, ถามก่อนดาวน์โหลด/รีสตาร์ทด้วย native dialog, log ที่ `%APPDATA%/pos-app/logs/update.log` — portable .exe อัปเดตตัวเองไม่ได้ (ต้องโหลดไฟล์ใหม่เอง); เวอร์ชัน ≤1.0.0 ที่แจกไปแล้วไม่มี updater ต้องติดตั้งเวอร์ชันใหม่ด้วยมือครั้งเดียว
-- [ ] **D7 — ต่อยอด (อนาคต)**: เครื่องพิมพ์ความร้อน ESC/POS, โหมด offline multi-station ผ่าน LAN (ชี้ client ไปที่ server เครื่องหลัก)
+- [ ] **D7 — ต่อยอด (อนาคต)**: โหมด offline multi-station ผ่าน LAN (ชี้ client ไปที่ server เครื่องหลัก) — ~~เครื่องพิมพ์ความร้อน ESC/POS~~ ทำแล้ว (Phase 10: network/USB share, ตั้งค่าในหน้า Settings)
 
 ### การปล่อยเวอร์ชันใหม่ (auto-update)
 1. เปลี่ยน `version` ใน `package.json` (เช่น 1.0.1) แล้ว `npm run dist:exe -- -c.directories.output=release3`

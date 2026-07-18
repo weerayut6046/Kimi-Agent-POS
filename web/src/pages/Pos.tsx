@@ -26,6 +26,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { useThermalPrint } from "@/hooks/useThermalPrint";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printElement } from "@/lib/printDoc";
@@ -77,6 +78,9 @@ export default function Pos() {
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
+  const { printThermal, printing, printError } = useThermalPrint();
+  const thermalEnabled = settingMap?.printer_enabled === "1";
+
   const pointValue = Number(settingMap?.point_redeem_value ?? "1");
   const activeProducts = useMemo(
     () => (products ?? []).filter((p) => p.active && p.category === tab),
@@ -125,6 +129,10 @@ export default function Pos() {
       setPointsToRedeem(0);
       setReceived("");
       setErr("");
+      // พิมพ์ใบเสร็จเข้าเครื่องพิมพ์ความร้อนอัตโนมัติ — fire-and-forget พิมพ์ไม่สำเร็จไม่กระทบบิล
+      if (settingMap?.printer_enabled === "1" && settingMap?.printer_auto_print !== "0") {
+        printThermal(r.sale.id);
+      }
       utils.pos.dashboard.invalidate();
       utils.pos.salesHistory.invalidate();
       utils.catalog.listProducts.invalidate();
@@ -420,6 +428,7 @@ export default function Pos() {
               />
             </div>
           )}
+          {printError && <p className="text-sm text-destructive mt-2">{printError}</p>}
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
@@ -430,6 +439,11 @@ export default function Pos() {
             >
               <Printer className="w-4 h-4 mr-2" /> พิมพ์
             </Button>
+            {thermalEnabled && (
+              <Button variant="outline" disabled={printing} onClick={() => receipt && printThermal(receipt.sale.id)}>
+                <Printer className="w-4 h-4 mr-2" /> {printing ? "กำลังพิมพ์..." : "พิมพ์ความร้อน"}
+              </Button>
+            )}
             <Button variant="outline" onClick={() => receipt && setTaxSaleId(receipt.sale.id)}>
               <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
             </Button>

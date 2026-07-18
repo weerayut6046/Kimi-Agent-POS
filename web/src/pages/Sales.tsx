@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { useThermalPrint } from "@/hooks/useThermalPrint";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printElement } from "@/lib/printDoc";
@@ -65,6 +66,9 @@ export default function Sales() {
   const [editSale, setEditSale] = useState<SaleRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState("");
+
+  const { printThermal, printing, printError } = useThermalPrint();
+  const thermalEnabled = settingMap?.printer_enabled === "1";
 
   const { data: detail } = trpc.pos.saleDetail.useQuery({ id: detailId! }, { enabled: detailId != null });
 
@@ -219,6 +223,7 @@ export default function Sales() {
                   logoUrl={logoUrl}
                 />
               </div>
+              {printError && <p className="text-sm text-destructive">{printError}</p>}
               <DialogFooter className="gap-2 pt-2">
                 <Button
                   variant="outline"
@@ -229,6 +234,11 @@ export default function Sales() {
                 >
                   <Printer className="w-4 h-4 mr-2" /> พิมพ์
                 </Button>
+                {thermalEnabled && (
+                  <Button variant="outline" disabled={printing} onClick={() => printThermal(detail.sale.id)}>
+                    <Printer className="w-4 h-4 mr-2" /> {printing ? "กำลังพิมพ์..." : "พิมพ์ความร้อน"}
+                  </Button>
+                )}
                 {detail.sale.status === "completed" && (
                   <Button variant="outline" onClick={() => setTaxSaleId(detail.sale.id)}>
                     <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
