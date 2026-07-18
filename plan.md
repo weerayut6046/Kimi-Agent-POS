@@ -98,7 +98,7 @@
 - **ผลลัพธ์:** `docker compose up --build` แล้วใช้งานได้ที่ http://localhost:3000
 
 ### Phase 10 — เสริมคุณภาพและต่อยอด (กำลังทำ / อนาคต) 🔄
-- [ ] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม
+- [x] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม — integration test ผ่าน tRPC caller ลง SQLite ชั่วคราว (migrate+seed จริง): `web/api/test/testDb.ts`, `pos.sale.test.ts`, `pos.shift.test.ts`, `membership.test.ts`
 - [x] ใบเสร็จความร้อน (ESC/POS) หรือพิมพ์อัตโนมัติหลังชำระเงิน — router `printer` + ตั้งค่าในหน้า Settings, รองรับ network (TCP:9100) และ USB ผ่าน Windows share
 - [ ] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร
 - [ ] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์
