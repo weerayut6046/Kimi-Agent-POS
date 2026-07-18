@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
-import { adminQuery } from "../guard";
+import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import {
@@ -14,7 +14,10 @@ import {
   members,
   pointTransactions,
   fuelTanks,
+  taxInvoices,
   settings,
+  type Sale,
+  type SaleItem,
 } from "@db/schema";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -22,6 +25,39 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 async function getSettingMap(db: ReturnType<typeof getDb>) {
   const rows = await db.select().from(settings);
   return Object.fromEntries(rows.map((r) => [r.key, r.value])) as Record<string, string>;
+}
+
+type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * คืนสต๊อก (เฉพาะสินค้าที่ไม่ใช่น้ำมัน) และคืนแต้มสมาชิกของบิล
+ * ใช้ตอนยกเลิก/ลบบิล — ต้องเรียกภายใน transaction
+ */
+async function reverseSaleEffects(tx: DbTx, sale: Sale, items: SaleItem[], note: string) {
+  const prodRows = await tx.query.products.findMany();
+  for (const it of items) {
+    const p = prodRows.find((pr) => pr.id === it.productId);
+    if (p && p.category !== "fuel") {
+      await tx
+        .update(products)
+        .set({ stockQty: r2(p.stockQty + it.qty) })
+        .where(eq(products.id, p.id));
+    }
+  }
+  if (sale.memberId) {
+    const m = await tx.query.members.findFirst({ where: eq(members.id, sale.memberId) });
+    if (m) {
+      const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
+      await tx.update(members).set({ points: restored }).where(eq(members.id, m.id));
+      await tx.insert(pointTransactions).values({
+        memberId: m.id,
+        saleId: sale.id,
+        type: "adjust",
+        points: -(sale.pointsEarned - sale.pointsRedeemed),
+        note,
+      });
+    }
+  }
 }
 
 export const posRouter = createRouter({
@@ -336,14 +372,37 @@ export const posRouter = createRouter({
     }),
 
   salesHistory: publicQuery
-    .input(z.object({ limit: z.number().default(100) }).optional())
+    .input(
+      z
+        .object({
+          q: z.string().optional(), // ค้นหา: เลขที่บิล / พนักงาน / ชื่อหรือเบอร์สมาชิก
+          status: z.enum(["completed", "voided"]).optional(),
+          limit: z.number().default(200),
+        })
+        .optional(),
+    )
     .query(async ({ input }) => {
       const db = getDb();
+      const q = input?.q?.trim();
+      const conds = [];
+      if (input?.status) conds.push(eq(sales.status, input.status));
+      if (q) {
+        const pattern = `%${q}%`;
+        const matchedMembers = await db
+          .select({ id: members.id })
+          .from(members)
+          .where(or(like(members.name, pattern), like(members.phone, pattern)));
+        const memberIds = matchedMembers.map((m) => m.id);
+        const qConds = [like(sales.receiptNo, pattern), like(sales.staffName, pattern)];
+        if (memberIds.length > 0) qConds.push(inArray(sales.memberId, memberIds));
+        conds.push(or(...qConds));
+      }
       const rows = await db
         .select()
         .from(sales)
+        .where(conds.length > 0 ? and(...conds) : undefined)
         .orderBy(desc(sales.createdAt))
-        .limit(input?.limit ?? 100);
+        .limit(input?.limit ?? 200);
       const memberRows = await db.query.members.findMany();
       return rows.map((s) => ({
         ...s,
@@ -367,34 +426,88 @@ export const posRouter = createRouter({
     const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
     if (!sale || sale.status === "voided") throw new Error("ยกเลิกบิลไม่ได้");
     const items = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id));
-    const prodRows = await db.query.products.findMany();
     await db.transaction(async (tx) => {
       await tx.update(sales).set({ status: "voided" }).where(eq(sales.id, sale.id));
-      // คืนสต๊อกสินค้าทั่วไป
-      for (const it of items) {
-        const p = prodRows.find((pr) => pr.id === it.productId);
-        if (p && p.category !== "fuel") {
-          await tx
-            .update(products)
-            .set({ stockQty: r2(p.stockQty + it.qty) })
-            .where(eq(products.id, p.id));
+      // คืนสต๊อกและแต้มอัตโนมัติ
+      await reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
+    });
+    return { ok: true };
+  }),
+
+  // แก้ไขหัวบิล (admin/manager) — คำนวณยอดสุทธิ VAT และแต้มใหม่อัตโนมัติ
+  updateSale: managerQuery
+    .input(
+      z.object({
+        id: z.number(),
+        staffName: z.string().min(1).optional(),
+        paymentMethod: z.enum(["cash", "qr", "card"]).optional(),
+        discount: z.number().nonnegative().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
+      if (!sale) throw new Error("ไม่พบบิล");
+      if (sale.status === "voided") throw new Error("แก้ไขบิลที่ยกเลิกแล้วไม่ได้");
+
+      const discount = input.discount ?? sale.discount;
+      if (discount > sale.subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
+      const paymentMethod = input.paymentMethod ?? sale.paymentMethod;
+      const total = r2(sale.subtotal - discount);
+      const vatAmount = r2((total * sale.vatRate) / (100 + sale.vatRate)); // VAT รวมใน
+      const received = paymentMethod === "cash" ? sale.received : total;
+      const changeAmt = paymentMethod === "cash" ? r2(Math.max(0, received - total)) : 0;
+
+      const settingMap = await getSettingMap(db);
+      const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
+      const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(sales)
+          .set({
+            staffName: input.staffName ?? sale.staffName,
+            paymentMethod,
+            discount,
+            total,
+            vatAmount,
+            received,
+            changeAmt,
+            pointsEarned,
+          })
+          .where(eq(sales.id, sale.id));
+        // ปรับแต้มสมาชิกตามยอดใหม่ (เฉพาะส่วนต่าง)
+        if (sale.memberId && pointsEarned !== sale.pointsEarned) {
+          const diff = pointsEarned - sale.pointsEarned;
+          const m = await tx.query.members.findFirst({ where: eq(members.id, sale.memberId!) });
+          if (m) {
+            await tx.update(members).set({ points: m.points + diff }).where(eq(members.id, m.id));
+            await tx.insert(pointTransactions).values({
+              memberId: m.id,
+              saleId: sale.id,
+              type: "adjust",
+              points: diff,
+              note: `ปรับแต้มจากแก้ไขบิล ${sale.receiptNo}`,
+            });
+          }
         }
+      });
+      return db.query.sales.findFirst({ where: eq(sales.id, sale.id) });
+    }),
+
+  // ลบบิลถาวร (admin/manager) — คืนสต๊อกและแต้มก่อนลบ
+  deleteSale: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    const db = getDb();
+    const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
+    if (!sale) throw new Error("ไม่พบบิล");
+    const items = await db.select().from(saleItems).where(eq(saleItems.saleId, sale.id));
+    await db.transaction(async (tx) => {
+      if (sale.status === "completed") {
+        await reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
       }
-      // คืนแต้มสมาชิก
-      if (sale.memberId) {
-        const m = await tx.query.members.findFirst({ where: eq(members.id, sale.memberId) });
-        if (m) {
-          const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
-          await tx.update(members).set({ points: restored }).where(eq(members.id, m.id));
-          await tx.insert(pointTransactions).values({
-            memberId: m.id,
-            saleId: sale.id,
-            type: "adjust",
-            points: -(sale.pointsEarned - sale.pointsRedeemed),
-            note: `ยกเลิกบิล ${sale.receiptNo}`,
-          });
-        }
-      }
+      await tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id));
+      await tx.delete(saleItems).where(eq(saleItems.saleId, sale.id));
+      await tx.delete(sales).where(eq(sales.id, sale.id));
     });
     return { ok: true };
   }),
