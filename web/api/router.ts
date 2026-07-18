@@ -5,8 +5,12 @@ import { posRouter } from "./routers/pos";
 import { membershipRouter } from "./routers/membership";
 import { taxInvoiceRouter } from "./routers/taxInvoice";
 import { customersRouter } from "./routers/customers";
+import { creditRouter } from "./routers/credit";
 import { dbadminRouter } from "./routers/dbadmin";
 import { printerRouter } from "./routers/printer";
+import { expensesRouter } from "./routers/expenses";
+import { reportsRouter } from "./routers/reports";
+import { auditRouter } from "./routers/audit";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -16,8 +20,12 @@ export const appRouter = createRouter({
   membership: membershipRouter,
   taxInvoice: taxInvoiceRouter,
   customers: customersRouter,
+  credit: creditRouter,
   dbadmin: dbadminRouter,
   printer: printerRouter,
+  expenses: expensesRouter,
+  reports: reportsRouter,
+  audit: auditRouter,
 });
 
 export type AppRouter = typeof appRouter;

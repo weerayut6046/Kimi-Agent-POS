@@ -5,6 +5,7 @@ import { createRouter, publicQuery } from "../middleware";
 import { adminQuery, staffIdFromHeader } from "../guard";
 import { getDb } from "../queries/connection";
 import { staffUsers } from "@db/schema";
+import { actorFromReq, logAudit } from "../lib/audit";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -36,12 +37,22 @@ export const authRouter = createRouter({
         role: z.enum(["admin", "manager", "cashier"]).default("cashier"),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const dup = await getDb().query.staffUsers.findFirst({
         where: eq(staffUsers.username, input.username),
       });
       if (dup) throw new Error("ชื่อผู้ใช้นี้ถูกใช้แล้ว");
-      await getDb().insert(staffUsers).values({ ...input, pin: sha256(input.pin) });
+      const [{ id }] = await getDb()
+        .insert(staffUsers)
+        .values({ ...input, pin: sha256(input.pin) })
+        .returning({ id: staffUsers.id });
+      logAudit({
+        action: "create_staff",
+        ...actorFromReq(ctx.req),
+        detail: `เพิ่มพนักงาน ${input.username} (${input.role}) ชื่อ ${input.name}`,
+        refType: "staff",
+        refId: id,
+      });
       return { ok: true };
     }),
 
@@ -56,11 +67,32 @@ export const authRouter = createRouter({
         active: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, pin, ...rest } = input;
+      const db = getDb();
+      const target = await db.query.staffUsers.findFirst({ where: eq(staffUsers.id, id) });
+      if (!target) throw new Error("ไม่พบพนักงาน");
       const patch: Record<string, unknown> = { ...rest };
       if (pin) patch.pin = sha256(pin);
-      await getDb().update(staffUsers).set(patch).where(eq(staffUsers.id, id));
+      await db.update(staffUsers).set(patch).where(eq(staffUsers.id, id));
+      // อธิบายสิ่งที่แก้ — ห้ามใส่ PIN ลง log
+      const changes: string[] = [];
+      if (rest.name !== undefined && rest.name !== target.name) changes.push(`ชื่อ ${target.name}→${rest.name}`);
+      if (rest.username !== undefined && rest.username !== target.username) {
+        changes.push(`username ${target.username}→${rest.username}`);
+      }
+      if (rest.role !== undefined && rest.role !== target.role) changes.push(`role ${target.role}→${rest.role}`);
+      if (rest.active !== undefined && rest.active !== target.active) {
+        changes.push(rest.active ? "เปิดใช้งาน" : "ปิดใช้งาน");
+      }
+      if (pin) changes.push("รีเซ็ต PIN");
+      logAudit({
+        action: "update_staff",
+        ...actorFromReq(ctx.req),
+        detail: `แก้ไขพนักงาน ${target.username}${changes.length > 0 ? `: ${changes.join(", ")}` : ""}`,
+        refType: "staff",
+        refId: id,
+      });
       return { ok: true };
     }),
 
@@ -77,6 +109,13 @@ export const authRouter = createRouter({
         throw new Error("ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน");
       }
       await db.delete(staffUsers).where(eq(staffUsers.id, input.id));
+      logAudit({
+        action: "delete_staff",
+        ...actorFromReq(ctx.req),
+        detail: `ลบพนักงาน ${target.username} (${target.role}) ชื่อ ${target.name}`,
+        refType: "staff",
+        refId: target.id,
+      });
       return { ok: true };
     }),
 });

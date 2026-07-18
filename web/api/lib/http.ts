@@ -55,8 +55,8 @@ export class HttpClient {
       }
 
       return (await response.json()) as T;
-    } catch (error: any) {
-      if (error.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
         throw new Error("Request timeout");
       }
       throw error;
@@ -71,7 +71,7 @@ export class HttpClient {
     return this.request<T>(url, { ...config, method: "GET", params });
   }
 
-  post<T>(url: string, body?: any, config?: RequestConfig) {
-    return this.request<T>(url, { ...config, method: "POST", body });
+  post<T>(url: string, body?: unknown, config?: RequestConfig) {
+    return this.request<T>(url, { ...config, method: "POST", body: body as RequestInit["body"] });
   }
 }

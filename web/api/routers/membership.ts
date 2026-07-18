@@ -4,6 +4,7 @@ import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { members, pointTransactions, rewards, rewardRedemptions } from "@db/schema";
+import { actorFromReq, logAudit } from "../lib/audit";
 
 export const membershipRouter = createRouter({
   listMembers: publicQuery
@@ -64,7 +65,7 @@ export const membershipRouter = createRouter({
 
   adjustPoints: adminQuery
     .input(z.object({ memberId: z.number(), points: z.number().int(), note: z.string().min(1) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const m = await db.query.members.findFirst({ where: eq(members.id, input.memberId) });
       if (!m) throw new Error("ไม่พบสมาชิก");
@@ -78,6 +79,13 @@ export const membershipRouter = createRouter({
           points: input.points,
           note: input.note,
         }).run();
+      });
+      logAudit({
+        action: "adjust_points",
+        ...actorFromReq(ctx.req),
+        detail: `ปรับแต้ม ${m.memberCode} (${m.name}) ${input.points > 0 ? "+" : ""}${input.points} เหตุผล: ${input.note}`,
+        refType: "member",
+        refId: m.id,
       });
       return { ok: true, points: next };
     }),

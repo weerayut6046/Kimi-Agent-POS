@@ -14,7 +14,7 @@ const fmtDateTimeTH = (d: Date | string) => {
   const p2 = (v: number) => String(v).padStart(2, "0");
   return `${p2(dt.getDate())}/${p2(dt.getMonth() + 1)}/${dt.getFullYear() + 543} ${p2(dt.getHours())}:${p2(dt.getMinutes())}:${p2(dt.getSeconds())}`;
 };
-const paymentLabel: Record<string, string> = { cash: "เงินสด", qr: "QR พร้อมเพย์", card: "บัตร" };
+const paymentLabel: Record<string, string> = { cash: "เงินสด", qr: "QR พร้อมเพย์", card: "บัตร", credit: "เครดิต" };
 
 export type ReceiptPrintSale = {
   receiptNo: string;

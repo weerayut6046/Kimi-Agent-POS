@@ -63,7 +63,8 @@
 
 - ไฟล์ฐานข้อมูล: `%APPDATA%/pos-app/pos.db` (+ ไฟล์ WAL ขณะเปิดแอป)
 - `APP_SECRET` สุ่มครั้งแรกและเก็บที่ `%APPDATA%/pos-app/.app-secret`
-- **สำรองข้อมูล** = ปิดแอปแล้ว copy `pos.db` ไปเก็บ; **กู้คืน** = วางทับแล้วเปิดแอป
+- **สำรองข้อมูล** = ปิดแอปแล้ว copy `pos.db` ไปเก็บ; **กู้คืน** = วางทับแล้วเปิดแอป (หรือใช้เมนูสำรอง/กู้ในหน้า Settings — admin)
+- **สำรองอัตโนมัติรายวัน**: เปิดได้ในหน้า Settings (ตั้งเวลา + จำนวนไฟล์ที่เก็บ) ไฟล์ `pos-auto-*` อยู่ในโฟลเดอร์ `backups` ข้างฐานข้อมูล แยกจากไฟล์ที่สำรองเอง (`pos-backup-*`)
 - ล้างข้อมูลเริ่มใหม่ = ลบ `pos.db` แล้วเปิดแอป (จะ migrate + seed ใหม่)
 
 ## 5. แผนงาน (สถานะ)
@@ -76,6 +77,7 @@
 - [x] **D6 — ทดสอบ .exe บนเครื่องจริง (ครั้งแรก)**: เปิด `win-unpacked/POS ปั๊มน้ำมัน.exe` แล้ว migrate+seed อัตโนมัติ, server ตอบที่ 127.0.0.1:3210, ล็อกอินผ่าน ✅ — เหลือทดสอบติดตั้งผ่าน NSIS installer บนเครื่องปั๊มจริง, พิมพ์ใบเสร็จ, เปิดข้ามวัน
 - [x] **D8 — ตั้งค่าตำแหน่งฐานข้อมูล + สำรอง/กู้คืน**: เลือกวาง pos.db ที่ไหนก็ได้ (config.json ใน userData, เปลี่ยนจากหน้า Login หรือ Settings แล้วแอปรีสตาร์ท), สำรองออนไลน์ด้วย better-sqlite3 backup, กู้คืนจากไฟล์ในเครื่องหรืออัปโหลด .db, ดาวน์โหลดไฟล์สำรองผ่าน browser — ทำงานได้ทั้ง desktop และ web (router `dbadmin`, admin เท่านั้น)
 - [x] **D9 — Auto-update (electron-updater + GitHub Releases)**: แอปที่ติดตั้งผ่าน NSIS เช็กอัปเดตจาก GitHub Releases ตอนเปิดแอป, ถามก่อนดาวน์โหลด/รีสตาร์ทด้วย native dialog, log ที่ `%APPDATA%/pos-app/logs/update.log` — portable .exe อัปเดตตัวเองไม่ได้ (ต้องโหลดไฟล์ใหม่เอง); เวอร์ชัน ≤1.0.0 ที่แจกไปแล้วไม่มี updater ต้องติดตั้งเวอร์ชันใหม่ด้วยมือครั้งเดียว
+- [x] **D10 — ฟีเจอร์ปั๊มชุดใหญ่ (ขายเชื่อ / Z-report / ค่าใช้จ่าย / ประวัติราคา / audit / สำรองอัตโนมัติ)**: migration `0001` (ตาราง `debt_payments`, `expenses`, `price_changes`, `audit_logs` + `sales.customer_id` + `customers.credit_limit`), routers ใหม่ `credit`/`expenses`/`reports`/`audit`, หน้า `/debts`, `/reports`, `/expenses`, `/audit` (admin), ปุ่ม "เครดิต" ในหน้าขาย, สำรองอัตโนมัติรายวัน `web/api/lib/autobackup.ts` (ตั้งค่าในหน้า Settings ไฟล์ `pos-auto-*`) — รายละเอียดฟีเจอร์อยู่ใน `plan.md` Phase 10; **ยังไม่ได้ build .exe** — จะไปอยู่ในเวอร์ชันถัดไป (เครื่องปั๊ม migrate ต่อเองตอนเปิดแอป ข้อมูลเดิมไม่หาย)
 - [ ] **D7 — ต่อยอด (อนาคต)**: โหมด offline multi-station ผ่าน LAN (ชี้ client ไปที่ server เครื่องหลัก) — ~~เครื่องพิมพ์ความร้อน ESC/POS~~ ทำแล้ว (Phase 10: network/USB share, ตั้งค่าในหน้า Settings)
 
 ### การปล่อยเวอร์ชันใหม่ (auto-update)

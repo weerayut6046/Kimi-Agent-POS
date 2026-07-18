@@ -3,11 +3,13 @@ import { desc, eq, ne } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
+import { actorFromReq, logAudit } from "../lib/audit";
 import {
   products,
   nozzles,
   fuelTanks,
   tankRefills,
+  priceChanges,
   settings,
 } from "@db/schema";
 
@@ -50,9 +52,32 @@ export const catalogRouter = createRouter({
         active: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...patch } = input;
-      await getDb().update(products).set(patch).where(eq(products.id, id));
+      const db = getDb();
+      const before = await db.query.products.findFirst({ where: eq(products.id, id) });
+      if (!before) throw new Error("ไม่พบสินค้า");
+      const priceChanged = patch.price !== undefined && patch.price !== before.price;
+      await db.update(products).set(patch).where(eq(products.id, id));
+      // บันทึกประวัติ + audit เฉพาะตอนราคาเปลี่ยนจริง
+      if (priceChanged) {
+        const actor = actorFromReq(ctx.req);
+        await db.insert(priceChanges).values({
+          productId: before.id,
+          productCode: patch.code ?? before.code,
+          productName: patch.name ?? before.name,
+          oldPrice: before.price,
+          newPrice: patch.price!,
+          changedBy: actor.actorName,
+        });
+        logAudit({
+          action: "update_price",
+          ...actor,
+          detail: `เปลี่ยนราคา ${before.code} ${before.name}: ${before.price.toFixed(2)} → ${patch.price!.toFixed(2)}`,
+          refType: "product",
+          refId: before.id,
+        });
+      }
       return { ok: true };
     }),
 
@@ -63,6 +88,16 @@ export const catalogRouter = createRouter({
       await getDb().delete(products).where(eq(products.id, input.id));
       return { ok: true };
     }),
+
+  // ประวัติเปลี่ยนราคาของสินค้า (ใหม่ → เก่า)
+  priceHistory: publicQuery.input(z.object({ productId: z.number().int() })).query(async ({ input }) => {
+    return getDb()
+      .select()
+      .from(priceChanges)
+      .where(eq(priceChanges.productId, input.productId))
+      .orderBy(desc(priceChanges.createdAt), desc(priceChanges.id))
+      .limit(50);
+  }),
 
   adjustStock: adminQuery
     .input(

@@ -4,6 +4,8 @@ import { createRouter, publicQuery } from "../middleware";
 import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
+import { outstandingOf } from "../lib/debt";
+import { actorFromReq, logAudit } from "../lib/audit";
 import {
   products,
   nozzles,
@@ -15,6 +17,7 @@ import {
   pointTransactions,
   fuelTanks,
   taxInvoices,
+  customers,
   settings,
   type Sale,
   type SaleItem,
@@ -261,7 +264,8 @@ export const posRouter = createRouter({
           .array(z.object({ productId: z.number(), qty: z.number().positive() }))
           .min(1),
         discount: z.number().nonnegative().default(0),
-        paymentMethod: z.enum(["cash", "qr", "card"]).default("cash"),
+        paymentMethod: z.enum(["cash", "qr", "card", "credit"]).default("cash"),
+        customerId: z.number().int().positive().optional(), // บังคับเมื่อ paymentMethod = credit
         received: z.number().nonnegative().default(0),
         pointsToRedeem: z.number().int().nonnegative().default(0),
       }),
@@ -301,6 +305,22 @@ export const posRouter = createRouter({
       const changeAmt = input.paymentMethod === "cash" ? r2(Math.max(0, input.received - total)) : 0;
       const pointsEarned = member ? Math.floor(total / earnPer) : 0;
 
+      // ขายเชื่อ: บังคับเลือกลูกค้า และเช็กวงเงินเครดิต (creditLimit = 0 คือไม่จำกัด)
+      let customer: typeof customers.$inferSelect | undefined;
+      if (input.paymentMethod === "credit") {
+        if (!input.customerId) throw new Error("ขายเชื่อต้องเลือกลูกค้า");
+        customer = await db.query.customers.findFirst({ where: eq(customers.id, input.customerId) });
+        if (!customer) throw new Error("ไม่พบลูกค้า");
+        if (customer.creditLimit > 0) {
+          const outstanding = await outstandingOf(db, customer.id);
+          if (r2(outstanding + total) > customer.creditLimit) {
+            throw new Error(
+              `เกินวงเงินเครดิตของลูกค้า (ค้างชำระ ${outstanding.toFixed(2)} บาท / วงเงิน ${customer.creditLimit.toFixed(2)} บาท)`,
+            );
+          }
+        }
+      }
+
       const saleId = db.transaction((tx) => {
         const receiptNo = nextDocNo(tx, "receipt");
         const [{ id }] = tx
@@ -310,6 +330,7 @@ export const posRouter = createRouter({
             shiftId: input.shiftId,
             staffName: input.staffName,
             memberId: input.memberId,
+            customerId: input.paymentMethod === "credit" ? input.customerId : null,
             subtotal,
             discount: totalDiscount,
             vatRate,
@@ -370,7 +391,7 @@ export const posRouter = createRouter({
 
       const sale = await db.query.sales.findFirst({ where: eq(sales.id, saleId) });
       const items = await db.select().from(saleItems).where(eq(saleItems.saleId, saleId));
-      return { sale: { ...sale!, memberName: member?.name ?? null }, items };
+      return { sale: { ...sale!, memberName: member?.name ?? null, customerName: customer?.name ?? null }, items };
     }),
 
   salesHistory: publicQuery
@@ -420,10 +441,13 @@ export const posRouter = createRouter({
     const member = sale.memberId
       ? await db.query.members.findFirst({ where: eq(members.id, sale.memberId) })
       : null;
-    return { sale, items, memberName: member?.name ?? null };
+    const customer = sale.customerId
+      ? await db.query.customers.findFirst({ where: eq(customers.id, sale.customerId) })
+      : null;
+    return { sale, items, memberName: member?.name ?? null, customerName: customer?.name ?? null };
   }),
 
-  voidSale: adminQuery.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  voidSale: adminQuery.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const db = getDb();
     const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
     if (!sale || sale.status === "voided") throw new Error("ยกเลิกบิลไม่ได้");
@@ -432,6 +456,13 @@ export const posRouter = createRouter({
       tx.update(sales).set({ status: "voided" }).where(eq(sales.id, sale.id)).run();
       // คืนสต๊อกและแต้มอัตโนมัติ
       reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
+    });
+    logAudit({
+      action: "void_sale",
+      ...actorFromReq(ctx.req),
+      detail: `ยกเลิกบิล ${sale.receiptNo} ยอด ${sale.total.toFixed(2)} บาท`,
+      refType: "sale",
+      refId: sale.id,
     });
     return { ok: true };
   }),
@@ -442,11 +473,11 @@ export const posRouter = createRouter({
       z.object({
         id: z.number(),
         staffName: z.string().min(1).optional(),
-        paymentMethod: z.enum(["cash", "qr", "card"]).optional(),
+        paymentMethod: z.enum(["cash", "qr", "card", "credit"]).optional(),
         discount: z.number().nonnegative().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
       if (!sale) throw new Error("ไม่พบบิล");
@@ -494,11 +525,28 @@ export const posRouter = createRouter({
           }
         }
       });
+      const changes: string[] = [];
+      if (input.staffName !== undefined && input.staffName !== sale.staffName) {
+        changes.push(`พนักงาน ${sale.staffName || "-"}→${input.staffName}`);
+      }
+      if (input.paymentMethod !== undefined && input.paymentMethod !== sale.paymentMethod) {
+        changes.push(`วิธีชำระ ${sale.paymentMethod}→${input.paymentMethod}`);
+      }
+      if (input.discount !== undefined && input.discount !== sale.discount) {
+        changes.push(`ส่วนลด ${sale.discount}→${input.discount}`);
+      }
+      logAudit({
+        action: "update_sale",
+        ...actorFromReq(ctx.req),
+        detail: `แก้บิล ${sale.receiptNo}${changes.length > 0 ? `: ${changes.join(", ")}` : ""}`,
+        refType: "sale",
+        refId: sale.id,
+      });
       return db.query.sales.findFirst({ where: eq(sales.id, sale.id) });
     }),
 
   // ลบบิลถาวร (admin/manager) — คืนสต๊อกและแต้มก่อนลบ
-  deleteSale: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  deleteSale: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const db = getDb();
     const sale = await db.query.sales.findFirst({ where: eq(sales.id, input.id) });
     if (!sale) throw new Error("ไม่พบบิล");
@@ -510,6 +558,13 @@ export const posRouter = createRouter({
       tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id)).run();
       tx.delete(saleItems).where(eq(saleItems.saleId, sale.id)).run();
       tx.delete(sales).where(eq(sales.id, sale.id)).run();
+    });
+    logAudit({
+      action: "delete_sale",
+      ...actorFromReq(ctx.req),
+      detail: `ลบบิล ${sale.receiptNo} ถาวร`,
+      refType: "sale",
+      refId: sale.id,
     });
     return { ok: true };
   }),

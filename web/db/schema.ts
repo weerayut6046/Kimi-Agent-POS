@@ -102,12 +102,13 @@ export const sales = sqliteTable(
     shiftId: integer("shift_id"),
     staffName: text("staff_name").notNull().default(""),
     memberId: integer("member_id"),
+    customerId: integer("customer_id"), // ลูกค้าเครดิต (เฉพาะบิลขายเชื่อ)
     subtotal: real("subtotal").notNull(),
     discount: real("discount").notNull().default(0),
     vatRate: real("vat_rate").notNull().default(7),
     vatAmount: real("vat_amount").notNull().default(0),
     total: real("total").notNull(),
-    paymentMethod: text("payment_method", { enum: ["cash", "qr", "card"] }).notNull().default("cash"),
+    paymentMethod: text("payment_method", { enum: ["cash", "qr", "card", "credit"] }).notNull().default("cash"),
     received: real("received").notNull().default(0),
     changeAmt: real("change_amt").notNull().default(0),
     pointsEarned: integer("points_earned").notNull().default(0),
@@ -212,6 +213,7 @@ export const customers = sqliteTable("customers", {
   address: text("address"),
   phone: text("phone").notNull().default(""),
   vehiclePlate: text("vehicle_plate").notNull().default(""),
+  creditLimit: real("credit_limit").notNull().default(0), // วงเงินเครดิต (0 = ไม่จำกัด)
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .$defaultFn(() => new Date()),
@@ -233,6 +235,84 @@ export const taxInvoices = sqliteTable("tax_invoices", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ============ ขายเชื่อ — การรับชำระหนี้ ============
+export const debtPayments = sqliteTable(
+  "debt_payments",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    paymentNo: text("payment_no").notNull().unique(), // เลขที่ใบรับชำระ เช่น P00001
+    customerId: integer("customer_id").notNull(),
+    amount: real("amount").notNull(),
+    method: text("method", { enum: ["cash", "qr", "transfer"] }).notNull().default("cash"),
+    staffName: text("staff_name").notNull().default(""),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    customerIdx: index("debtpay_customer_idx").on(t.customerId),
+    createdIdx: index("debtpay_created_idx").on(t.createdAt),
+  }),
+);
+
+// ============ ค่าใช้จ่ายหน้าร้าน ============
+export const expenses = sqliteTable(
+  "expenses",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    title: text("title").notNull(),
+    category: text("category").notNull().default(""),
+    amount: real("amount").notNull(),
+    shiftId: integer("shift_id"), // กะที่เปิดอยู่ตอนบันทึก (ถ้ามี)
+    staffName: text("staff_name").notNull().default(""),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({ createdIdx: index("expenses_created_idx").on(t.createdAt) }),
+);
+
+// ============ ประวัติเปลี่ยนราคาสินค้า ============
+export const priceChanges = sqliteTable(
+  "price_changes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    productId: integer("product_id"), // nullable — เก็บประวัติไว้แม้ลบสินค้า
+    productCode: text("product_code").notNull().default(""),
+    productName: text("product_name").notNull().default(""),
+    oldPrice: real("old_price").notNull(),
+    newPrice: real("new_price").notNull(),
+    changedBy: text("changed_by").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({ productIdx: index("pricechg_product_idx").on(t.productId) }),
+);
+
+// ============ Audit log ============
+export const auditLogs = sqliteTable(
+  "audit_logs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    action: text("action").notNull(), // เช่น void_sale, update_price, adjust_points
+    actorId: integer("actor_id"),
+    actorName: text("actor_name").notNull().default(""),
+    detail: text("detail").notNull().default(""),
+    refType: text("ref_type"),
+    refId: integer("ref_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    actionIdx: index("audit_action_idx").on(t.action),
+    createdIdx: index("audit_created_idx").on(t.createdAt),
+  }),
+);
 
 // ============ ตั้งค่าร้าน ============
 export const settings = sqliteTable("settings", {
@@ -257,3 +337,7 @@ export type FuelTank = typeof fuelTanks.$inferSelect;
 export type TankRefill = typeof tankRefills.$inferSelect;
 export type TaxInvoice = typeof taxInvoices.$inferSelect;
 export type Customer = typeof customers.$inferSelect;
+export type DebtPayment = typeof debtPayments.$inferSelect;
+export type Expense = typeof expenses.$inferSelect;
+export type PriceChange = typeof priceChanges.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;

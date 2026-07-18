@@ -3,6 +3,7 @@ import { desc, eq, like, or } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
+import { outstandingOf } from "../lib/debt";
 import { customers } from "@db/schema";
 
 const customerInput = z.object({
@@ -12,6 +13,7 @@ const customerInput = z.object({
   address: z.string().default(""),
   phone: z.string().default(""),
   vehiclePlate: z.string().default(""),
+  creditLimit: z.number().min(0).default(0), // วงเงินเครดิต (0 = ไม่จำกัด)
 });
 
 export const customersRouter = createRouter({
@@ -62,7 +64,10 @@ export const customersRouter = createRouter({
   }),
 
   remove: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    await getDb().delete(customers).where(eq(customers.id, input.id));
+    const db = getDb();
+    const outstanding = await outstandingOf(db, input.id);
+    if (outstanding > 0) throw new Error("ลบไม่ได้ ลูกค้ามียอดค้างชำระ");
+    await db.delete(customers).where(eq(customers.id, input.id));
     return { ok: true };
   }),
 });

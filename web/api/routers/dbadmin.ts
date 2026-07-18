@@ -4,15 +4,11 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
-import { getDb, getDbPath, resetDb } from "../queries/connection";
+import { getDbPath, resetDb } from "../queries/connection";
+import { actorFromReq, logAudit } from "../lib/audit";
+import { backupsDir, makeBackup } from "../lib/backup";
 
 const SQLITE_MAGIC = Buffer.from("SQLite format 3\0", "latin1");
-
-function backupsDir() {
-  const dir = path.join(path.dirname(getDbPath()), "backups");
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
 
 /** รับเฉพาะชื่อไฟล์ .db ธรรมดา (กัน path traversal) */
 function safeBackupPath(fileName: string) {
@@ -32,14 +28,6 @@ function isSqliteFile(full: string) {
   } finally {
     fs.closeSync(fd);
   }
-}
-
-/** สำรองฐานข้อมูลปัจจุบันลงโฟลเดอร์ backups (online-safe ด้วย better-sqlite3 backup API) */
-async function makeBackup(prefix: string) {
-  const name = `${prefix}-${format(new Date(), "yyyyMMdd-HHmmss")}.db`;
-  const dest = path.join(backupsDir(), name);
-  await getDb().$client.backup(dest);
-  return name;
 }
 
 /** แทนที่ไฟล์ฐานข้อมูลปัจจุบันด้วยไฟล์สำรอง (ปิด connection ก่อน แล้วเปิดใหม่อัตโนมัติ) */
@@ -75,15 +63,19 @@ export const dbadminRouter = createRouter({
 
   // ---------- สำรองตอนนี้ ----------
   backup: adminQuery.mutation(async () => {
-    const name = await makeBackup("pos-backup");
+    // makeBackup คืน path เต็ม — หน้าเว็บใช้แค่ชื่อไฟล์เหมือนเดิม
+    const name = path.basename(await makeBackup("pos-backup"));
     return { ok: true, name };
   }),
 
   // ---------- กู้คืนจากไฟล์สำรองในเครื่อง ----------
   restore: adminQuery
     .input(z.object({ fileName: z.string().min(1) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // อ่าน actor ก่อน restore — restore จะสลับไปใช้ไฟล์ฐานข้อมูลใหม่
+      const actor = actorFromReq(ctx.req);
       await doRestore(safeBackupPath(input.fileName));
+      logAudit({ action: "restore_db", ...actor, detail: `กู้คืนฐานข้อมูลจากไฟล์สำรอง ${input.fileName}` });
       return { ok: true };
     }),
 
@@ -104,15 +96,17 @@ export const dbadminRouter = createRouter({
   // ---------- อัปโหลดไฟล์ .db จากเครื่องอื่นมากู้คืน ----------
   restoreUpload: adminQuery
     .input(z.object({ fileName: z.string().min(1), contentBase64: z.string().min(1) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const buf = Buffer.from(input.contentBase64, "base64");
       if (buf.length < 100 || !buf.subarray(0, 16).equals(SQLITE_MAGIC)) {
         throw new Error("ไฟล์ที่อัปโหลดไม่ใช่ฐานข้อมูล SQLite");
       }
+      const actor = actorFromReq(ctx.req); // อ่านก่อน restore — restore จะสลับไฟล์ฐานข้อมูล
       const upName = `pos-upload-${format(new Date(), "yyyyMMdd-HHmmss")}.db`;
       const upFull = path.join(backupsDir(), upName);
       fs.writeFileSync(upFull, buf);
       await doRestore(upFull);
+      logAudit({ action: "restore_upload", ...actor, detail: `กู้คืนฐานข้อมูลจากไฟล์อัปโหลด ${input.fileName}` });
       return { ok: true, name: upName };
     }),
 });

@@ -6,26 +6,35 @@ import {
   Fuel,
   Users,
   Building2,
+  HandCoins,
   Receipt,
+  ClipboardList,
+  Banknote,
   FileText,
   Settings,
   LogOut,
   Droplet,
+  ScrollText,
+  type LucideIcon,
 } from "lucide-react";
 import { useStaff } from "@/hooks/useStaff";
 import { trpc } from "@/providers/trpc";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/format";
 
-const menus = [
+const menus: { to: string; label: string; icon: LucideIcon; end?: boolean; adminOnly?: boolean }[] = [
   { to: "/", label: "แดชบอร์ด", icon: LayoutDashboard, end: true },
   { to: "/pos", label: "ขาย (POS)", icon: ShoppingCart },
   { to: "/shifts", label: "ตัดกะ", icon: Clock },
   { to: "/stock", label: "สต๊อก/ถัง", icon: Fuel },
   { to: "/members", label: "สมาชิก", icon: Users },
   { to: "/customers", label: "ลูกค้า", icon: Building2 },
+  { to: "/debts", label: "ลูกหนี้เครดิต", icon: HandCoins },
   { to: "/sales", label: "ประวัติขาย", icon: Receipt },
+  { to: "/reports", label: "รายงานปิดวัน", icon: ClipboardList },
+  { to: "/expenses", label: "ค่าใช้จ่าย", icon: Banknote },
   { to: "/tax-invoices", label: "ใบกำกับภาษี", icon: FileText },
+  { to: "/audit", label: "บันทึกการใช้งาน", icon: ScrollText, adminOnly: true },
   { to: "/settings", label: "ตั้งค่า", icon: Settings },
 ];
 
@@ -49,7 +58,7 @@ export default function Layout() {
           </div>
         </div>
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {menus.map((m) => (
+          {menus.filter((m) => !m.adminOnly || staff?.role === "admin").map((m) => (
             <NavLink
               key={m.to}
               to={m.to}

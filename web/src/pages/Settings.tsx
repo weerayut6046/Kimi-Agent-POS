@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus, Database, Download, History, Upload, Save, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { fmtMoney, fmtNum, categoryLabel, roleLabel } from "@/lib/format";
+import { fmtMoney, fmtNum, fmtDateTime, categoryLabel, roleLabel } from "@/lib/format";
 import type { Product } from "@db/schema";
 
 const emptyProduct = {
@@ -42,6 +42,11 @@ export default function Settings() {
   const [logoData, setLogoData] = useState<string | null>(null); // null=ไม่เปลี่ยน, ""=ลบโลโก้, อื่นๆ=data URL ใหม่
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [editP, setEditP] = useState<(Partial<Product> & typeof emptyProduct) | null>(null);
+  const [histP, setHistP] = useState<Product | null>(null); // สินค้าที่กำลังดูประวัติเปลี่ยนราคา
+  const { data: priceHist } = trpc.catalog.priceHistory.useQuery(
+    { productId: histP?.id ?? 0 },
+    { enabled: histP != null },
+  );
   const [showStaff, setShowStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ username: "", pin: "", name: "", role: "cashier" as "admin" | "manager" | "cashier" });
   const [editS, setEditS] = useState<{ id: number; username: string; name: string; role: "admin" | "manager" | "cashier"; pin: string } | null>(null);
@@ -50,9 +55,12 @@ export default function Settings() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  useEffect(() => {
+  // sync ฟอร์มจาก settingMap ด้วย pattern adjust-state-during-render (แทน useEffect เพื่อเลี่ยง cascading render)
+  const [prevSettingMap, setPrevSettingMap] = useState(settingMap);
+  if (settingMap !== prevSettingMap) {
+    setPrevSettingMap(settingMap);
     if (settingMap) setForm(settingMap);
-  }, [settingMap]);
+  }
 
   const ok = (m: string) => { setMsg(m); setErr(""); setTimeout(() => setMsg(""), 3000); };
   const fail = (m: string) => { setErr(m); setMsg(""); };
@@ -500,7 +508,10 @@ export default function Settings() {
                   {isAdmin && (
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditP(p)}>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="ประวัติเปลี่ยนราคา" onClick={() => setHistP(p)}>
+                          <History className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="แก้ไข" onClick={() => setEditP(p)}>
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
@@ -718,6 +729,44 @@ export default function Settings() {
                 </div>
               ))}
             </div>
+
+            {/* สำรองอัตโนมัติรายวัน */}
+            <div className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="backup_auto_enabled" className="cursor-pointer">สำรองอัตโนมัติรายวัน</Label>
+                <Switch
+                  id="backup_auto_enabled"
+                  checked={form.backup_auto_enabled === "1"}
+                  onCheckedChange={(v) => set("backup_auto_enabled", v ? "1" : "0")}
+                />
+              </div>
+              {form.backup_auto_enabled === "1" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>เวลาที่สำรอง</Label>
+                    <Input
+                      type="time"
+                      value={form.backup_auto_time ?? "23:30"}
+                      onChange={(e) => set("backup_auto_time", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>เก็บไฟล์อัตโนมัติไว้ (ไฟล์)</Label>
+                    <Input
+                      type="number" min={1} max={30}
+                      value={form.backup_auto_keep ?? "7"}
+                      onChange={(e) => set("backup_auto_keep", e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                ไฟล์สำรองอัตโนมัติจะชื่อ pos-auto-* แยกจากไฟล์ที่สำรองเอง (pos-backup-*) — ระบบลบเฉพาะไฟล์ auto ที่เก่าเกินจำนวนที่เก็บ
+              </p>
+              <Button size="sm" disabled={saveSettings.isPending} onClick={saveAll}>
+                บันทึกการตั้งค่า
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -810,6 +859,41 @@ export default function Settings() {
               บันทึก
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog ประวัติเปลี่ยนราคา */}
+      <Dialog open={!!histP} onOpenChange={(o) => !o && setHistP(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-heading">ประวัติเปลี่ยนราคา — {histP?.name}</DialogTitle>
+          </DialogHeader>
+          {(priceHist ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">ยังไม่มีการเปลี่ยนราคา</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>วันที่เวลา</TableHead>
+                    <TableHead className="text-right">ราคาเดิม</TableHead>
+                    <TableHead className="text-right">ราคาใหม่</TableHead>
+                    <TableHead>ผู้เปลี่ยน</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(priceHist ?? []).map((h) => (
+                    <TableRow key={h.id}>
+                      <TableCell className="text-sm">{fmtDateTime(h.createdAt)}</TableCell>
+                      <TableCell className="text-right">฿{fmtMoney(h.oldPrice)}</TableCell>
+                      <TableCell className="text-right font-semibold text-primary">฿{fmtMoney(h.newPrice)}</TableCell>
+                      <TableCell className="text-sm">{h.changedBy || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

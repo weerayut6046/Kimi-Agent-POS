@@ -25,10 +25,11 @@ type CustForm = {
   address: string;
   phone: string;
   vehiclePlate: string;
+  creditLimit: string;
 };
 
 const emptyForm: CustForm = {
-  name: "", taxId: "", branchType: "hq", branchNo: "", address: "", phone: "", vehiclePlate: "",
+  name: "", taxId: "", branchType: "hq", branchNo: "", address: "", phone: "", vehiclePlate: "", creditLimit: "",
 };
 
 function formFromCustomer(c: Customer): CustForm {
@@ -42,6 +43,7 @@ function formFromCustomer(c: Customer): CustForm {
     address: c.address ?? "",
     phone: c.phone,
     vehiclePlate: c.vehiclePlate,
+    creditLimit: c.creditLimit > 0 ? String(c.creditLimit) : "",
   };
 }
 
@@ -86,6 +88,7 @@ export default function Customers() {
       address: edit.address.trim(),
       phone: edit.phone.trim(),
       vehiclePlate: edit.vehiclePlate.trim(),
+      creditLimit: Math.max(0, Number(edit.creditLimit) || 0),
     };
     if (edit.id) update.mutate({ id: edit.id, ...payload });
     else create.mutate(payload);
@@ -223,6 +226,17 @@ export default function Customers() {
               <div className="space-y-1.5">
                 <Label>ทะเบียนรถ (ถ้ามี)</Label>
                 <Input placeholder="เช่น 3กข1955 กรุงเทพมหานคร" value={edit.vehiclePlate} onChange={(e) => setEdit({ ...edit, vehiclePlate: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>วงเงินเครดิต (0 = ไม่จำกัด)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="0"
+                  value={edit.creditLimit}
+                  onChange={(e) => setEdit({ ...edit, creditLimit: e.target.value })}
+                />
               </div>
             </div>
           )}

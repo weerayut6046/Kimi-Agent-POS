@@ -14,6 +14,7 @@ type ReceiptSale = {
   pointsEarned?: number;
   pointsRedeemed?: number;
   memberName?: string | null;
+  customerName?: string | null;
 };
 
 type ReceiptItem = { name: string; qty: number; unit: string; unitPrice: number; amount: number };
@@ -58,6 +59,7 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
         <div>วันที่ : {fmtDateTimeTH(sale.createdAt)}</div>
         {staffName && <div>พนักงาน : {staffName}</div>}
         {sale.memberName && <div>สมาชิก : {sale.memberName}</div>}
+        {sale.paymentMethod === "credit" && sale.customerName && <div>ลูกค้า : {sale.customerName}</div>}
       </div>
 
       {/* ตารางสินค้า */}

@@ -23,11 +23,14 @@ export async function setupTestDb() {
   });
   await seedIfEmpty();
 
-  /** สร้าง tRPC caller พร้อม header บทบาท (guard อ่าน x-staff-role) */
-  const caller = (role?: "admin" | "manager" | "cashier") =>
+  /** สร้าง tRPC caller พร้อม header บทบาท (guard อ่าน x-staff-role) — ส่ง staffId เพิ่มได้สำหรับ actor ใน audit */
+  const caller = (role?: "admin" | "manager" | "cashier", staffId?: number) =>
     appRouter.createCaller({
       req: new Request("http://test.local/api", {
-        headers: role ? { "x-staff-role": role } : {},
+        headers: {
+          ...(role ? { "x-staff-role": role } : {}),
+          ...(staffId ? { "x-staff-id": String(staffId) } : {}),
+        },
       }),
       resHeaders: new Headers(),
     });

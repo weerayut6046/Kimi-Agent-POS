@@ -33,6 +33,14 @@ export const paymentLabel: Record<string, string> = {
   cash: "เงินสด",
   qr: "QR พร้อมเพย์",
   card: "บัตร",
+  credit: "เครดิต",
+};
+
+/** วิธีรับชำระหนี้ (ตาราง debt_payments) */
+export const debtMethodLabel: Record<string, string> = {
+  cash: "เงินสด",
+  qr: "QR พร้อมเพย์",
+  transfer: "โอน",
 };
 
 export const tierLabel: Record<string, string> = {

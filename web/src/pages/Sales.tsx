@@ -26,7 +26,7 @@ import { fmtMoney, fmtDateTime, paymentLabel } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-type PayMethod = "cash" | "qr" | "card";
+type PayMethod = "cash" | "qr" | "card" | "credit";
 
 type SaleRow = {
   id: number;
@@ -216,7 +216,7 @@ export default function Sales() {
             <div className="text-sm space-y-2">
               <div id="receipt-print">
                 <ReceiptDoc
-                  sale={{ ...detail.sale, memberName: detail.memberName }}
+                  sale={{ ...detail.sale, memberName: detail.memberName, customerName: detail.customerName }}
                   items={detail.items}
                   settingMap={settingMap}
                   staffName={detail.sale.staffName}

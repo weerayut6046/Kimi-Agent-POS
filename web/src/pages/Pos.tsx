@@ -31,7 +31,7 @@ import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printElement } from "@/lib/printDoc";
 import { fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
-import type { Product, Member } from "@db/schema";
+import type { Product, Member, Customer } from "@db/schema";
 
 type CartLine = { product: Product; qty: number };
 
@@ -45,12 +45,13 @@ type ReceiptData = {
     vatRate: number;
     vatAmount: number;
     total: number;
-    paymentMethod: "cash" | "qr" | "card";
+    paymentMethod: "cash" | "qr" | "card" | "credit";
     received: number;
     changeAmt: number;
     pointsEarned: number;
     pointsRedeemed: number;
     memberName: string | null;
+    customerName: string | null;
   };
   items: { name: string; qty: number; unit: string; unitPrice: number; amount: number }[];
 };
@@ -69,8 +70,10 @@ export default function Pos() {
   const [phoneQ, setPhoneQ] = useState("");
   const [discount, setDiscount] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
-  const [payMethod, setPayMethod] = useState<"cash" | "qr" | "card">("cash");
+  const [payMethod, setPayMethod] = useState<"cash" | "qr" | "card" | "credit">("cash");
   const [received, setReceived] = useState("");
+  const [creditCustomer, setCreditCustomer] = useState<Customer | null>(null);
+  const [custQ, setCustQ] = useState("");
   const [fuelDialog, setFuelDialog] = useState<Product | null>(null);
   const [fuelMode, setFuelMode] = useState<"liters" | "baht">("baht");
   const [fuelValue, setFuelValue] = useState("");
@@ -128,6 +131,8 @@ export default function Pos() {
       setDiscount(0);
       setPointsToRedeem(0);
       setReceived("");
+      setCreditCustomer(null);
+      setCustQ("");
       setErr("");
       // พิมพ์ใบเสร็จเข้าเครื่องพิมพ์ความร้อนอัตโนมัติ — fire-and-forget พิมพ์ไม่สำเร็จไม่กระทบบิล
       if (settingMap?.printer_enabled === "1" && settingMap?.printer_auto_print !== "0") {
@@ -136,6 +141,7 @@ export default function Pos() {
       utils.pos.dashboard.invalidate();
       utils.pos.salesHistory.invalidate();
       utils.catalog.listProducts.invalidate();
+      utils.credit.summary.invalidate();
       if (member) utils.membership.listMembers.invalidate();
     },
     onError: (e) => setErr(e.message),
@@ -146,16 +152,31 @@ export default function Pos() {
     { enabled: phoneQ.length >= 9 },
   );
 
+  // ขายเชื่อ — ค้นหาลูกค้าเครดิต + ดึงยอดค้างของลูกค้าที่เลือก
+  const { data: custResults } = trpc.customers.list.useQuery(
+    { q: custQ, limit: 8 },
+    { enabled: payMethod === "credit" && !creditCustomer && custQ.trim().length >= 2 },
+  );
+  const { data: creditDetail } = trpc.credit.detail.useQuery(
+    { customerId: creditCustomer!.id },
+    { enabled: payMethod === "credit" && creditCustomer != null },
+  );
+
   const checkout = () => {
     if (cart.length === 0) return;
     if (payMethod === "cash" && receivedNum < total) {
       setErr("จำนวนเงินรับไม่พอ");
       return;
     }
+    if (payMethod === "credit" && !creditCustomer) {
+      setErr("ขายเชื่อต้องเลือกลูกค้าก่อนชำระ");
+      return;
+    }
     createSale.mutate({
       shiftId: currentShift?.id,
       staffName: staff?.name ?? "",
       memberId: member?.id,
+      customerId: payMethod === "credit" ? creditCustomer?.id : undefined,
       items: cart.map((l) => ({ productId: l.product.id, qty: l.qty })),
       discount,
       paymentMethod: payMethod,
@@ -326,8 +347,8 @@ export default function Pos() {
           </div>
 
           {/* ชำระเงิน */}
-          <div className="grid grid-cols-3 gap-2">
-            {(["cash", "qr", "card"] as const).map((m) => (
+          <div className="grid grid-cols-4 gap-2">
+            {(["cash", "qr", "card", "credit"] as const).map((m) => (
               <Button
                 key={m}
                 variant={payMethod === m ? "default" : "outline"}
@@ -338,6 +359,56 @@ export default function Pos() {
               </Button>
             ))}
           </div>
+          {payMethod === "credit" && (
+            <div className="space-y-2 text-sm">
+              {creditCustomer ? (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{creditCustomer.name}</span>
+                    <button onClick={() => setCreditCustomer(null)}>
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    ค้างชำระ ฿{fmtMoney(creditDetail?.outstanding ?? 0)}
+                    {creditCustomer.creditLimit > 0 && ` / วงเงิน ฿${fmtMoney(creditCustomer.creditLimit)}`}
+                  </div>
+                  {creditCustomer.creditLimit > 0 &&
+                    (creditDetail?.outstanding ?? 0) + total > creditCustomer.creditLimit && (
+                      <div className="text-xs text-destructive">ยอดรวมบิลนี้จะเกินวงเงินเครดิต</div>
+                    )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Input
+                    placeholder="ค้นหาลูกค้าเครดิต (ชื่อ/โทร/เลขผู้เสียภาษี)"
+                    value={custQ}
+                    onChange={(e) => setCustQ(e.target.value)}
+                    className="h-9"
+                  />
+                  {custQ.trim().length >= 2 && (
+                    <div className="border rounded-lg divide-y text-sm max-h-32 overflow-y-auto">
+                      {(custResults ?? []).map((c) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-3 py-2 hover:bg-accent"
+                          onClick={() => { setCreditCustomer(c); setCustQ(""); }}
+                        >
+                          <div className="font-medium">{c.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {[c.phone, c.vehiclePlate].filter(Boolean).join(" · ") || "-"}
+                          </div>
+                        </button>
+                      ))}
+                      {custResults?.length === 0 && (
+                        <div className="px-3 py-2 text-muted-foreground">ไม่พบลูกค้า</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {payMethod === "cash" && (
             <>
               <div className="flex gap-2">
