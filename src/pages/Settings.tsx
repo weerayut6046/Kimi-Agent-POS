@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { fmtMoney, fmtNum, categoryLabel } from "@/lib/format";
+import { fmtMoney, fmtNum, categoryLabel, roleLabel } from "@/lib/format";
 import type { Product } from "@db/schema";
 
 const emptyProduct = {
@@ -31,16 +31,19 @@ export default function Settings() {
   const isAdmin = staff?.role === "admin";
 
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: staffList } = trpc.auth.listStaff.useQuery();
   const { data: rewards } = trpc.membership.listRewards.useQuery();
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
 
   const [form, setForm] = useState<Record<string, string>>({});
+  const [logoData, setLogoData] = useState<string | null>(null); // null=ไม่เปลี่ยน, ""=ลบโลโก้, อื่นๆ=data URL ใหม่
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const [editP, setEditP] = useState<(Partial<Product> & typeof emptyProduct) | null>(null);
   const [showStaff, setShowStaff] = useState(false);
-  const [newStaff, setNewStaff] = useState({ username: "", pin: "", name: "", role: "cashier" as "admin" | "cashier" });
-  const [editS, setEditS] = useState<{ id: number; username: string; name: string; role: "admin" | "cashier"; pin: string } | null>(null);
+  const [newStaff, setNewStaff] = useState({ username: "", pin: "", name: "", role: "cashier" as "admin" | "manager" | "cashier" });
+  const [editS, setEditS] = useState<{ id: number; username: string; name: string; role: "admin" | "manager" | "cashier"; pin: string } | null>(null);
   const [editN, setEditN] = useState<{ id: number; label: string; meter: number; money: number } | null>(null);
   const [editR, setEditR] = useState<{ id?: number; name: string; pointsRequired: number; stock: number } | null>(null);
   const [msg, setMsg] = useState("");
@@ -54,7 +57,12 @@ export default function Settings() {
   const fail = (m: string) => { setErr(m); setMsg(""); };
 
   const saveSettings = trpc.catalog.updateSettings.useMutation({
-    onSuccess: () => { utils.catalog.getSettings.invalidate(); ok("บันทึกการตั้งค่าแล้ว"); },
+    onSuccess: () => {
+      utils.catalog.getSettings.invalidate();
+      utils.catalog.getShopLogo.invalidate();
+      setLogoData(null);
+      ok("บันทึกการตั้งค่าแล้ว");
+    },
     onError: (e) => fail(e.message),
   });
   const saveProduct = trpc.catalog.updateProduct.useMutation({
@@ -95,6 +103,47 @@ export default function Settings() {
   });
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  // เลขถัดไปของเอกสาร: ส่งเฉพาะเมื่อแก้จากค่าที่โหลดมาจริงๆ
+  // กันตัวนับถอยหลังกรณีมีการออกเอกสารระหว่างที่เปิดหน้านี้ค้างไว้
+  const COUNTER_KEYS = ["receipt_next_no", "tax_invoice_next_no"];
+  const saveAll = () => {
+    const entries = Object.entries(form)
+      .filter(([k, v]) => !COUNTER_KEYS.includes(k) || v !== (settingMap?.[k] ?? ""))
+      .map(([key, value]) => ({ key, value }));
+    if (logoData !== null) entries.push({ key: "shop_logo", value: logoData });
+    saveSettings.mutate({ entries });
+  };
+
+  const onLogoFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      fail("ไฟล์โลโก้ใหญ่เกิน 2MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        // ย่อให้กว้างไม่เกิน 480px ก่อนเก็บเป็น base64 ลด payload
+        const scale = Math.min(1, 480 / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setLogoData(canvas.toDataURL("image/png"));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const nextPreview = (prefix: string | undefined, next: string | undefined, fallback: string) =>
+    `${prefix || fallback}${String(Math.max(1, Number(next ?? "1") || 1)).padStart(5, "0")}`;
+
+  const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
 
   return (
     <div className="space-y-5">
@@ -143,14 +192,63 @@ export default function Settings() {
             <Input type="number" value={form.point_redeem_value ?? "1"} onChange={(e) => set("point_redeem_value", e.target.value)} />
           </div>
           <div className="sm:col-span-2">
-            <Button
-              disabled={!isAdmin || saveSettings.isPending}
-              onClick={() =>
-                saveSettings.mutate({
-                  entries: Object.entries(form).map(([key, value]) => ({ key, value })),
-                })
-              }
-            >
+            <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
+              บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* เลขที่เอกสาร & โลโก้ร้าน */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-heading text-base flex items-center gap-2"><FileText className="w-4 h-4" /> เลขที่เอกสาร & โลโก้ร้าน</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>คำนำหน้าเลขใบเสร็จอย่างย่อ</Label>
+            <Input maxLength={10} value={form.receipt_prefix ?? "R"} onChange={(e) => set("receipt_prefix", e.target.value)} />
+            <p className="text-xs text-muted-foreground">เอกสารถัดไป: {nextPreview(form.receipt_prefix, form.receipt_next_no, "R")}</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>เลขถัดไปใบเสร็จอย่างย่อ</Label>
+            <Input type="number" min={1} value={form.receipt_next_no ?? "1"} onChange={(e) => set("receipt_next_no", e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>คำนำหน้าเลขใบกำกับภาษี</Label>
+            <Input maxLength={10} value={form.tax_invoice_prefix ?? "T"} onChange={(e) => set("tax_invoice_prefix", e.target.value)} />
+            <p className="text-xs text-muted-foreground">เอกสารถัดไป: {nextPreview(form.tax_invoice_prefix, form.tax_invoice_next_no, "T")}</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>เลขถัดไปใบกำกับภาษี</Label>
+            <Input type="number" min={1} value={form.tax_invoice_next_no ?? "1"} onChange={(e) => set("tax_invoice_next_no", e.target.value)} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>โลโก้ร้าน (แสดงบนใบเสร็จ/ใบกำกับภาษี)</Label>
+            <div className="flex items-center gap-3 flex-wrap">
+              {logoShown ? (
+                <img src={logoShown} alt="โลโก้ร้าน" className="h-14 w-auto object-contain border rounded p-1 bg-white" />
+              ) : (
+                <div className="h-14 w-28 border border-dashed rounded flex items-center justify-center text-xs text-muted-foreground">
+                  ยังไม่มีโลโก้
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" disabled={!isAdmin} onClick={() => logoInputRef.current?.click()}>
+                  <ImagePlus className="w-4 h-4 mr-1" /> เลือกรูป
+                </Button>
+                {logoShown && (
+                  <Button type="button" variant="ghost" size="sm" disabled={!isAdmin} onClick={() => setLogoData("")}>
+                    ลบโลโก้
+                  </Button>
+                )}
+              </div>
+              <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={onLogoFile} />
+            </div>
+            <p className="text-xs text-muted-foreground">รองรับไฟล์รูปไม่เกิน 2MB (ระบบย่อขนาดให้อัตโนมัติ) · กดบันทึกเพื่อยืนยัน</p>
+          </div>
+          <div className="sm:col-span-2">
+            <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
               บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
             </Button>
           </div>
@@ -238,7 +336,7 @@ export default function Settings() {
                 </div>
                 <div className="flex items-center gap-1">
                   <Badge variant={s.role === "admin" ? "default" : "secondary"}>
-                    {s.role === "admin" ? "ผู้ดูแล" : "พนักงาน"}
+                    {roleLabel[s.role] ?? s.role}
                   </Badge>
                   {isAdmin && (
                     <>
@@ -445,10 +543,11 @@ export default function Settings() {
             </div>
             <div className="space-y-1.5">
               <Label>สิทธิ์</Label>
-              <Select value={newStaff.role} onValueChange={(v) => setNewStaff({ ...newStaff, role: v as "admin" | "cashier" })}>
+              <Select value={newStaff.role} onValueChange={(v) => setNewStaff({ ...newStaff, role: v as "admin" | "manager" | "cashier" })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                  <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
                   <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
                 </SelectContent>
               </Select>
@@ -484,10 +583,11 @@ export default function Settings() {
               </div>
               <div className="space-y-1.5">
                 <Label>สิทธิ์</Label>
-                <Select value={editS.role} onValueChange={(v) => setEditS({ ...editS, role: v as "admin" | "cashier" })}>
+                <Select value={editS.role} onValueChange={(v) => setEditS({ ...editS, role: v as "admin" | "manager" | "cashier" })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                    <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
                     <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
                   </SelectContent>
                 </Select>

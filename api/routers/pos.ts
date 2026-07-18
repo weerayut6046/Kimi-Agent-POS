@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
+import { nextDocNo } from "../lib/docNumbers";
 import {
   products,
   nozzles,
@@ -21,19 +22,6 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 async function getSettingMap(db: ReturnType<typeof getDb>) {
   const rows = await db.select().from(settings);
   return Object.fromEntries(rows.map((r) => [r.key, r.value])) as Record<string, string>;
-}
-
-async function nextReceiptNo(db: ReturnType<typeof getDb>): Promise<string> {
-  const now = new Date();
-  const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const rows = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(sales)
-    .where(and(gte(sales.createdAt, start), lt(sales.createdAt, end)));
-  const running = (rows[0]?.count ?? 0) + 1;
-  return `R${ymd}-${String(running).padStart(3, "0")}`;
 }
 
 export const posRouter = createRouter({
@@ -275,9 +263,9 @@ export const posRouter = createRouter({
       const vatAmount = r2((total * vatRate) / (100 + vatRate)); // VAT รวมใน
       const changeAmt = input.paymentMethod === "cash" ? r2(Math.max(0, input.received - total)) : 0;
       const pointsEarned = member ? Math.floor(total / earnPer) : 0;
-      const receiptNo = await nextReceiptNo(db);
 
       const saleId = await db.transaction(async (tx) => {
+        const receiptNo = await nextDocNo(tx, "receipt");
         const [{ id }] = await tx
           .insert(sales)
           .values({

@@ -5,6 +5,7 @@ import {
   bigint,
   varchar,
   text,
+  mediumtext,
   timestamp,
   decimal,
   boolean,
@@ -18,7 +19,7 @@ export const staffUsers = mysqlTable("staff_users", {
   username: varchar("username", { length: 64 }).notNull().unique(),
   pin: varchar("pin", { length: 128 }).notNull(), // SHA-256 hash
   name: varchar("name", { length: 128 }).notNull(),
-  role: mysqlEnum("role", ["admin", "cashier"]).notNull().default("cashier"),
+  role: mysqlEnum("role", ["admin", "manager", "cashier"]).notNull().default("cashier"),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -193,6 +194,18 @@ export const tankRefills = mysqlTable("tank_refills", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ============ ลูกค้า (ข้อมูลออกใบกำกับภาษี) ============
+export const customers = mysqlTable("customers", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  taxId: varchar("tax_id", { length: 20 }).notNull().default(""),
+  branch: varchar("branch", { length: 64 }).notNull().default(""), // "สำนักงานใหญ่" หรือ "สาขาที่ xxx"
+  address: text("address"),
+  phone: varchar("phone", { length: 20 }).notNull().default(""),
+  vehiclePlate: varchar("vehicle_plate", { length: 32 }).notNull().default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ============ ใบกำกับภาษีเต็มรูป ============
 export const taxInvoices = mysqlTable("tax_invoices", {
   id: serial("id").primaryKey(),
@@ -211,7 +224,7 @@ export const taxInvoices = mysqlTable("tax_invoices", {
 // ============ ตั้งค่าร้าน ============
 export const settings = mysqlTable("settings", {
   key: varchar("key", { length: 64 }).primaryKey(),
-  value: text("value").notNull(),
+  value: mediumtext("value").notNull(), // mediumtext รองรับโลโก้ base64
 });
 
 // ============ Types ============
@@ -230,3 +243,4 @@ export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
 export type FuelTank = typeof fuelTanks.$inferSelect;
 export type TankRefill = typeof tankRefills.$inferSelect;
 export type TaxInvoice = typeof taxInvoices.$inferSelect;
+export type Customer = typeof customers.$inferSelect;

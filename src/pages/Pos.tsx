@@ -59,6 +59,7 @@ export default function Pos() {
   const utils = trpc.useUtils();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const { data: currentShift } = trpc.pos.currentShift.useQuery();
 
   const [tab, setTab] = useState("fuel");
@@ -415,6 +416,7 @@ export default function Pos() {
                 items={receipt.items}
                 settingMap={settingMap}
                 staffName={staff?.name}
+                logoUrl={logoUrl}
               />
             </div>
           )}

@@ -27,6 +27,7 @@ async function seed() {
   // พนักงาน
   await db.insert(staffUsers).values([
     { username: "admin", pin: sha256("1234"), name: "เจ้าของปั๊ม", role: "admin" },
+    { username: "manager", pin: sha256("2222"), name: "สมหญิง (ผู้จัดการสาขา)", role: "manager" },
     { username: "somchai", pin: sha256("0000"), name: "สมชาย (พนักงาน)", role: "cashier" },
   ]);
 
@@ -92,6 +93,10 @@ async function seed() {
     { key: "vat_rate", value: "7" },
     { key: "point_earn_per_baht", value: "25" },
     { key: "point_redeem_value", value: "1" },
+    { key: "receipt_prefix", value: "R" },
+    { key: "receipt_next_no", value: "1" },
+    { key: "tax_invoice_prefix", value: "T" },
+    { key: "tax_invoice_next_no", value: "1" },
   ]);
 
   console.log("Done.");

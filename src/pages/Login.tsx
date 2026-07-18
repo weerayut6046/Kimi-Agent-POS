@@ -17,7 +17,7 @@ export default function Login() {
 
   const loginMut = trpc.auth.login.useMutation({
     onSuccess: (s) => {
-      login(s as { id: number; name: string; role: "admin" | "cashier"; username: string });
+      login(s as { id: number; name: string; role: "admin" | "manager" | "cashier"; username: string });
       navigate("/");
     },
     onError: (e) => setError(e.message || "เข้าสู่ระบบไม่สำเร็จ"),

@@ -23,6 +23,7 @@ type Props = {
   items: ReceiptItem[];
   settingMap?: Record<string, string>;
   staffName?: string;
+  logoUrl?: string | null;
 };
 
 function MoneyRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
@@ -35,11 +36,12 @@ function MoneyRow({ label, value, bold }: { label: string; value: string; bold?:
 }
 
 /** ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ (แบบใบเสร็จม้วน) — ใช้ร่วมกันหน้า POS และหน้าประวัติการขาย */
-export function ReceiptDoc({ sale, items, settingMap, staffName }: Props) {
+export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Props) {
   return (
     <div className="text-sm font-mono">
       {/* หัวใบเสร็จ — กึ่งกลางทั้งหมด */}
       <div className="text-center space-y-0.5">
+        {logoUrl && <img src={logoUrl} alt="โลโก้ร้าน" className="h-12 w-auto object-contain mx-auto mb-1" />}
         <div className="font-bold text-base">
           {settingMap?.shop_name}
           {settingMap?.shop_branch ? ` สาขา ${settingMap.shop_branch}` : ""}

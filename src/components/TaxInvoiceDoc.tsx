@@ -7,6 +7,7 @@ type Props = {
   items: SaleItem[];
   invoice: TaxInvoice;
   settingMap?: Record<string, string>;
+  logoUrl?: string | null;
 };
 
 /** แถว "ป้ายกำกับ: ค่า" สำหรับก้อนข้อมูลลูกค้า */
@@ -30,7 +31,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 }
 
 /** เอกสารใบเสร็จรับเงิน/ใบกำกับภาษีเต็มรูป (A4 แนวตั้ง, แบบปั๊ม PTT) — ใช้ร่วมกันทั้ง preview และ print */
-export function TaxInvoiceDoc({ sale, items, invoice, settingMap }: Props) {
+export function TaxInvoiceDoc({ sale, items, invoice, settingMap, logoUrl }: Props) {
   const preVat = Math.round((sale.total - sale.vatAmount) * 100) / 100;
 
   return (
@@ -45,12 +46,15 @@ export function TaxInvoiceDoc({ sale, items, invoice, settingMap }: Props) {
 
       {/* ส่วนหัว: ข้อมูลร้านซ้าย / ชื่อเอกสารขวา */}
       <div className="flex justify-between gap-6">
-        <div className="leading-snug">
-          <div className="font-bold text-[15px]">{settingMap?.shop_name}</div>
-          <div>เลขที่ประจำตัวผู้เสียภาษี {settingMap?.tax_id}</div>
-          <div>สาขาที่ {settingMap?.shop_branch}</div>
-          {settingMap?.shop_address && <div className="whitespace-pre-line">ที่อยู่ {settingMap.shop_address}</div>}
-          <div>โทร. {settingMap?.shop_phone}</div>
+        <div className="flex gap-3 min-w-0">
+          {logoUrl && <img src={logoUrl} alt="โลโก้ร้าน" className="h-16 w-auto object-contain shrink-0" />}
+          <div className="leading-snug">
+            <div className="font-bold text-[15px]">{settingMap?.shop_name}</div>
+            <div>เลขที่ประจำตัวผู้เสียภาษี {settingMap?.tax_id}</div>
+            <div>สาขาที่ {settingMap?.shop_branch}</div>
+            {settingMap?.shop_address && <div className="whitespace-pre-line">ที่อยู่ {settingMap.shop_address}</div>}
+            <div>โทร. {settingMap?.shop_phone}</div>
+          </div>
         </div>
         <div className="text-right shrink-0">
           <div className="font-bold text-[22px] leading-tight">ใบเสร็จรับเงิน/ใบกำกับภาษี</div>

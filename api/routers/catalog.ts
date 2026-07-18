@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, ne } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -229,8 +229,14 @@ export const catalogRouter = createRouter({
 
   // ---------- ตั้งค่า ----------
   getSettings: publicQuery.query(async () => {
-    const rows = await getDb().select().from(settings);
+    // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
+    const rows = await getDb().select().from(settings).where(ne(settings.key, "shop_logo"));
     return Object.fromEntries(rows.map((r) => [r.key, r.value])) as Record<string, string>;
+  }),
+
+  getShopLogo: publicQuery.query(async () => {
+    const row = await getDb().query.settings.findFirst({ where: eq(settings.key, "shop_logo") });
+    return row?.value || null;
   }),
 
   updateSettings: adminQuery

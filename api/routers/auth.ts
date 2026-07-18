@@ -33,7 +33,7 @@ export const authRouter = createRouter({
         username: z.string().min(3),
         pin: z.string().min(4),
         name: z.string().min(1),
-        role: z.enum(["admin", "cashier"]).default("cashier"),
+        role: z.enum(["admin", "manager", "cashier"]).default("cashier"),
       }),
     )
     .mutation(async ({ input }) => {
@@ -52,7 +52,7 @@ export const authRouter = createRouter({
         name: z.string().min(1).optional(),
         username: z.string().min(3).optional(),
         pin: z.string().min(4).optional(),
-        role: z.enum(["admin", "cashier"]).optional(),
+        role: z.enum(["admin", "manager", "cashier"]).optional(),
         active: z.boolean().optional(),
       }),
     )

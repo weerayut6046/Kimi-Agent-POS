@@ -22,6 +22,7 @@ export default function Sales() {
   const isAdmin = staff?.role === "admin";
   const { data: salesList, isLoading } = trpc.pos.salesHistory.useQuery({ limit: 100 });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const [detailId, setDetailId] = useState<number | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [err, setErr] = useState("");
@@ -102,6 +103,7 @@ export default function Sales() {
                   items={detail.items}
                   settingMap={settingMap}
                   staffName={detail.sale.staffName}
+                  logoUrl={logoUrl}
                 />
               </div>
               <DialogFooter className="gap-2 pt-2">

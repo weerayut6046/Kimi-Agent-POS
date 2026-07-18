@@ -6,6 +6,7 @@ import Pos from "@/pages/Pos";
 import Shifts from "@/pages/Shifts";
 import Stock from "@/pages/Stock";
 import Members from "@/pages/Members";
+import Customers from "@/pages/Customers";
 import Sales from "@/pages/Sales";
 import TaxInvoices from "@/pages/TaxInvoices";
 import Settings from "@/pages/Settings";
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/shifts" element={<Shifts />} />
         <Route path="/stock" element={<Stock />} />
         <Route path="/members" element={<Members />} />
+        <Route path="/customers" element={<Customers />} />
         <Route path="/sales" element={<Sales />} />
         <Route path="/tax-invoices" element={<TaxInvoices />} />
         <Route path="/settings" element={<Settings />} />

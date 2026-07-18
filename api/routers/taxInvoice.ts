@@ -1,23 +1,10 @@
 import { z } from "zod";
-import { and, desc, eq, gte, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, or } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
+import { nextDocNo } from "../lib/docNumbers";
 import { sales, taxInvoices } from "@db/schema";
-
-// เลขที่ใบกำกับภาษี running ต่อวัน (pattern เดียวกับ nextReceiptNo ของบิลขาย)
-async function nextTaxInvoiceNo(db: ReturnType<typeof getDb>): Promise<string> {
-  const now = new Date();
-  const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const rows = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(taxInvoices)
-    .where(and(gte(taxInvoices.createdAt, start), lt(taxInvoices.createdAt, end)));
-  const running = (rows[0]?.count ?? 0) + 1;
-  return `T${ymd}-${String(running).padStart(3, "0")}`;
-}
 
 export const taxInvoiceRouter = createRouter({
   bySale: publicQuery.input(z.object({ saleId: z.number() })).query(async ({ input }) => {
@@ -109,11 +96,13 @@ export const taxInvoiceRouter = createRouter({
         return db.query.taxInvoices.findFirst({ where: eq(taxInvoices.id, existing.id) });
       }
 
-      const taxInvoiceNo = await nextTaxInvoiceNo(db);
-      const [{ id }] = await db
-        .insert(taxInvoices)
-        .values({ taxInvoiceNo, saleId: input.saleId, issuedBy: input.issuedBy, ...customer })
-        .$returningId();
-      return db.query.taxInvoices.findFirst({ where: eq(taxInvoices.id, id) });
+      return db.transaction(async (tx) => {
+        const taxInvoiceNo = await nextDocNo(tx, "tax_invoice");
+        const [{ id }] = await tx
+          .insert(taxInvoices)
+          .values({ taxInvoiceNo, saleId: input.saleId, issuedBy: input.issuedBy, ...customer })
+          .$returningId();
+        return tx.query.taxInvoices.findFirst({ where: eq(taxInvoices.id, id) });
+      });
     }),
 });

@@ -5,6 +5,7 @@ import {
   Clock,
   Fuel,
   Users,
+  Building2,
   Receipt,
   FileText,
   Settings,
@@ -14,6 +15,7 @@ import {
 import { useStaff } from "@/hooks/useStaff";
 import { trpc } from "@/providers/trpc";
 import { cn } from "@/lib/utils";
+import { roleLabel } from "@/lib/format";
 
 const menus = [
   { to: "/", label: "แดชบอร์ด", icon: LayoutDashboard, end: true },
@@ -21,6 +23,7 @@ const menus = [
   { to: "/shifts", label: "ตัดกะ", icon: Clock },
   { to: "/stock", label: "สต๊อก/ถัง", icon: Fuel },
   { to: "/members", label: "สมาชิก", icon: Users },
+  { to: "/customers", label: "ลูกค้า", icon: Building2 },
   { to: "/sales", label: "ประวัติขาย", icon: Receipt },
   { to: "/tax-invoices", label: "ใบกำกับภาษี", icon: FileText },
   { to: "/settings", label: "ตั้งค่า", icon: Settings },
@@ -65,7 +68,7 @@ export default function Layout() {
         </nav>
         <div className="p-4 border-t border-white/15">
           <div className="text-sm font-medium">{staff?.name}</div>
-          <div className="text-xs opacity-70 mb-2">{staff?.role === "admin" ? "ผู้ดูแลระบบ" : "พนักงานขาย"}</div>
+          <div className="text-xs opacity-70 mb-2">{staff ? (roleLabel[staff.role] ?? staff.role) : ""}</div>
           <button
             onClick={() => {
               logout();

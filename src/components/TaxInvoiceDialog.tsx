@@ -12,7 +12,7 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDoc } from "@/components/TaxInvoiceDoc";
 import { printElement } from "@/lib/printDoc";
-import type { TaxInvoice } from "@db/schema";
+import type { Customer, TaxInvoice } from "@db/schema";
 
 type Props = {
   saleId: number | null;
@@ -109,7 +109,27 @@ function TaxInvoiceForm({
   const utils = trpc.useUtils();
   const [f, setF] = useState(initial);
   const [err, setErr] = useState("");
+  const [custQ, setCustQ] = useState("");
   const set = (k: keyof FormState, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  // ค้นหาจากข้อมูลลูกค้าที่บันทึกไว้ เพื่อกรอกฟอร์มอัตโนมัติ
+  const { data: custResults } = trpc.customers.list.useQuery(
+    { q: custQ, limit: 8 },
+    { enabled: custQ.trim().length >= 2 },
+  );
+  const pickCustomer = (c: Customer) => {
+    const m = c.branch.match(/^สาขาที่\s*(.*)$/);
+    setF({
+      customerName: c.name,
+      customerTaxId: c.taxId,
+      branchType: m ? "branch" : "hq",
+      branchNo: m?.[1] ?? "",
+      customerAddress: c.address ?? "",
+      customerPhone: c.phone,
+      vehiclePlate: c.vehiclePlate,
+    });
+    setCustQ("");
+  };
 
   const save = trpc.taxInvoice.save.useMutation({
     onSuccess: () => {
@@ -135,6 +155,31 @@ function TaxInvoiceForm({
 
   return (
     <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>ค้นหาจากข้อมูลลูกค้า</Label>
+        <Input
+          placeholder="พิมพ์ชื่อ / เลขผู้เสียภาษี / ทะเบียน อย่างน้อย 2 ตัวอักษร"
+          value={custQ}
+          onChange={(e) => setCustQ(e.target.value)}
+        />
+        {custQ.trim().length >= 2 && (custResults ?? []).length > 0 && (
+          <div className="border rounded-lg divide-y text-sm max-h-40 overflow-y-auto">
+            {(custResults ?? []).map((c) => (
+              <button
+                type="button"
+                key={c.id}
+                className="w-full text-left px-3 py-2 hover:bg-accent"
+                onClick={() => pickCustomer(c)}
+              >
+                <div className="font-medium">{c.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {[c.taxId, c.branch].filter(Boolean).join(" · ") || "-"}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="space-y-1.5">
         <Label>ชื่อลูกค้า / บริษัท <span className="text-destructive">*</span></Label>
         <Input autoFocus value={f.customerName} onChange={(e) => set("customerName", e.target.value)} />
@@ -193,6 +238,7 @@ function TaxInvoiceForm({
 /** Dialog ออก/พิมพ์ใบเสร็จรับเงิน-ใบกำกับภาษีเต็มรูป สำหรับบิลที่ขายแล้ว */
 export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const { data: detail } = trpc.pos.saleDetail.useQuery(
     { id: saleId! },
     { enabled: saleId != null },
@@ -242,7 +288,7 @@ export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
             <div className="flex-1 min-h-0 overflow-y-auto">
               <ScaledFit>
                 <div ref={docRef}>
-                  <TaxInvoiceDoc sale={detail.sale} items={detail.items} invoice={invoice} settingMap={settingMap} />
+                  <TaxInvoiceDoc sale={detail.sale} items={detail.items} invoice={invoice} settingMap={settingMap} logoUrl={logoUrl} />
                 </div>
               </ScaledFit>
             </div>

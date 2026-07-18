@@ -46,3 +46,9 @@ export const categoryLabel: Record<string, string> = {
   lubricant: "2T/น้ำมันเครื่อง",
   other: "สินค้าอื่นๆ",
 };
+
+export const roleLabel: Record<string, string> = {
+  admin: "ผู้ดูแลระบบ",
+  manager: "ผู้จัดการสาขา",
+  cashier: "พนักงานขาย",
+};

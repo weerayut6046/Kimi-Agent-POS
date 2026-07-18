@@ -11,6 +11,18 @@ export const adminQuery = publicQuery.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+/**
+ * managerQuery — procedure สำหรับงานจัดการข้อมูลหลัก (เช่น ลูกค้า)
+ * อนุญาตเฉพาะผู้ดูแลระบบ (admin) หรือผู้จัดการสาขา (manager)
+ */
+export const managerQuery = publicQuery.use(({ ctx, next }) => {
+  const role = ctx.req.headers.get("x-staff-role");
+  if (role !== "admin" && role !== "manager") {
+    throw new Error("สิทธิ์ไม่เพียงพอ — การกระทำนี้สงวนไว้สำหรับผู้ดูแลระบบหรือผู้จัดการสาขา");
+  }
+  return next({ ctx });
+});
+
 /** ดึง staff id จาก header (ส่งโดย client) */
 export function staffIdFromHeader(req: Request): number | null {
   const raw = req.headers.get("x-staff-id");
