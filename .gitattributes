@@ -1,0 +1,4 @@
+# บังคับ LF สำหรับไฟล์ที่ต้องทำงานใน Linux container / คำนวณ hash
+# (Windows + autocrlf จะเปลี่ยนเป็น CRLF ทำ entrypoint พัง และ hash migration เพี้ยน)
+*.sh text eol=lf
+db/migrations/** text eol=lf
