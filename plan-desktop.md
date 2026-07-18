@@ -74,7 +74,8 @@
 - [x] **D4 — Docker/web ให้ทำงานกับ SQLite ต่อได้**: compose เหลือ service เดียว, Dockerfile ใช้ bookworm-slim
 - [x] **D5 — ตรวจสอบระบบ**: tsc ผ่าน, smoke test ผ่านครบ (ล็อกอิน/เปิดกะ/ขาย/แต้ม/ปิดกะ/หักถัง/แดชบอร์ด)
 - [x] **D6 — ทดสอบ .exe บนเครื่องจริง (ครั้งแรก)**: เปิด `win-unpacked/POS ปั๊มน้ำมัน.exe` แล้ว migrate+seed อัตโนมัติ, server ตอบที่ 127.0.0.1:3210, ล็อกอินผ่าน ✅ — เหลือทดสอบติดตั้งผ่าน NSIS installer บนเครื่องปั๊มจริง, พิมพ์ใบเสร็จ, เปิดข้ามวัน
-- [ ] **D7 — ต่อยอด (อนาคต)**: auto-update (electron-updater), ปุ่มสำรองข้อมูลในหน้า Settings, เครื่องพิมพ์ความร้อน ESC/POS, โหมด offline multi-station ผ่าน LAN (ชี้ client ไปที่ server เครื่องหลัก)
+- [x] **D8 — ตั้งค่าตำแหน่งฐานข้อมูล + สำรอง/กู้คืน**: เลือกวาง pos.db ที่ไหนก็ได้ (config.json ใน userData, เปลี่ยนจากหน้า Login หรือ Settings แล้วแอปรีสตาร์ท), สำรองออนไลน์ด้วย better-sqlite3 backup, กู้คืนจากไฟล์ในเครื่องหรืออัปโหลด .db, ดาวน์โหลดไฟล์สำรองผ่าน browser — ทำงานได้ทั้ง desktop และ web (router `dbadmin`, admin เท่านั้น)
+- [ ] **D7 — ต่อยอด (อนาคต)**: auto-update (electron-updater), เครื่องพิมพ์ความร้อน ESC/POS, โหมด offline multi-station ผ่าน LAN (ชี้ client ไปที่ server เครื่องหลัก)
 
 ## 6. ความเสี่ยงและข้อควรระวัง
 

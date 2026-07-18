@@ -1,0 +1,9 @@
+// preload — เปิดเผย API จำกัดให้ renderer ผ่าน window.posDesktop (contextIsolation ปลอดภัย)
+const { contextBridge, ipcRenderer } = require("electron");
+
+contextBridge.exposeInMainWorld("posDesktop", {
+  /** คืน { dbPath, defaultPath } — ตำแหน่งไฟล์ฐานข้อมูลปัจจุบันและค่าเริ่มต้น */
+  getDbConfig: () => ipcRenderer.invoke("dbconfig:get"),
+  /** เลือก/สร้างตำแหน่งฐานข้อมูลใหม่ (mode: "open" | "save") — สำเร็จแล้วแอปจะรีสตาร์ทเอง */
+  chooseDbPath: (mode) => ipcRenderer.invoke("dbconfig:choose", mode),
+});

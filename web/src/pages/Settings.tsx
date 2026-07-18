@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus } from "lucide-react";
+import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus, Database, Download, History, Upload, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -101,6 +101,75 @@ export default function Settings() {
     onSuccess: () => { utils.membership.listRewards.invalidate(); setEditR(null); ok("บันทึกของรางวัลแล้ว"); },
     onError: (e) => fail(e.message),
   });
+
+  // ---------- ฐานข้อมูล: สำรอง / กู้คืน ----------
+  const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
+  const uploadDbRef = useRef<HTMLInputElement>(null);
+  const { data: dbInfo } = trpc.dbadmin.dbInfo.useQuery(undefined, { enabled: isAdmin });
+  const afterRestore = () => {
+    localStorage.removeItem("pumppos_staff");
+    alert("กู้คืนข้อมูลสำเร็จ ระบบจะกลับไปหน้าเข้าสู่ระบบ");
+    window.location.href = "/login";
+  };
+  const backupDb = trpc.dbadmin.backup.useMutation({
+    onSuccess: (r) => { utils.dbadmin.dbInfo.invalidate(); ok(`สำรองข้อมูลแล้ว: ${r.name}`); },
+    onError: (e) => fail(e.message),
+  });
+  const restoreDb = trpc.dbadmin.restore.useMutation({
+    onSuccess: afterRestore,
+    onError: (e) => fail(e.message),
+  });
+  const deleteBackup = trpc.dbadmin.deleteBackup.useMutation({
+    onSuccess: () => { utils.dbadmin.dbInfo.invalidate(); ok("ลบไฟล์สำรองแล้ว"); },
+    onError: (e) => fail(e.message),
+  });
+  const uploadRestore = trpc.dbadmin.restoreUpload.useMutation({
+    onSuccess: afterRestore,
+    onError: (e) => fail(e.message),
+  });
+
+  const fmtSize = (n?: number) =>
+    n == null ? "-" : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+  const downloadBackup = async (name: string) => {
+    try {
+      const r = await utils.dbadmin.readBackup.fetch({ fileName: name });
+      const bin = Uint8Array.from(atob(r.contentBase64), (c) => c.charCodeAt(0));
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([bin], { type: "application/octet-stream" }));
+      a.download = r.fileName;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      fail(e instanceof Error ? e.message : "ดาวน์โหลดไม่สำเร็จ");
+    }
+  };
+
+  const onUploadDbFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > 40_000_000) {
+      fail("ไฟล์ใหญ่เกิน 40MB");
+      return;
+    }
+    if (!confirm(`ยืนยันอัปโหลด "${file.name}" เพื่อกู้คืนทับข้อมูลปัจจุบัน?\n(ระบบจะสำรองข้อมูลเดิมไว้ให้อัตโนมัติ)`)) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const contentBase64 = String(reader.result).split(",")[1] ?? "";
+      uploadRestore.mutate({ fileName: file.name, contentBase64 });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const chooseDbLocation = async (mode: "open" | "save") => {
+    try {
+      const r = await window.posDesktop?.chooseDbPath(mode);
+      if (r && r.changed === false && r.error) fail(r.error);
+    } catch {
+      // แอปออกระหว่างรีสตาร์ท — ถือว่าสำเร็จ
+    }
+  };
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -429,6 +498,87 @@ export default function Settings() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ฐานข้อมูล: สำรอง / กู้คืน / ย้ายตำแหน่ง (admin) */}
+      {isAdmin && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="font-heading text-base flex items-center gap-2">
+              <Database className="w-4 h-4" /> ฐานข้อมูล — สำรอง / กู้คืน (admin)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground break-all">
+              ไฟล์ฐานข้อมูล: {dbInfo?.dbPath ?? "..."} ({fmtSize(dbInfo?.sizeBytes)})
+            </p>
+
+            {isDesktop && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => chooseDbLocation("open")}>
+                  ใช้ไฟล์ฐานข้อมูลเดิม…
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => chooseDbLocation("save")}>
+                  ย้ายฐานข้อมูลไปที่อื่น…
+                </Button>
+                <span className="text-xs text-muted-foreground">เปลี่ยนตำแหน่งแล้วแอปจะรีสตาร์ทอัตโนมัติ</span>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={backupDb.isPending} onClick={() => backupDb.mutate()}>
+                <Save className="w-4 h-4 mr-1" /> {backupDb.isPending ? "กำลังสำรอง..." : "สำรองข้อมูลตอนนี้"}
+              </Button>
+              <Button size="sm" variant="outline" disabled={uploadRestore.isPending} onClick={() => uploadDbRef.current?.click()}>
+                <Upload className="w-4 h-4 mr-1" /> อัปโหลดไฟล์ .db เพื่อกู้คืน
+              </Button>
+              <input ref={uploadDbRef} type="file" accept=".db,.sqlite,.sqlite3" className="hidden" onChange={onUploadDbFile} />
+            </div>
+
+            <div className="border rounded-lg divide-y">
+              {(dbInfo?.backups ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground p-3">
+                  ยังไม่มีไฟล์สำรอง — ไฟล์สำรองจะถูกเก็บในโฟลเดอร์ backups ข้างไฟล์ฐานข้อมูล
+                </p>
+              )}
+              {(dbInfo?.backups ?? []).map((b) => (
+                <div key={b.name} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                  <div>
+                    <div className="text-sm font-mono">{b.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {fmtSize(b.sizeBytes)} · {new Date(b.modifiedAt).toLocaleString("th-TH")}
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" title="ดาวน์โหลด" onClick={() => downloadBackup(b.name)}>
+                      <Download className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost" title="กู้คืน"
+                      disabled={restoreDb.isPending}
+                      onClick={() => {
+                        if (confirm(`ยืนยันกู้คืนข้อมูลจาก "${b.name}"?\nข้อมูลปัจจุบันจะถูกแทนที่ (ระบบสำรองของเดิมไว้ให้อัตโนมัติ)`)) {
+                          restoreDb.mutate({ fileName: b.name });
+                        }
+                      }}
+                    >
+                      <History className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost" className="text-destructive" title="ลบ"
+                      disabled={deleteBackup.isPending}
+                      onClick={() => {
+                        if (confirm(`ยืนยันลบไฟล์สำรอง "${b.name}"?`)) deleteBackup.mutate({ fileName: b.name });
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
