@@ -37,6 +37,7 @@ dist/
 build/
 release/
 release2/
+release3/
 # ฐานข้อมูล SQLite ตอน dev
 data/
 # cache prebuilt native binaries (pack-exe.mjs)
