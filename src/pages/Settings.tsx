@@ -44,7 +44,7 @@ export default function Settings() {
   const [showStaff, setShowStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ username: "", pin: "", name: "", role: "cashier" as "admin" | "manager" | "cashier" });
   const [editS, setEditS] = useState<{ id: number; username: string; name: string; role: "admin" | "manager" | "cashier"; pin: string } | null>(null);
-  const [editN, setEditN] = useState<{ id: number; label: string; meter: number; money: number } | null>(null);
+  const [editN, setEditN] = useState<{ id: number; label: string; productId: number; meter: number; money: number } | null>(null);
   const [editR, setEditR] = useState<{ id?: number; name: string; pointsRequired: number; stock: number } | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
@@ -421,7 +421,7 @@ export default function Settings() {
                         </div>
                       </div>
                       <Button size="sm" variant="outline"
-                        onClick={() => setEditN({ id: n.id, label: n.label, meter: n.currentMeter, money: n.currentMoney })}>
+                        onClick={() => setEditN({ id: n.id, label: n.label, productId: n.productId, meter: n.currentMeter, money: n.currentMoney })}>
                         <Pencil className="w-3.5 h-3.5 mr-1" /> แก้ไข
                       </Button>
                     </div>
@@ -623,6 +623,19 @@ export default function Settings() {
                 <Input value={editN.label} onChange={(e) => setEditN({ ...editN, label: e.target.value })} />
               </div>
               <div className="space-y-1.5">
+                <Label>สินค้าที่จ่าย (ผูกกับราคา/ถัง/มิเตอร์)</Label>
+                <Select value={String(editN.productId)} onValueChange={(v) => setEditN({ ...editN, productId: Number(v) })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(products ?? []).map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} ({p.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <Label>มิเตอร์ P ปัจจุบัน (บาทสะสม)</Label>
                 <Input type="number" step="0.01" value={editN.money} onChange={(e) => setEditN({ ...editN, money: Number(e.target.value) || 0 })} />
               </div>
@@ -636,7 +649,7 @@ export default function Settings() {
           <DialogFooter>
             <Button className="w-full" disabled={!editN?.label || updateNozzle.isPending}
               onClick={() =>
-                editN && updateNozzle.mutate({ id: editN.id, label: editN.label, meter: editN.meter, money: editN.money })
+                editN && updateNozzle.mutate({ id: editN.id, label: editN.label, productId: editN.productId, meter: editN.meter, money: editN.money })
               }>
               บันทึก
             </Button>

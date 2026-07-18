@@ -106,6 +106,7 @@ export const catalogRouter = createRouter({
       z.object({
         id: z.number(),
         label: z.string().min(1).optional(),
+        productId: z.number().optional(),
         meter: z.number().nonnegative().optional(),
         money: z.number().nonnegative().optional(),
         active: z.boolean().optional(),
@@ -114,6 +115,11 @@ export const catalogRouter = createRouter({
     .mutation(async ({ input }) => {
       const patch: Record<string, unknown> = {};
       if (input.label != null) patch.label = input.label;
+      if (input.productId != null) {
+        const prod = await getDb().query.products.findFirst({ where: eq(products.id, input.productId) });
+        if (!prod) throw new Error("ไม่พบสินค้าที่เลือก");
+        patch.productId = input.productId;
+      }
       if (input.meter != null) patch.currentMeter = input.meter;
       if (input.money != null) patch.currentMoney = input.money;
       if (input.active != null) patch.active = input.active;
