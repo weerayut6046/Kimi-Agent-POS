@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
