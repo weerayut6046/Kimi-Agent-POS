@@ -16,13 +16,13 @@ export default function CashDenomCounter({ value, onChange }: Props) {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+      <div className="grid grid-cols-1 gap-y-1.5">
         {CASH_DENOMINATIONS.map((d) => {
           const key = String(d);
           const n = Number(value[key]) || 0;
           return (
             <div key={key} className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground w-28 shrink-0">{cashDenomLabel(d)}</span>
+              <span className="text-xs text-muted-foreground w-24 shrink-0">{cashDenomLabel(d)}</span>
               <Input
                 type="number"
                 min="0"
@@ -31,10 +31,10 @@ export default function CashDenomCounter({ value, onChange }: Props) {
                 placeholder="0"
                 value={value[key] ?? ""}
                 onChange={(e) => onChange({ ...value, [key]: e.target.value })}
-                className="h-9 w-20"
+                className="h-9 w-24 shrink-0 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
-              <span className="text-xs text-muted-foreground">×</span>
-              <span className="text-sm w-24 text-right font-medium">฿{fmtMoney(d * n)}</span>
+              <span className="text-xs text-muted-foreground shrink-0">×</span>
+              <span className="text-sm flex-1 text-right font-medium whitespace-nowrap">฿{fmtMoney(d * n)}</span>
             </div>
           );
         })}
