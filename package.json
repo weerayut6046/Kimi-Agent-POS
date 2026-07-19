@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -65,6 +65,7 @@
     "drizzle-orm": "^0.45.1",
     "electron-updater": "^6.8.9",
     "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
     "hono": "^4.8.3",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.562.0",

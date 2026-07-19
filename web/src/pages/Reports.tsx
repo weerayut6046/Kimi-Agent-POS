@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ClipboardList, Printer } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { ZReportDoc } from "@/components/ZReportDoc";
 import { printElement } from "@/lib/printDoc";
+import { downloadBase64, XLSX_MIME } from "@/lib/download";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel, debtMethodLabel } from "@/lib/format";
 
 /** วันนี้ในรูปแบบ YYYY-MM-DD (local — ห้ามใช้ toISOString เพราะจะเป็น UTC) */
@@ -27,7 +28,9 @@ const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 
 export default function Reports() {
   const { staff } = useStaff();
+  const canManage = staff?.role === "admin" || staff?.role === "manager";
   const [date, setDate] = useState(todayStr());
+  const utils = trpc.useUtils();
 
   const { data: r, isLoading, error } = trpc.reports.daily.useQuery(
     { date },
@@ -35,6 +38,31 @@ export default function Reports() {
   );
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
+
+  // กำไรต่อลิตร + ส่งออก Excel มีข้อมูลต้นทุน — เฉพาะ admin/manager (server บังคับด้วย managerQuery)
+  const { data: profit } = trpc.reports.fuelProfit.useQuery(
+    { date },
+    { enabled: canManage && /^\d{4}-\d{2}-\d{2}$/.test(date) },
+  );
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState("");
+  const [rangeFrom, setRangeFrom] = useState(todayStr());
+  const [rangeTo, setRangeTo] = useState(todayStr());
+
+  const runExport = async (fetch: () => Promise<{ fileName: string; contentBase64: string }>) => {
+    setExportErr("");
+    setExporting(true);
+    try {
+      const f = await fetch();
+      downloadBase64(f.fileName, f.contentBase64, XLSX_MIME);
+    } catch (e) {
+      setExportErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+  const exportDaily = () => runExport(() => utils.reports.exportDailyExcel.fetch({ date }));
+  const exportRange = () => runExport(() => utils.reports.exportRangeExcel.fetch({ from: rangeFrom, to: rangeTo }));
 
   const printReport = () => {
     const el = document.getElementById("zreport-print");
@@ -61,9 +89,15 @@ export default function Reports() {
           <Button variant="outline" disabled={!r} onClick={printReport}>
             <Printer className="w-4 h-4 mr-1" /> พิมพ์ Z-report
           </Button>
+          {canManage && (
+            <Button variant="outline" disabled={!r || exporting} onClick={exportDaily}>
+              <FileSpreadsheet className="w-4 h-4 mr-1" /> ส่งออก Excel
+            </Button>
+          )}
         </div>
       </div>
       {error && <p className="text-sm text-destructive">{error.message}</p>}
+      {exportErr && <p className="text-sm text-destructive">{exportErr}</p>}
       {isLoading && <p className="text-sm text-muted-foreground">กำลังโหลด...</p>}
 
       {r && (
@@ -170,6 +204,49 @@ export default function Reports() {
               </CardContent>
             </Card>
           </div>
+
+          {/* กำไรโดยประมาณต่อลิตร (มีข้อมูลต้นทุน — เฉพาะ admin/manager) */}
+          {canManage && profit && profit.items.length > 0 && (
+            <Card>
+              <CardContent className="pt-4">
+                <h2 className="font-heading font-semibold mb-1">กำไรน้ำมันโดยประมาณ</h2>
+                <p className="text-xs text-muted-foreground mb-2">
+                  คำนวณจากต้นทุนสินค้าปัจจุบัน (ตั้งในหน้าสต็อก) — ถ้าต้นทุน/ลิตรเป็น 0 แปลว่ายังไม่ได้ตั้งต้นทุน
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ชนิดน้ำมัน</TableHead>
+                      <TableHead className="text-right">ลิตร</TableHead>
+                      <TableHead className="text-right">ยอดขาย</TableHead>
+                      <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
+                      <TableHead className="text-right">กำไร/ลิตร</TableHead>
+                      <TableHead className="text-right">กำไรรวม</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {profit.items.map((p) => (
+                      <TableRow key={p.name}>
+                        <TableCell>{p.name}</TableCell>
+                        <TableCell className="text-right">{fmtNum(p.liters)}</TableCell>
+                        <TableCell className="text-right">฿{fmtMoney(p.revenue)}</TableCell>
+                        <TableCell className="text-right">{p.costPerLiter > 0 ? `฿${fmtMoney(p.costPerLiter)}` : "-"}</TableCell>
+                        <TableCell className="text-right">฿{fmtMoney(p.profitPerLiter)}</TableCell>
+                        <TableCell className="text-right font-semibold">฿{fmtMoney(p.profitTotal)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="font-semibold">
+                      <TableCell>รวม</TableCell>
+                      <TableCell className="text-right">{fmtNum(profit.items.reduce((s, p) => s + p.liters, 0))}</TableCell>
+                      <TableCell className="text-right">฿{fmtMoney(profit.items.reduce((s, p) => s + p.revenue, 0))}</TableCell>
+                      <TableCell colSpan={2} />
+                      <TableCell className="text-right">฿{fmtMoney(profit.items.reduce((s, p) => s + p.profitTotal, 0))}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
 
           {/* กะการทำงาน */}
           <Card>
@@ -289,6 +366,48 @@ export default function Reports() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ส่งออกช่วงเวลา (สูงสุด 92 วัน) — เฉพาะ admin/manager */}
+          {canManage && (
+            <Card>
+              <CardContent className="pt-4">
+                <h2 className="font-heading font-semibold mb-2">ส่งออกยอดขายช่วงเวลา (Excel)</h2>
+                <div className="flex items-end gap-2 flex-wrap">
+                  <div className="space-y-1">
+                    <Label htmlFor="range-from" className="text-xs text-muted-foreground">จากวันที่</Label>
+                    <Input
+                      id="range-from"
+                      type="date"
+                      className="w-44"
+                      value={rangeFrom}
+                      onChange={(e) => setRangeFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="range-to" className="text-xs text-muted-foreground">ถึงวันที่</Label>
+                    <Input
+                      id="range-to"
+                      type="date"
+                      className="w-44"
+                      value={rangeTo}
+                      onChange={(e) => setRangeTo(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={exporting || !/^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(rangeTo)}
+                    onClick={exportRange}
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-1" />
+                    {exporting ? "กำลังสร้างไฟล์..." : "ส่งออกช่วงเวลา"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  ไฟล์มีสรุปรายวัน บิลขายทั้งช่วง และกำไรน้ำมันโดยประมาณ — พิมพ์เป็น PDF ใช้ปุ่ม &quot;พิมพ์ Z-report&quot; แล้วเลือก Save as PDF
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* เอกสารสำหรับพิมพ์ (ซ่อนไว้บนหน้าจอ) */}
           <div className="hidden">

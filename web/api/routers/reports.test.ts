@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
+import ExcelJS from "exceljs";
 import { products } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
@@ -24,6 +25,14 @@ const productByCode = async (code: string) => {
   const p = await t.db.query.products.findFirst({ where: eq(products.code, code) });
   if (!p) throw new Error(`ไม่พบสินค้า ${code} ใน seed`);
   return p;
+};
+
+/** parse base64 → workbook (cast เพราะ typings ของ exceljs ใช้ Buffer เวอร์ชันเก่ากว่า @types/node ปัจจุบัน) */
+const parseXlsx = async (contentBase64: string) => {
+  const wb = new ExcelJS.Workbook();
+  const buf = Buffer.from(contentBase64, "base64");
+  await wb.xlsx.load(buf as unknown as Parameters<typeof wb.xlsx.load>[0]);
+  return { wb, buf };
 };
 
 describe("reports.daily — Z-report", () => {
@@ -119,5 +128,66 @@ describe("reports.daily — Z-report", () => {
 
   it("รูปแบบวันที่ไม่ถูกต้อง → error", async () => {
     await expect(t.caller().reports.daily({ date: "18/07/2026" })).rejects.toThrow();
+  });
+});
+
+// อาศัยข้อมูลจาก describe ก่อนหน้า: วันนี้มีบิลน้ำมัน GSH95 10 ลิตร = 407.40 (cost 39.2/ลิตร)
+describe("reports.fuelProfit — กำไรต่อลิตร", () => {
+  it("คำนวณกำไรจากต้นทุนสินค้าปัจจุบัน", async () => {
+    const r = await t.caller("manager").reports.fuelProfit({ date: todayStr() });
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toEqual({
+      name: "แก๊สโซฮอล์ 95",
+      liters: 10,
+      revenue: 407.4,
+      costPerLiter: 39.2,
+      profitPerLiter: 1.54,
+      profitTotal: 15.4,
+    });
+  });
+
+  it("cashier เรียกไม่ได้ (มีข้อมูลต้นทุน)", async () => {
+    await expect(t.caller("cashier").reports.fuelProfit({ date: todayStr() })).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+  });
+});
+
+describe("reports.export*Excel — ส่งออกไฟล์", () => {
+  it("exportDailyExcel คืน xlsx ถูกต้อง ครบทุก sheet", async () => {
+    const res = await t.caller("admin").reports.exportDailyExcel({ date: todayStr() });
+    expect(res.fileName).toBe(`zreport-${todayStr()}.xlsx`);
+    const { wb, buf } = await parseXlsx(res.contentBase64);
+    expect(buf.subarray(0, 2).toString("latin1")).toBe("PK"); // zip/xlsx magic
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      "สรุป",
+      "ลิตรและกำไรน้ำมัน",
+      "กะการทำงาน",
+      "ค่าใช้จ่าย",
+      "ชำระหนี้",
+      "บิลขาย",
+    ]);
+  });
+
+  it("exportRangeExcel วันเดียว → sheet สรุปรายวัน/บิลขาย/กำไร", async () => {
+    const res = await t.caller("manager").reports.exportRangeExcel({ from: todayStr(), to: todayStr() });
+    expect(res.fileName).toContain("sales-");
+    const { wb } = await parseXlsx(res.contentBase64);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["สรุปรายวัน", "บิลขาย", "ลิตรและกำไรน้ำมัน"]);
+    // title + ว่าง + header + ข้อมูล 1 วัน + แถวรวม
+    expect(wb.getWorksheet("สรุปรายวัน")!.rowCount).toBe(5);
+  });
+
+  it("exportRangeExcel ปฏิเสธช่วงเกิน 92 วัน / วันสิ้นสุดก่อนวันเริ่ม", async () => {
+    await expect(
+      t.caller("admin").reports.exportRangeExcel({ from: "2026-01-01", to: "2026-12-31" }),
+    ).rejects.toThrow("92");
+    await expect(
+      t.caller("admin").reports.exportRangeExcel({ from: "2026-07-10", to: "2026-07-01" }),
+    ).rejects.toThrow("สิ้นสุด");
+  });
+
+  it("cashier ส่งออกไม่ได้", async () => {
+    await expect(t.caller("cashier").reports.exportDailyExcel({ date: todayStr() })).rejects.toThrow(
+      "สิทธิ์ไม่เพียงพอ",
+    );
   });
 });

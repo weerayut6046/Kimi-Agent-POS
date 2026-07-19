@@ -110,7 +110,7 @@
 - [x] ประวัติเปลี่ยนราคาสินค้า — ตาราง `price_changes`, hook ใน `catalog.updateProduct`, ดูประวัติจากปุ่มในหน้า Settings
 - [x] Audit log — ตาราง `audit_logs` + `web/api/lib/audit.ts` ผูก mutation สำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, พนักงาน, กู้ db, ค่าใช้จ่าย, ชำระหนี้), หน้า `/audit` เฉพาะ admin
 - [x] สำรองข้อมูลอัตโนมัติ — `web/api/lib/autobackup.ts` รันใน boot (ครอบ desktop+Docker), ตั้งเวลา/จำนวนไฟล์เก็บในหน้า Settings, ไฟล์ `pos-auto-*` แยกจากสำรองเอง
-- [ ] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร
+- [x] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร — `reports.exportDailyExcel`/`exportRangeExcel` (exceljs ฝั่ง server ส่ง base64, หน้า `/reports` ปุ่มส่งออกรายวัน+ช่วงเวลา ≤92 วัน, เฉพาะ admin/manager), `reports.fuelProfit` + ตารางกำไรต่อลิตรบนหน้าเว็บ; PDF ใช้ปุ่มพิมพ์เดิม → Save as PDF ของเบราว์เซอร์
 - [ ] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์
 - [ ] เชื่อมตู้จ่าย/มิเตอร์จริง (ถ้ามีฮาร์ดแวร์รองรับ)
 - [ ] คู่มือใช้งานสำหรับพนักงาน
