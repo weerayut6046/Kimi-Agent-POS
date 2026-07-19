@@ -158,7 +158,7 @@ export default function Pos() {
     { enabled: payMethod === "credit" && !creditCustomer && custQ.trim().length >= 2 },
   );
   const { data: creditDetail } = trpc.credit.detail.useQuery(
-    { customerId: creditCustomer!.id },
+    { customerId: creditCustomer?.id ?? -1 },
     { enabled: payMethod === "credit" && creditCustomer != null },
   );
 

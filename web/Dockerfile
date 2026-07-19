@@ -3,9 +3,10 @@
 # ── Stage 1: install dependencies (รวม devDeps สำหรับ build) ───────────────
 # ใช้ bookworm-slim (glibc) เพราะ better-sqlite3 มี prebuilt binary ให้
 # (alpine/musl ไม่มี prebuilt ต้อง compile เอง)
-FROM node:20-bookworm-slim AS deps
+# ต้องเป็น Node 22+: prebuild ของ better-sqlite3 เวอร์ชันใหม่ไม่มีให้ Node 20 (EOL) แล้ว
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-# npm 10.8.2 ที่ติดมากับ node:20 มี bug "Exit handler never called"
+# npm ที่ติดมากับ base image อาจมี bug "Exit handler never called"
 # ทำให้ npm ci ติดตั้งไม่สมบูรณ์ (ไม่มี node_modules/.bin) — อัปเกรดก่อน
 RUN npm install -g npm@11
 COPY package.json package-lock.json ./
@@ -17,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # ── Stage 3: runtime ──────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \
