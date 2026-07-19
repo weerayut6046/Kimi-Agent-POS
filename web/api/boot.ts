@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import path from "path";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { startAutoBackupScheduler } from "./lib/autobackup";
+import { getDb } from "./queries/connection";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -35,4 +38,14 @@ if (env.isProduction) {
       startAutoBackupScheduler();
     });
   })();
+} else {
+  // dev server (vite) ไม่มีขั้นตอน migrate ให้ — migrate ตอน boot ให้ schema ตรงโค้ดเสมอ
+  // รัน sync ตรงนี้ (better-sqlite3 เป็น sync) เพื่อให้เสร็จก่อน request แรก
+  // path อ้างอิง cwd = root ของ repo เหมือน drizzle.config.ts; migrate เป็น idempotent รันซ้ำตอน hot-reload ได้ไม่เสียหาย
+  try {
+    migrate(getDb(), { migrationsFolder: path.resolve("web/db/migrations") });
+    console.log("[dev] database migrated");
+  } catch (e) {
+    console.error("[dev] database migration failed:", e);
+  }
 }
