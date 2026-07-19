@@ -11,6 +11,8 @@ declare global {
       chooseDbPath(mode: "open" | "save"): Promise<{ changed: boolean; error?: string } | undefined>;
       /** เลขเวอร์ชันของแอป desktop — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
       getAppVersion(): Promise<string>;
+      /** พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows (Chromium render — ไทยถูกเสมอ) — html คือเอกสารเต็มพร้อม stylesheet, page ขนาดกระดาษหน่วยไมครอน */
+      printSilent(html: string, page: { widthUm: number; heightUm: number }): Promise<{ ok: boolean }>;
     };
   }
 }

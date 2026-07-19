@@ -57,10 +57,25 @@ export default function Settings() {
   const [err, setErr] = useState("");
 
   // sync ฟอร์มจาก settingMap ด้วย pattern adjust-state-during-render (แทน useEffect เพื่อเลี่ยง cascading render)
+  // merge แบบเก็บ keys ที่แก้ค้างไว้ (ค่าต่างจาก snapshot รอบก่อนและยังไม่ตรง server รอบใหม่)
+  // — กัน refetch (TanStack refetch ตอน window focus) ล้างค่าที่ยังไม่บันทึก
   const [prevSettingMap, setPrevSettingMap] = useState(settingMap);
   if (settingMap !== prevSettingMap) {
     setPrevSettingMap(settingMap);
-    if (settingMap) setForm(settingMap);
+    if (settingMap) {
+      setForm((f) => {
+        const merged = { ...settingMap };
+        for (const k of Object.keys(f)) {
+          // ยังไม่เคยโหลด settingMap — ทุก key ในฟอร์มคือการแก้ของผู้ใช้ เก็บไว้ทั้งหมด
+          if (!prevSettingMap) {
+            merged[k] = f[k];
+            continue;
+          }
+          if (f[k] !== (prevSettingMap[k] ?? "") && f[k] !== (settingMap[k] ?? "")) merged[k] = f[k];
+        }
+        return merged;
+      });
+    }
   }
 
   const ok = (m: string) => { setMsg(m); setErr(""); setTimeout(() => setMsg(""), 3000); };
@@ -360,6 +375,22 @@ export default function Settings() {
               ใช้กับปุ่ม &quot;พิมพ์&quot; ธรรมดาบนใบเสร็จ — ถ้าพิมพ์แล้วตัวอักษรใหญ่/ล้นขอบกระดาษ ให้เลือกขนาดตรงนี้ให้ตรงกระดาษจริง
             </p>
           </div>
+          {isDesktop && (
+            <div className="flex items-center justify-between rounded-md border p-3 max-w-sm">
+              <div className="pr-3">
+                <Label htmlFor="receipt_silent_print" className="cursor-pointer">พิมพ์ใบเสร็จอัตโนมัติหลังชำระเงิน</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows ทันทีโดยไม่เด้ง dialog (เฉพาะ desktop app — ต้องตั้งเครื่องพิมพ์ที่ใช้เป็น default ไว้ก่อน)
+                </p>
+              </div>
+              <Switch
+                id="receipt_silent_print"
+                disabled={!isAdmin}
+                checked={form.receipt_silent_print === "1"}
+                onCheckedChange={(v) => set("receipt_silent_print", v ? "1" : "0")}
+              />
+            </div>
+          )}
           <div>
             <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
               <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}

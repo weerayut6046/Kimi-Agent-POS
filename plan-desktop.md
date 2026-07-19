@@ -47,7 +47,7 @@
 
 | คำสั่ง | ความหมาย |
 |---|---|
-| `npm run dev` + `npm run dev:desktop` | พัฒนาแบบ desktop (Electron ชี้ไป vite dev server) |
+| `npm run dev:desktop` | พัฒนาแบบ desktop คำสั่งเดียว — script `desktop/scripts/dev-desktop.mjs` เปิด vite dev server ให้เอง (ถ้ายังไม่ได้เปิด) รอพอร์ต 3000 พร้อมแล้วค่อยเปิด Electron ปิด Electron แล้ว vite ปิดตาม |
 | `npm run build:desktop` | build frontend + backend + Electron bundle ลง `dist/` |
 | `npm run dist:exe` | สร้าง installer/portable `.exe` ลง `release/` (ครอบ `desktop/scripts/pack-exe.mjs`) |
 | `docker compose up --build` | รันแบบ Web (ใช้ SQLite ใน volume เช่นกัน) |

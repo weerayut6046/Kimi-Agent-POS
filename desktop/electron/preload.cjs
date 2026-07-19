@@ -8,4 +8,6 @@ contextBridge.exposeInMainWorld("posDesktop", {
   chooseDbPath: (mode) => ipcRenderer.invoke("dbconfig:choose", mode),
   /** เลขเวอร์ชันของแอป (app.getVersion()) — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
   getAppVersion: () => ipcRenderer.invoke("app:version"),
+  /** พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows — ส่ง HTML ใบเสร็จ (render โดย Chromium ไทยถูกเสมอ) + ขนาดกระดาษไมครอน */
+  printSilent: (html, page) => ipcRenderer.invoke("print:silent", { html, ...page }),
 });

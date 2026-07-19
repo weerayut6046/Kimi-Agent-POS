@@ -28,7 +28,7 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
-import { printReceiptElement, parseReceiptPaper } from "@/lib/printDoc";
+import { printReceiptElement, parseReceiptPaper, printReceiptSilent } from "@/lib/printDoc";
 import { fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
 import type { Product, Member, Customer } from "@db/schema";
 
@@ -130,6 +130,18 @@ export default function Pos() {
       setCreditCustomer(null);
       setCustQ("");
       setErr("");
+      // พิมพ์ใบเสร็จเงียบอัตโนมัติหลังชำระเงิน (desktop เท่านั้น — เปิดในหน้า Settings) รอ dialog render ก่อนค่อยดึง element
+      if (settingMap?.receipt_silent_print === "1" && window.posDesktop?.printSilent) {
+        const paper = parseReceiptPaper(settingMap.receipt_paper_size);
+        setTimeout(() => {
+          const el = document.getElementById("receipt-print");
+          if (el) {
+            printReceiptSilent(el, paper).catch((e) =>
+              setErr(e instanceof Error ? e.message : "พิมพ์ใบเสร็จอัตโนมัติไม่สำเร็จ"),
+            );
+          }
+        }, 300);
+      }
       utils.pos.dashboard.invalidate();
       utils.pos.salesHistory.invalidate();
       utils.catalog.listProducts.invalidate();

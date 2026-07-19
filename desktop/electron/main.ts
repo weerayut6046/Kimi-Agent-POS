@@ -77,6 +77,29 @@ function registerIpc() {
     app.relaunch();
     app.exit(0);
   });
+
+  // พิมพ์เงียบ: renderer ส่ง HTML ใบเสร็จมา → เปิดหน้าต่างซ่อน render ด้วย Chromium (ไทยถูกเสมอ
+  // ไม่ต้องมีฟอนต์ไทยในเครื่องพิมพ์) แล้วพิมพ์เข้าเครื่องพิมพ์ default ของ Windows โดยไม่เด้ง dialog
+  ipcMain.handle("print:silent", async (_event, payload: { html: string; widthUm: number; heightUm: number }) => {
+    const win = new BrowserWindow({ show: false, width: 800, height: 600 });
+    try {
+      await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(payload.html)}`);
+      await new Promise<void>((resolve, reject) => {
+        win.webContents.print(
+          {
+            silent: true,
+            printBackground: true,
+            margins: { marginType: "none" },
+            pageSize: { width: payload.widthUm, height: payload.heightUm },
+          },
+          (ok, reason) => (ok ? resolve() : reject(new Error(reason || "พิมพ์ไม่สำเร็จ"))),
+        );
+      });
+      return { ok: true };
+    } finally {
+      win.destroy();
+    }
+  });
 }
 
 /**
