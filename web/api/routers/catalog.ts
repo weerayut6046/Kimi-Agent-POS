@@ -5,6 +5,7 @@ import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { mergeSettingDefaults } from "@contracts/settings";
 import {
   products,
   nozzles,
@@ -295,8 +296,8 @@ export const catalogRouter = createRouter({
   // ---------- ตั้งค่า ----------
   getSettings: publicQuery.query(async () => {
     // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
-    const rows = await getDb().select().from(settings).where(ne(settings.key, "shop_logo"));
-    return Object.fromEntries(rows.map((r) => [r.key, r.value])) as Record<string, string>;
+    const rows = getDb().select().from(settings).where(ne(settings.key, "shop_logo")).all();
+    return mergeSettingDefaults(rows.map((r) => [r.key, r.value] as const));
   }),
 
   getShopLogo: publicQuery.query(async () => {
@@ -330,15 +331,27 @@ export const catalogRouter = createRouter({
   }),
 
   updateSettings: adminQuery
-    .input(z.object({ entries: z.array(z.object({ key: z.string(), value: z.string() })) }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ entries: z.array(z.object({ key: z.string().min(1), value: z.string() })) }))
+    .mutation(({ input }) => {
       const db = getDb();
-      for (const e of input.entries) {
-        await db
-          .insert(settings)
-          .values(e)
-          .onConflictDoUpdate({ target: settings.key, set: { value: e.value } });
-      }
-      return { ok: true };
+      // ตัด key ซ้ำโดยให้ค่าตัวท้ายสุดชนะ แล้วเขียนทั้งหมดใน transaction เดียว
+      // ใช้ .run() โดยตรงเพื่อยืนยันว่าคำสั่ง SQLite ทำงานเสร็จก่อนตอบ success
+      const entries = [...new Map(input.entries.map((entry) => [entry.key, entry.value]))]
+        .map(([key, value]) => ({ key, value }));
+      db.transaction((tx) => {
+        for (const entry of entries) {
+          tx.insert(settings)
+            .values(entry)
+            .onConflictDoUpdate({ target: settings.key, set: { value: entry.value } })
+            .run();
+        }
+      });
+
+      // อ่านกลับจากฐานข้อมูลจริงให้ client ใช้เป็น source of truth ทันทีหลังบันทึก
+      const rows = db.select().from(settings).where(ne(settings.key, "shop_logo")).all();
+      return {
+        ok: true,
+        settings: mergeSettingDefaults(rows.map((r) => [r.key, r.value] as const)),
+      };
     }),
 });

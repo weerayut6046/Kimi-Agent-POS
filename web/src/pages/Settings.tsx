@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, categoryLabel, roleLabel } from "@/lib/format";
+import { createInitialSettingsForm } from "./settingsForm";
 import type { Product } from "@db/schema";
 
 const emptyProduct = {
@@ -30,10 +31,19 @@ export default function Settings() {
   const { staff } = useStaff();
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
+  const settingsSaveInFlight = useRef(false);
 
   // โพลทุก 5 วิ — ค่าที่แสดงสดใกล้ realtime: แก้จากเครื่องอื่น (multi-station) หรือที่อื่นแล้วหน้านี้อัปเดตเอง
-  // (ปลอดภัยกับการแก้ค้าง เพราะ sync ฟอร์มแบบ merge เก็บ keys ที่แก้ไว้ไม่ให้โดน refetch ทับ)
-  const { data: settingMap, isPending: settingsPending, isError: settingsError, refetch: refetchSettings } = trpc.catalog.getSettings.useQuery(undefined, { refetchInterval: 5000 });
+  // หยุดโพลระหว่างบันทึก ป้องกัน request เก่าตอบกลับมาทับค่าที่เพิ่งบันทึก
+  const {
+    data: settingMap,
+    isPending: settingsPending,
+    isError: settingsError,
+    error: settingsQueryError,
+    refetch: refetchSettings,
+  } = trpc.catalog.getSettings.useQuery(undefined, {
+    refetchInterval: () => settingsSaveInFlight.current ? false : 5000,
+  });
   const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: staffList } = trpc.auth.listStaff.useQuery();
@@ -41,7 +51,9 @@ export default function Settings() {
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
   const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
 
-  const [form, setForm] = useState<Record<string, string>>({});
+  // Layout เรียก getSettings ไว้ก่อนแล้วบ่อยครั้ง query จึงมีข้อมูลใน cache ตั้งแต่ render แรก
+  // ต้องนำ cache มาเป็นค่าเริ่มต้นทันที ไม่เช่นนั้น prevSettingMap จะเท่ากันและฟอร์มจะค้างเป็น {}
+  const [form, setForm] = useState<Record<string, string>>(() => createInitialSettingsForm(settingMap));
   const [logoData, setLogoData] = useState<string | null>(null); // null=ไม่เปลี่ยน, ""=ลบโลโก้, อื่นๆ=data URL ใหม่
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [editP, setEditP] = useState<(Partial<Product> & typeof emptyProduct) | null>(null);
@@ -84,14 +96,26 @@ export default function Settings() {
   const fail = (m: string) => { setErr(m); setMsg(""); };
 
   const saveSettings = trpc.catalog.updateSettings.useMutation({
-    onSuccess: () => {
-      utils.catalog.getSettings.invalidate();
-      utils.catalog.getShopLogo.invalidate();
-      utils.catalog.lanInfo.invalidate();
+    onMutate: async () => {
+      // request polling อาจเริ่มก่อนกดบันทึกและถือค่าเก่าอยู่ ต้องยกเลิกก่อนเขียนค่าใหม่
+      settingsSaveInFlight.current = true;
+      await utils.catalog.getSettings.cancel();
+    },
+    onSuccess: (result) => {
+      // ใช้ค่าที่ API อ่านกลับจาก SQLite เป็น source of truth และไม่ invalidate ซ้ำทันที
+      // เพราะ invalidate อาจไปรอ request เก่าที่กำลังวิ่งอยู่แล้วนำค่าเก่ากลับมาทับหน้าจอ
+      setPrevSettingMap(result.settings);
+      setForm(result.settings);
+      utils.catalog.getSettings.setData(undefined, result.settings);
+      void utils.catalog.getShopLogo.invalidate();
+      void utils.catalog.lanInfo.invalidate();
       setLogoData(null);
-      ok("บันทึกการตั้งค่าแล้ว");
+      ok("บันทึกการตั้งค่าลงฐานข้อมูลแล้ว");
     },
     onError: (e) => fail(e.message),
+    onSettled: () => {
+      settingsSaveInFlight.current = false;
+    },
   });
   const saveProduct = trpc.catalog.updateProduct.useMutation({
     onSuccess: () => { utils.catalog.listProducts.invalidate(); setEditP(null); ok("บันทึกสินค้าแล้ว"); },
@@ -243,12 +267,12 @@ export default function Settings() {
   const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
 
   // ระหว่างโหลด/โหลดพลาด อย่าแสดงฟอร์มค่า default — ผู้ใช้จะเข้าใจผิดว่าค่าที่ตั้งไว้หาย (เคยเกิดเหตุนี้จริง)
-  if (settingsPending) {
+  if (settingsPending && !settingMap) {
     return (
       <div className="py-16 text-center text-sm text-muted-foreground">กำลังโหลดการตั้งค่า…</div>
     );
   }
-  if (settingsError) {
+  if (settingsError && !settingMap) {
     return (
       <div className="py-16 text-center space-y-3">
         <p className="text-sm text-destructive">โหลดการตั้งค่าไม่สำเร็จ — เช็กว่าเซิร์ฟเวอร์ทำงานอยู่ แล้วลองใหม่</p>
@@ -262,6 +286,12 @@ export default function Settings() {
       <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
         <SettingsIcon className="w-6 h-6 text-primary" /> ตั้งค่าระบบ
       </h1>
+      {settingsError && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-2">
+          <span>เชื่อมต่อฐานข้อมูลล่าสุดไม่สำเร็จ กำลังแสดงค่าที่โหลดไว้ก่อนหน้า: {settingsQueryError?.message}</span>
+          <Button size="sm" variant="outline" onClick={() => refetchSettings()}>ลองใหม่</Button>
+        </div>
+      )}
       {msg && <p className="text-sm text-green-600">{msg}</p>}
       {err && <p className="text-sm text-destructive">{err}</p>}
 

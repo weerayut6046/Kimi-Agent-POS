@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { getDb } from "../api/queries/connection";
+import { DEFAULT_SETTINGS } from "@contracts/settings";
 import {
   staffUsers,
   products,
@@ -85,20 +86,10 @@ export async function seedIfEmpty(): Promise<boolean> {
   ]);
 
   // ตั้งค่าร้าน
-  await db.insert(settings).values([
-    { key: "shop_name", value: "ปั๊มน้ำมันกลางใหญ่บริการ" },
-    { key: "shop_branch", value: "สาขาหลัก" },
-    { key: "shop_address", value: "123 ถ.ตัวอย่าง ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000" },
-    { key: "tax_id", value: "0105566001123" },
-    { key: "shop_phone", value: "02-123-4567" },
-    { key: "vat_rate", value: "7" },
-    { key: "point_earn_per_baht", value: "25" },
-    { key: "point_redeem_value", value: "1" },
-    { key: "receipt_prefix", value: "R" },
-    { key: "receipt_next_no", value: "1" },
-    { key: "tax_invoice_prefix", value: "T" },
-    { key: "tax_invoice_next_no", value: "1" },
-  ]);
+  await db
+    .insert(settings)
+    .values(Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value })))
+    .onConflictDoNothing();
 
   console.log("Seed done.");
   return true;
