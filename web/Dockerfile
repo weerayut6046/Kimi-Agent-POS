@@ -23,7 +23,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    DATABASE_URL=/data/pos.db
+    DATABASE_URL=/data/pos.db \
+    BIND_HOST=0.0.0.0
 
 # เก็บ node_modules ทั้งหมดไว้ เพราะ entrypoint ใช้ drizzle-kit (devDep) migrate ตอน start
 COPY --from=build /app/node_modules ./node_modules

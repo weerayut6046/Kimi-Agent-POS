@@ -1,4 +1,5 @@
 import { z } from "zod";
+import os from "os";
 import { desc, eq, ne } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
@@ -301,6 +302,31 @@ export const catalogRouter = createRouter({
   getShopLogo: publicQuery.query(async () => {
     const row = await getDb().query.settings.findFirst({ where: eq(settings.key, "shop_logo") });
     return row?.value || null;
+  }),
+
+  // ข้อมูลสำหรับเชื่อมต่อจากเครื่องอื่นใน LAN (multi-station) — urls คืนเสมอให้หน้า Settings preview ได้
+  // ส่วนหน้า Login จะแสดงเฉพาะตอน enabled (เปิดใน Settings แล้วรีสตาร์ทแอป)
+  lanInfo: publicQuery.query(async () => {
+    const db = getDb();
+    let enabled = false;
+    try {
+      const row = db.select().from(settings).where(eq(settings.key, "lan_enabled")).get();
+      enabled = row?.value === "1";
+    } catch {
+      // ตาราง settings ยังไม่พร้อม — ถือว่าปิด
+    }
+    const port = parseInt(process.env.PORT || "3000");
+    const urls: string[] = [];
+    for (const infos of Object.values(os.networkInterfaces())) {
+      for (const info of infos ?? []) {
+        // family อาจเป็น "IPv4" (string) หรือ 4 (number) แล้วแต่ runtime — รองรับทั้งสองรูปแบบ
+        const fam = String(info.family);
+        if ((fam === "IPv4" || fam === "4") && !info.internal) {
+          urls.push(`http://${info.address}:${port}`);
+        }
+      }
+    }
+    return { enabled, port, urls };
   }),
 
   updateSettings: adminQuery

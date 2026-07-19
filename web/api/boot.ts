@@ -3,12 +3,14 @@ import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import path from "path";
+import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { startAutoBackupScheduler } from "./lib/autobackup";
 import { getDb } from "./queries/connection";
+import { settings } from "@db/schema";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -25,6 +27,22 @@ app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;
 
+/**
+ * host ที่ server จะฟัง (production เท่านั้น):
+ * 1. env BIND_HOST (Docker pin 0.0.0.0 ไว้ใน Dockerfile — container ต้องรับจากภายนอกเสมอ)
+ * 2. desktop: อ่าน setting `lan_enabled` จากฐานข้อมูล (หน้า Settings) — เปิดแล้วเครื่องอื่นใน LAN เชื่อมต่อได้
+ *    default ปิด (ฟังเฉพาะ 127.0.0.1); อ่านไม่สำเร็จ (ตารางยังไม่มีตอน boot ครั้งแรก) ถือว่าปิด
+ */
+function resolveBindHost(): string {
+  if (process.env.BIND_HOST) return process.env.BIND_HOST;
+  try {
+    const row = getDb().select().from(settings).where(eq(settings.key, "lan_enabled")).get();
+    return row?.value === "1" ? "0.0.0.0" : "127.0.0.1";
+  } catch {
+    return "127.0.0.1";
+  }
+}
+
 if (env.isProduction) {
   // ไม่ใช้ top-level await เพื่อให้ bundle เป็น CJS สำหรับ Electron main ได้
   void (async () => {
@@ -33,8 +51,9 @@ if (env.isProduction) {
     serveStaticFiles(app);
 
     const port = parseInt(process.env.PORT || "3000");
-    serve({ fetch: app.fetch, port }, () => {
-      console.log(`Server running on http://localhost:${port}/`);
+    const hostname = resolveBindHost();
+    serve({ fetch: app.fetch, port, hostname }, () => {
+      console.log(`Server running on http://${hostname}:${port}/`);
       startAutoBackupScheduler();
     });
   })();

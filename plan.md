@@ -114,6 +114,7 @@
 - [x] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์ — `catalog.lowStockAlerts` (ถังต่ำกว่า `low_alert_at` + สินค้าต่ำกว่า `low_stock_at`), กระดิ่ง `LowStockAlert.tsx` ใน Layout ทุกหน้า โพล 15 วิ แสดง badge + popover รายการ, เด้ง toast (sonner) ทันทีเมื่อมีรายการใหม่ต่ำกว่าเกณฑ์, การ์ดเตือนเดิมบนหน้าแดชบอร์ดคงไว้
 - [x] นับเงินลิ้นชักครบวงจร — เงินทอนเริ่มกะ (`shifts.opening_float`), นับเงินสดแยกแบงก์/เหรียญตอนปิดกะ (`shifts.cash_counts` JSON — เซิร์ฟเวอร์รวมยอดเองจาก `web/contracts/cash.ts`), snapshot เงินสดควรมีลงกะ (`shifts.expected_cash` = เงินทอน+ขายสด+ชำระหนี้สด−ค่าใช้จ่าย คำนวณโดย `web/api/lib/cash.ts`), `debt_payments.shift_id` ผูกกะอัตโนมัติแบบค่าใช้จ่าย, แสดงส่วนต่างเงินสด (ขาด/เกิน) ในหน้าปิดกะแบบเรียลไทม์ + ประวัติกะ + Z-report + Excel, audit log `close_shift` ตอนปิดกะ
 - [x] dev server migrate อัตโนมัติตอน boot — `web/api/boot.ts` รัน drizzle migrate แบบ sync (idempotent) เมื่อ `NODE_ENV != production` ไม่ต้องรัน `npm run db:migrate` เองหลังเพิ่ม migration ใหม่ (desktop/Docker migrate ของตัวเองตอนเปิดแอปอยู่แล้ว)
+- [x] ขายหลายเครื่องพร้อมกันผ่าน LAN (multi-station) — toggle `lan_enabled` ในหน้า Settings (desktop default ปิด ต้องรีสตาร์ทแอป), เครื่องลูกเปิดเบราว์เซอร์ไปที่ `http://<IP-เครื่องหลัก>:3210` ล็อกอินด้วย PIN ตัวเอง ขายภายใต้กะรวมกะเดียวกัน; `catalog.lanInfo` แสดง URL ในหน้า Settings + หน้า Login (รายละเอียดและข้อจำกัดใน `plan-desktop.md` D7)
 - [ ] เชื่อมตู้จ่าย/มิเตอร์จริง (ถ้ามีฮาร์ดแวร์รองรับ)
 - [ ] คู่มือใช้งานสำหรับพนักงาน
 

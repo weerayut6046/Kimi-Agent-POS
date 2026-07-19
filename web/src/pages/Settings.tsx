@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus, Database, Download, History, Upload, Save, Printer } from "lucide-react";
+import { Settings as SettingsIcon, Store, Fuel, UserCog, Plus, Pencil, Gift, Trash2, Gauge, FileText, ImagePlus, Database, Download, History, Upload, Save, Printer, Network, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ export default function Settings() {
   const { data: staffList } = trpc.auth.listStaff.useQuery();
   const { data: rewards } = trpc.membership.listRewards.useQuery();
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
+  const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [logoData, setLogoData] = useState<string | null>(null); // null=ไม่เปลี่ยน, ""=ลบโลโก้, อื่นๆ=data URL ใหม่
@@ -69,6 +70,7 @@ export default function Settings() {
     onSuccess: () => {
       utils.catalog.getSettings.invalidate();
       utils.catalog.getShopLogo.invalidate();
+      utils.catalog.lanInfo.invalidate();
       setLogoData(null);
       ok("บันทึกการตั้งค่าแล้ว");
     },
@@ -468,6 +470,61 @@ export default function Settings() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="font-heading text-base flex items-center gap-2"><Network className="w-4 h-4" /> เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between rounded-md border p-3 max-w-xl">
+            <Label htmlFor="lan_enabled" className="cursor-pointer">เปิดให้เครื่องอื่นใน LAN เชื่อมต่อ</Label>
+            <Switch
+              id="lan_enabled"
+              disabled={!isAdmin}
+              checked={form.lan_enabled === "1"}
+              onCheckedChange={(v) => set("lan_enabled", v ? "1" : "0")}
+            />
+          </div>
+          {form.lan_enabled === "1" && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-amber-600">มีผลหลังกดบันทึกแล้วรีสตาร์ทแอป (Docker: restart container)</p>
+              {lanInfo && lanInfo.urls.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">เครื่องลูกเปิดเบราว์เซอร์ไปที่:</p>
+                  {lanInfo.urls.map((u) => (
+                    <div key={u} className="flex items-center gap-2">
+                      <code className="rounded bg-muted px-2 py-1 text-xs">{u}</code>
+                      <Button
+                        type="button" size="sm" variant="outline" className="h-7 text-xs"
+                        onClick={() => { void navigator.clipboard?.writeText(u); ok("คัดลอก URL แล้ว"); }}
+                      >
+                        <Copy className="w-3 h-3 mr-1" /> คัดลอก
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">ไม่พบ IP ของเครื่องนี้ในเครือข่าย — ตรวจสอบการเชื่อมต่อ LAN</p>
+              )}
+              <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                <li>เครื่องลูกล็อกอินด้วย PIN ของพนักงานแต่ละคน และขายภายใต้<span className="font-medium text-foreground">กะรวมกะเดียวกัน</span> (เปิด/ปิดกะจากเครื่องใดเครื่องหนึ่ง)</li>
+                <li>ใบเสร็จพิมพ์ไปที่เครื่องพิมพ์ความร้อนตามที่ตั้งไว้ข้างบน — เครื่องลูกที่จะพิมพ์เครื่องของตัวเองให้ใช้ &quot;พิมพ์ผ่านเบราว์เซอร์&quot;</li>
+                <li>
+                  ครั้งแรก Windows อาจถามอนุญาต Firewall ให้กด Allow — ถ้าเชื่อมไม่ได้ให้รัน CMD แบบ Administrator:{" "}
+                  <code className="rounded bg-muted px-1">netsh advfirewall firewall add rule name=&quot;POS Pump&quot; dir=in action=allow protocol=TCP localport={lanInfo?.port ?? 3210}</code>
+                </li>
+                <li>ใช้เฉพาะใน LAN ที่เชื่อถือได้เท่านั้น — เครื่องใน LAN ทุกเครื่องเข้าถึงระบบได้ผ่านหน้าล็อกอิน</li>
+              </ul>
+            </div>
+          )}
+          <div>
+            <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
+              <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

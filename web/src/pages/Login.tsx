@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { Database, Droplet, FolderOutput, LogIn } from "lucide-react";
+import { Database, Droplet, FolderOutput, LogIn, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,9 @@ export default function Login() {
     },
     onError: (e) => setError(e.message || "เข้าสู่ระบบไม่สำเร็จ"),
   });
+
+  // URL สำหรับเครื่องอื่นใน LAN (แสดงเฉพาะตอนเปิด lan_enabled ใน Settings)
+  const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
 
   // เลือกตำแหน่งไฟล์ฐานข้อมูล (desktop เท่านั้น) — สำเร็จแล้วแอปจะรีสตาร์ทเอง
   const chooseDb = async (mode: "open" | "save") => {
@@ -89,6 +92,18 @@ export default function Login() {
               ทดลองใช้: admin / 1234 (ผู้ดูแล) หรือ somchai / 0000 (พนักงาน)
             </p>
           </form>
+
+          {/* URL สำหรับเครื่องอื่นใน LAN — แสดงเมื่อเปิดใช้ multi-station ใน Settings */}
+          {lanInfo?.enabled && lanInfo.urls.length > 0 && (
+            <div className="mt-4 border-t pt-3 space-y-1">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Network className="w-3.5 h-3.5" /> เครื่องอื่นในร้านเปิดที่:
+              </p>
+              {lanInfo.urls.map((u) => (
+                <p key={u} className="text-xs font-mono text-primary">{u}</p>
+              ))}
+            </div>
+          )}
 
           {/* ตั้งค่าตำแหน่งฐานข้อมูล — เฉพาะ desktop app */}
           {isDesktop && (
