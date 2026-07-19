@@ -98,16 +98,6 @@ export async function seedIfEmpty(): Promise<boolean> {
     { key: "receipt_next_no", value: "1" },
     { key: "tax_invoice_prefix", value: "T" },
     { key: "tax_invoice_next_no", value: "1" },
-    // เครื่องพิมพ์ความร้อน ESC/POS — ค่าเริ่มต้นปิดไว้ เปิดและตั้งค่าจากหน้าตั้งค่าระบบ
-    { key: "printer_enabled", value: "0" },
-    { key: "printer_mode", value: "network" },
-    { key: "printer_host", value: "" },
-    { key: "printer_port", value: "9100" },
-    { key: "printer_share", value: "" },
-    { key: "printer_width", value: "80" },
-    { key: "printer_auto_print", value: "1" },
-    { key: "printer_open_drawer", value: "0" },
-    { key: "printer_codepage", value: "96" },
   ]);
 
   console.log("Seed done.");

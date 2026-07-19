@@ -76,10 +76,6 @@ export default function Settings() {
     },
     onError: (e) => fail(e.message),
   });
-  const testPrint = trpc.printer.testPrint.useMutation({
-    onSuccess: () => ok("สั่งพิมพ์หน้าทดสอบแล้ว — ถ้าภาษาไทยอ่านไม่ออก ลองปรับ codepage"),
-    onError: (e) => fail(e.message),
-  });
   const saveProduct = trpc.catalog.updateProduct.useMutation({
     onSuccess: () => { utils.catalog.listProducts.invalidate(); setEditP(null); ok("บันทึกสินค้าแล้ว"); },
     onError: (e) => fail(e.message),
@@ -339,137 +335,36 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* เครื่องพิมพ์ความร้อน ESC/POS */}
+      {/* การพิมพ์ใบเสร็จ (ผ่านเบราว์เซอร์) */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2"><Printer className="w-4 h-4" /> เครื่องพิมพ์ความร้อน (ESC/POS)</CardTitle>
+          <CardTitle className="font-heading text-base flex items-center gap-2"><Printer className="w-4 h-4" /> การพิมพ์ใบเสร็จ</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
-            <Label htmlFor="printer_enabled" className="cursor-pointer">เปิดใช้งานเครื่องพิมพ์ความร้อน</Label>
-            <Switch
-              id="printer_enabled"
+        <CardContent className="space-y-3">
+          <div className="space-y-1.5 max-w-sm">
+            <Label>ขนาดกระดาษใบเสร็จ (พิมพ์ผ่านเบราว์เซอร์)</Label>
+            <Select
+              value={form.receipt_paper_size ?? "80"}
+              onValueChange={(v) => set("receipt_paper_size", v)}
               disabled={!isAdmin}
-              checked={form.printer_enabled === "1"}
-              onCheckedChange={(v) => set("printer_enabled", v ? "1" : "0")}
-            />
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="80">ม้วนความร้อน 80 มม.</SelectItem>
+                <SelectItem value="58">ม้วนความร้อน 58 มม.</SelectItem>
+                <SelectItem value="a5">A5</SelectItem>
+                <SelectItem value="a4">A4</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              ใช้กับปุ่ม &quot;พิมพ์&quot; ธรรมดาบนใบเสร็จ — ถ้าพิมพ์แล้วตัวอักษรใหญ่/ล้นขอบกระดาษ ให้เลือกขนาดตรงนี้ให้ตรงกระดาษจริง
+            </p>
           </div>
-          {form.printer_enabled === "1" && (
-            <>
-              <div className="space-y-1.5">
-                <Label>โหมดการเชื่อมต่อ</Label>
-                <Select
-                  value={form.printer_mode ?? "network"}
-                  onValueChange={(v) => set("printer_mode", v)}
-                  disabled={!isAdmin}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="network">Network (LAN/WiFi)</SelectItem>
-                    <SelectItem value="windows_share">USB ผ่าน Windows share</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>ขนาดกระดาษ</Label>
-                <Select
-                  value={form.printer_width ?? "80"}
-                  onValueChange={(v) => set("printer_width", v)}
-                  disabled={!isAdmin}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="80">80 มม. (48 ตัวอักษร/บรรทัด)</SelectItem>
-                    <SelectItem value="58">58 มม. (32 ตัวอักษร/บรรทัด)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {(form.printer_mode ?? "network") === "network" ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>IP เครื่องพิมพ์</Label>
-                    <Input
-                      value={form.printer_host ?? ""}
-                      onChange={(e) => set("printer_host", e.target.value)}
-                      placeholder="192.168.1.100"
-                      disabled={!isAdmin}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>พอร์ต</Label>
-                    <Input
-                      type="number"
-                      value={form.printer_port ?? "9100"}
-                      onChange={(e) => set("printer_port", e.target.value)}
-                      placeholder="9100"
-                      disabled={!isAdmin}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>Share path ของเครื่องพิมพ์ (Windows)</Label>
-                  <Input
-                    value={form.printer_share ?? ""}
-                    onChange={(e) => set("printer_share", e.target.value)}
-                    placeholder="\\localhost\POS80"
-                    disabled={!isAdmin}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    แชร์เครื่องพิมพ์ USB ใน Windows ก่อน (Printer properties → Sharing) แล้วกรอก path เช่น \\localhost\POS80 — ใช้ได้เฉพาะแอป desktop
-                  </p>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Codepage ภาษาไทย (ขั้นสูง)</Label>
-                <Input
-                  type="number"
-                  value={form.printer_codepage ?? "96"}
-                  onChange={(e) => set("printer_codepage", e.target.value)}
-                  placeholder="96"
-                  disabled={!isAdmin}
-                />
-                <p className="text-xs text-muted-foreground">Epson ไทยมักใช้ 96 — ถ้าทดสอบพิมพ์แล้วภาษาไทยเพี้ยน ลองปรับค่านี้</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="invisible hidden sm:block">ตัวเลือก</Label>
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <Label htmlFor="printer_auto_print" className="cursor-pointer">พิมพ์อัตโนมัติหลังชำระเงิน</Label>
-                    <Switch
-                      id="printer_auto_print"
-                      disabled={!isAdmin}
-                      checked={(form.printer_auto_print ?? "1") === "1"}
-                      onCheckedChange={(v) => set("printer_auto_print", v ? "1" : "0")}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between rounded-md border p-3">
-                    <Label htmlFor="printer_open_drawer" className="cursor-pointer">เตะลิ้นชักเมื่อรับเงินสด</Label>
-                    <Switch
-                      id="printer_open_drawer"
-                      disabled={!isAdmin}
-                      checked={form.printer_open_drawer === "1"}
-                      onCheckedChange={(v) => set("printer_open_drawer", v ? "1" : "0")}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="sm:col-span-2 flex items-center gap-3 flex-wrap">
-                <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
-                  บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!isAdmin || testPrint.isPending}
-                  onClick={() => testPrint.mutate()}
-                >
-                  <Printer className="w-4 h-4 mr-2" /> {testPrint.isPending ? "กำลังพิมพ์..." : "ทดสอบพิมพ์"}
-                </Button>
-                <span className="text-xs text-muted-foreground">ปุ่มทดสอบใช้ค่าที่บันทึกแล้ว — กดบันทึกก่อนถ้าเพิ่งแก้ค่า</span>
-              </div>
-            </>
-          )}
+          <div>
+            <Button disabled={!isAdmin || saveSettings.isPending} onClick={saveAll}>
+              <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -511,7 +406,7 @@ export default function Settings() {
               )}
               <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
                 <li>เครื่องลูกล็อกอินด้วย PIN ของพนักงานแต่ละคน และขายภายใต้<span className="font-medium text-foreground">กะรวมกะเดียวกัน</span> (เปิด/ปิดกะจากเครื่องใดเครื่องหนึ่ง)</li>
-                <li>ใบเสร็จพิมพ์ไปที่เครื่องพิมพ์ความร้อนตามที่ตั้งไว้ข้างบน — เครื่องลูกที่จะพิมพ์เครื่องของตัวเองให้ใช้ &quot;พิมพ์ผ่านเบราว์เซอร์&quot;</li>
+                <li>ใบเสร็จพิมพ์ผ่านเบราว์เซอร์ของแต่ละเครื่อง (เลือกเครื่องพิมพ์ของเครื่องนั้นตอนกดพิมพ์)</li>
                 <li>
                   ครั้งแรก Windows อาจถามอนุญาต Firewall ให้กด Allow — ถ้าเชื่อมไม่ได้ให้รัน CMD แบบ Administrator:{" "}
                   <code className="rounded bg-muted px-1">netsh advfirewall firewall add rule name=&quot;POS Pump&quot; dir=in action=allow protocol=TCP localport={lanInfo?.port ?? 3210}</code>

@@ -62,24 +62,24 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
         {sale.paymentMethod === "credit" && sale.customerName && <div>ลูกค้า : {sale.customerName}</div>}
       </div>
 
-      {/* ตารางสินค้า */}
-      <table className="w-full mt-2 border-collapse">
+      {/* ตารางสินค้า — table-fixed กันคอลัมน์ดันกว้างเกินกรอบ/แคบเกิน (เคยล้นขอบ dialog ในบางเบราว์เซอร์) */}
+      <table className="w-full table-fixed mt-2 border-collapse">
         <thead>
           <tr className="border-t border-b border-black">
             <th className="py-1 text-left font-bold">รายการสินค้า</th>
-            <th className="py-1 w-20 text-center font-bold">จำนวน</th>
-            <th className="py-1 w-24 text-right font-bold">จำนวนเงิน</th>
+            <th className="py-1 w-14 text-center font-bold">จำนวน</th>
+            <th className="py-1 w-28 text-right font-bold">จำนวนเงิน</th>
           </tr>
         </thead>
         <tbody>
           {items.map((it, i) => (
             <tr key={i} className="align-top">
-              <td className="py-0.5 pr-2">
+              <td className="py-0.5 pr-2 break-words">
                 {it.name}
                 <span className="block text-xs">฿{fmtMoney(it.unitPrice)}/{it.unit}</span>
               </td>
               <td className="py-0.5 text-center whitespace-nowrap">{fmtNum(it.qty)}</td>
-              <td className="py-0.5 text-right">{fmtMoney(it.amount)}</td>
+              <td className="py-0.5 text-right whitespace-nowrap">{fmtMoney(it.amount)}</td>
             </tr>
           ))}
         </tbody>

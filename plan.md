@@ -103,7 +103,7 @@
 
 ### Phase 10 — เสริมคุณภาพและต่อยอด (กำลังทำ / อนาคต) 🔄
 - [x] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม — integration test ผ่าน tRPC caller ลง SQLite ชั่วคราว (migrate+seed จริง): `web/api/test/testDb.ts`, `pos.sale.test.ts`, `pos.shift.test.ts`, `membership.test.ts`
-- [x] ใบเสร็จความร้อน (ESC/POS) หรือพิมพ์อัตโนมัติหลังชำระเงิน — router `printer` + ตั้งค่าในหน้า Settings, รองรับ network (TCP:9100) และ USB ผ่าน Windows share
+- [x] ~~ใบเสร็จความร้อน (ESC/POS)~~ → **ถอดออกแล้ว** — เครื่อง Gainscha GA-E200I ไม่มีฟอนต์ไทยใน firmware พิมพ์ไทยไม่ได้ ตัดสินใจใช้พิมพ์ผ่านเบราว์เซอร์อย่างเดียว (ลบ router `printer` + `web/api/lib/escpos.ts`/`printerTransport.ts`/`receiptPrint.ts` + hook `useThermalPrint`); เหลือตั้งได้แค่ขนาดกระดาษใบเสร็จ (80/58/A5/A4 — setting `receipt_paper_size`, `printReceiptElement` ใน `web/src/lib/printDoc.ts`)
 - [x] ขายเชื่อ/ลูกค้าเครดิต — paymentMethod "credit" + `sales.customer_id`, ตาราง `debt_payments`, router `credit` (ยอดค้าง/รับชำระ/วงเงิน), หน้า `/debts` + ใบรับชำระ (เลข P), ใบเสร็จแสดงชื่อลูกค้าเครดิต
 - [x] รายงานปิดวัน (Z-report) — `reports.daily` (ยอดแยกวิธีชำระ/ลิตร/กะ/ค่าใช้จ่าย/รับชำระหนี้/เงินสดคาดหวัง), หน้า `/reports` + พิมพ์ผ่านเบราว์เซอร์
 - [x] บันทึกค่าใช้จ่ายหน้าร้าน — ตาราง `expenses`, router `expenses` (ผูกกะอัตโนมัติ), หน้า `/expenses`

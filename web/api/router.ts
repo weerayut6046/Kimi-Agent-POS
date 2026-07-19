@@ -7,7 +7,6 @@ import { taxInvoiceRouter } from "./routers/taxInvoice";
 import { customersRouter } from "./routers/customers";
 import { creditRouter } from "./routers/credit";
 import { dbadminRouter } from "./routers/dbadmin";
-import { printerRouter } from "./routers/printer";
 import { expensesRouter } from "./routers/expenses";
 import { reportsRouter } from "./routers/reports";
 import { auditRouter } from "./routers/audit";
@@ -22,7 +21,6 @@ export const appRouter = createRouter({
   customers: customersRouter,
   credit: creditRouter,
   dbadmin: dbadminRouter,
-  printer: printerRouter,
   expenses: expensesRouter,
   reports: reportsRouter,
   audit: auditRouter,
