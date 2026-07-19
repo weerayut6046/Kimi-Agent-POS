@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useStaff } from "@/hooks/useStaff";
+import LowStockAlert from "@/components/LowStockAlert";
 import { trpc } from "@/providers/trpc";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/format";
@@ -55,6 +56,9 @@ export default function Layout() {
           <div>
             <div className="font-heading font-semibold leading-tight text-sm">{shopName}</div>
             <div className="text-xs opacity-70">PumpPOS ครบวงจร</div>
+          </div>
+          <div className="ml-auto">
+            <LowStockAlert />
           </div>
         </div>
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
@@ -97,6 +101,7 @@ export default function Layout() {
           <Droplet className="w-5 h-5" />
           <span className="font-heading font-semibold text-sm">{shopName}</span>
           <span className="ml-auto text-xs opacity-80">{staff?.name}</span>
+          <LowStockAlert />
         </header>
         <main className="p-4 md:p-6 max-w-7xl mx-auto">
           <Outlet />

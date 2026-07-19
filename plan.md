@@ -111,7 +111,7 @@
 - [x] Audit log — ตาราง `audit_logs` + `web/api/lib/audit.ts` ผูก mutation สำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, พนักงาน, กู้ db, ค่าใช้จ่าย, ชำระหนี้), หน้า `/audit` เฉพาะ admin
 - [x] สำรองข้อมูลอัตโนมัติ — `web/api/lib/autobackup.ts` รันใน boot (ครอบ desktop+Docker), ตั้งเวลา/จำนวนไฟล์เก็บในหน้า Settings, ไฟล์ `pos-auto-*` แยกจากสำรองเอง
 - [x] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร — `reports.exportDailyExcel`/`exportRangeExcel` (exceljs ฝั่ง server ส่ง base64, หน้า `/reports` ปุ่มส่งออกรายวัน+ช่วงเวลา ≤92 วัน, เฉพาะ admin/manager), `reports.fuelProfit` + ตารางกำไรต่อลิตรบนหน้าเว็บ; PDF ใช้ปุ่มพิมพ์เดิม → Save as PDF ของเบราว์เซอร์
-- [ ] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์
+- [x] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์ — `catalog.lowStockAlerts` (ถังต่ำกว่า `low_alert_at` + สินค้าต่ำกว่า `low_stock_at`), กระดิ่ง `LowStockAlert.tsx` ใน Layout ทุกหน้า โพล 15 วิ แสดง badge + popover รายการ, เด้ง toast (sonner) ทันทีเมื่อมีรายการใหม่ต่ำกว่าเกณฑ์, การ์ดเตือนเดิมบนหน้าแดชบอร์ดคงไว้
 - [ ] เชื่อมตู้จ่าย/มิเตอร์จริง (ถ้ามีฮาร์ดแวร์รองรับ)
 - [ ] คู่มือใช้งานสำหรับพนักงาน
 

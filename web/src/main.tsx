@@ -5,6 +5,7 @@ import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
 import { StaffProvider } from "@/hooks/useStaff"
 import App from './App.tsx'
+import { Toaster } from "@/components/ui/sonner"
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -12,6 +13,7 @@ createRoot(document.getElementById('root')!).render(
       <TRPCProvider>
         <StaffProvider>
           <App />
+          <Toaster richColors closeButton />
         </StaffProvider>
       </TRPCProvider>
     </BrowserRouter>

@@ -179,6 +179,29 @@ export const catalogRouter = createRouter({
     }));
   }),
 
+  // รายการแจ้งเตือนสต็อกต่ำ: ถังน้ำมันใกล้หมด + สินค้า (ไม่ใช่น้ำมัน) ต่ำกว่าเกณฑ์
+  // ใช้โดยกระดิ่งแจ้งเตือนใน Layout ที่โพลเป็นระยะ — เงื่อนไขต้องตรงกับ pos.dashboard
+  lowStockAlerts: publicQuery.query(async () => {
+    const db = getDb();
+    const [tankRows, prodRows] = await Promise.all([
+      db.query.fuelTanks.findMany(),
+      db.query.products.findMany(),
+    ]);
+    const lowTanks = tankRows
+      .filter((t) => t.currentLiters <= t.lowAlertAt)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        currentLiters: t.currentLiters,
+        capacityLiters: t.capacityLiters,
+        lowAlertAt: t.lowAlertAt,
+      }));
+    const lowProducts = prodRows
+      .filter((p) => p.active && p.category !== "fuel" && p.stockQty <= p.lowStockAt)
+      .map((p) => ({ id: p.id, name: p.name, unit: p.unit, stockQty: p.stockQty, lowStockAt: p.lowStockAt }));
+    return { lowTanks, lowProducts, count: lowTanks.length + lowProducts.length };
+  }),
+
   createTank: adminQuery
     .input(
       z.object({
