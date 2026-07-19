@@ -31,7 +31,9 @@ export default function Settings() {
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
 
-  const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  // โพลทุก 5 วิ — ค่าที่แสดงสดใกล้ realtime: แก้จากเครื่องอื่น (multi-station) หรือที่อื่นแล้วหน้านี้อัปเดตเอง
+  // (ปลอดภัยกับการแก้ค้าง เพราะ sync ฟอร์มแบบ merge เก็บ keys ที่แก้ไว้ไม่ให้โดน refetch ทับ)
+  const { data: settingMap, isPending: settingsPending, isError: settingsError, refetch: refetchSettings } = trpc.catalog.getSettings.useQuery(undefined, { refetchInterval: 5000 });
   const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: staffList } = trpc.auth.listStaff.useQuery();
@@ -239,6 +241,21 @@ export default function Settings() {
     `${prefix || fallback}${String(Math.max(1, Number(next ?? "1") || 1)).padStart(5, "0")}`;
 
   const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
+
+  // ระหว่างโหลด/โหลดพลาด อย่าแสดงฟอร์มค่า default — ผู้ใช้จะเข้าใจผิดว่าค่าที่ตั้งไว้หาย (เคยเกิดเหตุนี้จริง)
+  if (settingsPending) {
+    return (
+      <div className="py-16 text-center text-sm text-muted-foreground">กำลังโหลดการตั้งค่า…</div>
+    );
+  }
+  if (settingsError) {
+    return (
+      <div className="py-16 text-center space-y-3">
+        <p className="text-sm text-destructive">โหลดการตั้งค่าไม่สำเร็จ — เช็กว่าเซิร์ฟเวอร์ทำงานอยู่ แล้วลองใหม่</p>
+        <Button variant="outline" onClick={() => refetchSettings()}>ลองใหม่</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
