@@ -34,7 +34,7 @@ export default function CashDenomCounter({ value, onChange }: Props) {
                 className="h-9 w-24 shrink-0 text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <span className="text-xs text-muted-foreground shrink-0">×</span>
-              <span className="text-sm flex-1 text-right font-medium whitespace-nowrap">฿{fmtMoney(d * n)}</span>
+              <span className="text-sm w-24 shrink-0 text-right font-medium whitespace-nowrap">฿{fmtMoney(d * n)}</span>
             </div>
           );
         })}

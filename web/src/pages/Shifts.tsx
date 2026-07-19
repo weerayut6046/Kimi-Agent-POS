@@ -303,7 +303,7 @@ export default function Shifts() {
 
             {/* นับเงินสดแยกแบงก์/เหรียญ + ยอดเงินโอน */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="border rounded-xl p-3 space-y-2">
+              <div className="border rounded-xl p-3 space-y-2 sm:w-fit">
                 <div className="font-medium text-sm">นับเงินสดในลิ้นชัก (แยกแบงก์/เหรียญ)</div>
                 <CashDenomCounter value={cashCounts} onChange={setCashCounts} />
               </div>
