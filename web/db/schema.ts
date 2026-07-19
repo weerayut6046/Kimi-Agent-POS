@@ -77,6 +77,9 @@ export const shifts = sqliteTable("shifts", {
   posAmount: real("pos_amount").notNull().default(0),
   countedCash: real("counted_cash"), // เงินสดที่นับได้จริงตอนปิดกะ (null = กะเก่าก่อนมีฟีเจอร์นี้)
   transferAmount: real("transfer_amount"), // ยอดเงินที่ลูกค้าโอนตอนปิดกะ
+  openingFloat: real("opening_float").notNull().default(0), // เงินทอนเริ่มกะ
+  expectedCash: real("expected_cash"), // snapshot เงินสดที่ควรมีตอนปิดกะ (null = กะเก่า)
+  cashCounts: text("cash_counts"), // JSON การนับแบงก์/เหรียญตอนปิดกะ เช่น {"1000":2,"500":1}
   note: text("note"),
 });
 
@@ -247,6 +250,7 @@ export const debtPayments = sqliteTable(
     customerId: integer("customer_id").notNull(),
     amount: real("amount").notNull(),
     method: text("method", { enum: ["cash", "qr", "transfer"] }).notNull().default("cash"),
+    shiftId: integer("shift_id"), // กะที่เปิดอยู่ตอนรับชำระ (ถ้ามี)
     staffName: text("staff_name").notNull().default(""),
     note: text("note"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })

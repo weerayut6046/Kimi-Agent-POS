@@ -264,6 +264,9 @@ export default function Reports() {
                     <TableHead className="text-right">ยอดลิตร×ราคา</TableHead>
                     <TableHead className="text-right">ยอด P</TableHead>
                     <TableHead className="text-right">ยอด POS</TableHead>
+                    <TableHead className="text-right">เงินทอน</TableHead>
+                    <TableHead className="text-right">เงินสดนับได้</TableHead>
+                    <TableHead className="text-right">เงินสดต่าง</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -280,11 +283,22 @@ export default function Reports() {
                       <TableCell className="text-right">฿{fmtMoney(s.totalAmount)}</TableCell>
                       <TableCell className="text-right">฿{fmtMoney(s.totalMoneyMeter)}</TableCell>
                       <TableCell className="text-right">฿{fmtMoney(s.posAmount)}</TableCell>
+                      <TableCell className="text-right">{s.openingFloat > 0 ? `฿${fmtMoney(s.openingFloat)}` : "-"}</TableCell>
+                      <TableCell className="text-right">{s.countedCash != null ? `฿${fmtMoney(s.countedCash)}` : "-"}</TableCell>
+                      <TableCell className="text-right">
+                        {s.cashDiff != null ? (
+                          <span className={s.cashDiff < 0 ? "text-red-600 font-medium" : s.cashDiff > 0 ? "text-green-700 font-medium" : ""}>
+                            {s.cashDiff > 0 ? "+" : ""}฿{fmtMoney(s.cashDiff)}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {r.shifts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-muted-foreground py-6">ไม่มีกะในวันนี้</TableCell>
+                      <TableCell colSpan={12} className="text-center text-muted-foreground py-6">ไม่มีกะในวันนี้</TableCell>
                     </TableRow>
                   )}
                 </TableBody>

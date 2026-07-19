@@ -6,7 +6,7 @@ import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
-import { customers, sales, debtPayments } from "@db/schema";
+import { customers, sales, shifts, debtPayments } from "@db/schema";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -83,6 +83,9 @@ export const creditRouter = createRouter({
       const outstanding = await outstandingOf(db, customer.id);
       if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
 
+      // ถ้ามีกะเปิดอยู่ให้ผูก shiftId อัตโนมัติ (เหมือนค่าใช้จ่าย) — ต้องหาก่อนเข้า tx
+      const openShift = await db.query.shifts.findFirst({ where: eq(shifts.status, "open") });
+
       // transaction ของ better-sqlite3 เป็น synchronous — ห้าม await ข้างใน
       const paymentId = db.transaction((tx) => {
         const paymentNo = nextDocNo(tx, "debt_payment");
@@ -93,6 +96,7 @@ export const creditRouter = createRouter({
             customerId: customer.id,
             amount,
             method: input.method,
+            shiftId: openShift?.id ?? null,
             staffName: input.staffName,
             note: input.note,
           })

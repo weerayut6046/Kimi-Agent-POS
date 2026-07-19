@@ -4,6 +4,7 @@ import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
+import { shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
 import { debtPayments, saleItems, sales, shifts } from "@db/schema";
 import {
@@ -81,12 +82,23 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
     profitTotal: r2(v.revenue - v.costPerLiter * v.liters),
   }));
 
-  // ---- กะที่เปิดหรือปิดในวันนั้น ----
+  // ---- กะที่เปิดหรือปิดในวันนั้น (แนบยอดเงินสดควรมี/ส่วนต่างต่อกะ) ----
   const shiftRows = await db
     .select()
     .from(shifts)
     .where(or(inDay(shifts.openedAt), and(gte(shifts.closedAt, start), lt(shifts.closedAt, end))))
     .orderBy(asc(shifts.openedAt));
+  const shiftsWithCash = await Promise.all(
+    shiftRows.map(async (s) => {
+      // ใช้ snapshot ตอนปิดกะถ้ามี; กะเก่า (null) คำนวณย้อนหลังจากข้อมูลปัจจุบัน
+      const cashExpected = s.expectedCash ?? (await shiftCashSummary(db, s)).expectedCash;
+      return {
+        ...s,
+        cashExpected,
+        cashDiff: s.countedCash != null ? r2(s.countedCash - cashExpected) : null,
+      };
+    }),
+  );
 
   // ---- ค่าใช้จ่ายของวัน (logic เดียวกับ expenses.list) ----
   const expenseResult = await queryExpenses(db, { start, end });
@@ -119,7 +131,7 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
     fuelLiters,
     totalLiters,
     fuelProfit,
-    shifts: shiftRows,
+    shifts: shiftsWithCash,
     expenses: expenseResult,
     debtPayments: { items: debtItems, total: debtTotal, byMethod: debtByMethod },
     // เงินสดที่ควรมีในลิ้นชัก = ขายเงินสด + รับชำระหนี้เงินสด − ค่าใช้จ่าย

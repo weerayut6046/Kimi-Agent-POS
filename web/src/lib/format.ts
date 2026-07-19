@@ -55,6 +55,10 @@ export const categoryLabel: Record<string, string> = {
   other: "สินค้าอื่นๆ",
 };
 
+/** ป้ายชื่อแบงก์/เหรียญตอนนับเงินสด เช่น แบงก์ 1,000 / เหรียญ 10 / เหรียญ 50 สตางค์ */
+export const cashDenomLabel = (d: number) =>
+  d >= 20 ? `แบงก์ ${fmtNum(d)}` : d >= 1 ? `เหรียญ ${fmtNum(d)}` : `เหรียญ ${fmtNum(d * 100)} สตางค์`;
+
 export const roleLabel: Record<string, string> = {
   admin: "ผู้ดูแลระบบ",
   manager: "ผู้จัดการสาขา",

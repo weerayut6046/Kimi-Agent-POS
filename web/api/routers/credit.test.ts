@@ -202,6 +202,57 @@ describe("รับชำระหนี้", () => {
   });
 });
 
+describe("รับชำระหนี้ผูกกะ (shift)", () => {
+  it("มีกะเปิดอยู่ → การชำระผูก shiftId และนับเข้ายอดเงินสดควรมีของกะ", async () => {
+    const water = await productByCode("WATER");
+    const cust = await createCustomer();
+    await t.caller().pos.createSale({
+      items: [{ productId: water.id, qty: 4 }], // 40 บาท
+      paymentMethod: "credit",
+      customerId: cust.id,
+    });
+
+    // เปิดกะด้วยเงินทอน 100
+    const nz = (await t.db.query.nozzles.findMany()).sort((a, b) => a.id - b.id);
+    const { shiftId } = await t.caller().pos.openShift({
+      staffName: "กะเครดิต",
+      openingFloat: 100,
+      readings: nz.map((n) => ({ nozzleId: n.id, openMeter: n.currentMeter, openMoney: n.currentMoney })),
+    });
+
+    const payment = await t.caller().credit.receivePayment({
+      customerId: cust.id,
+      amount: 40,
+      method: "cash",
+      staffName: "กะเครดิต",
+    });
+    expect(payment!.shiftId).toBe(shiftId);
+
+    // ยอดเงินสดควรมีของกะรวมชำระหนี้เงินสดด้วย
+    const cur = await t.caller().pos.currentShift();
+    expect(cur!.cash.cashDebtPayments).toBe(40);
+    expect(cur!.cash.expectedCash).toBe(140); // เงินทอน 100 + ชำระหนี้เงินสด 40
+
+    // ปิดกะเก็บ (ไม่นับเงิน)
+    await t.caller().pos.closeShift({
+      shiftId,
+      readings: nz.map((n) => ({ nozzleId: n.id, closeMeter: n.currentMeter, closeMoney: n.currentMoney })),
+    });
+  });
+
+  it("ไม่มีกะเปิดอยู่ → shiftId เป็น null", async () => {
+    const water = await productByCode("WATER");
+    const cust = await createCustomer();
+    await t.caller().pos.createSale({
+      items: [{ productId: water.id, qty: 1 }], // 10 บาท
+      paymentMethod: "credit",
+      customerId: cust.id,
+    });
+    const payment = await t.caller().credit.receivePayment({ customerId: cust.id, amount: 10 });
+    expect(payment!.shiftId).toBeNull();
+  });
+});
+
 describe("ลบลูกค้า", () => {
   it("ลูกค้ามียอดค้างชำระ → ลบไม่ได้", async () => {
     const water = await productByCode("WATER");

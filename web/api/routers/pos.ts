@@ -6,6 +6,8 @@ import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { shiftCashSummary } from "../lib/cash";
+import { isValidCashCounts, sumCashCounts, type CashCounts } from "@contracts/cash";
 import {
   products,
   nozzles,
@@ -75,8 +77,10 @@ export const posRouter = createRouter({
     const readings = await db.select().from(shiftReadings).where(eq(shiftReadings.shiftId, shift.id));
     const nozzleRows = await db.query.nozzles.findMany();
     const pumpRows = await db.query.pumps.findMany();
+    const cash = await shiftCashSummary(db, shift);
     return {
       ...shift,
+      cash, // สรุปเงินสดของกะ (ใช้โชว์ยอด "ควรมี" ตอนปิดกะ)
       readings: readings.map((r) => {
         const nz = nozzleRows.find((n) => n.id === r.nozzleId);
         return { ...r, nozzle: nz ?? null, pump: pumpRows.find((p) => p.id === nz?.pumpId) ?? null };
@@ -89,6 +93,7 @@ export const posRouter = createRouter({
       z.object({
         staffId: z.number().optional(),
         staffName: z.string().min(1),
+        openingFloat: z.number().nonnegative().default(0), // เงินทอนเริ่มกะ
         readings: z
           .array(
             z.object({
@@ -109,7 +114,7 @@ export const posRouter = createRouter({
 
       const [{ id: shiftId }] = await db
         .insert(shifts)
-        .values({ staffId: input.staffId, staffName: input.staffName })
+        .values({ staffId: input.staffId, staffName: input.staffName, openingFloat: r2(input.openingFloat) })
         .returning({ id: shifts.id });
       for (const rd of input.readings) {
         const nz = nozzleRows.find((n) => n.id === rd.nozzleId);
@@ -138,19 +143,31 @@ export const posRouter = createRouter({
             }),
           )
           .min(1),
-        countedCash: z.number().nonnegative().optional(), // เงินสดที่นับได้จริงตอนปิดกะ
+        countedCash: z.number().nonnegative().optional(), // เงินสดที่นับได้จริงตอนปิดกะ (กรณีไม่ได้นับแบงก์)
         transferAmount: z.number().nonnegative().optional(), // ยอดเงินที่ลูกค้าโอน
+        cashCounts: z.record(z.string(), z.number().int().nonnegative()).optional(), // การนับแบงก์/เหรียญ
         note: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const shift = await db.query.shifts.findFirst({ where: eq(shifts.id, input.shiftId) });
       if (!shift || shift.status !== "open") throw new Error("ไม่พบกะที่เปิดอยู่");
 
+      // ถ้าส่งการนับแบงก์/เหรียญมา → คำนวณยอดเงินสดนับได้ฝั่งเซิร์ฟเวอร์ (ไม่เชื่อยอดจาก client)
+      let countedCash = input.countedCash != null ? r2(input.countedCash) : null;
+      let cashCountsJson: string | null = null;
+      if (input.cashCounts != null) {
+        if (!isValidCashCounts(input.cashCounts)) throw new Error("มูลค่าแบงก์/เหรียญไม่ถูกต้อง");
+        countedCash = sumCashCounts(input.cashCounts);
+        cashCountsJson = JSON.stringify(input.cashCounts);
+      }
+
       const readings = await db.select().from(shiftReadings).where(eq(shiftReadings.shiftId, shift.id));
       const nozzleRows = await db.query.nozzles.findMany();
       const tankRows = await db.query.fuelTanks.findMany();
+      // คำนวณเงินสดที่ควรมีก่อนเข้า transaction (tx ของ better-sqlite3 เป็น sync ห้าม await ข้างใน)
+      const cash = await shiftCashSummary(db, shift);
 
       let totalLiters = 0;
       let totalAmount = 0;
@@ -206,12 +223,25 @@ export const posRouter = createRouter({
             totalAmount,
             totalMoneyMeter,
             posAmount: r2(posRows[0]?.sum ?? 0),
-            countedCash: input.countedCash != null ? r2(input.countedCash) : null,
+            countedCash,
             transferAmount: input.transferAmount != null ? r2(input.transferAmount) : null,
+            expectedCash: cash.expectedCash, // snapshot ยอดควรมี ณ ตอนปิดกะ
+            cashCounts: cashCountsJson,
             note: input.note,
           })
           .where(eq(shifts.id, shift.id))
           .run();
+      });
+
+      const cashDiff = countedCash != null ? r2(countedCash - cash.expectedCash) : null;
+      logAudit({
+        action: "close_shift",
+        ...actorFromReq(ctx.req),
+        detail:
+          `ปิดกะ #${shift.id} (${shift.staffName}) ลิตร ${totalLiters} ยอด P ${totalMoneyMeter} ` +
+          `เงินทอน ${cash.openingFloat} เงินสดควรมี ${cash.expectedCash} นับได้ ${countedCash ?? "-"} ต่าง ${cashDiff ?? "-"}`,
+        refType: "shift",
+        refId: shift.id,
       });
       return { ok: true, totalLiters, totalAmount, totalMoneyMeter, diff: r2(totalMoneyMeter - totalAmount) };
     }),
@@ -235,8 +265,20 @@ export const posRouter = createRouter({
       .from(sales)
       .where(eq(sales.shiftId, shift.id))
       .orderBy(desc(sales.createdAt));
+    const cash = await shiftCashSummary(db, shift);
+    // parse JSON การนับแบงก์/เหรียญ (กะเก่า/ข้อมูลเสีย → null)
+    let cashCounts: CashCounts | null = null;
+    if (shift.cashCounts) {
+      try {
+        cashCounts = JSON.parse(shift.cashCounts) as CashCounts;
+      } catch {
+        cashCounts = null;
+      }
+    }
     return {
       ...shift,
+      cashCounts,
+      cash, // สรุปเงินสด (กะเก่าที่ expectedCash เป็น null ใช้ยอดคำนวณย้อนหลังจากตัวนี้)
       sales: saleRows,
       readings: readings.map((r) => {
         const nz = nozzleRows.find((n) => n.id === r.nozzleId);

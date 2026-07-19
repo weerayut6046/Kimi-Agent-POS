@@ -22,6 +22,13 @@
       "when": 1784419115554,
       "tag": "0002_smooth_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784431262611,
+      "tag": "0003_whole_jack_power",
+      "breakpoints": true
     }
   ]
 }

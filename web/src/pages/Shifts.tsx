@@ -20,7 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { fmtMoney, fmtNum, fmtDateTime } from "@/lib/format";
+import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
+import CashDenomCounter from "@/components/CashDenomCounter";
+import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const DIFF_TOLERANCE = 1; // บาท
@@ -59,7 +61,9 @@ export default function Shifts() {
 
   const [openVals, setOpenVals] = useState<Record<number, { l?: string; p?: string }>>({});
   const [closeVals, setCloseVals] = useState<Record<number, { l?: string; p?: string }>>({});
-  const [moneyVals, setMoneyVals] = useState<{ cash?: string; transfer?: string }>({});
+  const [floatVal, setFloatVal] = useState(""); // เงินทอนเริ่มกะ
+  const [cashCounts, setCashCounts] = useState<Record<string, string>>({}); // การนับแบงก์/เหรียญตอนปิดกะ
+  const [transferVal, setTransferVal] = useState(""); // ยอดเงินที่ลูกค้าโอน
   const [detailId, setDetailId] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
@@ -77,11 +81,11 @@ export default function Shifts() {
   };
 
   const openShift = trpc.pos.openShift.useMutation({
-    onSuccess: () => { invalidate(); setErr(""); setOpenVals({}); },
+    onSuccess: () => { invalidate(); setErr(""); setOpenVals({}); setFloatVal(""); },
     onError: (e) => setErr(e.message),
   });
   const closeShift = trpc.pos.closeShift.useMutation({
-    onSuccess: () => { invalidate(); setCloseVals({}); setMoneyVals({}); setErr(""); },
+    onSuccess: () => { invalidate(); setCloseVals({}); setCashCounts({}); setTransferVal(""); setErr(""); },
     onError: (e) => setErr(e.message),
   });
 
@@ -113,6 +117,14 @@ export default function Shifts() {
       filled,
     };
   }, [closeVals, currentShift]);
+
+  // ยอดเงินสดที่นับได้จากการนับแบงก์/เหรียญ (realtime)
+  const countedTotal = useMemo(() => {
+    const numeric: Record<string, number> = {};
+    for (const [k, v] of Object.entries(cashCounts)) numeric[k] = Number(v) || 0;
+    return sumCashCounts(numeric);
+  }, [cashCounts]);
+  const hasCounts = Object.values(cashCounts).some((v) => Number(v) > 0);
 
   if (isLoading) return <div className="py-20 text-center text-muted-foreground">กำลังโหลด...</div>;
 
@@ -169,6 +181,16 @@ export default function Shifts() {
                 </div>
               ))}
             </div>
+            <div className="border rounded-xl p-3 flex items-center gap-3 max-w-md">
+              <span className="text-sm font-medium whitespace-nowrap">เงินทอนเริ่มกะ (บาท)</span>
+              <Input
+                type="number" step="0.01" min="0"
+                placeholder="0.00"
+                value={floatVal}
+                onChange={(e) => setFloatVal(e.target.value)}
+                className="h-9"
+              />
+            </div>
             <Button
               className="w-full sm:w-auto h-11"
               disabled={openShift.isPending || nozzleList.length === 0}
@@ -176,6 +198,7 @@ export default function Shifts() {
                 openShift.mutate({
                   staffId: staff?.id,
                   staffName: staff?.name ?? "",
+                  openingFloat: Number(floatVal) || 0,
                   readings: nozzleList.map((n) => ({
                     nozzleId: n.id,
                     openMeter: Number(openVals[n.id]?.l ?? n.currentMeter),
@@ -257,25 +280,40 @@ export default function Shifts() {
               })}
             </div>
 
-            {/* ยอดเงินที่นับได้ตอนปิดกะ */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="border rounded-xl p-3 space-y-2">
-                <div className="font-medium text-sm">เงินสดที่นับได้ (บาท)</div>
-                <Input
-                  type="number" step="0.01" min="0"
-                  placeholder="จำนวนเงินสดในลิ้นชัก"
-                  value={moneyVals.cash ?? ""}
-                  onChange={(e) => setMoneyVals((m) => ({ ...m, cash: e.target.value }))}
-                  className="h-9"
-                />
+            {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div>
+                <div className="text-xs text-muted-foreground">
+                  เงินทอน ฿{fmtMoney(currentShift.cash.openingFloat)}
+                  {" + "}ขายเงินสด ฿{fmtMoney(currentShift.cash.cashSales)}
+                  {" + "}ชำระหนี้เงินสด ฿{fmtMoney(currentShift.cash.cashDebtPayments)}
+                  {" − "}ค่าใช้จ่าย ฿{fmtMoney(currentShift.cash.expensesTotal)}
+                </div>
+                <div className="font-heading text-xl font-semibold text-amber-700">
+                  ควรมี ฿{fmtMoney(currentShift.cash.expectedCash)}
+                </div>
               </div>
+              {hasCounts && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">นับได้ <b>฿{fmtMoney(countedTotal)}</b></span>
+                  <DiffBadge diff={r2(countedTotal - currentShift.cash.expectedCash)} />
+                </div>
+              )}
+            </div>
+
+            {/* นับเงินสดแยกแบงก์/เหรียญ + ยอดเงินโอน */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="border rounded-xl p-3 space-y-2">
+                <div className="font-medium text-sm">นับเงินสดในลิ้นชัก (แยกแบงก์/เหรียญ)</div>
+                <CashDenomCounter value={cashCounts} onChange={setCashCounts} />
+              </div>
+              <div className="border rounded-xl p-3 space-y-2 self-start">
                 <div className="font-medium text-sm">ยอดเงินที่ลูกค้าโอน (บาท)</div>
                 <Input
                   type="number" step="0.01" min="0"
                   placeholder="ยอดโอนเข้าบัญชีร้าน"
-                  value={moneyVals.transfer ?? ""}
-                  onChange={(e) => setMoneyVals((m) => ({ ...m, transfer: e.target.value }))}
+                  value={transferVal}
+                  onChange={(e) => setTransferVal(e.target.value)}
                   className="h-9"
                 />
               </div>
@@ -295,11 +333,11 @@ export default function Shifts() {
                   <div className="text-xs text-muted-foreground">ยอดจากมิเตอร์เงิน (P)</div>
                   <div className="font-heading text-xl font-semibold text-indigo-600">฿{fmtMoney(closePreview.money)}</div>
                 </div>
-                {(moneyVals.cash || moneyVals.transfer) && (
+                {(hasCounts || transferVal) && (
                   <div>
                     <div className="text-xs text-muted-foreground">รวมเงินที่นับได้ (สด + โอน)</div>
                     <div className="font-heading text-xl font-semibold text-green-700">
-                      ฿{fmtMoney(r2((Number(moneyVals.cash) || 0) + (Number(moneyVals.transfer) || 0)))}
+                      ฿{fmtMoney(r2(countedTotal + (Number(transferVal) || 0)))}
                     </div>
                   </div>
                 )}
@@ -313,7 +351,15 @@ export default function Shifts() {
               variant="destructive"
               className="w-full sm:w-auto h-11"
               disabled={closeShift.isPending || !closePreview?.filled}
-              onClick={() =>
+              onClick={() => {
+                // ส่งเฉพาะช่องที่กรอกจริง (จำนวน > 0) — ถ้าไม่ได้นับเลยไม่ส่ง cashCounts (บันทึกเป็น null เหมือนเดิม)
+                const countsPayload = hasCounts
+                  ? Object.fromEntries(
+                      Object.entries(cashCounts)
+                        .map(([k, v]) => [k, Number(v)] as const)
+                        .filter(([, n]) => n > 0),
+                    )
+                  : undefined;
                 closeShift.mutate({
                   shiftId: currentShift.id,
                   readings: currentShift.readings.map((r) => ({
@@ -321,10 +367,10 @@ export default function Shifts() {
                     closeMeter: Number(closeVals[r.nozzleId]?.l),
                     closeMoney: Number(closeVals[r.nozzleId]?.p),
                   })),
-                  ...(moneyVals.cash ? { countedCash: Number(moneyVals.cash) } : {}),
-                  ...(moneyVals.transfer ? { transferAmount: Number(moneyVals.transfer) } : {}),
-                })
-              }
+                  ...(countsPayload ? { cashCounts: countsPayload } : {}),
+                  ...(transferVal ? { transferAmount: Number(transferVal) } : {}),
+                });
+              }}
             >
               <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ (หักถังอัตโนมัติ)
             </Button>
@@ -348,7 +394,9 @@ export default function Shifts() {
                 <TableHead className="text-right">ลิตร</TableHead>
                 <TableHead>เทียบ</TableHead>
                 <TableHead className="text-right">ยอด POS</TableHead>
+                <TableHead className="text-right">เงินทอน</TableHead>
                 <TableHead className="text-right">เงินสดนับได้</TableHead>
+                <TableHead>เงินสดต่าง</TableHead>
                 <TableHead className="text-right">ยอดโอน</TableHead>
                 <TableHead>สถานะ</TableHead>
                 <TableHead></TableHead>
@@ -368,7 +416,15 @@ export default function Shifts() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">฿{fmtMoney(s.posAmount)}</TableCell>
+                  <TableCell className="text-right">{s.openingFloat > 0 ? `฿${fmtMoney(s.openingFloat)}` : "-"}</TableCell>
                   <TableCell className="text-right">{s.countedCash != null ? `฿${fmtMoney(s.countedCash)}` : "-"}</TableCell>
+                  <TableCell>
+                    {s.countedCash != null && s.expectedCash != null ? (
+                      <DiffBadge diff={r2(s.countedCash - s.expectedCash)} />
+                    ) : (
+                      "-"
+                    )}
+                  </TableCell>
                   <TableCell className="text-right">{s.transferAmount != null ? `฿${fmtMoney(s.transferAmount)}` : "-"}</TableCell>
                   <TableCell>
                     {s.status === "open" ? (
@@ -385,7 +441,7 @@ export default function Shifts() {
                 </TableRow>
               ))}
               {(history ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">ยังไม่มีประวัติ</TableCell></TableRow>
+                <TableRow><TableCell colSpan={13} className="text-center text-muted-foreground py-8">ยังไม่มีประวัติ</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -442,14 +498,46 @@ export default function Shifts() {
                 <div>ยอดจากลิตร: <b>฿{fmtMoney(detail.totalAmount)}</b></div>
                 <div>รวมลิตร: <b>{fmtNum(detail.totalLiters)}</b></div>
                 <div>ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b></div>
-                {detail.countedCash != null && (
-                  <div>เงินสดนับได้: <b>฿{fmtMoney(detail.countedCash)}</b></div>
-                )}
-                {detail.transferAmount != null && (
-                  <div>ยอดเงินโอน: <b>฿{fmtMoney(detail.transferAmount)}</b></div>
-                )}
                 {detail.status === "closed" && (
                   <DiffBadge diff={r2(detail.totalMoneyMeter - detail.totalAmount)} />
+                )}
+              </div>
+
+              {/* กระทบยอดเงินสด */}
+              <div className="border rounded-xl p-3 space-y-2">
+                <div className="font-medium">กระทบยอดเงินสด</div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                  <span>เงินทอนเริ่มกะ: <b>฿{fmtMoney(detail.openingFloat)}</b></span>
+                  <span>ขายเงินสด: <b>฿{fmtMoney(detail.cash.cashSales)}</b></span>
+                  <span>ชำระหนี้เงินสด: <b>฿{fmtMoney(detail.cash.cashDebtPayments)}</b></span>
+                  <span>ค่าใช้จ่าย: <b>฿{fmtMoney(detail.cash.expensesTotal)}</b></span>
+                  <span>
+                    เงินสดควรมี: <b>฿{fmtMoney(detail.expectedCash ?? detail.cash.expectedCash)}</b>
+                    {detail.expectedCash == null && (
+                      <span className="text-xs text-amber-600"> (คำนวณย้อนหลัง)</span>
+                    )}
+                  </span>
+                  {detail.countedCash != null && (
+                    <span className="flex items-center gap-2">
+                      นับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
+                      <DiffBadge diff={r2(detail.countedCash - (detail.expectedCash ?? detail.cash.expectedCash))} />
+                    </span>
+                  )}
+                  {detail.transferAmount != null && (
+                    <span>ยอดเงินโอน: <b>฿{fmtMoney(detail.transferAmount)}</b></span>
+                  )}
+                </div>
+                {detail.cashCounts && Object.keys(detail.cashCounts).length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground border-t pt-2">
+                    {CASH_DENOMINATIONS.filter((d) => (detail.cashCounts?.[String(d)] ?? 0) > 0).map((d) => {
+                      const n = detail.cashCounts?.[String(d)] ?? 0;
+                      return (
+                        <span key={d}>
+                          {cashDenomLabel(d)} × {n} = ฿{fmtMoney(d * n)}
+                        </span>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>
