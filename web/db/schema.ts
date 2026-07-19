@@ -75,6 +75,8 @@ export const shifts = sqliteTable("shifts", {
   totalAmount: real("total_amount").notNull().default(0),
   totalMoneyMeter: real("total_money_meter").notNull().default(0), // ยอดจากมิเตอร์เงิน P
   posAmount: real("pos_amount").notNull().default(0),
+  countedCash: real("counted_cash"), // เงินสดที่นับได้จริงตอนปิดกะ (null = กะเก่าก่อนมีฟีเจอร์นี้)
+  transferAmount: real("transfer_amount"), // ยอดเงินที่ลูกค้าโอนตอนปิดกะ
   note: text("note"),
 });
 

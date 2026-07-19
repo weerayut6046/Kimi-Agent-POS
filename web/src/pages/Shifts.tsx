@@ -59,6 +59,7 @@ export default function Shifts() {
 
   const [openVals, setOpenVals] = useState<Record<number, { l?: string; p?: string }>>({});
   const [closeVals, setCloseVals] = useState<Record<number, { l?: string; p?: string }>>({});
+  const [moneyVals, setMoneyVals] = useState<{ cash?: string; transfer?: string }>({});
   const [detailId, setDetailId] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
@@ -80,7 +81,7 @@ export default function Shifts() {
     onError: (e) => setErr(e.message),
   });
   const closeShift = trpc.pos.closeShift.useMutation({
-    onSuccess: () => { invalidate(); setCloseVals({}); setErr(""); },
+    onSuccess: () => { invalidate(); setCloseVals({}); setMoneyVals({}); setErr(""); },
     onError: (e) => setErr(e.message),
   });
 
@@ -256,6 +257,30 @@ export default function Shifts() {
               })}
             </div>
 
+            {/* ยอดเงินที่นับได้ตอนปิดกะ */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="border rounded-xl p-3 space-y-2">
+                <div className="font-medium text-sm">เงินสดที่นับได้ (บาท)</div>
+                <Input
+                  type="number" step="0.01" min="0"
+                  placeholder="จำนวนเงินสดในลิ้นชัก"
+                  value={moneyVals.cash ?? ""}
+                  onChange={(e) => setMoneyVals((m) => ({ ...m, cash: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="border rounded-xl p-3 space-y-2">
+                <div className="font-medium text-sm">ยอดเงินที่ลูกค้าโอน (บาท)</div>
+                <Input
+                  type="number" step="0.01" min="0"
+                  placeholder="ยอดโอนเข้าบัญชีร้าน"
+                  value={moneyVals.transfer ?? ""}
+                  onChange={(e) => setMoneyVals((m) => ({ ...m, transfer: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
             {closePreview && closePreview.filled && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
                 <div>
@@ -270,6 +295,14 @@ export default function Shifts() {
                   <div className="text-xs text-muted-foreground">ยอดจากมิเตอร์เงิน (P)</div>
                   <div className="font-heading text-xl font-semibold text-indigo-600">฿{fmtMoney(closePreview.money)}</div>
                 </div>
+                {(moneyVals.cash || moneyVals.transfer) && (
+                  <div>
+                    <div className="text-xs text-muted-foreground">รวมเงินที่นับได้ (สด + โอน)</div>
+                    <div className="font-heading text-xl font-semibold text-green-700">
+                      ฿{fmtMoney(r2((Number(moneyVals.cash) || 0) + (Number(moneyVals.transfer) || 0)))}
+                    </div>
+                  </div>
+                )}
                 <div className="ml-auto">
                   <DiffBadge diff={closePreview.diff} />
                 </div>
@@ -288,6 +321,8 @@ export default function Shifts() {
                     closeMeter: Number(closeVals[r.nozzleId]?.l),
                     closeMoney: Number(closeVals[r.nozzleId]?.p),
                   })),
+                  ...(moneyVals.cash ? { countedCash: Number(moneyVals.cash) } : {}),
+                  ...(moneyVals.transfer ? { transferAmount: Number(moneyVals.transfer) } : {}),
                 })
               }
             >
@@ -313,6 +348,8 @@ export default function Shifts() {
                 <TableHead className="text-right">ลิตร</TableHead>
                 <TableHead>เทียบ</TableHead>
                 <TableHead className="text-right">ยอด POS</TableHead>
+                <TableHead className="text-right">เงินสดนับได้</TableHead>
+                <TableHead className="text-right">ยอดโอน</TableHead>
                 <TableHead>สถานะ</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -331,6 +368,8 @@ export default function Shifts() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">฿{fmtMoney(s.posAmount)}</TableCell>
+                  <TableCell className="text-right">{s.countedCash != null ? `฿${fmtMoney(s.countedCash)}` : "-"}</TableCell>
+                  <TableCell className="text-right">{s.transferAmount != null ? `฿${fmtMoney(s.transferAmount)}` : "-"}</TableCell>
                   <TableCell>
                     {s.status === "open" ? (
                       <Badge className="bg-green-600 hover:bg-green-600">เปิดอยู่</Badge>
@@ -346,7 +385,7 @@ export default function Shifts() {
                 </TableRow>
               ))}
               {(history ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">ยังไม่มีประวัติ</TableCell></TableRow>
+                <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">ยังไม่มีประวัติ</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -403,6 +442,12 @@ export default function Shifts() {
                 <div>ยอดจากลิตร: <b>฿{fmtMoney(detail.totalAmount)}</b></div>
                 <div>รวมลิตร: <b>{fmtNum(detail.totalLiters)}</b></div>
                 <div>ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b></div>
+                {detail.countedCash != null && (
+                  <div>เงินสดนับได้: <b>฿{fmtMoney(detail.countedCash)}</b></div>
+                )}
+                {detail.transferAmount != null && (
+                  <div>ยอดเงินโอน: <b>฿{fmtMoney(detail.transferAmount)}</b></div>
+                )}
                 {detail.status === "closed" && (
                   <DiffBadge diff={r2(detail.totalMoneyMeter - detail.totalAmount)} />
                 )}

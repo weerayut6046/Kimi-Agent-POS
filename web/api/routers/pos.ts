@@ -138,6 +138,8 @@ export const posRouter = createRouter({
             }),
           )
           .min(1),
+        countedCash: z.number().nonnegative().optional(), // เงินสดที่นับได้จริงตอนปิดกะ
+        transferAmount: z.number().nonnegative().optional(), // ยอดเงินที่ลูกค้าโอน
         note: z.string().optional(),
       }),
     )
@@ -204,6 +206,8 @@ export const posRouter = createRouter({
             totalAmount,
             totalMoneyMeter,
             posAmount: r2(posRows[0]?.sum ?? 0),
+            countedCash: input.countedCash != null ? r2(input.countedCash) : null,
+            transferAmount: input.transferAmount != null ? r2(input.transferAmount) : null,
             note: input.note,
           })
           .where(eq(shifts.id, shift.id))

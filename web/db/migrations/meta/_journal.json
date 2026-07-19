@@ -15,6 +15,13 @@
       "when": 1784390463594,
       "tag": "0001_bumpy_nemesis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784419115554,
+      "tag": "0002_smooth_randall",
+      "breakpoints": true
     }
   ]
 }

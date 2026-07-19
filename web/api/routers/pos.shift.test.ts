@@ -72,6 +72,8 @@ describe("openShift / closeShift", () => {
         closeMeter: n.currentMeter + (i === 0 ? 25 : 0),
         closeMoney: n.currentMoney + (i === 0 ? 1018.5 : 0),
       })),
+      countedCash: 700,
+      transferAmount: 318.5,
     });
 
     expect(res.totalLiters).toBe(25);
@@ -79,11 +81,13 @@ describe("openShift / closeShift", () => {
     expect(res.totalMoneyMeter).toBe(1018.5);
     expect(res.diff).toBe(0); // P เท่ากับ ลิตร × ราคา
 
-    // กะปิดแล้ว + ยอด POS ในกะ
+    // กะปิดแล้ว + ยอด POS ในกะ + ยอดเงินสดนับได้/ยอดโอนที่บันทึกตอนปิดกะ
     const hist = await t.caller().pos.shiftHistory();
     const closed = hist.find((s) => s.id === cur!.id)!;
     expect(closed.status).toBe("closed");
     expect(closed.posAmount).toBe(20);
+    expect(closed.countedCash).toBe(700);
+    expect(closed.transferAmount).toBe(318.5);
 
     // มิเตอร์หัวจ่ายอัปเดต และถัง GSH95 ถูกหัก 25 ลิตร
     expect((await allNozzles())[0]!.currentMeter).toBe(152365.5);
@@ -114,6 +118,12 @@ describe("openShift / closeShift", () => {
     expect(res.totalMoneyMeter).toBe(0);
     // แต่ P ปลายทางถูกบันทึกลงหัวจ่าย
     expect((await allNozzles())[0]!.currentMoney).toBe(5000);
+
+    // ไม่ส่งยอดเงินนับ → บันทึกเป็น null (กะเก่า/ไม่ได้กรอก)
+    const hist = await t.caller().pos.shiftHistory();
+    const closed = hist.find((s) => s.id === shiftId)!;
+    expect(closed.countedCash).toBeNull();
+    expect(closed.transferAmount).toBeNull();
   });
 
   it("ปิดกะที่ไม่มีอยู่จริง → error", async () => {
