@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { fitWindowToWorkArea } from "../windowBounds";
 
 // main ถูก bundle เป็น CJS (dist/electron/main.cjs) — runtime มี __dirname ให้
 // (import 'electron' ใน CJS คืน API object เต็มรูปแบบเสมอ ต่างจาก ESM ที่มีข้อจำกัด)
@@ -144,11 +145,10 @@ async function startServer() {
 }
 
 function createWindow(url: string) {
+  const bounds = fitWindowToWorkArea(screen.getPrimaryDisplay().workAreaSize);
   const win = new BrowserWindow({
-    width: 1366,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 700,
+    ...bounds,
+    center: true,
     autoHideMenuBar: true,
     backgroundColor: "#0f172a",
     title: "POS ปั๊มน้ำมัน",

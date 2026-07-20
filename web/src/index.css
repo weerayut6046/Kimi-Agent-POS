@@ -68,11 +68,20 @@
 }
 
 @layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100%;
+  }
+
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+    min-width: 0;
+    overflow-x: hidden;
     font-family: 'Sarabun', ui-sans-serif, system-ui, sans-serif;
   }
   h1, h2, h3, .font-heading {
