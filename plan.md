@@ -15,16 +15,16 @@
 
 ## 2. เทคโนโลยีที่ใช้
 
-| ส่วน        | เทคโนโลยี                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------- |
-| Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query            |
-| Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                |
-| Database    | SQLite + Drizzle ORM (migrations ใน `web/db/migrations/`) — เดิมใช้ MySQL เปลี่ยนใน Phase 11 |
-| Validation  | Zod                                                                                          |
-| Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                 |
-| Deploy      | Windows `.exe` หรือ Docker Compose service เดียว + SQLite volume `db_data`                   |
-| Auto Update | electron-updater + Google Cloud Storage (generic provider)                                   |
-| เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                        |
+| ส่วน        | เทคโนโลยี                                                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query                                             |
+| Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                                                 |
+| Database    | SQLite + Drizzle ORM (migrations ใน `web/db/migrations/`) — เดิมใช้ MySQL เปลี่ยนใน Phase 11                                  |
+| Validation  | Zod                                                                                                                           |
+| Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                                                  |
+| Deploy      | Windows `.exe`, Docker Compose service เดียว + SQLite volume `db_data` หรือ Web ออนไลน์ Vercel (frontend) + Railway (backend) |
+| Auto Update | electron-updater + Google Cloud Storage (generic provider)                                                                    |
+| เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                                                         |
 
 โครงสร้างหลัก: `web/` คือ web app ทั้งก้อน — `web/src/` (หน้าจอ), `web/api/` (tRPC routers), `web/db/` (schema, migrations, seed), `web/contracts/` (types/errors ที่แชร์กัน) — ส่วน `desktop/` เป็น Electron shell ที่ห่อ web app
 
@@ -140,6 +140,8 @@
 - [x] เพิ่มการตั้งค่ากระดาษใบกำกับภาษี A4/A5 พร้อมปรับ preview และ print layout
 - [x] ปรับ Desktop ให้ responsive บนจอขนาดเล็ก ปรับขนาดหน้าต่างเริ่มต้นตาม work area และให้หน้า/dialog เลื่อนด้วยล้อเมาส์ได้
 - [x] UX/UI Station Console (`1.0.20`) — design tokens/component กลาง, navigation แบ่งกลุ่ม, สถานะกะ, Login/Dashboard/POS ใหม่, touch target ใหญ่ขึ้น, safe-area mobile, bottom navigation และ mobile cart sheet
+- [x] พนักงานและตารางงาน (workforce) — ตาราง `work_shift_templates`/`work_schedules`/`employee_profiles`/`payroll_records` (migration 0007), router `workforce` (admin จัดการแม่แบบกะ/ตารางเวร/สลับเวร/โปรไฟล์/เงินเดือน พนักงานดูของตัวเองผ่าน `myProfile`/`myPayroll`), หน้า `/workforce` เมนู "พนักงานและตารางงาน"
+- [x] admin จัดการประวัติตัดกะ — `pos.shiftHistory`/`createShiftHistory`/`updateShiftHistory`/`deleteShiftHistory` (เฉพาะ admin) เพิ่ม/แก้/ลบประวัติตัดกะย้อนหลังพร้อมมิเตอร์รายหัวจ่าย บันทึก audit log ทุก action
 - [x] เอกสารลูกค้าเครดิต A4 (`1.0.20`) — ใบขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร พร้อม preview/print จากเมนูเอกสาร; จำกัดผู้ใช้ admin/manager และจำกัดการรับชำระหนี้ให้ผู้จัดการขึ้นไป
 - [ ] เชื่อมตู้จ่าย/มิเตอร์จริง (ถ้ามีฮาร์ดแวร์รองรับ)
 - [ ] คู่มือใช้งานสำหรับพนักงาน
@@ -154,6 +156,7 @@
 
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.18` ไป `gs://kimi-agent-pos-updates`
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.20` ไป GCS พร้อมตรวจ HTTP 200, Content-Length, cache policy และ HTTP range
+- [x] Deploy เว็บออนไลน์ — frontend บน Vercel (`kimi-agent-pos.vercel.app`) rewrite `/api/*` ไป backend Docker บน Railway (volume `/data` ถาวร) ตาม `vercel.json`/`railway.toml` (รายละเอียด [`PROJECT.md`](./PROJECT.md) หัวข้อ 11)
 - [x] สร้าง NSIS Wizard ภาษาไทยพร้อม EULA/โลโก้ KY และติดตั้งสำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)
 - [x] ตรวจ public URL, ขนาดไฟล์, SHA metadata และการรองรับ HTTP range
 - [x] ย้าย updater configuration จาก GitHub Releases ไป GCS generic provider
@@ -172,7 +175,7 @@
 
 ## 6. การติดตั้งและส่งมอบ
 
-- ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build`
+- ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build` หรือ Web ออนไลน์ Vercel + Railway (PROJECT.md หัวข้อ 11)
 - ไฟล์อัปเดต Desktop รุ่น `1.0.18` เป็นต้นไปเผยแพร่ที่ `gs://kimi-agent-pos-updates`
 - บัญชีเริ่มต้นจาก seed: `admin`/`1234`, `manager`/`2222`, `somchai`/`0000` (เปลี่ยนหลังติดตั้ง)
 - ข้อมูลอยู่ใน volume `db_data`; ค่าแวดล้อมปรับผ่าน `.env` (ดู `.env.example`)
@@ -192,4 +195,4 @@
 
 ---
 
-_สถานะ ณ 20 กรกฎาคม 2026: Phase 0–11 เผยแพร่ถึงเวอร์ชัน 1.0.20 บน GCS; source/build ในเครื่องเป็น 1.0.21 พร้อม Wizard ภาษาไทยและรอเผยแพร่ ส่วน Phase 12 เหลืองานตรวจหน้างาน การส่งต่อจาก updater รุ่นเก่า และความพร้อมใช้งานจริง_
+_สถานะ ณ 20 กรกฎาคม 2026: Phase 0–11 เผยแพร่ถึงเวอร์ชัน 1.0.20 บน GCS; source/build ในเครื่องเป็น 1.0.21 พร้อม Wizard ภาษาไทยและรอเผยแพร่; เพิ่มฟีเจอร์ workforce และจัดการประวัติตัดกะ พร้อม deploy เว็บออนไลน์บน Vercel + Railway แล้ว ส่วน Phase 12 เหลืองานตรวจหน้างาน การส่งต่อจาก updater รุ่นเก่า และความพร้อมใช้งานจริง_

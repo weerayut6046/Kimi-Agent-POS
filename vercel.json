@@ -3,13 +3,15 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "installCommand": "npm install",
-  "env": {
-    "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
+  "build": {
+    "env": {
+      "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
+    }
   },
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://YOUR-BACKEND-HOST/api/:path*"
+      "destination": "https://api-production-dc37.up.railway.app/api/:path*"
     },
     {
       "source": "/((?!api/).*)",

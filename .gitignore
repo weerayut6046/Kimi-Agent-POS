@@ -50,3 +50,6 @@ coverage/
 
 # Scratch test DBs from shift-history UI work
 .codex-shift-history-ui/
+
+.vercel
+.env*

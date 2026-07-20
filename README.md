@@ -39,6 +39,22 @@ docker compose up --build
 - ปรับค่าได้ผ่าน `.env` (ดูตัวอย่างใน `.env.example`) เช่น `APP_SECRET`, `APP_PORT`
 - ฐานข้อมูลเป็น SQLite ไฟล์เดียว เก็บใน volume `db_data` — ลบทิ้งทั้งหมดด้วย `docker compose down -v`
 
+## Deploy เว็บขึ้นคลาวด์ (Vercel + Railway)
+
+ระบบ deploy ออนไลน์ไว้ที่ https://kimi-agent-pos.vercel.app
+
+- **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` กำหนด build เฉพาะ frontend (`npx vite build` → `dist/public`), rewrite `/api/*` ไป backend และ SPA fallback ทุก route กลับ `index.html`
+- **Backend** — Docker container บน Railway (project `pos-pump-api`, service `api`) ที่ `https://api-production-dc37.up.railway.app`; `railway.toml` ชี้ build ด้วย `web/Dockerfile`; ฐานข้อมูล SQLite อยู่บน volume `/data` (ถาวร), migrate + seed อัตโนมัติตอน boot
+- ตัวแปรบน Railway: `APP_ID`, `APP_SECRET`, `SEED_ON_START=true`
+- บัญชีเริ่มต้นเหมือนชุด seed ของ Docker — **เปลี่ยน PIN ทันทีหลังเข้าใช้ครั้งแรก**
+
+deploy รอบใหม่ (ต้องมี token ของแต่ละบริการ):
+
+```bash
+npx vercel deploy --prod   # frontend — อัปโหลดเวอร์ชันไฟล์ local ตาม .vercel/ ที่ link ไว้
+npx @railway/cli up        # backend — build จาก web/Dockerfile บน Railway
+```
+
 ## Development (ไม่ใช้ Docker)
 
 ```bash

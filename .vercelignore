@@ -1,0 +1,13 @@
+# ไฟล์หนัก/ไม่เกี่ยวกับ build frontend บน Vercel
+node_modules
+release
+release2
+release3
+dist
+data
+.cache
+.codex-shift-history-ui
+desktop
+.git
+.vscode
+.agents
