@@ -1,4 +1,4 @@
-// updater.ts — อัปเดตแอปอัตโนมัติผ่าน electron-updater + GitHub Releases
+// updater.ts — อัปเดตแอปอัตโนมัติผ่าน electron-updater + Google Cloud Storage (generic provider)
 // ใช้เฉพาะแอปที่ติดตั้งผ่าน NSIS เท่านั้น (portable .exe อัปเดตตัวเองไม่ได้ — main.ts guard ไว้แล้ว)
 // UX ทั้งหมดเป็น native dialog จาก main process: ถามก่อนดาวน์โหลด (เน็ตปั๊มอาจช้า) และถามก่อนรีสตาร์ท
 import { app, dialog, type BrowserWindow } from "electron";

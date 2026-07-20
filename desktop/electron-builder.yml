@@ -20,6 +20,5 @@ nsis:
 portable:
   artifactName: POS-Pump-Portable-${version}.${ext}
 publish:
-  provider: github
-  owner: weerayut6046
-  repo: Kimi-Agent-POS
+  provider: generic
+  url: https://storage.googleapis.com/kimi-agent-pos-updates/
