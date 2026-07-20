@@ -1,0 +1,158 @@
+# Kimi-Agent-POS — เอกสารภาพรวมโครงการ
+
+เอกสารนี้เป็นจุดเริ่มต้นสำหรับผู้พัฒนาและผู้ดูแลระบบ อธิบายสถานะ สถาปัตยกรรม วิธีพัฒนา การสำรองข้อมูล และขั้นตอนปล่อยเวอร์ชันของระบบ POS ปั๊มน้ำมัน
+
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.18`
+
+## 1. สถานะปัจจุบัน
+
+| รายการ           | สถานะ                                                         |
+| ---------------- | ------------------------------------------------------------- |
+| เวอร์ชันแอป      | `1.0.18`                                                      |
+| Branch หลัก      | `main`                                                        |
+| รูปแบบใช้งานหลัก | Windows Desktop (Electron, NSIS installer)                    |
+| รูปแบบเสริม      | Portable `.exe` และ Web ผ่าน Docker                           |
+| ฐานข้อมูล        | SQLite + Drizzle ORM                                          |
+| Auto Update      | Google Cloud Storage ผ่าน `electron-updater` generic provider |
+| Update bucket    | `gs://kimi-agent-pos-updates`                                 |
+| การทำงานออฟไลน์  | งานขายและฐานข้อมูลทำงานในเครื่องได้โดยไม่ใช้อินเทอร์เน็ต      |
+
+ไฟล์ติดตั้งรุ่นล่าสุด:
+
+- [POS-Pump-Setup-1.0.18.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Setup-1.0.18.exe)
+- [POS-Pump-Portable-1.0.18.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Portable-1.0.18.exe)
+- [latest.yml](https://storage.googleapis.com/kimi-agent-pos-updates/latest.yml)
+
+## 2. เป้าหมายและผู้ใช้
+
+ระบบออกแบบสำหรับปั๊มน้ำมันขนาดเล็กถึงกลาง เพื่อให้ทำงานขายหน้าร้าน จัดการกะ ติดตามมิเตอร์และสต็อก ออกเอกสาร และสรุปรายงานได้จากระบบเดียว
+
+บทบาทผู้ใช้มี 3 ระดับ:
+
+- `admin` — ตั้งค่าร้าน จัดการพนักงาน ฐานข้อมูล รายงาน และ Audit log
+- `manager` — ดูแลการขาย กะ สต็อก ลูกค้า และรายงานตามสิทธิ์
+- `cashier` — เปิดขาย รับชำระ และปฏิบัติงานหน้าร้านตามสิทธิ์
+
+## 3. ความสามารถหลัก
+
+- ขายน้ำมันและสินค้าทั่วไปในบิลเดียว รองรับเงินสด QR บัตร และเครดิต
+- เปิด–ปิดกะ บันทึกมิเตอร์ลิตร/เงิน และนับเงินลิ้นชักแยกธนบัตรกับเหรียญ
+- จัดการสินค้า ตู้จ่าย หัวจ่าย ถังน้ำมัน การเติมถัง และประวัติราคา
+- สมาชิกสะสม/ใช้แต้ม ระดับสมาชิก และแลกของรางวัล
+- ลูกค้าเครดิต วงเงิน ยอดค้าง และใบรับชำระหนี้
+- ใบเสร็จและใบกำกับภาษีเต็มรูป โดยใบกำกับรองรับ A4 และ A5
+- Dashboard, รายงานยอดขาย, Z-report, กำไรต่อลิตร และส่งออก Excel/PDF
+- ค่าใช้จ่ายหน้าร้าน การแจ้งเตือนสต็อกต่ำ และ Audit log
+- สำรอง/กู้คืนฐานข้อมูล พร้อมสำรองอัตโนมัติรายวัน
+- ใช้งานหลายจุดขายผ่าน LAN โดยใช้ฐานข้อมูลและกะร่วมกัน
+- Desktop รองรับจอขนาดเล็ก เมนูแบบสไลด์ และการเลื่อนเนื้อหา/dialog ด้วยล้อเมาส์
+
+## 4. สถาปัตยกรรม
+
+```text
+Desktop / Browser
+       |
+       v
+React + TypeScript + Vite
+       |
+       v
+Hono + tRPC API
+       |
+       v
+Drizzle ORM + SQLite (better-sqlite3)
+```
+
+ในโหมด Desktop, Electron จะ migrate ฐานข้อมูล สตาร์ท Hono server ภายในเครื่องที่ `127.0.0.1:3210` และเปิด React UI ใน `BrowserWindow` ส่วนโหมด LAN จะเปิดให้เครื่องลูกเข้าถึง server เดียวกันเมื่อผู้ดูแลเปิดใช้งาน
+
+Auto Update แยกจากเส้นทางข้อมูลธุรกิจ: แอป NSIS จะอ่าน `latest.yml` และดาวน์โหลดตัวติดตั้งจาก Google Cloud Storage ส่วนฐานข้อมูลยังอยู่ในเครื่องของร้าน
+
+## 5. โครงสร้างโครงการ
+
+| ตำแหน่ง                        | หน้าที่                                                   |
+| ------------------------------ | --------------------------------------------------------- |
+| `web/src/`                     | React UI, pages, components และ client utilities          |
+| `web/api/`                     | Hono boot process และ tRPC routers                        |
+| `web/db/`                      | SQLite schema, migrations และ seed                        |
+| `web/contracts/`               | types และ validation ที่ใช้ร่วมกัน                        |
+| `desktop/electron/`            | Electron main process, preload และ updater                |
+| `desktop/scripts/`             | สคริปต์พัฒนา แพ็ก `.exe` และเผยแพร่ GCS                   |
+| `desktop/electron-builder.yml` | การตั้งค่า NSIS, Portable และ update provider             |
+| `data/`                        | ฐานข้อมูลสำหรับ Web development                           |
+| `dist/`                        | ผลลัพธ์ build ชั่วคราว ไม่ commit                         |
+| `release/`                     | installer, portable, blockmap และ `latest.yml` ไม่ commit |
+
+## 6. ข้อมูลและการสำรอง
+
+- Desktop เก็บฐานข้อมูลเริ่มต้นที่ `%APPDATA%/pos-app/pos.db`
+- ผู้ดูแลสามารถเปลี่ยนตำแหน่งฐานข้อมูลจากหน้า Login หรือ Settings
+- ค่า `APP_SECRET` ของ Desktop สร้างครั้งแรกและเก็บใน user data ของแอป
+- การเปลี่ยน schema ต้องสร้าง migration และ commit ไฟล์ใน `web/db/migrations/`
+- ห้ามใช้ `db:push` กับฐานข้อมูลหน้างาน เพราะอาจทำให้โครงสร้างไม่ตรงกับประวัติ migration
+- ไฟล์สำรองอัตโนมัติ `pos-auto-*` และไฟล์สำรองเอง `pos-backup-*` อยู่ในโฟลเดอร์ `backups` ข้างฐานข้อมูล
+- ก่อนอัปเกรดใหญ่หรือกู้คืนข้อมูลควรสร้างไฟล์สำรองใหม่เสมอ
+
+## 7. คำสั่งสำคัญ
+
+| คำสั่ง                      | ใช้สำหรับ                                       |
+| --------------------------- | ----------------------------------------------- |
+| `npm install`               | ติดตั้ง dependencies                            |
+| `npm run dev`               | พัฒนา Web โดยใช้ `./data/pos.db`                |
+| `npm run dev:desktop`       | พัฒนา Desktop โดยใช้ฐานข้อมูล Desktop จริง      |
+| `npm run check`             | ตรวจ TypeScript                                 |
+| `npm run lint`              | ตรวจรูปแบบและกฎ ESLint                          |
+| `npm test`                  | รัน Vitest                                      |
+| `npm run build:desktop`     | build Web/API/Electron                          |
+| `npm run dist:exe`          | สร้าง NSIS installer และ Portable ลง `release/` |
+| `npm run publish:gcs`       | อัปโหลดไฟล์เวอร์ชันปัจจุบันไป update bucket     |
+| `docker compose up --build` | รัน Web deployment ด้วย Docker                  |
+
+## 8. ขั้นตอนปล่อย Desktop เวอร์ชันใหม่
+
+1. ปรับ `version` ใน `package.json` และ `package-lock.json`
+2. รัน `npm run check`, `npm run lint` และ `npm test`
+3. รัน `npm run dist:exe`
+4. ตรวจ `release/latest.yml` และ `release/win-unpacked/resources/app-update.yml`
+5. login Google Cloud CLI และตรวจว่า project เป็น `kimi-agent-pos`
+6. รัน `npm run publish:gcs`
+7. ตรวจ URL สาธารณะของ `latest.yml`, installer, Portable และ blockmap
+8. Commit และ push source code; สร้าง tag เมื่อประกาศเป็น release อย่างเป็นทางการ
+9. ทดสอบอัปเดตจากเวอร์ชันก่อนหน้าบนเครื่องทดสอบหนึ่งเครื่องก่อนกระจายหน้างาน
+
+ข้อควรระวังในการย้ายระบบอัปเดต:
+
+- รุ่น `1.0.17` และเก่ากว่ายังมี GitHub provider ฝังอยู่ จึงไม่เห็นไฟล์อัปเดตบน GCS โดยอัตโนมัติ
+- ต้องติดตั้ง `1.0.18` ด้วยมือหนึ่งครั้ง หรือเผยแพร่ `1.0.18` บน GitHub เป็น bridge release
+- หลังอยู่บน `1.0.18` แล้ว รุ่นถัดไปจะตรวจอัปเดตจาก GCS
+- Portable `.exe` ไม่สามารถแทนที่ตัวเองอัตโนมัติ ผู้ใช้ต้องดาวน์โหลดไฟล์ Portable รุ่นใหม่
+
+## 9. เกณฑ์คุณภาพก่อนส่งมอบ
+
+- `npm run check`, `npm run lint` และ `npm test` ต้องผ่าน
+- ทดสอบเส้นทางหลัก: Login → เปิดกะ → ขาย → พิมพ์ → ปิดกะ → รายงาน
+- ทดสอบหน้า Settings หลังเข้าเมนูครั้งแรก สลับเมนู และบันทึกค่าใหม่
+- ทดสอบพิมพ์ใบกำกับทั้ง A4/A5 และใบเสร็จตามขนาดที่ตั้ง
+- ทดสอบหน้าต่างบนจอขนาดเล็กและ dialog ที่มีเนื้อหายาว
+- ทดสอบสำรองและกู้คืนด้วยสำเนาฐานข้อมูล ไม่ใช้ฐานข้อมูลจริงเพียงชุดเดียว
+- ทดสอบ Auto Update จากเวอร์ชันก่อนหน้าไปยังเวอร์ชันใหม่
+
+## 10. Roadmap ที่ยังเหลือ
+
+ลำดับเร่งด่วน:
+
+- [ ] ทดสอบ NSIS installer และการใช้งานข้ามวันบนเครื่องปั๊มจริง
+- [ ] ทดสอบ Auto Update จาก `1.0.18` ไปเวอร์ชันถัดไปแบบ end-to-end
+- [ ] จัดทำคู่มือพนักงานและคู่มือผู้ดูแลระบบ
+- [ ] เพิ่ม Code Signing เพื่อลดคำเตือน Windows SmartScreen
+
+งานต่อยอด:
+
+- [ ] เชื่อมตู้จ่าย/มิเตอร์จริงเมื่อมีฮาร์ดแวร์และ protocol ที่รองรับ
+- [ ] รองรับหลายสาขาและการซิงก์ข้อมูลขึ้นคลาวด์
+- [ ] พิจารณา e-Tax Invoice และการเชื่อมระบบบัญชี
+
+## 11. เอกสารที่เกี่ยวข้อง
+
+- [`README.md`](./README.md) — วิธีเริ่มต้นใช้งานและคำสั่งพื้นฐาน
+- [`plan.md`](./plan.md) — แผนและสถานะระบบทั้งหมด
+- [`plan-desktop.md`](./plan-desktop.md) — สถาปัตยกรรม Desktop และแผนปล่อยเวอร์ชัน
+- [`info.md`](./info.md) — สรุปเทคโนโลยีและตำแหน่งสำคัญสำหรับนักพัฒนา

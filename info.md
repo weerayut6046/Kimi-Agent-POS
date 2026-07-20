@@ -1,31 +1,38 @@
-Using Node.js 20, Tailwind CSS v3.4.19, and Vite v7.2.4
+# ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-Tailwind CSS has been set up with the shadcn theme
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.18`
 
-Setup complete: /mnt/agents/output/app
+## Technology stack
 
-Components (40+):
-  accordion, alert-dialog, alert, aspect-ratio, avatar, badge, breadcrumb,
-  button-group, button, calendar, card, carousel, chart, checkbox, collapsible,
-  command, context-menu, dialog, drawer, dropdown-menu, empty, field, form,
-  hover-card, input-group, input-otp, input, item, kbd, label, menubar,
-  navigation-menu, pagination, popover, progress, radio-group, resizable,
-  scroll-area, select, separator, sheet, sidebar, skeleton, slider, sonner,
-  spinner, switch, table, tabs, textarea, toggle-group, toggle, tooltip
+- Node.js 20+
+- React 19 + TypeScript 5.9 + Vite 7
+- Tailwind CSS 3.4 + shadcn/ui/Radix UI
+- Hono + tRPC + Zod
+- SQLite + Drizzle ORM + better-sqlite3
+- Electron 42 + electron-builder + electron-updater
+- Vitest + ESLint + Prettier
 
-Usage:
-  import { Button } from '@/components/ui/button'
-  import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+## ตำแหน่งสำคัญ
 
-Structure:
-  src/sections/        Page sections
-  src/hooks/           Custom hooks
-  src/types/           Type definitions
-  src/App.css          Styles specific to the Webapp
-  src/App.tsx          Root React component
-  src/index.css        Global styles
-  src/main.tsx         Entry point for rendering the Webapp
-  index.html           Entry point for the Webapp
-  tailwind.config.js   Configures Tailwind's theme, plugins, etc.
-  vite.config.ts       Main build and dev server settings for Vite
-  postcss.config.js    Config file for CSS post-processing tools
+- `web/src/` — React pages, components, hooks และ client utilities
+- `web/api/` — Hono server และ tRPC routers
+- `web/db/` — schema, migrations และ seed
+- `web/contracts/` — types/validation ที่ใช้ร่วมกัน
+- `desktop/electron/` — Electron main process, preload และ updater
+- `desktop/scripts/` — dev launcher, packager และ GCS publisher
+- `release/` — ผลลัพธ์ installer/Portable ไม่ commit เข้า Git
+
+## เอกสารหลัก
+
+- [`PROJECT.md`](./PROJECT.md) — ภาพรวม สถาปัตยกรรม และ release workflow
+- [`README.md`](./README.md) — วิธีติดตั้งและเริ่มพัฒนา
+- [`plan.md`](./plan.md) — แผนระบบทั้งหมด
+- [`plan-desktop.md`](./plan-desktop.md) — แผน Desktop และ Auto Update
+
+## กฎสำคัญ
+
+- เปลี่ยน schema ด้วย migration ใน `web/db/migrations/`; ห้ามใช้ `db:push` กับฐานข้อมูลหน้างาน
+- ก่อนปล่อยเวอร์ชันให้รัน `npm run check`, `npm run lint` และ `npm test`
+- Build Desktop ด้วย `npm run dist:exe`
+- รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
+- อย่า commit ไฟล์ฐานข้อมูล, secrets, `dist/` หรือ `release/`

@@ -2,6 +2,8 @@
 
 เอกสารแผนพัฒนาระบบตั้งแต่เริ่มต้นโครงการ จนถึงส่งมอบและต่อยอดในอนาคต
 
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.18` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
+
 ---
 
 ## 1. ภาพรวมโครงการ
@@ -9,24 +11,27 @@
 - **ชื่อระบบ:** ระบบ POS ปั๊มน้ำมัน (Kimi-Agent-POS)
 - **วัตถุประสงค์:** ระบบขายหน้าร้านสำหรับปั๊มน้ำมัน ครอบคลุมการขายน้ำมัน/สินค้า, การจัดการกะและมิเตอร์หัวจ่าย, สมาชิกสะสมแต้ม, ใบกำกับภาษีเต็มรูป, สต็อกและถังน้ำมัน, รายงานยอดขาย
 - **ผู้ใช้เป้าหมาย:** เจ้าของปั๊ม (admin), ผู้จัดการสาขา (manager), พนักงานขาย (cashier)
-- **รูปแบบการใช้งาน:** Web application ติดตั้งบนเครื่องที่ปั๊มผ่าน Docker
+- **รูปแบบการใช้งาน:** Windows Desktop เป็นช่องทางหลัก; Portable `.exe` และ Web/Docker เป็นช่องทางเสริม
 
 ## 2. เทคโนโลยีที่ใช้
 
-| ส่วน | เทคโนโลยี |
-|---|---|
-| Frontend | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query |
-| Backend | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`) |
-| Database | SQLite + Drizzle ORM (migrations ใน `web/db/migrations/`) — เดิมใช้ MySQL เปลี่ยนใน Phase 11 |
-| Validation | Zod |
-| Deploy | Docker Compose (app + db, volume `db_data`) |
-| เครื่องมือ | ESLint, Prettier, Vitest, drizzle-kit |
+| ส่วน        | เทคโนโลยี                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------- |
+| Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query            |
+| Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                |
+| Database    | SQLite + Drizzle ORM (migrations ใน `web/db/migrations/`) — เดิมใช้ MySQL เปลี่ยนใน Phase 11 |
+| Validation  | Zod                                                                                          |
+| Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                 |
+| Deploy      | Windows `.exe` หรือ Docker Compose service เดียว + SQLite volume `db_data`                   |
+| Auto Update | electron-updater + Google Cloud Storage (generic provider)                                   |
+| เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                        |
 
 โครงสร้างหลัก: `web/` คือ web app ทั้งก้อน — `web/src/` (หน้าจอ), `web/api/` (tRPC routers), `web/db/` (schema, migrations, seed), `web/contracts/` (types/errors ที่แชร์กัน) — ส่วน `desktop/` เป็น Electron shell ที่ห่อ web app
 
 ## 3. ขอบเขตงาน (Scope)
 
 ### ในระบบ
+
 - ล็อกอินด้วย PIN แยกสิทธิ์ 3 ระดับ (admin / manager / cashier)
 - หน้าขาย POS: ขายน้ำมันรวมกับสินค้าอื่น (2T, ของทั่วไป) ในบิลเดียว, ส่วนลด, VAT, เงินทอน, ชำระเงินสด/QR/บัตร/เครดิต
 - ขายเชื่อลูกค้าประจำ: วงเงินเครดิต, ยอดค้างชำระ, รับชำระหนี้ (ใบรับชำระเลขที่ P), พิมพ์ใบรับชำระ
@@ -34,74 +39,89 @@
 - จัดการสินค้า ตู้จ่าย หัวจ่าย ถังน้ำมัน และการเติมน้ำมันเข้าถัง (+ประวัติเปลี่ยนราคาสินค้า)
 - สมาชิกสะสมแต้ม: สมัคร, รับ/ใช้แต้ม, ของรางวัล, ระดับสมาชิก (silver/gold/platinum)
 - ลูกค้าและใบกำกับภาษีเต็มรูป (1 บิล = 1 ใบกำกับ)
+- ใบกำกับภาษีรองรับกระดาษ A4/A5 และใบเสร็จรองรับ 80/58/A5/A4
 - รายงานยอดขาย / แดชบอร์ด / รายงานปิดวัน (Z-report: ยอดแยกวิธีชำระ, ลิตร, กะ, ค่าใช้จ่าย, เงินสดคาดหวัง)
 - บันทึกค่าใช้จ่ายหน้าร้าน (ผูกกะอัตโนมัติ)
 - Audit log การกระทำสำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, จัดการพนักงาน, กู้ฐานข้อมูล ฯลฯ — admin ดู)
 - สำรองข้อมูลอัตโนมัติรายวันตามเวลาที่ตั้ง (แยกไฟล์ pos-auto-* จากไฟล์สำรองเอง)
 - ตั้งค่าร้าน (ชื่อ, โลโก้, ที่อยู่ ฯลฯ)
+- Desktop responsive สำหรับจอขนาดเล็ก พร้อมเมนูแบบสไลด์และพื้นที่เลื่อนในหน้า/dialog
+- Desktop NSIS ตรวจและดาวน์โหลดอัปเดตจาก Google Cloud Storage
 
 ### ยังไม่รวม (Out of scope รุ่นแรก)
+
 - การเชื่อมต่อตู้จ่าย/มิเตอร์จริงผ่านฮาร์ดแวร์ (บันทึกมิเตอร์ด้วยมือ)
 - ระบบบัญชี/ภาษีแบบเต็ม, e-Tax Invoice ส่งกรมสรรพากร
 - หลายสาขา / การซิงก์ข้อมูลขึ้นคลาวด์
-- พิมพ์ใบเสร็จผ่านเครื่องพิมพ์ความร้อนโดยตรง (ใช้พิมพ์ผ่านเบราว์เซอร์)
+- ส่งคำสั่ง ESC/POS โดยตรง (ใช้ Chromium/browser print หรือ silent print ของ Desktop เพื่อรองรับภาษาไทย)
 
 ## 4. แผนงานเป็นระยะ (Phases)
 
 ### Phase 0 — เตรียมโครงการ ✅
+
 - สร้างโปรเจกต์ Vite + React + TS, ติดตั้ง Tailwind + shadcn/ui
 - ติดตั้ง Hono + tRPC ฝั่ง API ใน repo เดียวกัน, เชื่อม Drizzle + MySQL
 - ตั้งค่า ESLint/Prettier, `docker-compose.yml`, `.env.example`
 - **ผลลัพธ์:** dev server รันได้, เชื่อม DB ได้, โครง repo พร้อม
 
 ### Phase 1 — ออกแบบฐานข้อมูล ✅
+
 - ออกแบบ schema: `staff_users`, `products`, `pumps`, `nozzles`, `shifts`, `shift_readings`, `sales`, `sale_items`, `members`, `point_transactions`, `rewards`, `reward_redemptions`, `fuel_tanks`, `tank_refills`, `customers`, `tax_invoices`, `settings`
 - สร้าง migration ชุดแรก + seed ข้อมูลตัวอย่าง (ผู้ใช้, สินค้าน้ำมัน, ตู้/หัวจ่าย, ถัง)
 - **ผลลัพธ์:** `npm run db:migrate` + seed แล้วมีข้อมูลพร้อมใช้
 
 ### Phase 2 — ระบบผู้ใช้และการล็อกอิน ✅
+
 - API `auth.ts`: ล็อกอินด้วย username + PIN (SHA-256), session, guard แยกสิทธิ์
 - หน้า `Login.tsx`, `Layout.tsx` (เมนูตามสิทธิ์)
 - **ผลลัพธ์:** ล็อกอินได้ 3 บทบาท เมนูตามสิทธิ์
 
 ### Phase 3 — หน้าขาย POS ✅
+
 - API `pos.ts`: สร้างบิล, เลขใบเสร็จ, คำนวณ VAT/ส่วนลด/เงินทอน, ตัดสต็อก, void บิล
 - หน้า `Pos.tsx` + `ReceiptDoc.tsx` (ใบเสร็จพิมพ์ผ่านเบราว์เซอร์)
 - **ผลลัพธ์:** ขายสินค้า/น้ำมัน ออกใบเสร็จได้
 
 ### Phase 4 — กะการทำงานและมิเตอร์ ✅
+
 - เปิดกะ: จดมิเตอร์ลิตร + มิเตอร์เงิน P ตั้งต้นรายหัวจ่าย
 - ปิดกะ: จดมิเตอร์ปลายกะ คำนวณลิตร/ยอดขายต่อหัวจ่าย เทียบยอด POS กับมิเตอร์
 - หน้า `Shifts.tsx`
 - **ผลลัพธ์:** เปิด–ปิดกะพร้อมสรุปยอดและส่วนต่างมิเตอร์
 
 ### Phase 5 — สต็อก ตู้จ่าย และถังน้ำมัน ✅
+
 - API `catalog.ts`: CRUD สินค้า/ตู้จ่าย/หัวจ่าย, จับคู่หัวจ่ายกับสินค้า
 - ถังน้ำมัน: ปริมาณคงเหลือ, จุดแจ้งเตือนต่ำ, บันทึกเติมน้ำมันเข้าถัง (`tank_refills`)
 - หน้า `Stock.tsx`
 - **ผลลัพธ์:** จัดการสินค้าและระดับน้ำมันในถังได้
 
 ### Phase 6 — สมาชิกสะสมแต้ม ✅
+
 - API `membership.ts`: สมัคร/ค้นหาสมาชิก (รหัส/เบอร์), ให้แต้มตามยอดขาย, ใช้แต้ม, แลกของรางวัล, ปรับแต้ม
 - หน้า `Members.tsx`, ผูกสมาชิกในหน้าขาย POS
 - **ผลลัพธ์:** สมาชิกสะสม–ใช้แต้มได้ครบวงจร
 
 ### Phase 7 — ลูกค้าและใบกำกับภาษีเต็มรูป ✅
+
 - API `customers.ts`, `taxInvoice.ts`: ทะเบียนลูกค้า (เลขผู้เสียภาษี, สาขา, ทะเบียนรถ), ออกใบกำกับเต็มรูปจากบิล (1 บิล = 1 ใบ)
 - หน้า `Customers.tsx`, `TaxInvoices.tsx`, `TaxInvoiceDialog.tsx`, `TaxInvoiceDoc.tsx`
 - **ผลลัพธ์:** ออกใบกำกับภาษีเต็มรูปและพิมพ์ได้
 
 ### Phase 8 — รายงานและแดชบอร์ด ✅
+
 - หน้า `Dashboard.tsx`, `Sales.tsx`: ยอดขายวันนี้/ช่วงเวลา, สินค้าขายดี, ประวัติบิล, ยกเลิกบิล
 - หน้า `Settings.tsx`: ข้อมูลร้าน, โลโก้, จัดการพนักงาน
 - **ผลลัพธ์:** เจ้าของ/ผู้จัดการดูภาพรวมและจัดการระบบได้
 
 ### Phase 9 — แพ็กเกจและติดตั้งจริง ✅
-- `Dockerfile` + `docker-compose.yml`: container `app` migrate + seed อัตโนมัติตอน start
+
+- `Dockerfile` + `docker-compose.yml`: container `app` ใช้ SQLite volume และ migrate + seed อัตโนมัติตอน start
 - `web/docker-entrypoint.sh`, healthcheck, volume `db_data`
 - **ผลลัพธ์:** `docker compose up --build` แล้วใช้งานได้ที่ http://localhost:3000
 
 ### Phase 10 — เสริมคุณภาพและต่อยอด (กำลังทำ / อนาคต) 🔄
+
 - [x] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม — integration test ผ่าน tRPC caller ลง SQLite ชั่วคราว (migrate+seed จริง): `web/api/test/testDb.ts`, `pos.sale.test.ts`, `pos.shift.test.ts`, `membership.test.ts`
 - [x] ~~ใบเสร็จความร้อน (ESC/POS)~~ → **ถอดออกแล้ว** — เครื่อง Gainscha GA-E200I ไม่มีฟอนต์ไทยใน firmware พิมพ์ไทยไม่ได้ ตัดสินใจใช้พิมพ์ผ่านเบราว์เซอร์อย่างเดียว (ลบ router `printer` + `web/api/lib/escpos.ts`/`printerTransport.ts`/`receiptPrint.ts` + hook `useThermalPrint`); เหลือตั้งได้แค่ขนาดกระดาษใบเสร็จ (80/58/A5/A4 — setting `receipt_paper_size`, `printReceiptElement` ใน `web/src/lib/printDoc.ts`)
 - [x] พิมพ์ใบเสร็จเงียบอัตโนมัติหลังชำระเงิน (desktop) — IPC `print:silent` (`desktop/electron/main.ts`) เปิดหน้าต่างซ่อน render HTML ใบเสร็จด้วย Chromium แล้ว `webContents.print({ silent: true })` เข้าเครื่องพิมพ์ default ของ Windows — ภาษาไทยถูกเสมอ ไม่ต้องมีฟอนต์ไทยในเครื่องพิมพ์ ไม่เด้ง dialog; ตั้งค่า `receipt_silent_print` ในหน้า Settings (ใช้ขนาดกระดาษจาก `receipt_paper_size`), helper `printReceiptSilent` ใน `web/src/lib/printDoc.ts`
@@ -116,35 +136,56 @@
 - [x] นับเงินลิ้นชักครบวงจร — เงินทอนเริ่มกะ (`shifts.opening_float`), นับเงินสดแยกแบงก์/เหรียญตอนปิดกะ (`shifts.cash_counts` JSON — เซิร์ฟเวอร์รวมยอดเองจาก `web/contracts/cash.ts`), snapshot เงินสดควรมีลงกะ (`shifts.expected_cash` = เงินทอน+ขายสด+ชำระหนี้สด−ค่าใช้จ่าย คำนวณโดย `web/api/lib/cash.ts`), `debt_payments.shift_id` ผูกกะอัตโนมัติแบบค่าใช้จ่าย, แสดงส่วนต่างเงินสด (ขาด/เกิน) ในหน้าปิดกะแบบเรียลไทม์ + ประวัติกะ + Z-report + Excel, audit log `close_shift` ตอนปิดกะ
 - [x] dev server migrate อัตโนมัติตอน boot — `web/api/boot.ts` รัน drizzle migrate แบบ sync (idempotent) เมื่อ `NODE_ENV != production` ไม่ต้องรัน `npm run db:migrate` เองหลังเพิ่ม migration ใหม่ (desktop/Docker migrate ของตัวเองตอนเปิดแอปอยู่แล้ว)
 - [x] ขายหลายเครื่องพร้อมกันผ่าน LAN (multi-station) — toggle `lan_enabled` ในหน้า Settings (desktop default ปิด ต้องรีสตาร์ทแอป), เครื่องลูกเปิดเบราว์เซอร์ไปที่ `http://<IP-เครื่องหลัก>:3210` ล็อกอินด้วย PIN ตัวเอง ขายภายใต้กะรวมกะเดียวกัน; `catalog.lanInfo` แสดง URL ในหน้า Settings + หน้า Login (รายละเอียดและข้อจำกัดใน `plan-desktop.md` D7)
+- [x] แก้หน้า Settings โหลดข้อมูลครั้งแรก/หลังสลับเมนู และ refresh ค่าล่าสุดหลังบันทึก เพื่อไม่แสดงฟอร์มว่างหรือค่าค้าง
+- [x] เพิ่มการตั้งค่ากระดาษใบกำกับภาษี A4/A5 พร้อมปรับ preview และ print layout
+- [x] ปรับ Desktop ให้ responsive บนจอขนาดเล็ก ปรับขนาดหน้าต่างเริ่มต้นตาม work area และให้หน้า/dialog เลื่อนด้วยล้อเมาส์ได้
 - [ ] เชื่อมตู้จ่าย/มิเตอร์จริง (ถ้ามีฮาร์ดแวร์รองรับ)
 - [ ] คู่มือใช้งานสำหรับพนักงาน
 
 ### Phase 11 — Desktop App (.exe) ✅
+
 - แปลงเป็น Desktop App ด้วย Electron + SQLite (ฝังในแอป) ออกไฟล์ติดตั้ง/portable `.exe`
+- ตั้งแต่ `1.0.18` ใช้ Google Cloud Storage เป็นแหล่ง Auto Update และมี `npm run publish:gcs` สำหรับเผยแพร่ไฟล์
 - รายละเอียดเต็มอยู่ในเอกสารแยก: [`plan-desktop.md`](./plan-desktop.md)
+
+### Phase 12 — ความพร้อมใช้งานจริงและการส่งมอบ 🔄
+
+- [x] Build และเผยแพร่ installer/Portable ของ `1.0.18` ไป `gs://kimi-agent-pos-updates`
+- [x] ตรวจ public URL, ขนาดไฟล์, SHA metadata และการรองรับ HTTP range
+- [x] ย้าย updater configuration จาก GitHub Releases ไป GCS generic provider
+- [ ] ทำ bridge ให้เครื่อง `1.0.17` และเก่ากว่าได้รับ `1.0.18` หรือให้ติดตั้ง `1.0.18` ด้วยมือหนึ่งครั้ง
+- [ ] ทดสอบ Auto Update จาก `1.0.18` ไปเวอร์ชันถัดไปแบบ end-to-end
+- [ ] ทดสอบ NSIS installer, การพิมพ์, สำรอง/กู้คืน และเปิดใช้งานข้ามวันบนเครื่องปั๊มจริง
+- [ ] จัดทำคู่มือพนักงานและคู่มือผู้ดูแลระบบ
+- [ ] เพิ่ม Code Signing สำหรับ Windows installer
 
 ## 5. การทดสอบและยอมรับ (Acceptance)
 
 - `npm run check` (tsc) และ `npm run lint` ผ่านก่อนทุก phase
 - `npm run test` (Vitest) สำหรับ logic สำคัญ
 - ทดสอบ end-to-end ด้วยมือบน Docker ตามสถานการณ์หลัก: ล็อกอิน → เปิดกะ → ขาย → ใช้แต้ม → ปิดกะ → ออกใบกำกับ → ดูรายงาน
+- ทดสอบ Desktop เพิ่ม: Settings โหลด/บันทึก/สลับเมนู, จอขนาดเล็ก, A4/A5, silent print, backup/restore และ Auto Update
 
 ## 6. การติดตั้งและส่งมอบ
 
-- ส่งมอบเป็น Docker Compose เดียว: `docker compose up --build`
+- ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build`
+- ไฟล์อัปเดต Desktop รุ่น `1.0.18` เป็นต้นไปเผยแพร่ที่ `gs://kimi-agent-pos-updates`
 - บัญชีเริ่มต้นจาก seed: `admin`/`1234`, `manager`/`2222`, `somchai`/`0000` (เปลี่ยนหลังติดตั้ง)
 - ข้อมูลอยู่ใน volume `db_data`; ค่าแวดล้อมปรับผ่าน `.env` (ดู `.env.example`)
 
 ## 7. ความเสี่ยงและแนวทางรับมือ
 
-| ความเสี่ยง | แนวทางรับมือ |
-|---|---|
-| การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git |
-| มิเตอร์จดผิด | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย |
-| ข้อมูลหาย | volume ถาวร + แผนสำรองข้อมูล (Phase 10) |
-| PIN รั่วไหล | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง |
-| เน็ต/ไฟดับที่ปั๊ม | ระบบรัน local ไม่พึ่งคลาวด์; แนะนำ UPS |
+| ความเสี่ยง                         | แนวทางรับมือ                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git            |
+| มิเตอร์จดผิด                       | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย                                          |
+| ข้อมูลหาย                          | volume ถาวร + แผนสำรองข้อมูล (Phase 10)                                             |
+| PIN รั่วไหล                        | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง               |
+| เน็ต/ไฟดับที่ปั๊ม                  | ระบบรัน local ไม่พึ่งคลาวด์; แนะนำ UPS                                              |
+| รุ่นเก่ายังชี้ GitHub updater      | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                     |
+| GCS หรืออินเทอร์เน็ตใช้ไม่ได้      | งานขายยังทำงานออฟไลน์; updater บันทึก error ลง log และลองใหม่เมื่อเปิดแอปครั้งถัดไป |
+| Windows SmartScreen เตือน          | วางแผน Code Signing; ก่อนมี certificate ให้ตรวจ checksum และแหล่งดาวน์โหลดทุกครั้ง  |
 
 ---
 
-*สถานะ ณ ตอนเขียนเอกสาร: Phase 0–9 เสร็จแล้วตามโครงสร้างโค้ดปัจจุบัน, Phase 10 เป็นงานต่อยอด*
+_สถานะ ณ 20 กรกฎาคม 2026: Phase 0–11 ใช้งานได้ในเวอร์ชัน 1.0.18; Phase 12 เป็นงานตรวจหน้างาน การส่งต่อจาก updater รุ่นเก่า และความพร้อมใช้งานจริง_
