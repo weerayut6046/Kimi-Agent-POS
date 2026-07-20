@@ -1,31 +1,29 @@
-@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Prompt:wght@500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 216 33% 97%;
+    --foreground: 218 48% 13%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 218 48% 13%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 213 94% 44%;
+    --popover-foreground: 218 48% 13%;
+    --primary: 217 84% 49%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 213 60% 94%;
-    --secondary-foreground: 213 94% 30%;
-    --muted: 213 40% 94%;
-    --muted-foreground: 215 16% 42%;
-    --accent: 213 60% 94%;
-    --accent-foreground: 213 94% 30%;
-    --destructive: 0 84.2% 60.2%;
+    --secondary: 216 45% 94%;
+    --secondary-foreground: 217 68% 32%;
+    --muted: 215 31% 94%;
+    --muted-foreground: 216 15% 44%;
+    --accent: 215 45% 93%;
+    --accent-foreground: 217 72% 30%;
+    --destructive: 0 76% 52%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 88%;
-    --input: 214 32% 88%;
-    --ring: 213 94% 44%;
-    --radius: 0.625rem;
+    --border: 215 27% 88%;
+    --input: 215 27% 84%;
+    --ring: 217 84% 49%;
+    --radius: 0.75rem;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -75,6 +73,11 @@
     min-height: 100%;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   * {
     @apply border-border;
   }
@@ -82,9 +85,86 @@
     @apply bg-background text-foreground;
     min-width: 0;
     overflow-x: hidden;
-    font-family: 'Sarabun', ui-sans-serif, system-ui, sans-serif;
+    font-family:
+      "Leelawadee UI", "Noto Sans Thai", Tahoma, ui-sans-serif, system-ui,
+      sans-serif;
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
   }
-  h1, h2, h3, .font-heading {
-    font-family: 'Prompt', 'Sarabun', ui-sans-serif, system-ui, sans-serif;
+  h1,
+  h2,
+  h3,
+  .font-heading {
+    font-family:
+      "Leelawadee UI", "Noto Sans Thai", Tahoma, ui-sans-serif, system-ui,
+      sans-serif;
+    letter-spacing: -0.015em;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.18);
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .page-heading {
+    @apply font-heading text-xl font-bold tracking-tight text-slate-900 sm:text-2xl;
+  }
+
+  .page-kicker {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-blue-600;
+  }
+
+  .station-scrollbar {
+    scrollbar-color: rgb(255 255 255 / 0.16) transparent;
+    scrollbar-width: thin;
+  }
+
+  .station-scrollbar::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .station-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.16);
+  }
+
+  .number-display {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.025em;
+  }
+}
+
+@media (max-width: 639px) {
+  [data-slot="table-container"] {
+    width: calc(100% + 2rem);
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    scroll-padding-inline: 1rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-slot="table-head"],
+  [data-slot="table-cell"] {
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

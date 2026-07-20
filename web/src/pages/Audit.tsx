@@ -3,10 +3,19 @@ import { ScrollText, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/providers/trpc";
 import { fmtDateTime } from "@/lib/format";
@@ -50,27 +59,27 @@ export default function Audit() {
 
   return (
     <div className="space-y-5">
-      <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
+      <h1 className="page-heading flex items-center gap-2">
         <ScrollText className="w-6 h-6 text-primary" /> บันทึกการใช้งาน
       </h1>
 
       <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-56 max-w-sm">
+        <div className="relative min-w-0 flex-1 sm:min-w-56 sm:max-w-sm">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
             placeholder="ค้นหา ผู้ทำ / รายละเอียด"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={e => setQ(e.target.value)}
           />
         </div>
         <Select value={action} onValueChange={setAction}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="ทุกการกระทำ" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">ทุกการกระทำ</SelectItem>
-            {actions.map((a) => (
+            {actions.map(a => (
               <SelectItem key={a} value={a}>
                 {actionLabel[a] ?? a}
               </SelectItem>
@@ -91,18 +100,29 @@ export default function Audit() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => (
+              {rows.map(r => (
                 <TableRow key={r.id}>
-                  <TableCell className="text-sm whitespace-nowrap">{fmtDateTime(r.createdAt)}</TableCell>
-                  <TableCell className="text-sm">{r.actorName || "-"}</TableCell>
-                  <TableCell className="text-sm font-medium">{actionLabel[r.action] ?? r.action}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {fmtDateTime(r.createdAt)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {r.actorName || "-"}
+                  </TableCell>
+                  <TableCell className="text-sm font-medium">
+                    {actionLabel[r.action] ?? r.action}
+                  </TableCell>
                   <TableCell className="text-sm">{r.detail}</TableCell>
                 </TableRow>
               ))}
               {!isLoading && rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                    {search || action !== "all" ? "ไม่พบรายการที่ค้นหา" : "ยังไม่มีบันทึกการใช้งาน"}
+                  <TableCell
+                    colSpan={4}
+                    className="text-center text-muted-foreground py-8"
+                  >
+                    {search || action !== "all"
+                      ? "ไม่พบรายการที่ค้นหา"
+                      : "ยังไม่มีบันทึกการใช้งาน"}
                   </TableCell>
                 </TableRow>
               )}

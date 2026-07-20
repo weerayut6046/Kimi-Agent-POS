@@ -12,6 +12,7 @@ import Sales from "@/pages/Sales";
 import Expenses from "@/pages/Expenses";
 import Reports from "@/pages/Reports";
 import TaxInvoices from "@/pages/TaxInvoices";
+import Documents from "@/pages/Documents";
 import Audit from "@/pages/Audit";
 import Settings from "@/pages/Settings";
 import { useStaff } from "@/hooks/useStaff";
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/tax-invoices" element={<TaxInvoices />} />
+        <Route path="/documents" element={<Documents />} />
         <Route path="/audit" element={<Audit />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

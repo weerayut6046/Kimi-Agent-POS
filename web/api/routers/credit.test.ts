@@ -13,7 +13,9 @@ beforeAll(async () => {
 afterAll(() => t.cleanup());
 
 const productByCode = async (code: string) => {
-  const p = await t.db.query.products.findFirst({ where: eq(products.code, code) });
+  const p = await t.db.query.products.findFirst({
+    where: eq(products.code, code),
+  });
   if (!p) throw new Error(`ไม่พบสินค้า ${code} ใน seed`);
   return p;
 };
@@ -21,14 +23,16 @@ const productByCode = async (code: string) => {
 let custSeq = 0;
 const createCustomer = async (creditLimit = 0) => {
   custSeq += 1;
-  const c = await t.caller("manager").customers.create({ name: `ลูกค้าเครดิตทดสอบ ${custSeq}`, creditLimit });
+  const c = await t
+    .caller("manager")
+    .customers.create({ name: `ลูกค้าเครดิตทดสอบ ${custSeq}`, creditLimit });
   if (!c) throw new Error("สร้างลูกค้าไม่สำเร็จ");
   return c;
 };
 
 const outstandingOf = async (customerId: number) => {
   const rows = await t.caller().credit.summary();
-  return rows.find((r) => r.id === customerId)?.outstanding ?? 0;
+  return rows.find(r => r.id === customerId)?.outstanding ?? 0;
 };
 
 describe("createSale ขายเชื่อ", () => {
@@ -38,7 +42,7 @@ describe("createSale ขายเชื่อ", () => {
       t.caller().pos.createSale({
         items: [{ productId: water.id, qty: 1 }],
         paymentMethod: "credit",
-      }),
+      })
     ).rejects.toThrow("ขายเชื่อต้องเลือกลูกค้า");
   });
 
@@ -49,7 +53,7 @@ describe("createSale ขายเชื่อ", () => {
         items: [{ productId: water.id, qty: 1 }],
         paymentMethod: "credit",
         customerId: 99999,
-      }),
+      })
     ).rejects.toThrow("ไม่พบลูกค้า");
   });
 
@@ -110,7 +114,7 @@ describe("createSale ขายเชื่อ", () => {
         items: [{ productId: water.id, qty: 2 }],
         paymentMethod: "credit",
         customerId: cust.id,
-      }),
+      })
     ).rejects.toThrow("เกินวงเงินเครดิตของลูกค้า");
     expect(await outstandingOf(cust.id)).toBe(40);
   });
@@ -140,7 +144,7 @@ describe("รับชำระหนี้", () => {
       customerId: cust.id,
     });
 
-    const payment = await t.caller().credit.receivePayment({
+    const payment = await t.caller("manager").credit.receivePayment({
       customerId: cust.id,
       amount: 15,
       method: "cash",
@@ -165,7 +169,9 @@ describe("รับชำระหนี้", () => {
       customerId: cust.id,
     });
     await expect(
-      t.caller().credit.receivePayment({ customerId: cust.id, amount: 20.01 }),
+      t
+        .caller("manager")
+        .credit.receivePayment({ customerId: cust.id, amount: 20.01 })
     ).rejects.toThrow("ยอดชำระมากกว่ายอดค้างชำระ");
     expect(await outstandingOf(cust.id)).toBe(20);
   });
@@ -178,7 +184,9 @@ describe("รับชำระหนี้", () => {
       paymentMethod: "credit",
       customerId: cust.id,
     });
-    const payment = await t.caller().credit.receivePayment({ customerId: cust.id, amount: 40 });
+    const payment = await t
+      .caller("manager")
+      .credit.receivePayment({ customerId: cust.id, amount: 40 });
     expect(await outstandingOf(cust.id)).toBe(0);
 
     await t.caller("manager").credit.removePayment({ id: payment!.id });
@@ -193,12 +201,31 @@ describe("รับชำระหนี้", () => {
       paymentMethod: "credit",
       customerId: cust.id,
     });
-    const payment = await t.caller().credit.receivePayment({ customerId: cust.id, amount: 10 });
-    await expect(t.caller("cashier").credit.removePayment({ id: payment!.id })).rejects.toThrow(
-      "สิทธิ์ไม่เพียงพอ",
-    );
+    const payment = await t
+      .caller("manager")
+      .credit.receivePayment({ customerId: cust.id, amount: 10 });
+    await expect(
+      t.caller("cashier").credit.removePayment({ id: payment!.id })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
     // รายการยังอยู่ ยอดค้างไม่เปลี่ยน
     expect(await outstandingOf(cust.id)).toBe(10);
+  });
+
+  it("cashier รับชำระหนี้ → error สิทธิ์ไม่เพียงพอ", async () => {
+    const water = await productByCode("WATER");
+    const cust = await createCustomer();
+    await t.caller().pos.createSale({
+      items: [{ productId: water.id, qty: 2 }], // 20 บาท
+      paymentMethod: "credit",
+      customerId: cust.id,
+    });
+    await expect(
+      t
+        .caller("cashier")
+        .credit.receivePayment({ customerId: cust.id, amount: 10 })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+    // ไม่มีรายการชำระเกิดขึ้น ยอดค้างคงเดิม
+    expect(await outstandingOf(cust.id)).toBe(20);
   });
 });
 
@@ -213,14 +240,20 @@ describe("รับชำระหนี้ผูกกะ (shift)", () => {
     });
 
     // เปิดกะด้วยเงินทอน 100
-    const nz = (await t.db.query.nozzles.findMany()).sort((a, b) => a.id - b.id);
+    const nz = (await t.db.query.nozzles.findMany()).sort(
+      (a, b) => a.id - b.id
+    );
     const { shiftId } = await t.caller().pos.openShift({
       staffName: "กะเครดิต",
       openingFloat: 100,
-      readings: nz.map((n) => ({ nozzleId: n.id, openMeter: n.currentMeter, openMoney: n.currentMoney })),
+      readings: nz.map(n => ({
+        nozzleId: n.id,
+        openMeter: n.currentMeter,
+        openMoney: n.currentMoney,
+      })),
     });
 
-    const payment = await t.caller().credit.receivePayment({
+    const payment = await t.caller("manager").credit.receivePayment({
       customerId: cust.id,
       amount: 40,
       method: "cash",
@@ -236,7 +269,11 @@ describe("รับชำระหนี้ผูกกะ (shift)", () => {
     // ปิดกะเก็บ (ไม่นับเงิน)
     await t.caller().pos.closeShift({
       shiftId,
-      readings: nz.map((n) => ({ nozzleId: n.id, closeMeter: n.currentMeter, closeMoney: n.currentMoney })),
+      readings: nz.map(n => ({
+        nozzleId: n.id,
+        closeMeter: n.currentMeter,
+        closeMoney: n.currentMoney,
+      })),
     });
   });
 
@@ -248,7 +285,9 @@ describe("รับชำระหนี้ผูกกะ (shift)", () => {
       paymentMethod: "credit",
       customerId: cust.id,
     });
-    const payment = await t.caller().credit.receivePayment({ customerId: cust.id, amount: 10 });
+    const payment = await t
+      .caller("manager")
+      .credit.receivePayment({ customerId: cust.id, amount: 10 });
     expect(payment!.shiftId).toBeNull();
   });
 });
@@ -262,13 +301,15 @@ describe("ลบลูกค้า", () => {
       paymentMethod: "credit",
       customerId: cust.id,
     });
-    await expect(t.caller("manager").customers.remove({ id: cust.id })).rejects.toThrow(
-      "ลบไม่ได้ ลูกค้ามียอดค้างชำระ",
-    );
+    await expect(
+      t.caller("manager").customers.remove({ id: cust.id })
+    ).rejects.toThrow("ลบไม่ได้ ลูกค้ามียอดค้างชำระ");
   });
 
   it("ลูกค้าไม่มียอดค้าง → ลบได้ปกติ", async () => {
     const cust = await createCustomer();
-    await expect(t.caller("manager").customers.remove({ id: cust.id })).resolves.toEqual({ ok: true });
+    await expect(
+      t.caller("manager").customers.remove({ id: cust.id })
+    ).resolves.toEqual({ ok: true });
   });
 });

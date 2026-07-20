@@ -6,10 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -53,21 +62,29 @@ export default function Expenses() {
   const [edit, setEdit] = useState<ExpForm | null>(null);
   const [err, setErr] = useState("");
 
-  const { data, isLoading } = trpc.expenses.list.useQuery({ date: date || undefined });
+  const { data, isLoading } = trpc.expenses.list.useQuery({
+    date: date || undefined,
+  });
   const items = data?.items ?? [];
 
   const invalidate = () => utils.expenses.list.invalidate();
   const create = trpc.expenses.create.useMutation({
-    onSuccess: () => { invalidate(); setEdit(null); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      invalidate();
+      setEdit(null);
+    },
+    onError: e => setErr(e.message),
   });
   const update = trpc.expenses.update.useMutation({
-    onSuccess: () => { invalidate(); setEdit(null); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      invalidate();
+      setEdit(null);
+    },
+    onError: e => setErr(e.message),
   });
   const remove = trpc.expenses.remove.useMutation({
     onSuccess: () => invalidate(),
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const amountNum = Number(edit?.amount) || 0;
@@ -88,30 +105,42 @@ export default function Expenses() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
+        <h1 className="page-heading flex items-center gap-2">
           <Banknote className="w-6 h-6 text-primary" /> ค่าใช้จ่ายหน้าร้าน
         </h1>
-        <Button onClick={() => { setErr(""); setEdit({ ...emptyForm }); }}>
+        <Button
+          className="w-full sm:w-auto"
+          onClick={() => {
+            setErr("");
+            setEdit({ ...emptyForm });
+          }}
+        >
           <Plus className="w-4 h-4 mr-1" /> บันทึกค่าใช้จ่าย
         </Button>
       </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
 
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="space-y-1">
-          <Label htmlFor="exp-date" className="text-xs text-muted-foreground">วันที่</Label>
+        <div className="w-full space-y-1 sm:w-auto">
+          <Label htmlFor="exp-date" className="text-xs text-muted-foreground">
+            วันที่
+          </Label>
           <Input
             id="exp-date"
             type="date"
-            className="w-44"
+            className="w-full sm:w-44"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={e => setDate(e.target.value)}
           />
         </div>
-        <Card className="flex-1 min-w-[200px]">
+        <Card className="min-w-0 flex-1 basis-full sm:min-w-[200px] sm:basis-auto">
           <CardContent className="py-3 flex items-baseline justify-between gap-2">
-            <span className="text-sm text-muted-foreground">รวมค่าใช้จ่าย {date || "ทั้งหมด"} ({items.length} รายการ)</span>
-            <span className="text-xl font-bold text-destructive">฿{fmtMoney(data?.total ?? 0)}</span>
+            <span className="text-sm text-muted-foreground">
+              รวมค่าใช้จ่าย {date || "ทั้งหมด"} ({items.length} รายการ)
+            </span>
+            <span className="text-xl font-bold text-destructive">
+              ฿{fmtMoney(data?.total ?? 0)}
+            </span>
           </CardContent>
         </Card>
       </div>
@@ -131,26 +160,51 @@ export default function Expenses() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((e) => (
+              {items.map(e => (
                 <TableRow key={e.id}>
-                  <TableCell className="whitespace-nowrap">{fmtTime(e.createdAt)}</TableCell>
-                  <TableCell className="text-sm font-medium">{e.title}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {fmtTime(e.createdAt)}
+                  </TableCell>
+                  <TableCell className="text-sm font-medium">
+                    {e.title}
+                  </TableCell>
                   <TableCell className="text-sm">{e.category || "-"}</TableCell>
-                  <TableCell className="text-right font-semibold">฿{fmtMoney(e.amount)}</TableCell>
-                  <TableCell className="text-sm">{e.staffName || "-"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{e.note || "-"}</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    ฿{fmtMoney(e.amount)}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {e.staffName || "-"}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {e.note || "-"}
+                  </TableCell>
                   {canManage && (
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" title="แก้ไข"
-                          onClick={() => { setErr(""); setEdit(formFromExpense(e)); }}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          title="แก้ไข"
+                          onClick={() => {
+                            setErr("");
+                            setEdit(formFromExpense(e));
+                          }}
+                        >
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
-                          size="icon" variant="ghost" className="h-8 w-8 text-destructive" title="ลบ"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          title="ลบ"
                           disabled={remove.isPending}
                           onClick={() => {
-                            if (confirm(`ยืนยันลบค่าใช้จ่าย "${e.title}" ฿${fmtMoney(e.amount)}?`)) {
+                            if (
+                              confirm(
+                                `ยืนยันลบค่าใช้จ่าย "${e.title}" ฿${fmtMoney(e.amount)}?`
+                              )
+                            ) {
                               remove.mutate({ id: e.id });
                             }
                           }}
@@ -164,7 +218,10 @@ export default function Expenses() {
               ))}
               {!isLoading && items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={canManage ? 7 : 6} className="text-center text-muted-foreground py-8">
+                  <TableCell
+                    colSpan={canManage ? 7 : 6}
+                    className="text-center text-muted-foreground py-8"
+                  >
                     ไม่มีค่าใช้จ่าย{date ? "ของวันนี้" : ""}
                   </TableCell>
                 </TableRow>
@@ -175,38 +232,67 @@ export default function Expenses() {
       </Card>
 
       {/* Dialog บันทึก/แก้ไขค่าใช้จ่าย */}
-      <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
+      <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading">{edit?.id ? "แก้ไขค่าใช้จ่าย" : "บันทึกค่าใช้จ่าย"}</DialogTitle>
+            <DialogTitle className="font-heading">
+              {edit?.id ? "แก้ไขค่าใช้จ่าย" : "บันทึกค่าใช้จ่าย"}
+            </DialogTitle>
           </DialogHeader>
           {edit && (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label>รายการ <span className="text-destructive">*</span></Label>
-                <Input autoFocus placeholder="เช่น ค่าน้ำแข็ง, ค่าถุง, ค่าแรงชั่วคราว"
-                  value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
+                <Label>
+                  รายการ <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  autoFocus
+                  placeholder="เช่น ค่าน้ำแข็ง, ค่าถุง, ค่าแรงชั่วคราว"
+                  value={edit.title}
+                  onChange={e => setEdit({ ...edit, title: e.target.value })}
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label>หมวด</Label>
-                  <Input placeholder="เช่น วัตถุดิบ, สาธารณูปโภค"
-                    value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })} />
+                  <Input
+                    placeholder="เช่น วัตถุดิบ, สาธารณูปโภค"
+                    value={edit.category}
+                    onChange={e =>
+                      setEdit({ ...edit, category: e.target.value })
+                    }
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>จำนวนเงิน (บาท) <span className="text-destructive">*</span></Label>
-                  <Input type="number" min={0} step="0.01" placeholder="0.00"
-                    value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: e.target.value })} />
+                  <Label>
+                    จำนวนเงิน (บาท) <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="0.00"
+                    value={edit.amount}
+                    onChange={e => setEdit({ ...edit, amount: e.target.value })}
+                  />
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label>หมายเหตุ</Label>
-                <Textarea rows={2} value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
+                <Textarea
+                  rows={2}
+                  value={edit.note}
+                  onChange={e => setEdit({ ...edit, note: e.target.value })}
+                />
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button className="w-full" disabled={!valid || create.isPending || update.isPending} onClick={submit}>
+            <Button
+              className="w-full"
+              disabled={!valid || create.isPending || update.isPending}
+              onClick={submit}
+            >
               บันทึก
             </Button>
           </DialogFooter>

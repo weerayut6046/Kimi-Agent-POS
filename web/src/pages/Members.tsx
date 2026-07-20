@@ -1,18 +1,40 @@
 import { useState } from "react";
-import { Users, UserPlus, Gift, Star, Search, History, Pencil, Trash2 } from "lucide-react";
+import {
+  Users,
+  UserPlus,
+  Gift,
+  Star,
+  Search,
+  History,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -25,7 +47,9 @@ export default function Members() {
   const isAdmin = staff?.role === "admin";
 
   const [search, setSearch] = useState("");
-  const { data: memberList } = trpc.membership.listMembers.useQuery({ search: search || undefined });
+  const { data: memberList } = trpc.membership.listMembers.useQuery({
+    search: search || undefined,
+  });
   const { data: rewardList } = trpc.membership.listRewards.useQuery();
   const { data: redemptions } = trpc.membership.redemptionHistory.useQuery();
 
@@ -33,14 +57,19 @@ export default function Members() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [selected, setSelected] = useState<Member | null>(null);
-  const [editM, setEditM] = useState<{ id: number; name: string; phone: string; tier: "silver" | "gold" | "platinum" } | null>(null);
+  const [editM, setEditM] = useState<{
+    id: number;
+    name: string;
+    phone: string;
+    tier: "silver" | "gold" | "platinum";
+  } | null>(null);
   const [adjustPts, setAdjustPts] = useState("");
   const [adjustNote, setAdjustNote] = useState("");
   const [err, setErr] = useState("");
 
   const { data: txns } = trpc.membership.memberTransactions.useQuery(
     { memberId: selected?.id ?? 0 },
-    { enabled: !!selected },
+    { enabled: !!selected }
   );
 
   const refresh = () => {
@@ -51,24 +80,47 @@ export default function Members() {
   };
 
   const createMut = trpc.membership.createMember.useMutation({
-    onSuccess: () => { refresh(); setShowCreate(false); setName(""); setPhone(""); setErr(""); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      refresh();
+      setShowCreate(false);
+      setName("");
+      setPhone("");
+      setErr("");
+    },
+    onError: e => setErr(e.message),
   });
   const adjustMut = trpc.membership.adjustPoints.useMutation({
-    onSuccess: () => { refresh(); setAdjustPts(""); setAdjustNote(""); setSelected(null); setErr(""); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      refresh();
+      setAdjustPts("");
+      setAdjustNote("");
+      setSelected(null);
+      setErr("");
+    },
+    onError: e => setErr(e.message),
   });
   const redeemMut = trpc.membership.redeemReward.useMutation({
-    onSuccess: () => { refresh(); setErr(""); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      refresh();
+      setErr("");
+    },
+    onError: e => setErr(e.message),
   });
   const updateMut = trpc.membership.updateMember.useMutation({
-    onSuccess: () => { refresh(); setEditM(null); setErr(""); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      refresh();
+      setEditM(null);
+      setErr("");
+    },
+    onError: e => setErr(e.message),
   });
   const deleteMut = trpc.membership.deleteMember.useMutation({
-    onSuccess: () => { refresh(); setSelected(null); setErr(""); },
-    onError: (e) => setErr(e.message),
+    onSuccess: () => {
+      refresh();
+      setSelected(null);
+      setErr("");
+    },
+    onError: e => setErr(e.message),
   });
 
   const tierColor: Record<string, string> = {
@@ -80,10 +132,13 @@ export default function Members() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
+        <h1 className="page-heading flex items-center gap-2">
           <Users className="w-6 h-6 text-primary" /> สมาชิกสะสมแต้ม
         </h1>
-        <Button onClick={() => setShowCreate(true)}>
+        <Button
+          className="w-full sm:w-auto"
+          onClick={() => setShowCreate(true)}
+        >
           <UserPlus className="w-4 h-4 mr-2" /> สมัครสมาชิก
         </Button>
       </div>
@@ -91,7 +146,12 @@ export default function Members() {
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="ค้นหา ชื่อ / เบอร์ / รหัสสมาชิก" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+        <Input
+          placeholder="ค้นหา ชื่อ / เบอร์ / รหัสสมาชิก"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-9"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -110,29 +170,59 @@ export default function Members() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(memberList ?? []).map((m) => (
+                {(memberList ?? []).map(m => (
                   <TableRow key={m.id}>
-                    <TableCell className="font-mono text-xs">{m.memberCode}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {m.memberCode}
+                    </TableCell>
                     <TableCell className="font-medium">{m.name}</TableCell>
                     <TableCell>{m.phone}</TableCell>
                     <TableCell>
-                      <Badge className={`${tierColor[m.tier]} text-white hover:${tierColor[m.tier]}`}>{tierLabel[m.tier]}</Badge>
+                      <Badge
+                        className={`${tierColor[m.tier]} text-white hover:${tierColor[m.tier]}`}
+                      >
+                        {tierLabel[m.tier]}
+                      </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-semibold text-primary">{m.points}</TableCell>
+                    <TableCell className="text-right font-semibold text-primary">
+                      {m.points}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="outline" onClick={() => setSelected(m)}>จัดการ</Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelected(m)}
+                        >
+                          จัดการ
+                        </Button>
                         {isAdmin && (
                           <>
-                            <Button size="icon" variant="ghost" className="h-8 w-8"
-                              onClick={() => setEditM({ id: m.id, name: m.name, phone: m.phone, tier: m.tier })}>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() =>
+                                setEditM({
+                                  id: m.id,
+                                  name: m.name,
+                                  phone: m.phone,
+                                  tier: m.tier,
+                                })
+                              }
+                            >
                               <Pencil className="w-4 h-4" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive"
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
                               disabled={deleteMut.isPending}
                               onClick={() => {
-                                if (confirm(`ยืนยันลบสมาชิก "${m.name}"?`)) deleteMut.mutate({ id: m.id });
-                              }}>
+                                if (confirm(`ยืนยันลบสมาชิก "${m.name}"?`))
+                                  deleteMut.mutate({ id: m.id });
+                              }}
+                            >
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </>
@@ -142,7 +232,14 @@ export default function Members() {
                   </TableRow>
                 ))}
                 {(memberList ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">ไม่พบสมาชิก</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="text-center text-muted-foreground py-8"
+                    >
+                      ไม่พบสมาชิก
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>
@@ -158,12 +255,20 @@ export default function Members() {
           </CardHeader>
           <CardContent className="space-y-2">
             {(rewardList ?? []).map((r: Reward) => (
-              <div key={r.id} className="flex items-center justify-between border rounded-lg px-3 py-2">
+              <div
+                key={r.id}
+                className="flex items-center justify-between border rounded-lg px-3 py-2"
+              >
                 <div>
                   <div className="text-sm font-medium">{r.name}</div>
-                  <div className="text-xs text-muted-foreground">{r.pointsRequired} แต้ม · คงเหลือ {r.stock}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {r.pointsRequired} แต้ม · คงเหลือ {r.stock}
+                  </div>
                 </div>
-                <Badge variant="secondary"><Star className="w-3 h-3 mr-1" />{r.pointsRequired}</Badge>
+                <Badge variant="secondary">
+                  <Star className="w-3 h-3 mr-1" />
+                  {r.pointsRequired}
+                </Badge>
               </div>
             ))}
           </CardContent>
@@ -188,16 +293,25 @@ export default function Members() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(redemptions ?? []).map((r) => (
+              {(redemptions ?? []).map(r => (
                 <TableRow key={r.id}>
                   <TableCell>{fmtDateTime(r.createdAt)}</TableCell>
                   <TableCell>{r.memberName}</TableCell>
                   <TableCell>{r.rewardName}</TableCell>
-                  <TableCell className="text-right text-destructive font-semibold">-{r.pointsUsed}</TableCell>
+                  <TableCell className="text-right text-destructive font-semibold">
+                    -{r.pointsUsed}
+                  </TableCell>
                 </TableRow>
               ))}
               {(redemptions ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">ยังไม่มีประวัติ</TableCell></TableRow>
+                <TableRow>
+                  <TableCell
+                    colSpan={4}
+                    className="text-center text-muted-foreground py-6"
+                  >
+                    ยังไม่มีประวัติ
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -207,20 +321,34 @@ export default function Members() {
       {/* Dialog สมัครสมาชิก */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="font-heading">สมัครสมาชิกใหม่</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="font-heading">สมัครสมาชิกใหม่</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>ชื่อ-นามสกุล</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="เช่น สมชาย ใจดี" />
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="เช่น สมชาย ใจดี"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>เบอร์โทรศัพท์</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="08x-xxx-xxxx" />
+              <Input
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                inputMode="tel"
+                placeholder="08x-xxx-xxxx"
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button className="w-full" disabled={!name || phone.length < 9 || createMut.isPending}
-              onClick={() => createMut.mutate({ name, phone })}>
+            <Button
+              className="w-full"
+              disabled={!name || phone.length < 9 || createMut.isPending}
+              onClick={() => createMut.mutate({ name, phone })}
+            >
               สมัครสมาชิก
             </Button>
           </DialogFooter>
@@ -228,23 +356,39 @@ export default function Members() {
       </Dialog>
 
       {/* Dialog แก้ไขสมาชิก (admin) */}
-      <Dialog open={!!editM} onOpenChange={(o) => !o && setEditM(null)}>
+      <Dialog open={!!editM} onOpenChange={o => !o && setEditM(null)}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="font-heading">แก้ไขสมาชิก</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="font-heading">แก้ไขสมาชิก</DialogTitle>
+          </DialogHeader>
           {editM && (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label>ชื่อ-นามสกุล</Label>
-                <Input value={editM.name} onChange={(e) => setEditM({ ...editM, name: e.target.value })} />
+                <Input
+                  value={editM.name}
+                  onChange={e => setEditM({ ...editM, name: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>เบอร์โทรศัพท์</Label>
-                <Input value={editM.phone} onChange={(e) => setEditM({ ...editM, phone: e.target.value })} inputMode="tel" />
+                <Input
+                  value={editM.phone}
+                  onChange={e => setEditM({ ...editM, phone: e.target.value })}
+                  inputMode="tel"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>ระดับสมาชิก</Label>
-                <Select value={editM.tier} onValueChange={(v) => setEditM({ ...editM, tier: v as typeof editM.tier })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={editM.tier}
+                  onValueChange={v =>
+                    setEditM({ ...editM, tier: v as typeof editM.tier })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="silver">ซิลเวอร์</SelectItem>
                     <SelectItem value="gold">โกลด์</SelectItem>
@@ -255,8 +399,11 @@ export default function Members() {
             </div>
           )}
           <DialogFooter>
-            <Button className="w-full" disabled={!editM?.name || updateMut.isPending}
-              onClick={() => editM && updateMut.mutate(editM)}>
+            <Button
+              className="w-full"
+              disabled={!editM?.name || updateMut.isPending}
+              onClick={() => editM && updateMut.mutate(editM)}
+            >
               บันทึก
             </Button>
           </DialogFooter>
@@ -264,37 +411,73 @@ export default function Members() {
       </Dialog>
 
       {/* Dialog จัดการสมาชิก */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
+      <Dialog open={!!selected} onOpenChange={o => !o && setSelected(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="font-heading">
-              {selected?.name} <span className="text-sm font-normal text-muted-foreground">({selected?.memberCode})</span>
+              {selected?.name}{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                ({selected?.memberCode})
+              </span>
             </DialogTitle>
           </DialogHeader>
           {selected && (
             <div className="space-y-4">
               <div className="flex items-center gap-4 bg-blue-50 rounded-xl p-3">
                 <div>
-                  <div className="text-xs text-muted-foreground">แต้มคงเหลือ</div>
-                  <div className="font-heading text-2xl font-bold text-primary">{selected.points}</div>
+                  <div className="text-xs text-muted-foreground">
+                    แต้มคงเหลือ
+                  </div>
+                  <div className="font-heading text-2xl font-bold text-primary">
+                    {selected.points}
+                  </div>
                 </div>
-                <Badge className={`${tierColor[selected.tier]} text-white ml-auto`}>{tierLabel[selected.tier]}</Badge>
+                <Badge
+                  className={`${tierColor[selected.tier]} text-white ml-auto`}
+                >
+                  {tierLabel[selected.tier]}
+                </Badge>
               </div>
 
               {/* แลกของรางวัล */}
               <div>
                 <div className="text-sm font-medium mb-2">แลกของรางวัล</div>
                 <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto">
-                  {(rewardList ?? []).filter((r) => r.active && r.stock > 0).map((r) => (
-                    <div key={r.id} className="flex items-center justify-between border rounded-lg px-3 py-1.5 text-sm">
-                      <span>{r.name} <span className="text-xs text-muted-foreground">({r.pointsRequired} แต้ม)</span></span>
-                      <Button
-                        size="sm" variant={selected.points >= r.pointsRequired ? "default" : "outline"}
-                        disabled={selected.points < r.pointsRequired || redeemMut.isPending}
-                        onClick={() => redeemMut.mutate({ memberId: selected.id, rewardId: r.id })}
-                      >แลก</Button>
-                    </div>
-                  ))}
+                  {(rewardList ?? [])
+                    .filter(r => r.active && r.stock > 0)
+                    .map(r => (
+                      <div
+                        key={r.id}
+                        className="flex items-center justify-between border rounded-lg px-3 py-1.5 text-sm"
+                      >
+                        <span>
+                          {r.name}{" "}
+                          <span className="text-xs text-muted-foreground">
+                            ({r.pointsRequired} แต้ม)
+                          </span>
+                        </span>
+                        <Button
+                          size="sm"
+                          variant={
+                            selected.points >= r.pointsRequired
+                              ? "default"
+                              : "outline"
+                          }
+                          disabled={
+                            selected.points < r.pointsRequired ||
+                            redeemMut.isPending
+                          }
+                          onClick={() =>
+                            redeemMut.mutate({
+                              memberId: selected.id,
+                              rewardId: r.id,
+                            })
+                          }
+                        >
+                          แลก
+                        </Button>
+                      </div>
+                    ))}
                 </div>
               </div>
 
@@ -303,11 +486,31 @@ export default function Members() {
                 <div className="border rounded-xl p-3 space-y-2">
                   <div className="text-sm font-medium">ปรับแต้ม (แอดมิน)</div>
                   <div className="flex gap-2">
-                    <Input type="number" placeholder="+/-" value={adjustPts} onChange={(e) => setAdjustPts(e.target.value)} className="w-24" />
-                    <Input placeholder="เหตุผล" value={adjustNote} onChange={(e) => setAdjustNote(e.target.value)} />
+                    <Input
+                      type="number"
+                      placeholder="+/-"
+                      value={adjustPts}
+                      onChange={e => setAdjustPts(e.target.value)}
+                      className="w-24"
+                    />
+                    <Input
+                      placeholder="เหตุผล"
+                      value={adjustNote}
+                      onChange={e => setAdjustNote(e.target.value)}
+                    />
                   </div>
-                  <Button size="sm" variant="secondary" disabled={!adjustPts || !adjustNote || adjustMut.isPending}
-                    onClick={() => adjustMut.mutate({ memberId: selected.id, points: Number(adjustPts), note: adjustNote })}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!adjustPts || !adjustNote || adjustMut.isPending}
+                    onClick={() =>
+                      adjustMut.mutate({
+                        memberId: selected.id,
+                        points: Number(adjustPts),
+                        note: adjustNote,
+                      })
+                    }
+                  >
                     บันทึกปรับแต้ม
                   </Button>
                 </div>
@@ -315,20 +518,34 @@ export default function Members() {
 
               {/* ประวัติแต้ม */}
               <div>
-                <div className="text-sm font-medium mb-2">ประวัติแต้มล่าสุด</div>
+                <div className="text-sm font-medium mb-2">
+                  ประวัติแต้มล่าสุด
+                </div>
                 <div className="divide-y text-sm max-h-40 overflow-y-auto">
-                  {(txns ?? []).map((t) => (
-                    <div key={t.id} className="py-1.5 flex justify-between gap-2">
+                  {(txns ?? []).map(t => (
+                    <div
+                      key={t.id}
+                      className="py-1.5 flex justify-between gap-2"
+                    >
                       <div>
-                        <div className="text-xs text-muted-foreground">{fmtDateTime(t.createdAt)}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {fmtDateTime(t.createdAt)}
+                        </div>
                         <div>{t.note}</div>
                       </div>
-                      <span className={`font-semibold ${t.points >= 0 ? "text-green-600" : "text-destructive"}`}>
-                        {t.points >= 0 ? "+" : ""}{t.points}
+                      <span
+                        className={`font-semibold ${t.points >= 0 ? "text-green-600" : "text-destructive"}`}
+                      >
+                        {t.points >= 0 ? "+" : ""}
+                        {t.points}
                       </span>
                     </div>
                   ))}
-                  {(txns ?? []).length === 0 && <p className="text-xs text-muted-foreground py-3 text-center">ยังไม่มีประวัติ</p>}
+                  {(txns ?? []).length === 0 && (
+                    <p className="text-xs text-muted-foreground py-3 text-center">
+                      ยังไม่มีประวัติ
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

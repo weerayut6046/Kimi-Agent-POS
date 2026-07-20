@@ -6,14 +6,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { ZReportDoc } from "@/components/ZReportDoc";
 import { printElement } from "@/lib/printDoc";
 import { downloadBase64, XLSX_MIME } from "@/lib/download";
-import { fmtMoney, fmtNum, fmtTime, paymentLabel, debtMethodLabel } from "@/lib/format";
+import {
+  fmtMoney,
+  fmtNum,
+  fmtTime,
+  paymentLabel,
+  debtMethodLabel,
+} from "@/lib/format";
 
 /** วันนี้ในรูปแบบ YYYY-MM-DD (local — ห้ามใช้ toISOString เพราะจะเป็น UTC) */
 function todayStr() {
@@ -32,9 +43,13 @@ export default function Reports() {
   const [date, setDate] = useState(todayStr());
   const utils = trpc.useUtils();
 
-  const { data: r, isLoading, error } = trpc.reports.daily.useQuery(
+  const {
+    data: r,
+    isLoading,
+    error,
+  } = trpc.reports.daily.useQuery(
     { date },
-    { enabled: /^\d{4}-\d{2}-\d{2}$/.test(date) },
+    { enabled: /^\d{4}-\d{2}-\d{2}$/.test(date) }
   );
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
@@ -42,14 +57,16 @@ export default function Reports() {
   // กำไรต่อลิตร + ส่งออก Excel มีข้อมูลต้นทุน — เฉพาะ admin/manager (server บังคับด้วย managerQuery)
   const { data: profit } = trpc.reports.fuelProfit.useQuery(
     { date },
-    { enabled: canManage && /^\d{4}-\d{2}-\d{2}$/.test(date) },
+    { enabled: canManage && /^\d{4}-\d{2}-\d{2}$/.test(date) }
   );
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState("");
   const [rangeFrom, setRangeFrom] = useState(todayStr());
   const [rangeTo, setRangeTo] = useState(todayStr());
 
-  const runExport = async (fetch: () => Promise<{ fileName: string; contentBase64: string }>) => {
+  const runExport = async (
+    fetch: () => Promise<{ fileName: string; contentBase64: string }>
+  ) => {
     setExportErr("");
     setExporting(true);
     try {
@@ -61,8 +78,12 @@ export default function Reports() {
       setExporting(false);
     }
   };
-  const exportDaily = () => runExport(() => utils.reports.exportDailyExcel.fetch({ date }));
-  const exportRange = () => runExport(() => utils.reports.exportRangeExcel.fetch({ from: rangeFrom, to: rangeTo }));
+  const exportDaily = () =>
+    runExport(() => utils.reports.exportDailyExcel.fetch({ date }));
+  const exportRange = () =>
+    runExport(() =>
+      utils.reports.exportRangeExcel.fetch({ from: rangeFrom, to: rangeTo })
+    );
 
   const printReport = () => {
     const el = document.getElementById("zreport-print");
@@ -72,25 +93,38 @@ export default function Reports() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
-          <ClipboardList className="w-6 h-6 text-primary" /> รายงานปิดวัน (Z-Report)
+        <h1 className="page-heading flex items-center gap-2">
+          <ClipboardList className="w-6 h-6 text-primary" /> รายงานปิดวัน
+          (Z-Report)
         </h1>
-        <div className="flex items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="z-date" className="text-xs text-muted-foreground">วันที่</Label>
+        <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+          <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
+            <Label htmlFor="z-date" className="text-xs text-muted-foreground">
+              วันที่
+            </Label>
             <Input
               id="z-date"
               type="date"
-              className="w-44"
+              className="w-full sm:w-44"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={e => setDate(e.target.value)}
             />
           </div>
-          <Button variant="outline" disabled={!r} onClick={printReport}>
+          <Button
+            className="flex-1 sm:flex-none"
+            variant="outline"
+            disabled={!r}
+            onClick={printReport}
+          >
             <Printer className="w-4 h-4 mr-1" /> พิมพ์ Z-report
           </Button>
           {canManage && (
-            <Button variant="outline" disabled={!r || exporting} onClick={exportDaily}>
+            <Button
+              className="flex-1 sm:flex-none"
+              variant="outline"
+              disabled={!r || exporting}
+              onClick={exportDaily}
+            >
               <FileSpreadsheet className="w-4 h-4 mr-1" /> ส่งออก Excel
             </Button>
           )}
@@ -98,7 +132,9 @@ export default function Reports() {
       </div>
       {error && <p className="text-sm text-destructive">{error.message}</p>}
       {exportErr && <p className="text-sm text-destructive">{exportErr}</p>}
-      {isLoading && <p className="text-sm text-muted-foreground">กำลังโหลด...</p>}
+      {isLoading && (
+        <p className="text-sm text-muted-foreground">กำลังโหลด...</p>
+      )}
 
       {r && (
         <>
@@ -107,7 +143,9 @@ export default function Reports() {
             <Card>
               <CardContent className="py-3">
                 <div className="text-xs text-muted-foreground">ยอดขายรวม</div>
-                <div className="text-xl font-bold text-primary">฿{fmtMoney(r.totalSales)}</div>
+                <div className="text-xl font-bold text-primary">
+                  ฿{fmtMoney(r.totalSales)}
+                </div>
               </CardContent>
             </Card>
             <Card>
@@ -120,14 +158,19 @@ export default function Reports() {
               <CardContent className="py-3">
                 <div className="text-xs text-muted-foreground">ยกเลิก</div>
                 <div className="text-xl font-bold text-destructive">
-                  {r.voidedCount} <span className="text-sm font-normal">/ ฿{fmtMoney(r.voidedTotal)}</span>
+                  {r.voidedCount}{" "}
+                  <span className="text-sm font-normal">
+                    / ฿{fmtMoney(r.voidedTotal)}
+                  </span>
                 </div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="py-3">
                 <div className="text-xs text-muted-foreground">ส่วนลด</div>
-                <div className="text-xl font-bold">฿{fmtMoney(r.discountTotal)}</div>
+                <div className="text-xl font-bold">
+                  ฿{fmtMoney(r.discountTotal)}
+                </div>
               </CardContent>
             </Card>
             <Card>
@@ -144,10 +187,14 @@ export default function Reports() {
               <div>
                 <div className="font-semibold">เงินสดที่ควรมีในลิ้นชัก</div>
                 <div className="text-xs text-muted-foreground">
-                  = ขายเงินสด ฿{fmtMoney(r.byMethod.cash.total)} + ชำระหนี้เงินสด ฿{fmtMoney(r.debtPayments.byMethod.cash)} − ค่าใช้จ่าย ฿{fmtMoney(r.expenses.total)}
+                  = ขายเงินสด ฿{fmtMoney(r.byMethod.cash.total)} +
+                  ชำระหนี้เงินสด ฿{fmtMoney(r.debtPayments.byMethod.cash)} −
+                  ค่าใช้จ่าย ฿{fmtMoney(r.expenses.total)}
                 </div>
               </div>
-              <div className="text-2xl font-bold text-primary">฿{fmtMoney(r.expectedCash)}</div>
+              <div className="text-2xl font-bold text-primary">
+                ฿{fmtMoney(r.expectedCash)}
+              </div>
             </CardContent>
           </Card>
 
@@ -155,7 +202,9 @@ export default function Reports() {
             {/* แยกวิธีชำระ */}
             <Card>
               <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-2">แยกตามวิธีชำระ</h2>
+                <h2 className="font-heading font-semibold mb-2">
+                  แยกตามวิธีชำระ
+                </h2>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -165,11 +214,15 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {PAY_METHODS.map((m) => (
+                    {PAY_METHODS.map(m => (
                       <TableRow key={m}>
                         <TableCell>{paymentLabel[m]}</TableCell>
-                        <TableCell className="text-right">{r.byMethod[m].count}</TableCell>
-                        <TableCell className="text-right font-semibold">฿{fmtMoney(r.byMethod[m].total)}</TableCell>
+                        <TableCell className="text-right">
+                          {r.byMethod[m].count}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          ฿{fmtMoney(r.byMethod[m].total)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -180,7 +233,9 @@ export default function Reports() {
             {/* ลิตรน้ำมัน */}
             <Card>
               <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-2">ปริมาณน้ำมันขาย</h2>
+                <h2 className="font-heading font-semibold mb-2">
+                  ปริมาณน้ำมันขาย
+                </h2>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -189,15 +244,19 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {r.fuelLiters.map((f) => (
+                    {r.fuelLiters.map(f => (
                       <TableRow key={f.name}>
                         <TableCell>{f.name}</TableCell>
-                        <TableCell className="text-right">{fmtNum(f.liters)}</TableCell>
+                        <TableCell className="text-right">
+                          {fmtNum(f.liters)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     <TableRow className="font-semibold">
                       <TableCell>รวม</TableCell>
-                      <TableCell className="text-right">{fmtNum(r.totalLiters)}</TableCell>
+                      <TableCell className="text-right">
+                        {fmtNum(r.totalLiters)}
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -209,9 +268,12 @@ export default function Reports() {
           {canManage && profit && profit.items.length > 0 && (
             <Card>
               <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-1">กำไรน้ำมันโดยประมาณ</h2>
+                <h2 className="font-heading font-semibold mb-1">
+                  กำไรน้ำมันโดยประมาณ
+                </h2>
                 <p className="text-xs text-muted-foreground mb-2">
-                  คำนวณจากต้นทุนสินค้าปัจจุบัน (ตั้งในหน้าสต็อก) — ถ้าต้นทุน/ลิตรเป็น 0 แปลว่ายังไม่ได้ตั้งต้นทุน
+                  คำนวณจากต้นทุนสินค้าปัจจุบัน (ตั้งในหน้าสต็อก) —
+                  ถ้าต้นทุน/ลิตรเป็น 0 แปลว่ายังไม่ได้ตั้งต้นทุน
                 </p>
                 <Table>
                   <TableHeader>
@@ -225,22 +287,46 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {profit.items.map((p) => (
+                    {profit.items.map(p => (
                       <TableRow key={p.name}>
                         <TableCell>{p.name}</TableCell>
-                        <TableCell className="text-right">{fmtNum(p.liters)}</TableCell>
-                        <TableCell className="text-right">฿{fmtMoney(p.revenue)}</TableCell>
-                        <TableCell className="text-right">{p.costPerLiter > 0 ? `฿${fmtMoney(p.costPerLiter)}` : "-"}</TableCell>
-                        <TableCell className="text-right">฿{fmtMoney(p.profitPerLiter)}</TableCell>
-                        <TableCell className="text-right font-semibold">฿{fmtMoney(p.profitTotal)}</TableCell>
+                        <TableCell className="text-right">
+                          {fmtNum(p.liters)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(p.revenue)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {p.costPerLiter > 0
+                            ? `฿${fmtMoney(p.costPerLiter)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(p.profitPerLiter)}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          ฿{fmtMoney(p.profitTotal)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     <TableRow className="font-semibold">
                       <TableCell>รวม</TableCell>
-                      <TableCell className="text-right">{fmtNum(profit.items.reduce((s, p) => s + p.liters, 0))}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(profit.items.reduce((s, p) => s + p.revenue, 0))}</TableCell>
+                      <TableCell className="text-right">
+                        {fmtNum(profit.items.reduce((s, p) => s + p.liters, 0))}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿
+                        {fmtMoney(
+                          profit.items.reduce((s, p) => s + p.revenue, 0)
+                        )}
+                      </TableCell>
                       <TableCell colSpan={2} />
-                      <TableCell className="text-right">฿{fmtMoney(profit.items.reduce((s, p) => s + p.profitTotal, 0))}</TableCell>
+                      <TableCell className="text-right">
+                        ฿
+                        {fmtMoney(
+                          profit.items.reduce((s, p) => s + p.profitTotal, 0)
+                        )}
+                      </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -251,7 +337,9 @@ export default function Reports() {
           {/* กะการทำงาน */}
           <Card>
             <CardContent className="pt-4 overflow-x-auto">
-              <h2 className="font-heading font-semibold mb-2">กะการทำงาน ({r.shifts.length})</h2>
+              <h2 className="font-heading font-semibold mb-2">
+                กะการทำงาน ({r.shifts.length})
+              </h2>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -270,24 +358,58 @@ export default function Reports() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {r.shifts.map((s) => (
+                  {r.shifts.map(s => (
                     <TableRow key={s.id}>
-                      <TableCell className="font-mono text-xs">#{s.id}</TableCell>
-                      <TableCell className="text-sm">{s.staffName}</TableCell>
-                      <TableCell className="whitespace-nowrap">{fmtTime(s.openedAt)}</TableCell>
-                      <TableCell className="whitespace-nowrap">{s.closedAt ? fmtTime(s.closedAt) : "-"}</TableCell>
-                      <TableCell>
-                        {s.status === "open" ? <Badge>กำลังเปิด</Badge> : <Badge variant="secondary">ปิดแล้ว</Badge>}
+                      <TableCell className="font-mono text-xs">
+                        #{s.id}
                       </TableCell>
-                      <TableCell className="text-right">{fmtNum(s.totalLiters)}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(s.totalAmount)}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(s.totalMoneyMeter)}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(s.posAmount)}</TableCell>
-                      <TableCell className="text-right">{s.openingFloat > 0 ? `฿${fmtMoney(s.openingFloat)}` : "-"}</TableCell>
-                      <TableCell className="text-right">{s.countedCash != null ? `฿${fmtMoney(s.countedCash)}` : "-"}</TableCell>
+                      <TableCell className="text-sm">{s.staffName}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {fmtTime(s.openedAt)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {s.closedAt ? fmtTime(s.closedAt) : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {s.status === "open" ? (
+                          <Badge>กำลังเปิด</Badge>
+                        ) : (
+                          <Badge variant="secondary">ปิดแล้ว</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {fmtNum(s.totalLiters)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(s.totalAmount)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(s.totalMoneyMeter)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(s.posAmount)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {s.openingFloat > 0
+                          ? `฿${fmtMoney(s.openingFloat)}`
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {s.countedCash != null
+                          ? `฿${fmtMoney(s.countedCash)}`
+                          : "-"}
+                      </TableCell>
                       <TableCell className="text-right">
                         {s.cashDiff != null ? (
-                          <span className={s.cashDiff < 0 ? "text-red-600 font-medium" : s.cashDiff > 0 ? "text-green-700 font-medium" : ""}>
+                          <span
+                            className={
+                              s.cashDiff < 0
+                                ? "text-red-600 font-medium"
+                                : s.cashDiff > 0
+                                  ? "text-green-700 font-medium"
+                                  : ""
+                            }
+                          >
                             {s.cashDiff > 0 ? "+" : ""}฿{fmtMoney(s.cashDiff)}
                           </span>
                         ) : (
@@ -298,7 +420,12 @@ export default function Reports() {
                   ))}
                   {r.shifts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center text-muted-foreground py-6">ไม่มีกะในวันนี้</TableCell>
+                      <TableCell
+                        colSpan={12}
+                        className="text-center text-muted-foreground py-6"
+                      >
+                        ไม่มีกะในวันนี้
+                      </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -311,7 +438,8 @@ export default function Reports() {
             <Card>
               <CardContent className="pt-4">
                 <h2 className="font-heading font-semibold mb-2">
-                  ค่าใช้จ่าย ({r.expenses.items.length} รายการ · ฿{fmtMoney(r.expenses.total)})
+                  ค่าใช้จ่าย ({r.expenses.items.length} รายการ · ฿
+                  {fmtMoney(r.expenses.total)})
                 </h2>
                 <Table>
                   <TableHeader>
@@ -323,17 +451,28 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {r.expenses.items.map((e) => (
+                    {r.expenses.items.map(e => (
                       <TableRow key={e.id}>
-                        <TableCell className="whitespace-nowrap">{fmtTime(e.createdAt)}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fmtTime(e.createdAt)}
+                        </TableCell>
                         <TableCell className="text-sm">{e.title}</TableCell>
-                        <TableCell className="text-sm">{e.staffName || "-"}</TableCell>
-                        <TableCell className="text-right">฿{fmtMoney(e.amount)}</TableCell>
+                        <TableCell className="text-sm">
+                          {e.staffName || "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(e.amount)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     {r.expenses.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground py-6">ไม่มีค่าใช้จ่าย</TableCell>
+                        <TableCell
+                          colSpan={4}
+                          className="text-center text-muted-foreground py-6"
+                        >
+                          ไม่มีค่าใช้จ่าย
+                        </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -345,7 +484,8 @@ export default function Reports() {
             <Card>
               <CardContent className="pt-4">
                 <h2 className="font-heading font-semibold mb-2">
-                  รับชำระหนี้ ({r.debtPayments.items.length} รายการ · ฿{fmtMoney(r.debtPayments.total)})
+                  รับชำระหนี้ ({r.debtPayments.items.length} รายการ · ฿
+                  {fmtMoney(r.debtPayments.total)})
                 </h2>
                 <Table>
                   <TableHeader>
@@ -357,22 +497,38 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {r.debtPayments.items.map((p) => (
+                    {r.debtPayments.items.map(p => (
                       <TableRow key={p.id}>
-                        <TableCell className="font-mono text-xs">{p.paymentNo}</TableCell>
-                        <TableCell className="text-sm">{p.customerName}</TableCell>
-                        <TableCell className="text-sm">{debtMethodLabel[p.method] ?? p.method}</TableCell>
-                        <TableCell className="text-right">฿{fmtMoney(p.amount)}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {p.paymentNo}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {p.customerName}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {debtMethodLabel[p.method] ?? p.method}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(p.amount)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     <TableRow className="text-sm">
                       <TableCell colSpan={4} className="text-muted-foreground">
-                        {DEBT_METHODS.map((m) => `${debtMethodLabel[m]} ฿${fmtMoney(r.debtPayments.byMethod[m])}`).join(" · ")}
+                        {DEBT_METHODS.map(
+                          m =>
+                            `${debtMethodLabel[m]} ฿${fmtMoney(r.debtPayments.byMethod[m])}`
+                        ).join(" · ")}
                       </TableCell>
                     </TableRow>
                     {r.debtPayments.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-muted-foreground py-6">ไม่มีรายการชำระหนี้</TableCell>
+                        <TableCell
+                          colSpan={4}
+                          className="text-center text-muted-foreground py-6"
+                        >
+                          ไม่มีรายการชำระหนี้
+                        </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -385,31 +541,48 @@ export default function Reports() {
           {canManage && (
             <Card>
               <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-2">ส่งออกยอดขายช่วงเวลา (Excel)</h2>
-                <div className="flex items-end gap-2 flex-wrap">
-                  <div className="space-y-1">
-                    <Label htmlFor="range-from" className="text-xs text-muted-foreground">จากวันที่</Label>
+                <h2 className="font-heading font-semibold mb-2">
+                  ส่งออกยอดขายช่วงเวลา (Excel)
+                </h2>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
+                    <Label
+                      htmlFor="range-from"
+                      className="text-xs text-muted-foreground"
+                    >
+                      จากวันที่
+                    </Label>
                     <Input
                       id="range-from"
                       type="date"
-                      className="w-44"
+                      className="w-full sm:w-44"
                       value={rangeFrom}
-                      onChange={(e) => setRangeFrom(e.target.value)}
+                      onChange={e => setRangeFrom(e.target.value)}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="range-to" className="text-xs text-muted-foreground">ถึงวันที่</Label>
+                  <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
+                    <Label
+                      htmlFor="range-to"
+                      className="text-xs text-muted-foreground"
+                    >
+                      ถึงวันที่
+                    </Label>
                     <Input
                       id="range-to"
                       type="date"
-                      className="w-44"
+                      className="w-full sm:w-44"
                       value={rangeTo}
-                      onChange={(e) => setRangeTo(e.target.value)}
+                      onChange={e => setRangeTo(e.target.value)}
                     />
                   </div>
                   <Button
+                    className="w-full sm:w-auto"
                     variant="outline"
-                    disabled={exporting || !/^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(rangeTo)}
+                    disabled={
+                      exporting ||
+                      !/^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) ||
+                      !/^\d{4}-\d{2}-\d{2}$/.test(rangeTo)
+                    }
                     onClick={exportRange}
                   >
                     <FileSpreadsheet className="w-4 h-4 mr-1" />
@@ -417,7 +590,9 @@ export default function Reports() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">
-                  ไฟล์มีสรุปรายวัน บิลขายทั้งช่วง และกำไรน้ำมันโดยประมาณ — พิมพ์เป็น PDF ใช้ปุ่ม &quot;พิมพ์ Z-report&quot; แล้วเลือก Save as PDF
+                  ไฟล์มีสรุปรายวัน บิลขายทั้งช่วง และกำไรน้ำมันโดยประมาณ —
+                  พิมพ์เป็น PDF ใช้ปุ่ม &quot;พิมพ์ Z-report&quot; แล้วเลือก
+                  Save as PDF
                 </p>
               </CardContent>
             </Card>

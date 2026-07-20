@@ -23,8 +23,12 @@ export const creditRouter = createRouter({
         .from(customers)
         .where(
           pattern
-            ? or(like(customers.name, pattern), like(customers.phone, pattern), like(customers.taxId, pattern))
-            : undefined,
+            ? or(
+                like(customers.name, pattern),
+                like(customers.phone, pattern),
+                like(customers.taxId, pattern)
+              )
+            : undefined
         );
       const rows = [];
       for (const c of custRows) {
@@ -34,37 +38,46 @@ export const creditRouter = createRouter({
     }),
 
   // รายละเอียดลูกค้าเครดิต: บิลเครดิตค้าง + ประวัติชำระ
-  detail: publicQuery.input(z.object({ customerId: z.number() })).query(async ({ input }) => {
-    const db = getDb();
-    const customer = await db.query.customers.findFirst({ where: eq(customers.id, input.customerId) });
-    if (!customer) throw new Error("ไม่พบลูกค้า");
-    const creditSales = await db
-      .select({
-        id: sales.id,
-        receiptNo: sales.receiptNo,
-        total: sales.total,
-        staffName: sales.staffName,
-        createdAt: sales.createdAt,
-      })
-      .from(sales)
-      .where(
-        and(
-          eq(sales.customerId, customer.id),
-          eq(sales.paymentMethod, "credit"),
-          eq(sales.status, "completed"),
-        ),
-      )
-      .orderBy(asc(sales.createdAt));
-    const payments = await db
-      .select()
-      .from(debtPayments)
-      .where(eq(debtPayments.customerId, customer.id))
-      .orderBy(desc(debtPayments.createdAt));
-    return { customer, outstanding: await outstandingOf(db, customer.id), creditSales, payments };
-  }),
+  detail: publicQuery
+    .input(z.object({ customerId: z.number() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const customer = await db.query.customers.findFirst({
+        where: eq(customers.id, input.customerId),
+      });
+      if (!customer) throw new Error("ไม่พบลูกค้า");
+      const creditSales = await db
+        .select({
+          id: sales.id,
+          receiptNo: sales.receiptNo,
+          total: sales.total,
+          staffName: sales.staffName,
+          createdAt: sales.createdAt,
+        })
+        .from(sales)
+        .where(
+          and(
+            eq(sales.customerId, customer.id),
+            eq(sales.paymentMethod, "credit"),
+            eq(sales.status, "completed")
+          )
+        )
+        .orderBy(asc(sales.createdAt));
+      const payments = await db
+        .select()
+        .from(debtPayments)
+        .where(eq(debtPayments.customerId, customer.id))
+        .orderBy(desc(debtPayments.createdAt));
+      return {
+        customer,
+        outstanding: await outstandingOf(db, customer.id),
+        creditSales,
+        payments,
+      };
+    }),
 
-  // รับชำระหนี้ (ผูกกับลูกค้า ไม่ผูกกับบิล — รับบางส่วนได้)
-  receivePayment: publicQuery
+  // รับชำระหนี้ (ผูกกับลูกค้า ไม่ผูกกับบิล — รับบางส่วนได้) — สงวนสิทธิ์ admin/manager
+  receivePayment: managerQuery
     .input(
       z.object({
         customerId: z.number(),
@@ -72,11 +85,13 @@ export const creditRouter = createRouter({
         method: z.enum(["cash", "qr", "transfer"]).default("cash"),
         staffName: z.string().default(""),
         note: z.string().optional(),
-      }),
+      })
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const customer = await db.query.customers.findFirst({ where: eq(customers.id, input.customerId) });
+      const customer = await db.query.customers.findFirst({
+        where: eq(customers.id, input.customerId),
+      });
       if (!customer) throw new Error("ไม่พบลูกค้า");
       const amount = r2(input.amount);
       if (amount <= 0) throw new Error("จำนวนเงินต้องมากกว่า 0");
@@ -84,10 +99,12 @@ export const creditRouter = createRouter({
       if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
 
       // ถ้ามีกะเปิดอยู่ให้ผูก shiftId อัตโนมัติ (เหมือนค่าใช้จ่าย) — ต้องหาก่อนเข้า tx
-      const openShift = await db.query.shifts.findFirst({ where: eq(shifts.status, "open") });
+      const openShift = await db.query.shifts.findFirst({
+        where: eq(shifts.status, "open"),
+      });
 
       // transaction ของ better-sqlite3 เป็น synchronous — ห้าม await ข้างใน
-      const paymentId = db.transaction((tx) => {
+      const paymentId = db.transaction(tx => {
         const paymentNo = nextDocNo(tx, "debt_payment");
         const [{ id }] = tx
           .insert(debtPayments)
@@ -104,7 +121,9 @@ export const creditRouter = createRouter({
           .all();
         return id;
       });
-      const payment = await db.query.debtPayments.findFirst({ where: eq(debtPayments.id, paymentId) });
+      const payment = await db.query.debtPayments.findFirst({
+        where: eq(debtPayments.id, paymentId),
+      });
       logAudit({
         action: "receive_debt_payment",
         ...actorFromReq(ctx.req),
@@ -116,18 +135,22 @@ export const creditRouter = createRouter({
     }),
 
   // ลบรายการชำระ (กรณีคีย์ผิด) — สงวนสิทธิ์ admin/manager
-  removePayment: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-    const db = getDb();
-    const existing = await db.query.debtPayments.findFirst({ where: eq(debtPayments.id, input.id) });
-    if (!existing) throw new Error("ไม่พบรายการชำระ");
-    await db.delete(debtPayments).where(eq(debtPayments.id, input.id));
-    logAudit({
-      action: "remove_debt_payment",
-      ...actorFromReq(ctx.req),
-      detail: `ลบการชำระหนี้ ${existing.paymentNo} ยอด ${existing.amount.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      refType: "debt_payment",
-      refId: input.id,
-    });
-    return { ok: true };
-  }),
+  removePayment: managerQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const existing = await db.query.debtPayments.findFirst({
+        where: eq(debtPayments.id, input.id),
+      });
+      if (!existing) throw new Error("ไม่พบรายการชำระ");
+      await db.delete(debtPayments).where(eq(debtPayments.id, input.id));
+      logAudit({
+        action: "remove_debt_payment",
+        ...actorFromReq(ctx.req),
+        detail: `ลบการชำระหนี้ ${existing.paymentNo} ยอด ${existing.amount.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        refType: "debt_payment",
+        refId: input.id,
+      });
+      return { ok: true };
+    }),
 });

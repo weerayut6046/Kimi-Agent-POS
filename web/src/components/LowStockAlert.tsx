@@ -2,7 +2,11 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Bell, Fuel, PackageX } from "lucide-react";
 import { toast } from "sonner";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/providers/trpc";
 import { fmtNum } from "@/lib/format";
@@ -12,15 +16,17 @@ import { fmtNum } from "@/lib/format";
  * และเด้ง toast ทันทีที่มีรายการใหม่ต่ำกว่าเกณฑ์ (เช่น ขายน้ำมันไปจนถังต่ำกว่าเกณฑ์)
  */
 export default function LowStockAlert() {
-  const { data } = trpc.catalog.lowStockAlerts.useQuery(undefined, { refetchInterval: 15000 });
+  const { data } = trpc.catalog.lowStockAlerts.useQuery(undefined, {
+    refetchInterval: 15000,
+  });
   // เก็บ id รายการที่รู้แล้ว — null = ยังไม่เคยโหลด (รอบแรกไม่เด้ง toast รัว ๆ ตอนเปิดแอป)
   const knownRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     if (!data) return;
     const current = new Set<string>([
-      ...data.lowTanks.map((t) => `tank-${t.id}`),
-      ...data.lowProducts.map((p) => `prod-${p.id}`),
+      ...data.lowTanks.map(t => `tank-${t.id}`),
+      ...data.lowProducts.map(p => `prod-${p.id}`),
     ]);
     if (knownRef.current === null) {
       knownRef.current = current;
@@ -60,30 +66,39 @@ export default function LowStockAlert() {
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-0" align="end">
-        <div className="px-4 py-3 border-b font-heading font-semibold text-sm">แจ้งเตือนสต็อก</div>
+      <PopoverContent
+        className="w-[calc(100vw-1.5rem)] max-w-80 p-0"
+        align="end"
+      >
+        <div className="px-4 py-3 border-b font-heading font-semibold text-sm">
+          แจ้งเตือนสต็อก
+        </div>
         {count === 0 ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground text-center">ไม่มีรายการแจ้งเตือน</div>
+          <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+            ไม่มีรายการแจ้งเตือน
+          </div>
         ) : (
           <div className="max-h-72 overflow-y-auto divide-y">
-            {data!.lowTanks.map((t) => (
+            {data!.lowTanks.map(t => (
               <div key={t.id} className="px-4 py-2.5 flex items-center gap-3">
                 <Fuel className="w-4 h-4 text-amber-600 shrink-0" />
                 <div className="text-sm">
                   <div className="font-medium">{t.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    เหลือ {fmtNum(t.currentLiters)} / {fmtNum(t.capacityLiters)} ลิตร
+                    เหลือ {fmtNum(t.currentLiters)} / {fmtNum(t.capacityLiters)}{" "}
+                    ลิตร
                   </div>
                 </div>
               </div>
             ))}
-            {data!.lowProducts.map((p) => (
+            {data!.lowProducts.map(p => (
               <div key={p.id} className="px-4 py-2.5 flex items-center gap-3">
                 <PackageX className="w-4 h-4 text-amber-600 shrink-0" />
                 <div className="text-sm">
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    เหลือ {fmtNum(p.stockQty)} {p.unit} (เกณฑ์ {fmtNum(p.lowStockAt)})
+                    เหลือ {fmtNum(p.stockQty)} {p.unit} (เกณฑ์{" "}
+                    {fmtNum(p.lowStockAt)})
                   </div>
                 </div>
               </div>

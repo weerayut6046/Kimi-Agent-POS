@@ -5,10 +5,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -33,26 +41,32 @@ export default function TaxInvoices() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data: rows, isLoading } = trpc.taxInvoice.list.useQuery({ q: search || undefined });
-  const { data: available } = trpc.taxInvoice.salesAvailable.useQuery(undefined, { enabled: showAdd });
+  const { data: rows, isLoading } = trpc.taxInvoice.list.useQuery({
+    q: search || undefined,
+  });
+  const { data: available } = trpc.taxInvoice.salesAvailable.useQuery(
+    undefined,
+    { enabled: showAdd }
+  );
 
   const remove = trpc.taxInvoice.remove.useMutation({
     onSuccess: () => utils.taxInvoice.list.invalidate(),
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const availableFiltered = (available ?? []).filter(
-    (s) => !addQ || s.receiptNo.toLowerCase().includes(addQ.toLowerCase()),
+    s => !addQ || s.receiptNo.toLowerCase().includes(addQ.toLowerCase())
   );
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
-          <FileText className="w-6 h-6 text-primary" /> ใบเสร็จรับเงิน/ใบกำกับภาษี
+        <h1 className="page-heading flex items-center gap-2">
+          <FileText className="w-6 h-6 text-primary" />{" "}
+          ใบเสร็จรับเงิน/ใบกำกับภาษี
         </h1>
         {isAdmin && (
-          <Button onClick={() => setShowAdd(true)}>
+          <Button className="w-full sm:w-auto" onClick={() => setShowAdd(true)}>
             <Plus className="w-4 h-4 mr-1" /> ออกใบกำกับภาษี
           </Button>
         )}
@@ -65,7 +79,7 @@ export default function TaxInvoices() {
           className="pl-9"
           placeholder="ค้นหา เลขที่ / ลูกค้า / เลขผู้เสียภาษี / ใบเสร็จย่อ"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={e => setQ(e.target.value)}
         />
       </div>
 
@@ -83,35 +97,57 @@ export default function TaxInvoices() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(rows ?? []).map((r) => (
+              {(rows ?? []).map(r => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.taxInvoiceNo}</TableCell>
-                  <TableCell className="whitespace-nowrap">{fmtDateTime(r.createdAt)}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {r.taxInvoiceNo}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {fmtDateTime(r.createdAt)}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {r.receiptNo}
                     {r.saleStatus === "voided" && (
-                      <Badge variant="destructive" className="ml-1.5">บิลยกเลิก</Badge>
+                      <Badge variant="destructive" className="ml-1.5">
+                        บิลยกเลิก
+                      </Badge>
                     )}
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{r.customerName}</div>
-                    {r.customerTaxId && <div className="text-xs text-muted-foreground">{r.customerTaxId}</div>}
+                    {r.customerTaxId && (
+                      <div className="text-xs text-muted-foreground">
+                        {r.customerTaxId}
+                      </div>
+                    )}
                   </TableCell>
-                  <TableCell className="text-right font-semibold">฿{fmtMoney(r.saleTotal)}</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    ฿{fmtMoney(r.saleTotal)}
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button
-                        size="icon" variant="ghost" className="h-8 w-8" title="ดู/พิมพ์"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title="ดู/พิมพ์"
                         onClick={() => setTaxSaleId(r.saleId)}
                       >
                         <Eye className="w-4 h-4" />
                       </Button>
                       {isAdmin && (
                         <Button
-                          size="icon" variant="ghost" className="h-8 w-8 text-destructive" title="ลบ"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          title="ลบ"
                           disabled={remove.isPending}
                           onClick={() => {
-                            if (confirm(`ยืนยันลบใบกำกับภาษี ${r.taxInvoiceNo}?\n(บิลขาย ${r.receiptNo} ยังคงอยู่ สามารถออกใบกำกับใหม่ได้)`)) {
+                            if (
+                              confirm(
+                                `ยืนยันลบใบกำกับภาษี ${r.taxInvoiceNo}?\n(บิลขาย ${r.receiptNo} ยังคงอยู่ สามารถออกใบกำกับใหม่ได้)`
+                              )
+                            ) {
                               remove.mutate({ id: r.id });
                             }
                           }}
@@ -125,8 +161,13 @@ export default function TaxInvoices() {
               ))}
               {!isLoading && (rows ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    {search ? "ไม่พบใบกำกับภาษีที่ค้นหา" : "ยังไม่มีใบกำกับภาษี"}
+                  <TableCell
+                    colSpan={6}
+                    className="text-center text-muted-foreground py-8"
+                  >
+                    {search
+                      ? "ไม่พบใบกำกับภาษีที่ค้นหา"
+                      : "ยังไม่มีใบกำกับภาษี"}
                   </TableCell>
                 </TableRow>
               )}
@@ -139,16 +180,18 @@ export default function TaxInvoices() {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading">เลือกบิลที่ต้องการออกใบกำกับภาษี</DialogTitle>
+            <DialogTitle className="font-heading">
+              เลือกบิลที่ต้องการออกใบกำกับภาษี
+            </DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
             placeholder="ค้นหาเลขที่บิล"
             value={addQ}
-            onChange={(e) => setAddQ(e.target.value)}
+            onChange={e => setAddQ(e.target.value)}
           />
           <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
-            {availableFiltered.map((s) => (
+            {availableFiltered.map(s => (
               <button
                 key={s.id}
                 className="w-full text-left px-3 py-2 hover:bg-accent flex justify-between gap-2 text-sm"
@@ -159,7 +202,9 @@ export default function TaxInvoices() {
                 }}
               >
                 <span className="font-mono text-xs">{s.receiptNo}</span>
-                <span className="text-muted-foreground text-xs">{fmtDateTime(s.createdAt)}</span>
+                <span className="text-muted-foreground text-xs">
+                  {fmtDateTime(s.createdAt)}
+                </span>
                 <span className="font-semibold">฿{fmtMoney(s.total)}</span>
               </button>
             ))}
@@ -173,7 +218,11 @@ export default function TaxInvoices() {
       </Dialog>
 
       {/* ดู/แก้ไข/พิมพ์ใบกำกับภาษี */}
-      <TaxInvoiceDialog saleId={taxSaleId} onClose={() => setTaxSaleId(null)} canEdit={isAdmin} />
+      <TaxInvoiceDialog
+        saleId={taxSaleId}
+        onClose={() => setTaxSaleId(null)}
+        canEdit={isAdmin}
+      />
     </div>
   );
 }

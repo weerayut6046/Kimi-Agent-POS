@@ -5,10 +5,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -34,12 +43,14 @@ export default function Debts() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data: rows, isLoading } = trpc.credit.summary.useQuery({ q: search || undefined });
+  const { data: rows, isLoading } = trpc.credit.summary.useQuery({
+    q: search || undefined,
+  });
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
+        <h1 className="page-heading flex items-center gap-2">
           <HandCoins className="w-6 h-6 text-primary" /> ลูกหนี้เครดิต
         </h1>
       </div>
@@ -51,7 +62,7 @@ export default function Debts() {
           className="pl-9"
           placeholder="ค้นหา ชื่อ / โทรศัพท์ / เลขผู้เสียภาษี"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={e => setQ(e.target.value)}
         />
       </div>
 
@@ -68,18 +79,31 @@ export default function Debts() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(rows ?? []).map((c) => (
+              {(rows ?? []).map(c => (
                 <TableRow key={c.id}>
-                  <TableCell className="text-sm font-medium">{c.name}</TableCell>
+                  <TableCell className="text-sm font-medium">
+                    {c.name}
+                  </TableCell>
                   <TableCell className="text-sm">{c.phone || "-"}</TableCell>
-                  <TableCell className={`text-right font-semibold ${c.outstanding > 0 ? "text-amber-600" : ""}`}>
+                  <TableCell
+                    className={`text-right font-semibold ${c.outstanding > 0 ? "text-amber-600" : ""}`}
+                  >
                     ฿{fmtMoney(c.outstanding)}
                   </TableCell>
                   <TableCell className="text-right text-sm">
-                    {c.creditLimit > 0 ? `฿${fmtMoney(c.creditLimit)}` : "ไม่จำกัด"}
+                    {c.creditLimit > 0
+                      ? `฿${fmtMoney(c.creditLimit)}`
+                      : "ไม่จำกัด"}
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline" onClick={() => { setErr(""); setDetailId(c.id); }}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setErr("");
+                        setDetailId(c.id);
+                      }}
+                    >
                       <Eye className="w-4 h-4 mr-1" /> รายละเอียด
                     </Button>
                   </TableCell>
@@ -87,7 +111,10 @@ export default function Debts() {
               ))}
               {!isLoading && (rows ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell
+                    colSpan={5}
+                    className="text-center text-muted-foreground py-8"
+                  >
                     {search ? "ไม่พบลูกค้าที่ค้นหา" : "ยังไม่มีข้อมูลลูกค้า"}
                   </TableCell>
                 </TableRow>
@@ -141,14 +168,14 @@ function DebtDetailDialog({
   };
 
   const receive = trpc.credit.receivePayment.useMutation({
-    onSuccess: (p) => {
+    onSuccess: p => {
       invalidate();
       setAmount("");
       setNote("");
       setErr("");
       setLastPayment(p ?? null);
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const removePay = trpc.credit.removePayment.useMutation({
@@ -156,7 +183,7 @@ function DebtDetailDialog({
       invalidate();
       setErr("");
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const submit = () => {
@@ -166,26 +193,43 @@ function DebtDetailDialog({
       return;
     }
     setLastPayment(null);
-    receive.mutate({ customerId, amount: n, method, staffName, note: note.trim() || undefined });
+    receive.mutate({
+      customerId,
+      amount: n,
+      method,
+      staffName,
+      note: note.trim() || undefined,
+    });
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-heading">{detail?.customer.name ?? "รายละเอียดลูกค้า"}</DialogTitle>
+          <DialogTitle className="font-heading">
+            {detail?.customer.name ?? "รายละเอียดลูกค้า"}
+          </DialogTitle>
         </DialogHeader>
-        {!detail && <p className="text-sm text-muted-foreground py-6 text-center">กำลังโหลด...</p>}
+        {!detail && (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            กำลังโหลด...
+          </p>
+        )}
         {detail && (
           <div className="space-y-4">
             {/* สรุปยอด */}
             <div className="flex gap-4 text-sm flex-wrap">
               <div>
-                ยอดค้างชำระ <span className="font-semibold text-amber-600">฿{fmtMoney(detail.outstanding)}</span>
+                ยอดค้างชำระ{" "}
+                <span className="font-semibold text-amber-600">
+                  ฿{fmtMoney(detail.outstanding)}
+                </span>
               </div>
               <div className="text-muted-foreground">
                 วงเงินเครดิต{" "}
-                {detail.customer.creditLimit > 0 ? `฿${fmtMoney(detail.customer.creditLimit)}` : "ไม่จำกัด"}
+                {detail.customer.creditLimit > 0
+                  ? `฿${fmtMoney(detail.customer.creditLimit)}`
+                  : "ไม่จำกัด"}
               </div>
             </div>
 
@@ -202,17 +246,26 @@ function DebtDetailDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {detail.creditSales.map((s) => (
+                  {detail.creditSales.map(s => (
                     <TableRow key={s.id}>
-                      <TableCell className="font-mono text-xs">{s.receiptNo}</TableCell>
-                      <TableCell className="whitespace-nowrap">{fmtDateTime(s.createdAt)}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {s.receiptNo}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {fmtDateTime(s.createdAt)}
+                      </TableCell>
                       <TableCell>{s.staffName || "-"}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(s.total)}</TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(s.total)}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {detail.creditSales.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+                      <TableCell
+                        colSpan={4}
+                        className="text-center text-muted-foreground py-4"
+                      >
                         ไม่มีบิลขายเชื่อค้างชำระ
                       </TableCell>
                     </TableRow>
@@ -236,13 +289,21 @@ function DebtDetailDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {detail.payments.map((p) => (
+                  {detail.payments.map(p => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-mono text-xs">{p.paymentNo}</TableCell>
-                      <TableCell className="whitespace-nowrap">{fmtDateTime(p.createdAt)}</TableCell>
-                      <TableCell>{debtMethodLabel[p.method] ?? p.method}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {p.paymentNo}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {fmtDateTime(p.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        {debtMethodLabel[p.method] ?? p.method}
+                      </TableCell>
                       <TableCell>{p.staffName || "-"}</TableCell>
-                      <TableCell className="text-right">฿{fmtMoney(p.amount)}</TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(p.amount)}
+                      </TableCell>
                       {canManage && (
                         <TableCell>
                           <Button
@@ -252,7 +313,11 @@ function DebtDetailDialog({
                             title="ลบรายการชำระ"
                             disabled={removePay.isPending}
                             onClick={() => {
-                              if (confirm(`ยืนยันลบรายการชำระ ${p.paymentNo} (฿${fmtMoney(p.amount)})?`)) {
+                              if (
+                                confirm(
+                                  `ยืนยันลบรายการชำระ ${p.paymentNo} (฿${fmtMoney(p.amount)})?`
+                                )
+                              ) {
                                 removePay.mutate({ id: p.id });
                               }
                             }}
@@ -265,7 +330,10 @@ function DebtDetailDialog({
                   ))}
                   {detail.payments.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={canManage ? 6 : 5} className="text-center text-muted-foreground py-4">
+                      <TableCell
+                        colSpan={canManage ? 6 : 5}
+                        className="text-center text-muted-foreground py-4"
+                      >
                         ยังไม่มีการชำระ
                       </TableCell>
                     </TableRow>
@@ -274,11 +342,11 @@ function DebtDetailDialog({
               </Table>
             </div>
 
-            {/* ฟอร์มรับชำระ */}
-            {detail.outstanding > 0 && (
+            {/* ฟอร์มรับชำระ — สงวนสิทธิ์ admin/manager */}
+            {canManage && detail.outstanding > 0 && (
               <div className="space-y-3 border-t pt-3">
                 <h3 className="text-sm font-semibold">รับชำระหนี้</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label>จำนวนเงิน (บาท)</Label>
                     <Input
@@ -287,13 +355,13 @@ function DebtDetailDialog({
                       step="0.01"
                       placeholder={fmtMoney(detail.outstanding)}
                       value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      onChange={e => setAmount(e.target.value)}
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label>วิธีชำระ</Label>
                     <div className="grid grid-cols-3 gap-1">
-                      {DEBT_METHODS.map((m) => (
+                      {DEBT_METHODS.map(m => (
                         <Button
                           key={m}
                           type="button"
@@ -309,7 +377,7 @@ function DebtDetailDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label>หมายเหตุ (ถ้ามี)</Label>
-                  <Input value={note} onChange={(e) => setNote(e.target.value)} />
+                  <Input value={note} onChange={e => setNote(e.target.value)} />
                 </div>
                 <Button
                   className="w-full"
@@ -338,7 +406,8 @@ function DebtDetailDialog({
                   variant="outline"
                   className="w-full"
                   onClick={() => {
-                    if (printRef.current) printElement(printRef.current, "size: auto; margin: 8mm");
+                    if (printRef.current)
+                      printElement(printRef.current, "size: auto; margin: 8mm");
                   }}
                 >
                   <Printer className="w-4 h-4 mr-2" /> พิมพ์ใบรับชำระหนี้
@@ -347,7 +416,9 @@ function DebtDetailDialog({
             )}
 
             <DialogFooter>
-              <Button variant="outline" onClick={onClose}>ปิด</Button>
+              <Button variant="outline" onClick={onClose}>
+                ปิด
+              </Button>
             </DialogFooter>
           </div>
         )}

@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import {
-  Eye, Ban, Printer, Receipt, FileText, Search, Plus, Pencil, Trash2, X,
+  Eye,
+  Ban,
+  Printer,
+  Receipt,
+  FileText,
+  Search,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,13 +17,26 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -47,7 +69,9 @@ export default function Sales() {
   // ค้นหา (debounce 300ms) + กรองสถานะ
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "voided">("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "completed" | "voided"
+  >("all");
   useEffect(() => {
     const t = setTimeout(() => setQ(qInput.trim()), 300);
     return () => clearTimeout(t);
@@ -66,7 +90,10 @@ export default function Sales() {
   const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState("");
 
-  const { data: detail } = trpc.pos.saleDetail.useQuery({ id: detailId! }, { enabled: detailId != null });
+  const { data: detail } = trpc.pos.saleDetail.useQuery(
+    { id: detailId! },
+    { enabled: detailId != null }
+  );
 
   const invalidate = () => {
     utils.pos.salesHistory.invalidate();
@@ -81,7 +108,7 @@ export default function Sales() {
       setDetailId(null);
       setErr("");
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const updateMut = trpc.pos.updateSale.useMutation({
@@ -90,7 +117,7 @@ export default function Sales() {
       setEditSale(null);
       setErr("");
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   const deleteMut = trpc.pos.deleteSale.useMutation({
@@ -98,17 +125,17 @@ export default function Sales() {
       invalidate();
       setErr("");
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="font-heading text-2xl font-semibold flex items-center gap-2">
+        <h1 className="page-heading flex items-center gap-2">
           <Receipt className="w-6 h-6 text-primary" /> ประวัติการขาย
         </h1>
         {canManage && (
-          <Button onClick={() => setAddOpen(true)}>
+          <Button className="w-full sm:w-auto" onClick={() => setAddOpen(true)}>
             <Plus className="w-4 h-4 mr-2" /> เพิ่มบิล
           </Button>
         )}
@@ -117,17 +144,20 @@ export default function Sales() {
 
       {/* ค้นหา / กรอง */}
       <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[220px]">
+        <div className="relative min-w-0 flex-1 sm:min-w-[220px]">
           <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
           <Input
             className="pl-8"
             placeholder="ค้นหาเลขที่บิล / พนักงาน / ชื่อหรือเบอร์สมาชิก"
             value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
+            onChange={e => setQInput(e.target.value)}
           />
         </div>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-          <SelectTrigger className="w-[150px]">
+        <Select
+          value={statusFilter}
+          onValueChange={v => setStatusFilter(v as typeof statusFilter)}
+        >
+          <SelectTrigger className="w-full sm:w-[150px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -154,24 +184,47 @@ export default function Sales() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(salesList ?? []).map((s) => (
-                <TableRow key={s.id} className={s.status === "voided" ? "opacity-50" : ""}>
-                  <TableCell className="font-mono text-xs">{s.receiptNo}</TableCell>
-                  <TableCell className="whitespace-nowrap">{fmtDateTime(s.createdAt)}</TableCell>
+              {(salesList ?? []).map(s => (
+                <TableRow
+                  key={s.id}
+                  className={s.status === "voided" ? "opacity-50" : ""}
+                >
+                  <TableCell className="font-mono text-xs">
+                    {s.receiptNo}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {fmtDateTime(s.createdAt)}
+                  </TableCell>
                   <TableCell>{s.staffName || "-"}</TableCell>
                   <TableCell>{s.memberName ?? "-"}</TableCell>
                   <TableCell>{paymentLabel[s.paymentMethod]}</TableCell>
-                  <TableCell className="text-right font-semibold">฿{fmtMoney(s.total)}</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    ฿{fmtMoney(s.total)}
+                  </TableCell>
                   <TableCell>
-                    {s.status === "voided" ? <Badge variant="destructive">ยกเลิก</Badge> : <Badge variant="secondary">สำเร็จ</Badge>}
+                    {s.status === "voided" ? (
+                      <Badge variant="destructive">ยกเลิก</Badge>
+                    ) : (
+                      <Badge variant="secondary">สำเร็จ</Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDetailId(s.id)}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => setDetailId(s.id)}
+                      >
                         <Eye className="w-4 h-4" />
                       </Button>
                       {canManage && s.status === "completed" && (
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditSale(s)}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => setEditSale(s)}
+                        >
                           <Pencil className="w-4 h-4" />
                         </Button>
                       )}
@@ -182,7 +235,11 @@ export default function Sales() {
                           className="h-8 w-8 text-destructive"
                           disabled={deleteMut.isPending}
                           onClick={() => {
-                            if (confirm(`ยืนยันลบบิล ${s.receiptNo} ถาวร? (คืนสต๊อกและแต้มอัตโนมัติ)`)) {
+                            if (
+                              confirm(
+                                `ยืนยันลบบิล ${s.receiptNo} ถาวร? (คืนสต๊อกและแต้มอัตโนมัติ)`
+                              )
+                            ) {
                               deleteMut.mutate({ id: s.id });
                             }
                           }}
@@ -195,7 +252,14 @@ export default function Sales() {
                 </TableRow>
               ))}
               {!isLoading && (salesList ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">ไม่พบรายการขาย</TableCell></TableRow>
+                <TableRow>
+                  <TableCell
+                    colSpan={8}
+                    className="text-center text-muted-foreground py-8"
+                  >
+                    ไม่พบรายการขาย
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -203,16 +267,25 @@ export default function Sales() {
       </Card>
 
       {/* รายละเอียดบิล / ใบเสร็จ */}
-      <Dialog open={detailId != null} onOpenChange={(o) => !o && setDetailId(null)}>
+      <Dialog
+        open={detailId != null}
+        onOpenChange={o => !o && setDetailId(null)}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="font-heading">ใบเสร็จ {detail?.sale.receiptNo}</DialogTitle>
+            <DialogTitle className="font-heading">
+              ใบเสร็จ {detail?.sale.receiptNo}
+            </DialogTitle>
           </DialogHeader>
           {detail && (
             <div className="text-sm space-y-2">
               <div id="receipt-print">
                 <ReceiptDoc
-                  sale={{ ...detail.sale, memberName: detail.memberName, customerName: detail.customerName }}
+                  sale={{
+                    ...detail.sale,
+                    memberName: detail.memberName,
+                    customerName: detail.customerName,
+                  }}
                   items={detail.items}
                   settingMap={settingMap}
                   staffName={detail.sale.staffName}
@@ -224,13 +297,20 @@ export default function Sales() {
                   variant="outline"
                   onClick={() => {
                     const el = document.getElementById("receipt-print");
-                    if (el) printReceiptElement(el, parseReceiptPaper(settingMap?.receipt_paper_size));
+                    if (el)
+                      printReceiptElement(
+                        el,
+                        parseReceiptPaper(settingMap?.receipt_paper_size)
+                      );
                   }}
                 >
                   <Printer className="w-4 h-4 mr-2" /> พิมพ์
                 </Button>
                 {detail.sale.status === "completed" && (
-                  <Button variant="outline" onClick={() => setTaxSaleId(detail.sale.id)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => setTaxSaleId(detail.sale.id)}
+                  >
                     <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
                   </Button>
                 )}
@@ -239,7 +319,11 @@ export default function Sales() {
                     variant="destructive"
                     disabled={voidMut.isPending}
                     onClick={() => {
-                      if (confirm("ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)")) {
+                      if (
+                        confirm(
+                          "ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)"
+                        )
+                      ) {
                         voidMut.mutate({ id: detail.sale.id });
                       }
                     }}
@@ -260,7 +344,7 @@ export default function Sales() {
           sale={editSale}
           saving={updateMut.isPending}
           onClose={() => setEditSale(null)}
-          onSave={(v) => updateMut.mutate({ id: editSale.id, ...v })}
+          onSave={v => updateMut.mutate({ id: editSale.id, ...v })}
         />
       )}
 
@@ -289,33 +373,54 @@ function EditSaleDialog({
   sale: SaleRow;
   saving: boolean;
   onClose: () => void;
-  onSave: (v: { staffName: string; paymentMethod: PayMethod; discount: number }) => void;
+  onSave: (v: {
+    staffName: string;
+    paymentMethod: PayMethod;
+    discount: number;
+  }) => void;
 }) {
   const [staffName, setStaffName] = useState(sale.staffName);
-  const [paymentMethod, setPaymentMethod] = useState<PayMethod>(sale.paymentMethod);
+  const [paymentMethod, setPaymentMethod] = useState<PayMethod>(
+    sale.paymentMethod
+  );
   const [discount, setDiscount] = useState(String(sale.discount));
   const discountNum = Number(discount) || 0;
   const newTotal = r2(Math.max(0, sale.subtotal - discountNum));
-  const valid = staffName.trim().length > 0 && discountNum >= 0 && discountNum <= sale.subtotal;
+  const valid =
+    staffName.trim().length > 0 &&
+    discountNum >= 0 &&
+    discountNum <= sale.subtotal;
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="font-heading">แก้ไขบิล {sale.receiptNo}</DialogTitle>
+          <DialogTitle className="font-heading">
+            แก้ไขบิล {sale.receiptNo}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
             <Label>พนักงานผู้ขาย</Label>
-            <Input value={staffName} onChange={(e) => setStaffName(e.target.value)} />
+            <Input
+              value={staffName}
+              onChange={e => setStaffName(e.target.value)}
+            />
           </div>
           <div className="space-y-1">
             <Label>วิธีชำระเงิน</Label>
-            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PayMethod)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={paymentMethod}
+              onValueChange={v => setPaymentMethod(v as PayMethod)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {(Object.keys(paymentLabel) as PayMethod[]).map((k) => (
-                  <SelectItem key={k} value={k}>{paymentLabel[k]}</SelectItem>
+                {(Object.keys(paymentLabel) as PayMethod[]).map(k => (
+                  <SelectItem key={k} value={k}>
+                    {paymentLabel[k]}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -327,18 +432,33 @@ function EditSaleDialog({
               min={0}
               max={sale.subtotal}
               value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
+              onChange={e => setDiscount(e.target.value)}
             />
           </div>
           <p className="text-sm text-muted-foreground">
-            ยอดสุทธิใหม่ <span className="font-semibold text-foreground">฿{fmtMoney(newTotal)}</span> (คำนวณ VAT และแต้มสมาชิกใหม่อัตโนมัติ)
+            ยอดสุทธิใหม่{" "}
+            <span className="font-semibold text-foreground">
+              ฿{fmtMoney(newTotal)}
+            </span>{" "}
+            (คำนวณ VAT และแต้มสมาชิกใหม่อัตโนมัติ)
           </p>
           {discountNum > sale.subtotal && (
             <p className="text-sm text-destructive">ส่วนลดมากกว่ายอดขาย</p>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={onClose}>ยกเลิก</Button>
-            <Button disabled={!valid || saving} onClick={() => onSave({ staffName: staffName.trim(), paymentMethod, discount: r2(discountNum) })}>
+            <Button variant="outline" onClick={onClose}>
+              ยกเลิก
+            </Button>
+            <Button
+              disabled={!valid || saving}
+              onClick={() =>
+                onSave({
+                  staffName: staffName.trim(),
+                  paymentMethod,
+                  discount: r2(discountNum),
+                })
+              }
+            >
               บันทึก
             </Button>
           </DialogFooter>
@@ -349,7 +469,13 @@ function EditSaleDialog({
 }
 
 // ============ เพิ่มบิลย้อนหลัง ============
-type Line = { productId: number; name: string; unit: string; price: number; qty: number };
+type Line = {
+  productId: number;
+  name: string;
+  unit: string;
+  price: number;
+  qty: number;
+};
 
 function AddSaleDialog({
   staffName,
@@ -368,12 +494,14 @@ function AddSaleDialog({
   const [paymentMethod, setPaymentMethod] = useState<PayMethod>("cash");
   const [received, setReceived] = useState("");
   const [phone, setPhone] = useState("");
-  const [member, setMember] = useState<{ id: number; name: string } | null>(null);
+  const [member, setMember] = useState<{ id: number; name: string } | null>(
+    null
+  );
   const [err, setErr] = useState("");
 
   const { data: memberMatches } = trpc.membership.findByPhone.useQuery(
     { phone: phone.trim() },
-    { enabled: phone.trim().length >= 3 && !member },
+    { enabled: phone.trim().length >= 3 && !member }
   );
 
   const createMut = trpc.pos.createSale.useMutation({
@@ -381,24 +509,29 @@ function AddSaleDialog({
       onCreated();
       onClose();
     },
-    onError: (e) => setErr(e.message),
+    onError: e => setErr(e.message),
   });
 
-  const activeProducts = (products ?? []).filter((p) => p.active);
+  const activeProducts = (products ?? []).filter(p => p.active);
   const subtotal = r2(lines.reduce((s, l) => s + l.price * l.qty, 0));
   const discountNum = Number(discount) || 0;
   const total = r2(Math.max(0, subtotal - discountNum));
 
   const addLine = () => {
-    const p = activeProducts.find((x) => x.id === Number(productId));
+    const p = activeProducts.find(x => x.id === Number(productId));
     const q = Number(qty);
     if (!p || !(q > 0)) return;
-    setLines((prev) => {
-      const existing = prev.find((l) => l.productId === p.id);
+    setLines(prev => {
+      const existing = prev.find(l => l.productId === p.id);
       if (existing) {
-        return prev.map((l) => (l.productId === p.id ? { ...l, qty: r2(l.qty + q) } : l));
+        return prev.map(l =>
+          l.productId === p.id ? { ...l, qty: r2(l.qty + q) } : l
+        );
       }
-      return [...prev, { productId: p.id, name: p.name, unit: p.unit, price: p.price, qty: q }];
+      return [
+        ...prev,
+        { productId: p.id, name: p.name, unit: p.unit, price: p.price, qty: q },
+      ];
     });
     setProductId("");
     setQty("1");
@@ -417,7 +550,7 @@ function AddSaleDialog({
     createMut.mutate({
       staffName,
       memberId: member?.id,
-      items: lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+      items: lines.map(l => ({ productId: l.productId, qty: l.qty })),
       discount: r2(discountNum),
       paymentMethod,
       received: paymentMethod === "cash" ? Number(received) || total : 0,
@@ -425,7 +558,7 @@ function AddSaleDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-heading">เพิ่มบิลย้อนหลัง</DialogTitle>
@@ -436,9 +569,11 @@ function AddSaleDialog({
             <div className="flex-1 space-y-1">
               <Label>สินค้า</Label>
               <Select value={productId} onValueChange={setProductId}>
-                <SelectTrigger><SelectValue placeholder="เลือกสินค้า" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="เลือกสินค้า" />
+                </SelectTrigger>
                 <SelectContent>
-                  {activeProducts.map((p) => (
+                  {activeProducts.map(p => (
                     <SelectItem key={p.id} value={String(p.id)}>
                       {p.name} — ฿{fmtMoney(p.price)}/{p.unit}
                     </SelectItem>
@@ -448,9 +583,20 @@ function AddSaleDialog({
             </div>
             <div className="w-24 space-y-1">
               <Label>จำนวน</Label>
-              <Input type="number" min={0} step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={qty}
+                onChange={e => setQty(e.target.value)}
+              />
             </div>
-            <Button type="button" variant="outline" onClick={addLine} disabled={!productId}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addLine}
+              disabled={!productId}
+            >
               <Plus className="w-4 h-4" />
             </Button>
           </div>
@@ -467,17 +613,25 @@ function AddSaleDialog({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {lines.map((l) => (
+                {lines.map(l => (
                   <TableRow key={l.productId}>
                     <TableCell>{l.name}</TableCell>
-                    <TableCell className="text-right">{l.qty} {l.unit}</TableCell>
-                    <TableCell className="text-right">฿{fmtMoney(r2(l.price * l.qty))}</TableCell>
+                    <TableCell className="text-right">
+                      {l.qty} {l.unit}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      ฿{fmtMoney(r2(l.price * l.qty))}
+                    </TableCell>
                     <TableCell>
                       <Button
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7"
-                        onClick={() => setLines((prev) => prev.filter((x) => x.productId !== l.productId))}
+                        onClick={() =>
+                          setLines(prev =>
+                            prev.filter(x => x.productId !== l.productId)
+                          )
+                        }
                       >
                         <X className="w-4 h-4" />
                       </Button>
@@ -494,7 +648,12 @@ function AddSaleDialog({
             {member ? (
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{member.name}</Badge>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setMember(null)}>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={() => setMember(null)}
+                >
                   <X className="w-4 h-4" />
                 </Button>
               </div>
@@ -503,11 +662,11 @@ function AddSaleDialog({
                 <Input
                   placeholder="เบอร์โทรสมาชิก (อย่างน้อย 3 หลัก)"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={e => setPhone(e.target.value)}
                 />
                 {(memberMatches ?? []).length > 0 && (
                   <div className="border rounded-md divide-y">
-                    {(memberMatches ?? []).map((m) => (
+                    {(memberMatches ?? []).map(m => (
                       <button
                         key={m.id}
                         type="button"
@@ -526,18 +685,30 @@ function AddSaleDialog({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>ส่วนลด (บาท)</Label>
-              <Input type="number" min={0} value={discount} onChange={(e) => setDiscount(e.target.value)} />
+              <Input
+                type="number"
+                min={0}
+                value={discount}
+                onChange={e => setDiscount(e.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label>วิธีชำระเงิน</Label>
-              <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PayMethod)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={paymentMethod}
+                onValueChange={v => setPaymentMethod(v as PayMethod)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(paymentLabel) as PayMethod[]).map((k) => (
-                    <SelectItem key={k} value={k}>{paymentLabel[k]}</SelectItem>
+                  {(Object.keys(paymentLabel) as PayMethod[]).map(k => (
+                    <SelectItem key={k} value={k}>
+                      {paymentLabel[k]}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -546,19 +717,32 @@ function AddSaleDialog({
           {paymentMethod === "cash" && (
             <div className="space-y-1">
               <Label>รับเงิน (บาท) — เว้นว่าง = รับพอดี</Label>
-              <Input type="number" min={0} value={received} onChange={(e) => setReceived(e.target.value)} placeholder={fmtMoney(total)} />
+              <Input
+                type="number"
+                min={0}
+                value={received}
+                onChange={e => setReceived(e.target.value)}
+                placeholder={fmtMoney(total)}
+              />
             </div>
           )}
 
           <div className="text-sm space-y-0.5 border-t pt-2">
-            <p>ยอดขาย ฿{fmtMoney(subtotal)} — ส่วนลด ฿{fmtMoney(discountNum)}</p>
+            <p>
+              ยอดขาย ฿{fmtMoney(subtotal)} — ส่วนลด ฿{fmtMoney(discountNum)}
+            </p>
             <p className="font-semibold">ยอดสุทธิ ฿{fmtMoney(total)}</p>
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
 
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={onClose}>ยกเลิก</Button>
-            <Button disabled={lines.length === 0 || createMut.isPending} onClick={submit}>
+            <Button variant="outline" onClick={onClose}>
+              ยกเลิก
+            </Button>
+            <Button
+              disabled={lines.length === 0 || createMut.isPending}
+              onClick={submit}
+            >
               บันทึกบิล
             </Button>
           </DialogFooter>

@@ -2,7 +2,7 @@
 
 เอกสารต่อจาก [`plan.md`](./plan.md) — อธิบายสถาปัตยกรรม สถานะ และการปล่อย Desktop Application สำหรับ Windows
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.18` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md)
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.20` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -87,14 +87,16 @@
 - [x] **D7 — Multi-station ผ่าน LAN**: เครื่องลูกเปิดเบราว์เซอร์ไปที่ `http://<IP-เครื่องหลัก>:3210` ใช้งานได้ทันที (server serve ทั้งเว็บและ API โดเมนเดียวกัน) — เปิดใช้ด้วย toggle "เครือข่าย LAN" ในหน้า Settings (key `lan_enabled`, default ปิด) แล้วรีสตาร์ทแอป; `web/api/boot.ts` อ่าน setting นี้ตอน bind (`BIND_HOST` env มีสิทธิ์เหนือ, Docker pin `0.0.0.0` ใน Dockerfile), endpoint `catalog.lanInfo` คืน IP/port ให้หน้า Settings + หน้า Login แสดง URL — **กะรวมใช้ร่วมกันทุกเครื่อง** (ยอดขายระบุ staffName รายคน, เลขใบเสร็จกันชนด้วย sync transaction) — ข้อจำกัด: auth แบบ header ปลอมได้จากเครื่องใน LAN (ใช้เฉพาะ LAN ที่เชื่อถือ), ใบเสร็จพิมพ์ผ่านเบราว์เซอร์ของแต่ละเครื่อง (ถอดฟีเจอร์ ESC/POS ออกแล้ว), Windows Firewall ครั้งแรกต้องกด Allow หรือเพิ่ม rule ด้วย netsh (คำสั่งอยู่ในหน้า Settings)
 - [x] **D8 — ตั้งค่าตำแหน่งฐานข้อมูล + สำรอง/กู้คืน**: เลือกวาง `pos.db` ได้ (config ใน userData), สำรองออนไลน์ด้วย better-sqlite3 backup, กู้คืนจากไฟล์ในเครื่องหรืออัปโหลด `.db`, ดาวน์โหลดไฟล์สำรองผ่าน browser — router `dbadmin`, admin เท่านั้น
 - [x] **D9 — Auto Update รุ่นแรก**: เพิ่ม `electron-updater`, dialog ถามก่อนดาวน์โหลด/รีสตาร์ท และ log ที่ `%APPDATA%/pos-app/logs/update.log`; Portable อัปเดตตัวเองไม่ได้
-- [x] **D10 — ฟีเจอร์ปั๊มชุดใหญ่**: ขายเชื่อ, Z-report, ค่าใช้จ่าย, ประวัติราคา, Audit log และสำรองอัตโนมัติ รวมอยู่ใน Desktop ที่ build แล้วก่อน/ถึง `1.0.18`
+- [x] **D10 — ฟีเจอร์ปั๊มชุดใหญ่**: ขายเชื่อ, Z-report, ค่าใช้จ่าย, ประวัติราคา, Audit log และสำรองอัตโนมัติ รวมอยู่ใน Desktop ที่ build แล้วถึง `1.0.20`
 - [x] **D11 — Settings persistence/loading**: แก้โหลดข้อมูลเมื่อเข้าหน้า Settings ครั้งแรกและหลังสลับเมนู พร้อม refresh ค่าล่าสุดหลังบันทึก (`1.0.15`)
 - [x] **D12 — ใบกำกับภาษี A5**: เพิ่มตัวเลือก A4/A5 และปรับ preview/print layout (`1.0.16`)
 - [x] **D13 — Responsive Desktop**: ปรับขนาดเริ่มต้นตามพื้นที่จอจริง เมนูแบบสไลด์ และ scroll หน้า/dialog บนจอเล็ก (`1.0.17`)
-- [x] **D14 — ย้าย Auto Update ไป GCS**: ตั้ง generic provider, สร้าง bucket สาธารณะ, เพิ่ม `publish:gcs`, build และอัปโหลด `1.0.18`
+- [x] **D14 — ย้าย Auto Update ไป GCS**: ตั้ง generic provider, สร้าง bucket สาธารณะ, เพิ่ม `publish:gcs` และเผยแพร่ต่อเนื่องถึง `1.0.20`
 - [ ] **D15 — ตรวจรับหน้างาน**: ทดสอบ NSIS installer, Settings, เครื่องพิมพ์, A4/A5, backup/restore, LAN และเปิดข้ามวันบนเครื่องปั๊มจริง
-- [ ] **D16 — ทดสอบ updater รุ่นใหม่**: ทดสอบ `1.0.18` → เวอร์ชันถัดไปแบบ end-to-end และบันทึกผล
+- [ ] **D16 — ทดสอบ updater รุ่นใหม่**: ทดสอบ `1.0.20` → เวอร์ชันถัดไปแบบ end-to-end และบันทึกผล
 - [ ] **D17 — Code Signing**: ลงลายเซ็น installer/Portable เพื่อลดคำเตือน Windows SmartScreen
+- [x] **D18 — UX/UI Station Console**: ปรับ design system, navigation แบ่งกลุ่ม, Login, Dashboard, POS, touch targets, safe-area และ mobile cart sheet (`1.0.20`)
+- [x] **D19 — เอกสารลูกค้าเครดิต**: เพิ่มใบขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร A4 พร้อม preview/print และจำกัดสิทธิ์ admin/manager (`1.0.20`)
 
 ### การปล่อยเวอร์ชันใหม่ (auto-update)
 
