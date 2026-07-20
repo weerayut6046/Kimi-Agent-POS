@@ -397,10 +397,10 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* การพิมพ์ใบเสร็จ (ผ่านเบราว์เซอร์) */}
+      {/* การพิมพ์เอกสาร (ผ่านเบราว์เซอร์) */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2"><Printer className="w-4 h-4" /> การพิมพ์ใบเสร็จ</CardTitle>
+          <CardTitle className="font-heading text-base flex items-center gap-2"><Printer className="w-4 h-4" /> การพิมพ์เอกสาร</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5 max-w-sm">
@@ -420,6 +420,23 @@ export default function Settings() {
             </Select>
             <p className="text-xs text-muted-foreground">
               ใช้กับปุ่ม &quot;พิมพ์&quot; ธรรมดาบนใบเสร็จ — ถ้าพิมพ์แล้วตัวอักษรใหญ่/ล้นขอบกระดาษ ให้เลือกขนาดตรงนี้ให้ตรงกระดาษจริง
+            </p>
+          </div>
+          <div className="space-y-1.5 max-w-sm">
+            <Label>ขนาดกระดาษใบกำกับภาษีเต็มรูป</Label>
+            <Select
+              value={form.tax_invoice_paper_size ?? "a4"}
+              onValueChange={(v) => set("tax_invoice_paper_size", v)}
+              disabled={!isAdmin}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="a4">A4</SelectItem>
+                <SelectItem value="a5">A5</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              ใช้กับใบเสร็จรับเงิน/ใบกำกับภาษีเต็มรูป ทั้งหน้าพรีวิวและหน้าต่างพิมพ์
             </p>
           </div>
           {isDesktop && (

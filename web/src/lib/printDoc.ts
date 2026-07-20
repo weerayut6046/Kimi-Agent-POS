@@ -111,6 +111,34 @@ export function printReceiptElement(el: HTMLElement, paper: ReceiptPaper = "80")
   printElement(el, pageCss, extraCss);
 }
 
+/** ขนาดกระดาษใบกำกับภาษีเต็มรูปที่เลือกในหน้า Settings */
+export type TaxInvoicePaper = "a4" | "a5";
+
+/** แปลงค่าจาก setting เป็นขนาดใบกำกับภาษี (ค่าแปลก/ว่าง → A4 เพื่อคงพฤติกรรมเดิม) */
+export function parseTaxInvoicePaper(v: string | undefined | null): TaxInvoicePaper {
+  return v === "a5" ? "a5" : "a4";
+}
+
+/** CSS หน้ากระดาษใบกำกับภาษี — ตัวเอกสาร A5 มีระยะขอบในตัว จึงไม่เพิ่ม margin ซ้ำ */
+export function taxInvoicePrintCss(paper: TaxInvoicePaper): { pageCss: string; extraCss: string } {
+  if (paper === "a5") {
+    return {
+      pageCss: "size: A5 portrait; margin: 0",
+      extraCss: "#tax-invoice-print{width:148mm!important;max-width:148mm!important}",
+    };
+  }
+  return {
+    pageCss: "size: A4 portrait; margin: 12mm",
+    extraCss: "#tax-invoice-print{width:100%!important;max-width:none!important}",
+  };
+}
+
+/** พิมพ์ใบกำกับภาษีเต็มรูปตามขนาดกระดาษที่ตั้งไว้ */
+export function printTaxInvoiceElement(el: HTMLElement, paper: TaxInvoicePaper = "a4") {
+  const { pageCss, extraCss } = taxInvoicePrintCss(paper);
+  printElement(el, pageCss, extraCss);
+}
+
 /** ขนาดกระดาษหน่วยไมครอนสำหรับพิมพ์เงียบผ่าน Electron (ม้วนใช้สูง A4 ให้ครอบใบเสร็จยาว) */
 const SILENT_PAGE_UM: Record<ReceiptPaper, { widthUm: number; heightUm: number }> = {
   "80": { widthUm: 80_000, heightUm: 297_000 },

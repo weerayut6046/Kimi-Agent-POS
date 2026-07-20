@@ -11,7 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDoc } from "@/components/TaxInvoiceDoc";
-import { printElement } from "@/lib/printDoc";
+import { parseTaxInvoicePaper, printTaxInvoiceElement } from "@/lib/printDoc";
 import type { Customer, TaxInvoice } from "@db/schema";
 
 type Props = {
@@ -238,6 +238,7 @@ function TaxInvoiceForm({
 /** Dialog ออก/พิมพ์ใบเสร็จรับเงิน-ใบกำกับภาษีเต็มรูป สำหรับบิลที่ขายแล้ว */
 export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const paper = parseTaxInvoicePaper(settingMap?.tax_invoice_paper_size);
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const { data: detail } = trpc.pos.saleDetail.useQuery(
     { id: saleId! },
@@ -288,7 +289,14 @@ export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
             <div className="flex-1 min-h-0 overflow-y-auto">
               <ScaledFit>
                 <div ref={docRef}>
-                  <TaxInvoiceDoc sale={detail.sale} items={detail.items} invoice={invoice} settingMap={settingMap} logoUrl={logoUrl} />
+                  <TaxInvoiceDoc
+                    sale={detail.sale}
+                    items={detail.items}
+                    invoice={invoice}
+                    settingMap={settingMap}
+                    logoUrl={logoUrl}
+                    paper={paper}
+                  />
                 </div>
               </ScaledFit>
             </div>
@@ -302,10 +310,10 @@ export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
                 variant="outline"
                 onClick={() => {
                   const doc = docRef.current?.firstElementChild;
-                  if (doc instanceof HTMLElement) printElement(doc);
+                  if (doc instanceof HTMLElement) printTaxInvoiceElement(doc, paper);
                 }}
               >
-                <Printer className="w-4 h-4 mr-2" /> พิมพ์
+                <Printer className="w-4 h-4 mr-2" /> พิมพ์ ({paper.toUpperCase()})
               </Button>
               <Button onClick={close}>ปิด</Button>
             </DialogFooter>

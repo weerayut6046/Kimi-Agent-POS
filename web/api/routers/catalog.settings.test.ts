@@ -19,6 +19,7 @@ describe("catalog settings", () => {
     const result = await t.caller().catalog.getSettings();
 
     expect(result.backup_auto_time).toBe(DEFAULT_SETTINGS.backup_auto_time);
+    expect(result.tax_invoice_paper_size).toBe("a4");
     expect(result.shop_name).toBeTruthy();
   });
 

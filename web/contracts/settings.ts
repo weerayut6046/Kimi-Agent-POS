@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   tax_invoice_prefix: "T",
   tax_invoice_next_no: "1",
   receipt_paper_size: "80",
+  tax_invoice_paper_size: "a4",
   receipt_silent_print: "0",
   lan_enabled: "0",
   backup_auto_enabled: "0",
