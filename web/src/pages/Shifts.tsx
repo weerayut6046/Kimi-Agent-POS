@@ -59,6 +59,23 @@ function DiffBadge({ diff }: { diff: number | null }) {
   );
 }
 
+function MeterDiffBadge({
+  diff,
+  priceChangedDuringShift,
+}: {
+  diff: number | null;
+  priceChangedDuringShift: boolean;
+}) {
+  if (priceChangedDuringShift) {
+    return (
+      <Badge className="bg-amber-500 hover:bg-amber-500 gap-1 text-white">
+        <AlertTriangle className="w-3 h-3" /> เปลี่ยนราคาในกะ
+      </Badge>
+    );
+  }
+  return <DiffBadge diff={diff} />;
+}
+
 export default function Shifts() {
   const { staff } = useStaff();
   const utils = trpc.useUtils();
@@ -154,6 +171,8 @@ export default function Shifts() {
     return sumCashCounts(numeric);
   }, [cashCounts]);
   const hasCounts = Object.values(cashCounts).some(v => Number(v) > 0);
+  const hasPriceChangeDuringShift =
+    currentShift?.readings.some(r => r.priceChangedDuringShift) ?? false;
 
   if (isLoading)
     return (
@@ -284,6 +303,18 @@ export default function Shifts() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {hasPriceChangeDuringShift && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
+                  ราคาเปิดกะ”
+                  จึงเป็นเพียงค่าประมาณและไม่ควรตีความส่วนต่างเป็นเงินขาดทันที
+                  ให้ตรวจเลขมิเตอร์ P/L ที่หน้าตู้เป็นหลัก
+                  หลังการแก้ไขนี้ระบบจะให้ปิดกะก่อนเปลี่ยนราคาน้ำมันทุกครั้ง
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {currentShift.readings.map(r => {
                 const cl = Number(closeVals[r.nozzleId]?.l);
@@ -296,6 +327,10 @@ export default function Shifts() {
                   liters != null ? r2(liters * r.pricePerLiter) : null;
                 const diff =
                   money != null && amountL != null ? r2(money - amountL) : null;
+                const effectivePrice =
+                  liters != null && liters > 0 && money != null
+                    ? r2(money / liters)
+                    : null;
                 return (
                   <div
                     key={r.nozzleId}
@@ -305,9 +340,16 @@ export default function Shifts() {
                       <span className="font-medium text-sm">
                         {r.nozzle?.label}
                       </span>
-                      <Badge variant="secondary">
-                        ฿{fmtMoney(r.pricePerLiter)}/ล.
-                      </Badge>
+                      {r.priceChangedDuringShift ? (
+                        <Badge className="border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                          ฿{fmtMoney(r.pricePerLiter)} → ฿
+                          {fmtMoney(r.currentPrice)}/ล.
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">
+                          ฿{fmtMoney(r.pricePerLiter)}/ล.
+                        </Badge>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       {r.openMoney > 0 ? (
@@ -370,19 +412,38 @@ export default function Shifts() {
                       />
                     </div>
                     {liters != null && (
-                      <div className="text-xs bg-blue-50 rounded-lg px-2 py-1.5 flex flex-wrap justify-between gap-1">
+                      <div
+                        className={`text-xs rounded-lg px-2 py-1.5 flex flex-wrap justify-between gap-1 ${
+                          r.priceChangedDuringShift
+                            ? "bg-amber-50"
+                            : "bg-blue-50"
+                        }`}
+                      >
                         <span>
                           ขาย <b>{fmtNum(liters)} ล.</b>
                         </span>
                         <span>
-                          จากลิตร: <b>฿{fmtMoney(amountL ?? 0)}</b>
+                          {r.priceChangedDuringShift
+                            ? "คาดจากราคาเปิดกะ"
+                            : "จากลิตร"}
+                          : <b>฿{fmtMoney(amountL ?? 0)}</b>
                         </span>
                         {money != null && (
                           <span>
                             จาก P: <b>฿{fmtMoney(money)}</b>
                           </span>
                         )}
-                        <DiffBadge diff={diff} />
+                        {r.priceChangedDuringShift &&
+                          effectivePrice != null && (
+                            <span>
+                              ราคาเฉลี่ยจาก P:{" "}
+                              <b>฿{fmtMoney(effectivePrice)}/ล.</b>
+                            </span>
+                          )}
+                        <MeterDiffBadge
+                          diff={diff}
+                          priceChangedDuringShift={r.priceChangedDuringShift}
+                        />
                       </div>
                     )}
                   </div>
@@ -452,7 +513,8 @@ export default function Shifts() {
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">
-                    ยอดจากลิตร × ราคา
+                    ยอดจากลิตร ×{" "}
+                    {hasPriceChangeDuringShift ? "ราคาเปิดกะ (ประมาณ)" : "ราคา"}
                   </div>
                   <div className="font-heading text-xl font-semibold text-primary">
                     ฿{fmtMoney(closePreview.amountL)}
@@ -477,7 +539,10 @@ export default function Shifts() {
                   </div>
                 )}
                 <div className="ml-auto">
-                  <DiffBadge diff={closePreview.diff} />
+                  <MeterDiffBadge
+                    diff={closePreview.diff}
+                    priceChangedDuringShift={hasPriceChangeDuringShift}
+                  />
                 </div>
               </div>
             )}

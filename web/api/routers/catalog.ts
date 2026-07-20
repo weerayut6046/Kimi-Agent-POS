@@ -13,12 +13,15 @@ import {
   tankRefills,
   priceChanges,
   settings,
+  shifts,
 } from "@db/schema";
 
 export const catalogRouter = createRouter({
   // ---------- สินค้า ----------
   listProducts: publicQuery.query(async () => {
-    return getDb().query.products.findMany({ orderBy: (p, { asc }) => [asc(p.category), asc(p.id)] });
+    return getDb().query.products.findMany({
+      orderBy: (p, { asc }) => [asc(p.category), asc(p.id)],
+    });
   }),
 
   createProduct: adminQuery
@@ -32,7 +35,7 @@ export const catalogRouter = createRouter({
         cost: z.number().nonnegative().default(0),
         stockQty: z.number().nonnegative().default(0),
         lowStockAt: z.number().nonnegative().default(0),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
       await getDb().insert(products).values(input);
@@ -52,14 +55,28 @@ export const catalogRouter = createRouter({
         stockQty: z.number().nonnegative().optional(),
         lowStockAt: z.number().nonnegative().optional(),
         active: z.boolean().optional(),
-      }),
+      })
     )
     .mutation(async ({ input, ctx }) => {
       const { id, ...patch } = input;
       const db = getDb();
-      const before = await db.query.products.findFirst({ where: eq(products.id, id) });
+      const before = await db.query.products.findFirst({
+        where: eq(products.id, id),
+      });
       if (!before) throw new Error("ไม่พบสินค้า");
-      const priceChanged = patch.price !== undefined && patch.price !== before.price;
+      const priceChanged =
+        patch.price !== undefined && patch.price !== before.price;
+      const nextCategory = patch.category ?? before.category;
+      if (priceChanged && nextCategory === "fuel") {
+        const openShift = await db.query.shifts.findFirst({
+          where: eq(shifts.status, "open"),
+        });
+        if (openShift) {
+          throw new Error(
+            "ยังมีกะเปิดอยู่ กรุณาปิดกะก่อนเปลี่ยนราคาน้ำมัน แล้วเปิดกะใหม่เพื่อให้ยอดมิเตอร์ L และ P ตรงกัน"
+          );
+        }
+      }
       await db.update(products).set(patch).where(eq(products.id, id));
       // บันทึกประวัติ + audit เฉพาะตอนราคาเปลี่ยนจริง
       if (priceChanged) {
@@ -92,14 +109,16 @@ export const catalogRouter = createRouter({
     }),
 
   // ประวัติเปลี่ยนราคาของสินค้า (ใหม่ → เก่า)
-  priceHistory: publicQuery.input(z.object({ productId: z.number().int() })).query(async ({ input }) => {
-    return getDb()
-      .select()
-      .from(priceChanges)
-      .where(eq(priceChanges.productId, input.productId))
-      .orderBy(desc(priceChanges.createdAt), desc(priceChanges.id))
-      .limit(50);
-  }),
+  priceHistory: publicQuery
+    .input(z.object({ productId: z.number().int() }))
+    .query(async ({ input }) => {
+      return getDb()
+        .select()
+        .from(priceChanges)
+        .where(eq(priceChanges.productId, input.productId))
+        .orderBy(desc(priceChanges.createdAt), desc(priceChanges.id))
+        .limit(50);
+    }),
 
   adjustStock: adminQuery
     .input(
@@ -107,33 +126,40 @@ export const catalogRouter = createRouter({
         productId: z.number(),
         qty: z.number(),
         mode: z.enum(["set", "add"]).default("add"),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      const p = await db.query.products.findFirst({ where: eq(products.id, input.productId) });
+      const p = await db.query.products.findFirst({
+        where: eq(products.id, input.productId),
+      });
       if (!p) throw new Error("ไม่พบสินค้า");
       const next = input.mode === "set" ? input.qty : p.stockQty + input.qty;
       if (next < 0) throw new Error("สต๊อกติดลบไม่ได้");
-      await db.update(products).set({ stockQty: next }).where(eq(products.id, input.productId));
+      await db
+        .update(products)
+        .set({ stockQty: next })
+        .where(eq(products.id, input.productId));
       return { ok: true, stockQty: next };
     }),
 
   // ---------- ตู้จ่าย / หัวจ่าย ----------
   listPumps: publicQuery.query(async () => {
     const db = getDb();
-    const [pumpRows, nozzleRows, prodRows] = await Promise.all([
+    const [pumpRows, nozzleRows, prodRows, tankRows] = await Promise.all([
       db.query.pumps.findMany(),
       db.query.nozzles.findMany(),
       db.query.products.findMany(),
+      db.query.fuelTanks.findMany(),
     ]);
-    return pumpRows.map((p) => ({
+    return pumpRows.map(p => ({
       ...p,
       nozzles: nozzleRows
-        .filter((n) => n.pumpId === p.id)
-        .map((n) => ({
+        .filter(n => n.pumpId === p.id)
+        .map(n => ({
           ...n,
-          product: prodRows.find((pr) => pr.id === n.productId) ?? null,
+          product: prodRows.find(pr => pr.id === n.productId) ?? null,
+          tank: tankRows.find(tank => tank.id === n.tankId) ?? null,
         })),
     }));
   }),
@@ -144,24 +170,60 @@ export const catalogRouter = createRouter({
         id: z.number(),
         label: z.string().min(1).optional(),
         productId: z.number().optional(),
+        tankId: z.number().int().positive().optional(),
         meter: z.number().nonnegative().optional(),
         money: z.number().nonnegative().optional(),
         active: z.boolean().optional(),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
+      const db = getDb();
+      const nozzle = await db.query.nozzles.findFirst({
+        where: eq(nozzles.id, input.id),
+      });
+      if (!nozzle) throw new Error("ไม่พบหัวจ่าย");
+
+      const nextProductId = input.productId ?? nozzle.productId;
+      const nextTankId = input.tankId ?? nozzle.tankId;
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, nextProductId),
+      });
+      if (!product || product.category !== "fuel") {
+        throw new Error("หัวจ่ายต้องผูกกับสินค้าประเภทน้ำมันเท่านั้น");
+      }
+      if (nextTankId == null) {
+        throw new Error("กรุณาเลือกถังน้ำมันที่หัวจ่ายนี้จะตัดสต๊อก");
+      }
+      const tank = await db.query.fuelTanks.findFirst({
+        where: eq(fuelTanks.id, nextTankId),
+      });
+      if (!tank) throw new Error("ไม่พบถังน้ำมันที่เลือก");
+      if (tank.productId !== nextProductId) {
+        throw new Error("ถังน้ำมันต้องเป็นชนิดเดียวกับสินค้าของหัวจ่าย");
+      }
+
+      const mappingChanged =
+        nextProductId !== nozzle.productId || nextTankId !== nozzle.tankId;
+      if (mappingChanged) {
+        const openShift = await db.query.shifts.findFirst({
+          where: eq(shifts.status, "open"),
+        });
+        if (openShift) {
+          throw new Error("กรุณาปิดกะก่อนเปลี่ยนสินค้า/ถังน้ำมันของหัวจ่าย");
+        }
+      }
+
       const patch: Record<string, unknown> = {};
       if (input.label != null) patch.label = input.label;
       if (input.productId != null) {
-        const prod = await getDb().query.products.findFirst({ where: eq(products.id, input.productId) });
-        if (!prod) throw new Error("ไม่พบสินค้าที่เลือก");
         patch.productId = input.productId;
       }
+      if (input.tankId != null) patch.tankId = input.tankId;
       if (input.meter != null) patch.currentMeter = input.meter;
       if (input.money != null) patch.currentMoney = input.money;
       if (input.active != null) patch.active = input.active;
       if (Object.keys(patch).length > 0) {
-        await getDb().update(nozzles).set(patch).where(eq(nozzles.id, input.id));
+        await db.update(nozzles).set(patch).where(eq(nozzles.id, input.id));
       }
       return { ok: true };
     }),
@@ -173,9 +235,9 @@ export const catalogRouter = createRouter({
       db.query.fuelTanks.findMany(),
       db.query.products.findMany(),
     ]);
-    return tankRows.map((t) => ({
+    return tankRows.map(t => ({
       ...t,
-      product: prodRows.find((p) => p.id === t.productId) ?? null,
+      product: prodRows.find(p => p.id === t.productId) ?? null,
       percent: Math.round((t.currentLiters / t.capacityLiters) * 100),
       isLow: t.currentLiters <= t.lowAlertAt,
     }));
@@ -190,8 +252,8 @@ export const catalogRouter = createRouter({
       db.query.products.findMany(),
     ]);
     const lowTanks = tankRows
-      .filter((t) => t.currentLiters <= t.lowAlertAt)
-      .map((t) => ({
+      .filter(t => t.currentLiters <= t.lowAlertAt)
+      .map(t => ({
         id: t.id,
         name: t.name,
         currentLiters: t.currentLiters,
@@ -199,9 +261,21 @@ export const catalogRouter = createRouter({
         lowAlertAt: t.lowAlertAt,
       }));
     const lowProducts = prodRows
-      .filter((p) => p.active && p.category !== "fuel" && p.stockQty <= p.lowStockAt)
-      .map((p) => ({ id: p.id, name: p.name, unit: p.unit, stockQty: p.stockQty, lowStockAt: p.lowStockAt }));
-    return { lowTanks, lowProducts, count: lowTanks.length + lowProducts.length };
+      .filter(
+        p => p.active && p.category !== "fuel" && p.stockQty <= p.lowStockAt
+      )
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        unit: p.unit,
+        stockQty: p.stockQty,
+        lowStockAt: p.lowStockAt,
+      }));
+    return {
+      lowTanks,
+      lowProducts,
+      count: lowTanks.length + lowProducts.length,
+    };
   }),
 
   createTank: adminQuery
@@ -212,15 +286,18 @@ export const catalogRouter = createRouter({
         capacityLiters: z.number().positive(),
         currentLiters: z.number().nonnegative().default(0),
         lowAlertAt: z.number().nonnegative().default(0),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      const product = await db.query.products.findFirst({ where: eq(products.id, input.productId) });
+      const product = await db.query.products.findFirst({
+        where: eq(products.id, input.productId),
+      });
       if (!product || product.category !== "fuel") {
         throw new Error("ต้องผูกถังกับสินค้าประเภทน้ำมัน (fuel) เท่านั้น");
       }
-      if (input.currentLiters > input.capacityLiters) throw new Error("ระดับน้ำมันเกินความจุถัง");
+      if (input.currentLiters > input.capacityLiters)
+        throw new Error("ระดับน้ำมันเกินความจุถัง");
       await db.insert(fuelTanks).values(input);
       return { ok: true };
     }),
@@ -229,10 +306,20 @@ export const catalogRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
-      const tank = await db.query.fuelTanks.findFirst({ where: eq(fuelTanks.id, input.id) });
+      const tank = await db.query.fuelTanks.findFirst({
+        where: eq(fuelTanks.id, input.id),
+      });
       if (!tank) throw new Error("ไม่พบถัง");
+      const linkedNozzle = await db.query.nozzles.findFirst({
+        where: eq(nozzles.tankId, input.id),
+      });
+      if (linkedNozzle) {
+        throw new Error(
+          "ถังนี้ยังผูกกับหัวจ่ายอยู่ กรุณาเปลี่ยนถังของหัวจ่ายก่อนลบ"
+        );
+      }
       // tank_refills ไม่ได้เก็บ snapshot ชื่อถัง — ลบประวัติรับเข้าของถังนี้ไปพร้อมกัน
-      db.transaction((tx) => {
+      db.transaction(tx => {
         tx.delete(tankRefills).where(eq(tankRefills.tankId, input.id)).run();
         tx.delete(fuelTanks).where(eq(fuelTanks.id, input.id)).run();
       });
@@ -244,17 +331,36 @@ export const catalogRouter = createRouter({
     .input(
       z.object({
         id: z.number(),
+        productId: z.number().int().positive().optional(),
         name: z.string().min(1).optional(),
         currentLiters: z.number().nonnegative().optional(),
         capacityLiters: z.number().positive().optional(),
         lowAlertAt: z.number().nonnegative().optional(),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
       const { id, ...patch } = input;
       const db = getDb();
-      const tank = await db.query.fuelTanks.findFirst({ where: eq(fuelTanks.id, id) });
+      const tank = await db.query.fuelTanks.findFirst({
+        where: eq(fuelTanks.id, id),
+      });
       if (!tank) throw new Error("ไม่พบถัง");
+      if (patch.productId !== undefined && patch.productId !== tank.productId) {
+        const product = await db.query.products.findFirst({
+          where: eq(products.id, patch.productId),
+        });
+        if (!product || product.category !== "fuel") {
+          throw new Error("ถังต้องผูกกับสินค้าประเภทน้ำมันเท่านั้น");
+        }
+        const linkedNozzle = await db.query.nozzles.findFirst({
+          where: eq(nozzles.tankId, id),
+        });
+        if (linkedNozzle) {
+          throw new Error(
+            "ถังนี้ยังผูกกับหัวจ่ายอยู่ กรุณาเปลี่ยนถังของหัวจ่ายก่อนเปลี่ยนชนิดน้ำมัน"
+          );
+        }
+      }
       const nextCap = patch.capacityLiters ?? tank.capacityLiters;
       const nextCur = patch.currentLiters ?? tank.currentLiters;
       if (nextCur > nextCap) throw new Error("ระดับน้ำมันเกินความจุถัง");
@@ -269,17 +375,22 @@ export const catalogRouter = createRouter({
         liters: z.number().positive(),
         costPerLiter: z.number().nonnegative().default(0),
         note: z.string().optional(),
-      }),
+      })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      const tank = await db.query.fuelTanks.findFirst({ where: eq(fuelTanks.id, input.tankId) });
+      const tank = await db.query.fuelTanks.findFirst({
+        where: eq(fuelTanks.id, input.tankId),
+      });
       if (!tank) throw new Error("ไม่พบถัง");
       const next = tank.currentLiters + input.liters;
       if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
-      db.transaction((tx) => {
+      db.transaction(tx => {
         tx.insert(tankRefills).values(input).run();
-        tx.update(fuelTanks).set({ currentLiters: next }).where(eq(fuelTanks.id, input.tankId)).run();
+        tx.update(fuelTanks)
+          .set({ currentLiters: next })
+          .where(eq(fuelTanks.id, input.tankId))
+          .run();
       });
       return { ok: true, currentLiters: next };
     }),
@@ -287,21 +398,34 @@ export const catalogRouter = createRouter({
   listRefills: publicQuery.query(async () => {
     const db = getDb();
     const [rows, tankRows] = await Promise.all([
-      db.select().from(tankRefills).orderBy(desc(tankRefills.createdAt)).limit(30),
+      db
+        .select()
+        .from(tankRefills)
+        .orderBy(desc(tankRefills.createdAt))
+        .limit(30),
       db.query.fuelTanks.findMany(),
     ]);
-    return rows.map((r) => ({ ...r, tank: tankRows.find((t) => t.id === r.tankId) ?? null }));
+    return rows.map(r => ({
+      ...r,
+      tank: tankRows.find(t => t.id === r.tankId) ?? null,
+    }));
   }),
 
   // ---------- ตั้งค่า ----------
   getSettings: publicQuery.query(async () => {
     // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
-    const rows = getDb().select().from(settings).where(ne(settings.key, "shop_logo")).all();
-    return mergeSettingDefaults(rows.map((r) => [r.key, r.value] as const));
+    const rows = getDb()
+      .select()
+      .from(settings)
+      .where(ne(settings.key, "shop_logo"))
+      .all();
+    return mergeSettingDefaults(rows.map(r => [r.key, r.value] as const));
   }),
 
   getShopLogo: publicQuery.query(async () => {
-    const row = await getDb().query.settings.findFirst({ where: eq(settings.key, "shop_logo") });
+    const row = await getDb().query.settings.findFirst({
+      where: eq(settings.key, "shop_logo"),
+    });
     return row?.value || null;
   }),
 
@@ -311,7 +435,11 @@ export const catalogRouter = createRouter({
     const db = getDb();
     let enabled = false;
     try {
-      const row = db.select().from(settings).where(eq(settings.key, "lan_enabled")).get();
+      const row = db
+        .select()
+        .from(settings)
+        .where(eq(settings.key, "lan_enabled"))
+        .get();
       enabled = row?.value === "1";
     } catch {
       // ตาราง settings ยังไม่พร้อม — ถือว่าปิด
@@ -331,27 +459,43 @@ export const catalogRouter = createRouter({
   }),
 
   updateSettings: adminQuery
-    .input(z.object({ entries: z.array(z.object({ key: z.string().min(1), value: z.string() })) }))
+    .input(
+      z.object({
+        entries: z.array(
+          z.object({ key: z.string().min(1), value: z.string() })
+        ),
+      })
+    )
     .mutation(({ input }) => {
       const db = getDb();
       // ตัด key ซ้ำโดยให้ค่าตัวท้ายสุดชนะ แล้วเขียนทั้งหมดใน transaction เดียว
       // ใช้ .run() โดยตรงเพื่อยืนยันว่าคำสั่ง SQLite ทำงานเสร็จก่อนตอบ success
-      const entries = [...new Map(input.entries.map((entry) => [entry.key, entry.value]))]
-        .map(([key, value]) => ({ key, value }));
-      db.transaction((tx) => {
+      const entries = [
+        ...new Map(input.entries.map(entry => [entry.key, entry.value])),
+      ].map(([key, value]) => ({ key, value }));
+      db.transaction(tx => {
         for (const entry of entries) {
           tx.insert(settings)
             .values(entry)
-            .onConflictDoUpdate({ target: settings.key, set: { value: entry.value } })
+            .onConflictDoUpdate({
+              target: settings.key,
+              set: { value: entry.value },
+            })
             .run();
         }
       });
 
       // อ่านกลับจากฐานข้อมูลจริงให้ client ใช้เป็น source of truth ทันทีหลังบันทึก
-      const rows = db.select().from(settings).where(ne(settings.key, "shop_logo")).all();
+      const rows = db
+        .select()
+        .from(settings)
+        .where(ne(settings.key, "shop_logo"))
+        .all();
       return {
         ok: true,
-        settings: mergeSettingDefaults(rows.map((r) => [r.key, r.value] as const)),
+        settings: mergeSettingDefaults(
+          rows.map(r => [r.key, r.value] as const)
+        ),
       };
     }),
 });

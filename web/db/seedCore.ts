@@ -55,18 +55,21 @@ export async function seedIfEmpty(): Promise<boolean> {
   const prodRows = await db.query.products.findMany();
   const pid = (code: string) => prodRows.find((p) => p.code === code)!.id;
 
-  await db.insert(nozzles).values([
-    { pumpId: pump1, productId: pid("GSH95"), label: "ตู้ 1 (ซ้าย) - GSH95", currentMeter: 152340.5, currentMoney: 6206318.75 },
-    { pumpId: pump1, productId: pid("DB7"), label: "ตู้ 1 (ขวา) - DB7", currentMeter: 98512.25, currentMoney: 3146447.0 },
-    { pumpId: pump2, productId: pid("GSH91"), label: "ตู้ 2 (ซ้าย) - GSH91", currentMeter: 76420.0, currentMoney: 2918351.5 },
-    { pumpId: pump2, productId: pid("DB7"), label: "ตู้ 2 (ขวา) - DB7", currentMeter: 64110.75, currentMoney: 2047969.25 },
-  ]);
-
   // ถังน้ำมัน
   await db.insert(fuelTanks).values([
     { productId: pid("GSH95"), name: "ถัง GSH95", capacityLiters: 20000, currentLiters: 12450, lowAlertAt: 4000 },
     { productId: pid("GSH91"), name: "ถัง GSH91", capacityLiters: 15000, currentLiters: 6200, lowAlertAt: 3000 },
     { productId: pid("DB7"), name: "ถังดีเซล B7", capacityLiters: 20000, currentLiters: 3100, lowAlertAt: 4000 },
+  ]);
+
+  const tankRows = await db.query.fuelTanks.findMany();
+  const tankId = (code: string) => tankRows.find((tank) => tank.productId === pid(code))!.id;
+
+  await db.insert(nozzles).values([
+    { pumpId: pump1, productId: pid("GSH95"), tankId: tankId("GSH95"), label: "ตู้ 1 (ซ้าย) - GSH95", currentMeter: 152340.5, currentMoney: 6206318.75 },
+    { pumpId: pump1, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 1 (ขวา) - DB7", currentMeter: 98512.25, currentMoney: 3146447.0 },
+    { pumpId: pump2, productId: pid("GSH91"), tankId: tankId("GSH91"), label: "ตู้ 2 (ซ้าย) - GSH91", currentMeter: 76420.0, currentMoney: 2918351.5 },
+    { pumpId: pump2, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 2 (ขวา) - DB7", currentMeter: 64110.75, currentMoney: 2047969.25 },
   ]);
 
   // สมาชิกตัวอย่าง

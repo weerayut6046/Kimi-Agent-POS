@@ -2,7 +2,7 @@
 
 เอกสารต่อจาก [`plan.md`](./plan.md) — อธิบายสถาปัตยกรรม สถานะ และการปล่อย Desktop Application สำหรับ Windows
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.20` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md)
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.21`; รุ่นเผยแพร่ `1.0.20` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -12,6 +12,7 @@
 - ใช้โค้ดระบบเดิม (React + tRPC + Drizzle) เกือบทั้งหมด ไม่เขียนระบบใหม่
 - ข้อมูลอยู่ในเครื่อง ใช้งานออฟไลน์ได้ 100%
 - รองรับจอขนาดเล็กและอัปเดต NSIS installer ผ่าน Google Cloud Storage
+- ตัวติดตั้งเป็น Wizard ภาษาไทยพร้อม EULA/แบรนด์ KY และติดตั้งแบบ per-machine ใน `Program Files`
 
 ## 2. สถาปัตยกรรม
 
@@ -97,6 +98,7 @@
 - [ ] **D17 — Code Signing**: ลงลายเซ็น installer/Portable เพื่อลดคำเตือน Windows SmartScreen
 - [x] **D18 — UX/UI Station Console**: ปรับ design system, navigation แบ่งกลุ่ม, Login, Dashboard, POS, touch targets, safe-area และ mobile cart sheet (`1.0.20`)
 - [x] **D19 — เอกสารลูกค้าเครดิต**: เพิ่มใบขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร A4 พร้อม preview/print และจำกัดสิทธิ์ admin/manager (`1.0.20`)
+- [x] **D20 — Installer Wizard ภาษาไทย**: เพิ่มหน้าต้อนรับ, EULA, เลือกโฟลเดอร์, หน้าพร้อมติดตั้ง, ไอคอน/ภาพแบรนด์ KY และตั้ง per-machine สำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)
 
 ### การปล่อยเวอร์ชันใหม่ (auto-update)
 

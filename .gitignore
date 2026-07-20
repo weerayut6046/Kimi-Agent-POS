@@ -35,6 +35,8 @@ dist-ssr
 # Build outputs
 dist/
 build/
+!desktop/build/
+!desktop/build/**
 release/
 release2/
 release3/

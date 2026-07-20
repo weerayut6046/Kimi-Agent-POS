@@ -60,6 +60,7 @@ export default function Stock() {
   const [editTank, setEditTank] = useState<{
     id: number;
     name: string;
+    productId: number;
     currentLiters: number;
     capacityLiters: number;
     lowAlertAt: number;
@@ -209,6 +210,7 @@ export default function Stock() {
                       setEditTank({
                         id: t.id,
                         name: t.name,
+                        productId: t.productId,
                         currentLiters: t.currentLiters,
                         capacityLiters: t.capacityLiters,
                         lowAlertAt: t.lowAlertAt,
@@ -425,6 +427,29 @@ export default function Stock() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label>ชนิดน้ำมัน (สินค้า)</Label>
+                <Select
+                  value={String(editTank.productId)}
+                  onValueChange={v =>
+                    setEditTank({ ...editTank, productId: Number(v) })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกชนิดน้ำมัน" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fuelProducts.map(p => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} ({p.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  ถ้าถังยังผูกกับหัวจ่ายอยู่ ต้องเปลี่ยนถังของหัวจ่ายก่อน
+                </p>
+              </div>
+              <div className="space-y-1.5">
                 <Label>ระดับน้ำมันปัจจุบัน (ลิตร)</Label>
                 <Input
                   type="number"
@@ -481,6 +506,7 @@ export default function Stock() {
                 updateTankMut.mutate({
                   id: editTank.id,
                   name: editTank.name.trim(),
+                  productId: editTank.productId,
                   currentLiters: editTank.currentLiters,
                   capacityLiters: editTank.capacityLiters,
                   lowAlertAt: editTank.lowAlertAt,

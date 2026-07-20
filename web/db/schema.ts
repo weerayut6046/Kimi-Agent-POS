@@ -53,12 +53,16 @@ export const nozzles = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     pumpId: integer("pump_id").notNull(),
     productId: integer("product_id").notNull(),
+    tankId: integer("tank_id"),
     label: text("label").notNull(), // ตู้ 1 - GSH95
     currentMeter: real("current_meter").notNull().default(0),
     currentMoney: real("current_money").notNull().default(0), // มิเตอร์เงินสะสม P (บาท)
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
-  (t) => ({ pumpIdx: index("pump_idx").on(t.pumpId) }),
+  (t) => ({
+    pumpIdx: index("pump_idx").on(t.pumpId),
+    tankIdx: index("nozzle_tank_idx").on(t.tankId),
+  }),
 );
 
 // ============ กะการทำงาน ============

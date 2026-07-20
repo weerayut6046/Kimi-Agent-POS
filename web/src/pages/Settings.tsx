@@ -94,6 +94,7 @@ export default function Settings() {
   const { data: staffList } = trpc.auth.listStaff.useQuery();
   const { data: rewards } = trpc.membership.listRewards.useQuery();
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
+  const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
 
   // Layout เรียก getSettings ไว้ก่อนแล้วบ่อยครั้ง query จึงมีข้อมูลใน cache ตั้งแต่ render แรก
@@ -129,6 +130,7 @@ export default function Settings() {
     id: number;
     label: string;
     productId: number;
+    tankId: number | null;
     meter: number;
     money: number;
   } | null>(null);
@@ -1083,7 +1085,7 @@ export default function Settings() {
           <CardHeader className="pb-2">
             <CardTitle className="font-heading text-base flex items-center gap-2">
               <Gauge className="w-4 h-4" /> ตู้จ่าย & หัวจ่าย —
-              แก้ไขชื่อ/มิเตอร์ (admin)
+              ตั้งค่าถังตัดสต๊อก/ชื่อ/มิเตอร์ (admin)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1099,7 +1101,9 @@ export default function Settings() {
                       <div>
                         <div className="text-sm font-medium">{n.label}</div>
                         <div className="text-xs text-muted-foreground">
-                          {n.product?.name} · P: ฿{fmtNum(n.currentMoney)} · L:{" "}
+                          {n.product?.name} · ถัง:{" "}
+                          {n.tank?.name ?? "ยังไม่ผูกถัง"}
+                          {" · "}P: ฿{fmtNum(n.currentMoney)} · L:{" "}
                           {fmtNum(n.currentMeter)}
                         </div>
                       </div>
@@ -1111,6 +1115,7 @@ export default function Settings() {
                             id: n.id,
                             label: n.label,
                             productId: n.productId,
+                            tankId: n.tankId,
                             meter: n.currentMeter,
                             money: n.currentMoney,
                           })
@@ -1681,24 +1686,65 @@ export default function Settings() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>สินค้าที่จ่าย (ผูกกับราคา/ถัง/มิเตอร์)</Label>
+                <Label>ชนิดน้ำมันที่จ่าย</Label>
                 <Select
                   value={String(editN.productId)}
-                  onValueChange={v =>
-                    setEditN({ ...editN, productId: Number(v) })
-                  }
+                  onValueChange={v => {
+                    const productId = Number(v);
+                    const firstTank = (tanks ?? []).find(
+                      tank => tank.productId === productId
+                    );
+                    setEditN({
+                      ...editN,
+                      productId,
+                      tankId: firstTank?.id ?? null,
+                    });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(products ?? []).map(p => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name} ({p.code})
-                      </SelectItem>
-                    ))}
+                    {(products ?? [])
+                      .filter(p => p.category === "fuel" && p.active)
+                      .map(p => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name} ({p.code})
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>ถังน้ำมันที่ตัดสต๊อก</Label>
+                <Select
+                  value={
+                    editN.tankId != null ? String(editN.tankId) : undefined
+                  }
+                  onValueChange={v => setEditN({ ...editN, tankId: Number(v) })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="เลือกถังน้ำมัน" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(tanks ?? [])
+                      .filter(tank => tank.productId === editN.productId)
+                      .map(tank => (
+                        <SelectItem key={tank.id} value={String(tank.id)}>
+                          {tank.name} (คงเหลือ {fmtNum(tank.currentLiters)}{" "}
+                          ลิตร)
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {(tanks ?? []).filter(
+                  tank => tank.productId === editN.productId
+                ).length === 0 && (
+                  <p className="text-xs text-destructive">
+                    ยังไม่มีถังสำหรับน้ำมันชนิดนี้ กรุณาเพิ่มถังในหน้า “สต๊อก”
+                    ก่อน
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>มิเตอร์ P ปัจจุบัน (บาทสะสม)</Label>
@@ -1730,13 +1776,16 @@ export default function Settings() {
           <DialogFooter>
             <Button
               className="w-full"
-              disabled={!editN?.label || updateNozzle.isPending}
+              disabled={
+                !editN?.label || editN.tankId == null || updateNozzle.isPending
+              }
               onClick={() =>
                 editN &&
                 updateNozzle.mutate({
                   id: editN.id,
                   label: editN.label,
                   productId: editN.productId,
+                  tankId: editN.tankId!,
                   meter: editN.meter,
                   money: editN.money,
                 })

@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build && esbuild web/api/boot.ts --platform=node --bundle --format=esm --outdir=dist --external:better-sqlite3 --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\" && esbuild web/db/seed.ts --platform=node --bundle --format=esm --outdir=dist --external:better-sqlite3 --banner:js=\"import { createRequire } from 'module';const require = createRequire(import.meta.url);\"",
     "build:electron": "esbuild desktop/electron/main.ts --platform=node --bundle --format=cjs --outfile=dist/electron/main.cjs --external:electron --external:better-sqlite3 --external:electron-updater && node -e \"require('fs').copyFileSync('desktop/electron/preload.cjs','dist/electron/preload.cjs')\" && node -e \"require('fs').cpSync('web/db/migrations','dist/migrations',{recursive:true})\"",
+    "build:installer-assets": "python desktop/scripts/build-installer-assets.py",
     "build:desktop": "npm run build && npm run build:electron",
     "dev:desktop": "npm run build:electron && node desktop/scripts/dev-desktop.mjs",
     "dist:exe": "npm run build:desktop && node desktop/scripts/pack-exe.mjs",

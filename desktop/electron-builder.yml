@@ -2,6 +2,7 @@ appId: com.kimiagent.pos
 productName: POS ปั๊มน้ำมัน
 directories:
   output: release
+  buildResources: desktop/build
 files:
   - dist/**
   - package.json
@@ -9,13 +10,30 @@ asarUnpack:
   - node_modules/better-sqlite3/**
 npmRebuild: false
 win:
+  icon: app.ico
   target:
     - nsis
     - portable
 nsis:
   oneClick: false
-  perMachine: false
+  perMachine: true
+  allowElevation: true
   allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - th_TH
+  language: "1054"
+  unicode: true
+  license: license_th.txt
+  include: installer.nsh
+  installerIcon: installerIcon.ico
+  uninstallerIcon: uninstallerIcon.ico
+  installerHeader: installerHeader.bmp
+  installerSidebar: installerSidebar.bmp
+  uninstallerSidebar: uninstallerSidebar.bmp
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: POS ปั๊มน้ำมัน
+  runAfterFinish: true
   artifactName: POS-Pump-Setup-${version}.${ext}
 portable:
   artifactName: POS-Pump-Portable-${version}.${ext}

@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — เวอร์ชัน `1.0.20`
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.21`; รุ่นเผยแพร่ `1.0.20`
 
 ## Technology stack
 
@@ -20,6 +20,7 @@
 - `web/contracts/` — types/validation ที่ใช้ร่วมกัน
 - `desktop/electron/` — Electron main process, preload และ updater
 - `desktop/scripts/` — dev launcher, packager และ GCS publisher
+- `desktop/build/` — NSIS Wizard ภาษาไทย, EULA, ไอคอน และภาพแบรนด์ของตัวติดตั้ง
 - `release/` — ผลลัพธ์ installer/Portable ไม่ commit เข้า Git
 
 ## เอกสารหลัก
@@ -34,5 +35,6 @@
 - เปลี่ยน schema ด้วย migration ใน `web/db/migrations/`; ห้ามใช้ `db:push` กับฐานข้อมูลหน้างาน
 - ก่อนปล่อยเวอร์ชันให้รัน `npm run check`, `npm run lint` และ `npm test`
 - Build Desktop ด้วย `npm run dist:exe`
+- NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator
 - รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
 - อย่า commit ไฟล์ฐานข้อมูล, secrets, `dist/` หรือ `release/`
