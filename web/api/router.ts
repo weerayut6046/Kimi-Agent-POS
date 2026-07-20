@@ -10,6 +10,7 @@ import { dbadminRouter } from "./routers/dbadmin";
 import { expensesRouter } from "./routers/expenses";
 import { reportsRouter } from "./routers/reports";
 import { auditRouter } from "./routers/audit";
+import { workforceRouter } from "./routers/workforce";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -24,6 +25,7 @@ export const appRouter = createRouter({
   expenses: expensesRouter,
   reports: reportsRouter,
   audit: auditRouter,
+  workforce: workforceRouter,
 });
 
 export type AppRouter = typeof appRouter;

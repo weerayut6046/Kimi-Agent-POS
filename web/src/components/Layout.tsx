@@ -20,6 +20,7 @@ import {
   Menu,
   MoreHorizontal,
   ShieldCheck,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
 import { useStaff } from "@/hooks/useStaff";
@@ -69,6 +70,13 @@ const menus: MenuItem[] = [
     label: "จัดการกะ",
     shortLabel: "กะ",
     icon: Clock,
+    group: "station",
+  },
+  {
+    to: "/workforce",
+    label: "พนักงานและตารางงาน",
+    shortLabel: "พนักงาน",
+    icon: CalendarDays,
     group: "station",
   },
   {

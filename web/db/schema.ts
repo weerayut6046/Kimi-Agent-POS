@@ -4,6 +4,7 @@ import {
   integer,
   real,
   index,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 // ============ พนักงาน ============
@@ -18,6 +19,93 @@ export const staffUsers = sqliteTable("staff_users", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+// ============ ตารางงานพนักงาน & เงินเดือน ============
+export const workShiftTemplates = sqliteTable("work_shift_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  startTime: text("start_time").notNull(), // HH:mm
+  endTime: text("end_time").notNull(), // HH:mm (น้อยกว่า start = ข้ามวัน)
+  breakMinutes: integer("break_minutes").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+});
+
+export const workSchedules = sqliteTable(
+  "work_schedules",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    workDate: text("work_date").notNull(), // YYYY-MM-DD
+    shiftTemplateId: integer("shift_template_id").notNull(),
+    staffId: integer("staff_id").notNull(),
+    status: text("status", {
+      enum: ["scheduled", "completed", "leave", "absent"],
+    })
+      .notNull()
+      .default("scheduled"),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    dateIdx: index("workschedule_date_idx").on(t.workDate),
+    staffIdx: index("workschedule_staff_idx").on(t.staffId),
+    assignmentUnique: uniqueIndex("workschedule_assignment_unique").on(
+      t.workDate,
+      t.shiftTemplateId,
+      t.staffId,
+    ),
+  }),
+);
+
+export const employeeProfiles = sqliteTable(
+  "employee_profiles",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    staffId: integer("staff_id").notNull(),
+    position: text("position").notNull().default(""),
+    salaryType: text("salary_type", {
+      enum: ["monthly", "daily", "hourly"],
+    })
+      .notNull()
+      .default("monthly"),
+    baseRate: real("base_rate").notNull().default(0),
+    overtimeRate: real("overtime_rate").notNull().default(0),
+    hireDate: text("hire_date"), // YYYY-MM-DD
+    note: text("note"),
+  },
+  (t) => ({ staffUnique: uniqueIndex("employeeprofile_staff_unique").on(t.staffId) }),
+);
+
+export const payrollRecords = sqliteTable(
+  "payroll_records",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    payrollMonth: text("payroll_month").notNull(), // YYYY-MM
+    staffId: integer("staff_id").notNull(),
+    workDays: integer("work_days").notNull().default(0),
+    workHours: real("work_hours").notNull().default(0),
+    baseAmount: real("base_amount").notNull().default(0),
+    overtimeHours: real("overtime_hours").notNull().default(0),
+    overtimeAmount: real("overtime_amount").notNull().default(0),
+    bonus: real("bonus").notNull().default(0),
+    deduction: real("deduction").notNull().default(0),
+    netAmount: real("net_amount").notNull().default(0),
+    status: text("status", { enum: ["draft", "paid"] }).notNull().default("draft"),
+    paidAt: integer("paid_at", { mode: "timestamp_ms" }),
+    note: text("note"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    monthIdx: index("payroll_month_idx").on(t.payrollMonth),
+    staffMonthUnique: uniqueIndex("payroll_staff_month_unique").on(
+      t.staffId,
+      t.payrollMonth,
+    ),
+  }),
+);
 
 // ============ สินค้า (น้ำมัน / 2T / อื่นๆ) ============
 export const products = sqliteTable(
@@ -332,6 +420,10 @@ export const settings = sqliteTable("settings", {
 
 // ============ Types ============
 export type StaffUser = typeof staffUsers.$inferSelect;
+export type WorkShiftTemplate = typeof workShiftTemplates.$inferSelect;
+export type WorkSchedule = typeof workSchedules.$inferSelect;
+export type EmployeeProfile = typeof employeeProfiles.$inferSelect;
+export type PayrollRecord = typeof payrollRecords.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type Pump = typeof pumps.$inferSelect;
 export type Nozzle = typeof nozzles.$inferSelect;

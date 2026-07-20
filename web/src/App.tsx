@@ -15,6 +15,7 @@ import TaxInvoices from "@/pages/TaxInvoices";
 import Documents from "@/pages/Documents";
 import Audit from "@/pages/Audit";
 import Settings from "@/pages/Settings";
+import Workforce from "@/pages/Workforce";
 import { useStaff } from "@/hooks/useStaff";
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/pos" element={<Pos />} />
         <Route path="/shifts" element={<Shifts />} />
+        <Route path="/workforce" element={<Workforce />} />
         <Route path="/stock" element={<Stock />} />
         <Route path="/members" element={<Members />} />
         <Route path="/customers" element={<Customers />} />

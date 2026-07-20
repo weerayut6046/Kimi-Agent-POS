@@ -50,6 +50,13 @@
       "when": 1784516400000,
       "tag": "0006_nozzle_tank_mapping",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784526047570,
+      "tag": "0007_lowly_hulk",
+      "breakpoints": true
     }
   ]
 }

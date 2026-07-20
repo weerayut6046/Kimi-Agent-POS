@@ -47,3 +47,6 @@ data/
 # Test coverage
 coverage/
 .nyc_output/
+
+# Scratch test DBs from shift-history UI work
+.codex-shift-history-ui/
