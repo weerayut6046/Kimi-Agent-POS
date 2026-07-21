@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/sheet";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { useDesktopSync } from "@/hooks/useDesktopSync";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
@@ -52,35 +53,15 @@ import {
 } from "@/lib/printDoc";
 import { fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
 import type { Product, Member, Customer } from "@db/schema";
+import type {
+  DesktopReceipt,
+  DesktopSaleInput,
+  DesktopSaleResult,
+} from "@contracts/offline";
 
 type CartLine = { product: Product; qty: number };
 
-type ReceiptData = {
-  sale: {
-    id: number;
-    receiptNo: string;
-    createdAt: Date;
-    subtotal: number;
-    discount: number;
-    vatRate: number;
-    vatAmount: number;
-    total: number;
-    paymentMethod: "cash" | "qr" | "card" | "credit";
-    received: number;
-    changeAmt: number;
-    pointsEarned: number;
-    pointsRedeemed: number;
-    memberName: string | null;
-    customerName: string | null;
-  };
-  items: {
-    name: string;
-    qty: number;
-    unit: string;
-    unitPrice: number;
-    amount: number;
-  }[];
-};
+type ReceiptData = DesktopReceipt;
 
 const paymentIcons = {
   cash: Banknote,
@@ -128,6 +109,7 @@ function productTone(code: string, category: string) {
 
 export default function Pos() {
   const { staff } = useStaff();
+  const { status: syncStatus } = useDesktopSync();
   const mobileCheckout = useIsMobile(1024);
   const utils = trpc.useUtils();
   const { data: products } = trpc.catalog.listProducts.useQuery();
@@ -154,6 +136,7 @@ export default function Pos() {
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [err, setErr] = useState("");
+  const [desktopSalePending, setDesktopSalePending] = useState(false);
 
   const pointValue = Number(settingMap?.point_redeem_value ?? "1");
   const activeProducts = useMemo(
@@ -206,45 +189,50 @@ export default function Pos() {
     setFuelValue("");
   };
 
+  const finishSale = (result: DesktopReceipt) => {
+    setReceipt(result);
+    setCart([]);
+    setMember(null);
+    setDiscount(0);
+    setPointsToRedeem(0);
+    setReceived("");
+    setCreditCustomer(null);
+    setCustQ("");
+    setMobileCartOpen(false);
+    setErr("");
+    // พิมพ์ใบเสร็จเงียบอัตโนมัติหลังชำระเงิน (desktop เท่านั้น — เปิดในหน้า Settings) รอ dialog render ก่อนค่อยดึง element
+    if (
+      settingMap?.receipt_silent_print === "1" &&
+      window.posDesktop?.printSilent
+    ) {
+      const paper = parseReceiptPaper(settingMap.receipt_paper_size);
+      setTimeout(() => {
+        const el = document.getElementById("receipt-print");
+        if (el) {
+          printReceiptSilent(el, paper).catch(e =>
+            setErr(
+              e instanceof Error ? e.message : "พิมพ์ใบเสร็จอัตโนมัติไม่สำเร็จ"
+            )
+          );
+        }
+      }, 300);
+    }
+    utils.pos.dashboard.invalidate();
+    utils.pos.salesHistory.invalidate();
+    utils.catalog.listProducts.invalidate();
+    utils.credit.summary.invalidate();
+    if (member) utils.membership.listMembers.invalidate();
+  };
+
   const createSale = trpc.pos.createSale.useMutation({
-    onSuccess: r => {
-      setReceipt({ sale: r.sale as ReceiptData["sale"], items: r.items });
-      setCart([]);
-      setMember(null);
-      setDiscount(0);
-      setPointsToRedeem(0);
-      setReceived("");
-      setCreditCustomer(null);
-      setCustQ("");
-      setMobileCartOpen(false);
-      setErr("");
-      // พิมพ์ใบเสร็จเงียบอัตโนมัติหลังชำระเงิน (desktop เท่านั้น — เปิดในหน้า Settings) รอ dialog render ก่อนค่อยดึง element
-      if (
-        settingMap?.receipt_silent_print === "1" &&
-        window.posDesktop?.printSilent
-      ) {
-        const paper = parseReceiptPaper(settingMap.receipt_paper_size);
-        setTimeout(() => {
-          const el = document.getElementById("receipt-print");
-          if (el) {
-            printReceiptSilent(el, paper).catch(e =>
-              setErr(
-                e instanceof Error
-                  ? e.message
-                  : "พิมพ์ใบเสร็จอัตโนมัติไม่สำเร็จ"
-              )
-            );
-          }
-        }, 300);
-      }
-      utils.pos.dashboard.invalidate();
-      utils.pos.salesHistory.invalidate();
-      utils.catalog.listProducts.invalidate();
-      utils.credit.summary.invalidate();
-      if (member) utils.membership.listMembers.invalidate();
-    },
+    onSuccess: r =>
+      finishSale({
+        sale: r.sale as ReceiptData["sale"],
+        items: r.items,
+      }),
     onError: e => setErr(e.message),
   });
+  const salePending = createSale.isPending || desktopSalePending;
 
   const memberSearch = trpc.membership.findByPhone.useQuery(
     { phone: phoneQ },
@@ -264,7 +252,7 @@ export default function Pos() {
     { enabled: payMethod === "credit" && creditCustomer != null }
   );
 
-  const checkout = () => {
+  const checkout = async () => {
     if (cart.length === 0) return;
     if (payMethod === "cash" && receivedNum < total) {
       setErr("จำนวนเงินรับไม่พอ");
@@ -274,7 +262,16 @@ export default function Pos() {
       setErr("ขายเชื่อต้องเลือกลูกค้าก่อนชำระ");
       return;
     }
-    createSale.mutate({
+    if (syncStatus?.online === false && payMethod === "credit") {
+      setErr("ขณะออฟไลน์ยังไม่รองรับการขายเชื่อ กรุณาเลือกเงินสด QR หรือบัตร");
+      return;
+    }
+    if (syncStatus?.online === false && pointsToRedeem > 0) {
+      setErr("ขณะออฟไลน์ยังไม่รองรับการใช้แต้ม กรุณาตั้งค่าแต้มที่ใช้เป็น 0");
+      return;
+    }
+
+    const input: DesktopSaleInput = {
       shiftId: currentShift?.id,
       staffName: staff?.name ?? "",
       memberId: member?.id,
@@ -284,7 +281,41 @@ export default function Pos() {
       paymentMethod: payMethod,
       received: receivedNum,
       pointsToRedeem,
-    });
+    };
+
+    if (!window.posDesktop) {
+      createSale.mutate(input);
+      return;
+    }
+
+    setDesktopSalePending(true);
+    setErr("");
+    try {
+      const result: DesktopSaleResult = await window.posDesktop.createSale({
+        input,
+        lines: cart.map(line => ({
+          productId: line.product.id,
+          name: line.product.name,
+          unit: line.product.unit,
+          unitPrice: line.product.price,
+          category: line.product.category,
+          qty: line.qty,
+        })),
+        context: {
+          vatRate: Number(settingMap?.vat_rate ?? "7"),
+          pointEarnPerBaht: Number(settingMap?.point_earn_per_baht ?? "25"),
+          pointRedeemValue: pointValue,
+          memberName: member?.name ?? null,
+          customerName: creditCustomer?.name ?? null,
+        },
+        staffToken: staff?.token,
+      });
+      finishSale(result);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "บันทึกการขายไม่สำเร็จ");
+    } finally {
+      setDesktopSalePending(false);
+    }
   };
 
   return (
@@ -617,6 +648,7 @@ export default function Pos() {
                       type="number"
                       min={0}
                       max={member.points}
+                      disabled={syncStatus?.online === false}
                       value={pointsToRedeem || ""}
                       placeholder="0"
                       onChange={e =>
@@ -654,12 +686,20 @@ export default function Pos() {
                 <div className="grid grid-cols-4 gap-2">
                   {(["cash", "qr", "card", "credit"] as const).map(m => {
                     const PaymentIcon = paymentIcons[m];
+                    const disabled =
+                      m === "credit" && syncStatus?.online === false;
                     return (
                       <button
                         key={m}
                         type="button"
+                        disabled={disabled}
                         onClick={() => setPayMethod(m)}
-                        className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition-all ${payMethod === m ? "border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/20" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
+                        title={
+                          disabled
+                            ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
+                            : undefined
+                        }
+                        className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/20" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
                       >
                         <PaymentIcon className="size-[18px]" />
                         {paymentLabel[m]}
@@ -801,13 +841,11 @@ export default function Pos() {
               )}
               <Button
                 className="h-14 w-full justify-between rounded-xl bg-gradient-to-r from-blue-700 to-blue-600 px-5 text-base font-heading shadow-lg shadow-blue-600/20 hover:from-blue-800 hover:to-blue-700"
-                disabled={cart.length === 0 || createSale.isPending}
-                onClick={checkout}
+                disabled={cart.length === 0 || salePending}
+                onClick={() => void checkout()}
               >
                 <span>
-                  {createSale.isPending
-                    ? "กำลังบันทึก..."
-                    : "ยืนยันการชำระเงิน"}
+                  {salePending ? "กำลังบันทึก..." : "ยืนยันการชำระเงิน"}
                 </span>
                 <span className="flex items-center gap-2 number-display">
                   ฿{fmtMoney(total)} <ArrowRight className="size-4" />
@@ -961,15 +999,22 @@ export default function Pos() {
       <Dialog open={!!receipt} onOpenChange={o => !o && setReceipt(null)}>
         <DialogContent className="max-w-sm">
           {receipt && (
-            <div id="receipt-print">
-              <ReceiptDoc
-                sale={receipt.sale}
-                items={receipt.items}
-                settingMap={settingMap}
-                staffName={staff?.name}
-                logoUrl={logoUrl}
-              />
-            </div>
+            <>
+              {receipt.sale.id < 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  บิลนี้เก็บไว้ในเครื่องและกำลังรอซิงก์ขึ้นคลาวด์
+                </div>
+              )}
+              <div id="receipt-print">
+                <ReceiptDoc
+                  sale={receipt.sale}
+                  items={receipt.items}
+                  settingMap={settingMap}
+                  staffName={staff?.name}
+                  logoUrl={logoUrl}
+                />
+              </div>
+            </>
           )}
           <DialogFooter className="gap-2">
             <Button
@@ -987,6 +1032,12 @@ export default function Pos() {
             </Button>
             <Button
               variant="outline"
+              disabled={receipt?.sale.id == null || receipt.sale.id < 0}
+              title={
+                receipt?.sale.id != null && receipt.sale.id < 0
+                  ? "ออกใบกำกับภาษีได้หลังจากบิลซิงก์แล้ว"
+                  : undefined
+              }
               onClick={() => receipt && setTaxSaleId(receipt.sale.id)}
             >
               <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป

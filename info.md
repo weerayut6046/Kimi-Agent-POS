@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build ในเครื่อง `2.0.1`; รุ่นเผยแพร่ `2.0.1`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.2`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
 
 ## Technology stack
 

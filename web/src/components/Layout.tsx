@@ -23,6 +23,7 @@ import {
   CalendarDays,
   type LucideIcon,
 } from "lucide-react";
+import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
 import { useStaff } from "@/hooks/useStaff";
 import LowStockAlert from "@/components/LowStockAlert";
 import {
@@ -399,6 +400,7 @@ export default function Layout() {
             <LowStockAlert />
           </header>
 
+          <DesktopSyncBanner />
           <main className="mx-auto w-full min-w-0 max-w-[1540px] p-3 pb-5 sm:p-5 lg:p-7 xl:p-8">
             <Outlet />
           </main>

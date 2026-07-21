@@ -1,17 +1,29 @@
-import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
 import path from "path";
 import { fitWindowToWorkArea } from "../windowBounds";
+import { DesktopOfflineRuntime } from "./offlineRuntime";
+import type { DesktopSaleRequest } from "../../web/contracts/offline";
 
 declare const __dirname: string;
 
 const isPackaged = app.isPackaged;
 const DEV_URL = process.env.ELECTRON_START_URL || "http://localhost:3000";
-const PROD_URL = process.env.POS_WEB_URL || "https://kimi-agent-pos.vercel.app";
+const PROD_API_ORIGIN =
+  process.env.POS_API_ORIGIN || "https://api-production-dc37.up.railway.app";
 
 app.setName("pos-app");
 
-function registerIpc() {
+let desktopUrl = DEV_URL;
+let offlineRuntime: DesktopOfflineRuntime | null = null;
+
+function registerIpc(runtime: DesktopOfflineRuntime) {
   ipcMain.handle("app:version", () => app.getVersion());
+  ipcMain.handle("offline:status", () => runtime.getStatus());
+  ipcMain.handle("offline:retry", () => runtime.retrySync());
+  ipcMain.handle(
+    "sale:create-offline-capable",
+    (_event, request: DesktopSaleRequest) => runtime.createSale(request)
+  );
 
   ipcMain.handle(
     "print:silent",
@@ -90,8 +102,31 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    registerIpc();
-    createWindow(isPackaged ? PROD_URL : DEV_URL);
+    try {
+      offlineRuntime = new DesktopOfflineRuntime({
+        dataDir: isPackaged
+          ? app.getPath("userData")
+          : path.join(app.getPath("userData"), "dev-offline"),
+        staticDir: path.resolve(__dirname, "../public"),
+        remoteOrigin: isPackaged ? PROD_API_ORIGIN : new URL(DEV_URL).origin,
+        onStatus: status => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            window.webContents.send("offline:status", status);
+          }
+        },
+      });
+      const localUrl = await offlineRuntime.start();
+      desktopUrl = isPackaged ? localUrl : DEV_URL;
+      registerIpc(offlineRuntime);
+      createWindow(desktopUrl);
+    } catch (error) {
+      dialog.showErrorBox(
+        "เริ่มระบบ Offline ไม่สำเร็จ",
+        String(error instanceof Error ? (error.stack ?? error.message) : error)
+      );
+      app.quit();
+      return;
+    }
 
     if (isPackaged && !process.env.PORTABLE_EXECUTABLE_FILE) {
       const { setupAutoUpdater } = await import("./updater");
@@ -100,10 +135,11 @@ if (!gotLock) {
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow(isPackaged ? PROD_URL : DEV_URL);
+        createWindow(desktopUrl);
       }
     });
   });
 
   app.on("window-all-closed", () => app.quit());
+  app.on("before-quit", () => offlineRuntime?.stop());
 }

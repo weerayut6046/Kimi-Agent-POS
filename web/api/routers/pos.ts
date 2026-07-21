@@ -539,14 +539,12 @@ export const posRouter = createRouter({
           })
           .returning({ id: shifts.id });
         if (preparedReadings.length > 0) {
-          await tx
-            .insert(shiftReadings)
-            .values(
-              preparedReadings.map(reading => ({
-                shiftId: created.id,
-                ...reading,
-              }))
-            );
+          await tx.insert(shiftReadings).values(
+            preparedReadings.map(reading => ({
+              shiftId: created.id,
+              ...reading,
+            }))
+          );
         }
         return created.id;
       });
@@ -782,10 +780,44 @@ export const posRouter = createRouter({
         customerId: z.number().int().positive().optional(), // บังคับเมื่อ paymentMethod = credit
         received: z.number().nonnegative().default(0),
         pointsToRedeem: z.number().int().nonnegative().default(0),
+        clientReceiptNo: z
+          .string()
+          .regex(/^OFF-[A-Z0-9]{6}-\d{14}-\d{4,8}$/)
+          .optional(),
+        clientCreatedAt: z.coerce.date().optional(),
       })
     )
     .mutation(async ({ input }) => {
       const db = getDb();
+      if (input.clientReceiptNo) {
+        const existing = await db.query.sales.findFirst({
+          where: eq(sales.receiptNo, input.clientReceiptNo),
+        });
+        if (existing) {
+          const existingItems = await db
+            .select()
+            .from(saleItems)
+            .where(eq(saleItems.saleId, existing.id));
+          const existingMember = existing.memberId
+            ? await db.query.members.findFirst({
+                where: eq(members.id, existing.memberId),
+              })
+            : null;
+          const existingCustomer = existing.customerId
+            ? await db.query.customers.findFirst({
+                where: eq(customers.id, existing.customerId),
+              })
+            : null;
+          return {
+            sale: {
+              ...existing,
+              memberName: existingMember?.name ?? null,
+              customerName: existingCustomer?.name ?? null,
+            },
+            items: existingItems,
+          };
+        }
+      }
       const prodRows = await db.query.products.findMany();
       const settingMap = await getSettingMap(db);
       const vatRate = Number(settingMap.vat_rate ?? "7");
@@ -848,8 +880,9 @@ export const posRouter = createRouter({
       }
 
       const saleId = await db.transaction(async tx => {
-        const receiptNo = await nextDocNo(tx, "receipt");
-        const [{ id }] = await tx
+        const receiptNo =
+          input.clientReceiptNo ?? (await nextDocNo(tx, "receipt"));
+        const inserted = await tx
           .insert(sales)
           .values({
             receiptNo,
@@ -868,8 +901,20 @@ export const posRouter = createRouter({
             changeAmt,
             pointsEarned,
             pointsRedeemed: input.pointsToRedeem,
+            createdAt: input.clientCreatedAt,
           })
+          .onConflictDoNothing({ target: sales.receiptNo })
           .returning({ id: sales.id });
+        if (!inserted[0]) {
+          const existing = await tx.query.sales.findFirst({
+            where: eq(sales.receiptNo, receiptNo),
+          });
+          if (!existing) {
+            throw new Error("ไม่สามารถตรวจสอบบิลออฟไลน์ที่ซ้ำได้");
+          }
+          return existing.id;
+        }
+        const id = inserted[0].id;
 
         await tx.insert(saleItems).values(
           lines.map(l => ({
@@ -887,16 +932,17 @@ export const posRouter = createRouter({
           if (l.product.category !== "fuel") {
             await tx
               .update(products)
-              .set({ stockQty: r2(l.product.stockQty - l.qty) })
+              .set({ stockQty: sql`${products.stockQty} - ${l.qty}` })
               .where(eq(products.id, l.product.id));
           }
         }
 
         if (member) {
-          const newPoints = member.points - input.pointsToRedeem + pointsEarned;
           await tx
             .update(members)
-            .set({ points: newPoints })
+            .set({
+              points: sql`${members.points} - ${input.pointsToRedeem} + ${pointsEarned}`,
+            })
             .where(eq(members.id, member.id));
           if (pointsEarned > 0) {
             await tx.insert(pointTransactions).values({
