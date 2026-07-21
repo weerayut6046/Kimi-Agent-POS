@@ -2,7 +2,7 @@
 
 เอกสารต่อจาก [`plan.md`](./plan.md) — อธิบายสถาปัตยกรรม สถานะ และการปล่อย Desktop Application สำหรับ Windows
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.23`; รุ่นเผยแพร่ `1.0.23` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md) (เว็บออนไลน์บน Vercel + Railway อยู่หัวข้อ 11 ของ PROJECT.md)
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.24`; รุ่นเผยแพร่ `1.0.24` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md) (เว็บออนไลน์บน Vercel + Railway อยู่หัวข้อ 11 ของ PROJECT.md)
 
 ---
 
@@ -95,7 +95,7 @@
 - [x] **D14 — ย้าย Auto Update ไป GCS**: ตั้ง generic provider, สร้าง bucket สาธารณะ, เพิ่ม `publish:gcs` และเผยแพร่ต่อเนื่องถึง `1.0.20`
 - [ ] **D15 — ตรวจรับหน้างาน**: ทดสอบ NSIS installer, Settings, เครื่องพิมพ์, A4/A5, backup/restore, LAN และเปิดข้ามวันบนเครื่องปั๊มจริง
 - [ ] **D16 — ทดสอบ updater รุ่นใหม่**: ทดสอบ `1.0.20` → เวอร์ชันถัดไปแบบ end-to-end และบันทึกผล
-- [ ] **D17 — Code Signing**: ลงลายเซ็น installer/Portable เพื่อลดคำเตือน Windows SmartScreen
+- [x] **D17 — Code Signing**: ทำใน `1.0.24` แบบ self-signed certificate (`CN=PumpPOS Code Signing`, RSA-2048 อายุ 10 ปี) — private key เก็บที่ `desktop/certs/pumpos-codesign.pfx` (ไม่ commit), public cert ที่ `desktop/certs/pumpos-codesign.cer`; `pack-exe.mjs` ตั้ง `CSC_LINK`/`CSC_KEY_PASSWORD` ให้ electron-builder sign ทุก target (app exe, uninstaller, NSIS installer, Portable) อัตโนมัติ — เครื่อง build อื่นที่ไม่มี pfx จะ build unsigned เหมือนเดิม; **เครื่องปลายทางต้อง import root cert ครั้งเดียว** ด้วย `certs/install-pos-root-cert.bat` (แนบในตัวติดตั้งผ่าน `extraFiles`, รัน as admin) เพื่อให้ Smart App Control/SmartScreen ยอมรับ; ยังเหลืออัปเกรดเป็น OV/EV cert ถ้าต้องแจกจ่ายกว้าง
 - [x] **D18 — UX/UI Station Console**: ปรับ design system, navigation แบ่งกลุ่ม, Login, Dashboard, POS, touch targets, safe-area และ mobile cart sheet (`1.0.20`)
 - [x] **D19 — เอกสารลูกค้าเครดิต**: เพิ่มใบขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร A4 พร้อม preview/print และจำกัดสิทธิ์ admin/manager (`1.0.20`)
 - [x] **D20 — Installer Wizard ภาษาไทย**: เพิ่มหน้าต้อนรับ, EULA, เลือกโฟลเดอร์, หน้าพร้อมติดตั้ง, ไอคอน/ภาพแบรนด์ KY และตั้ง per-machine สำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)

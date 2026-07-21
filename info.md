@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.23`; รุ่นเผยแพร่ `1.0.23`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway)
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.24`; รุ่นเผยแพร่ `1.0.24`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway)
 
 ## Technology stack
 
@@ -21,6 +21,7 @@
 - `desktop/electron/` — Electron main process, preload และ updater
 - `desktop/scripts/` — dev launcher, packager และ GCS publisher
 - `desktop/build/` — NSIS Wizard ภาษาไทย, EULA, ไอคอน และภาพแบรนด์ของตัวติดตั้ง
+- `desktop/certs/` — code-signing certificate (commit เฉพาะ `.cer` สาธารณะ; `.pfx` และ password ไม่ commit)
 - `vercel.json` / `railway.toml` — config deploy เว็บออนไลน์ (frontend บน Vercel, backend บน Railway)
 - `release/` — ผลลัพธ์ installer/Portable ไม่ commit เข้า Git
 
