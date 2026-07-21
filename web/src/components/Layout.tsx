@@ -232,7 +232,7 @@ export default function Layout() {
 
   return (
     <Sheet>
-      <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-background">
+      <div className="flex min-h-[100dvh] bg-background">
         <aside className="fixed inset-y-0 z-30 hidden w-[276px] flex-col overflow-hidden bg-[#091a36] text-white lg:flex">
           <div className="pointer-events-none absolute -right-20 top-16 size-52 rounded-full bg-blue-500/[0.12] blur-3xl" />
           <div className="relative flex h-[78px] shrink-0 items-center gap-3 border-b border-white/10 px-5">
@@ -330,7 +330,7 @@ export default function Layout() {
           </div>
         </aside>
 
-        <div className="h-[100dvh] min-w-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(68px+env(safe-area-inset-bottom))] lg:ml-[276px] lg:pb-0">
+        <div className="min-w-0 flex-1 pb-[calc(68px+env(safe-area-inset-bottom))] lg:ml-[276px] lg:pb-0">
           <header className="sticky top-0 z-20 hidden h-[72px] items-center justify-between border-b border-slate-200/80 bg-white/90 px-7 backdrop-blur-xl lg:flex">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
