@@ -1,10 +1,12 @@
 #!/bin/sh
 set -e
 
-echo ">> Applying database migrations (drizzle-kit migrate)..."
-npx drizzle-kit migrate --config web/drizzle.config.ts
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo ">> DATABASE_URL is required (use the Supabase session pooler URL for this persistent backend)" >&2
+  exit 1
+fi
 
-if [ "${SEED_ON_START:-true}" = "true" ]; then
+if [ "${SEED_ON_START:-false}" = "true" ]; then
   echo ">> Seeding database (ข้ามอัตโนมัติถ้ามีข้อมูลอยู่แล้ว)..."
   node dist/seed.js
 fi

@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.24`; รุ่นเผยแพร่ `1.0.24`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build ในเครื่อง `2.0.0`; รุ่นเผยแพร่ `2.0.0`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
 
 ## Technology stack
 
@@ -8,7 +8,7 @@
 - React 19 + TypeScript 5.9 + Vite 7
 - Tailwind CSS 3.4 + shadcn/ui/Radix UI
 - Hono + tRPC + Zod
-- SQLite + Drizzle ORM + better-sqlite3
+- Supabase PostgreSQL + Drizzle ORM + postgres.js
 - Electron 42 + electron-builder + electron-updater
 - Vitest + ESLint + Prettier
 
@@ -34,7 +34,7 @@
 
 ## กฎสำคัญ
 
-- เปลี่ยน schema ด้วย migration ใน `web/db/migrations/`; ห้ามใช้ `db:push` กับฐานข้อมูลหน้างาน
+- เปลี่ยน schema ด้วย migration ใน `web/db/migrations-postgres/`; ห้ามใช้ `db:push` กับ production
 - ก่อนปล่อยเวอร์ชันให้รัน `npm run check`, `npm run lint` และ `npm test`
 - Build Desktop ด้วย `npm run dist:exe`
 - NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator

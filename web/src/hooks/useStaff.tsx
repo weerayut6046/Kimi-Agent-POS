@@ -5,6 +5,7 @@ export type StaffSession = {
   name: string;
   role: "admin" | "manager" | "cashier";
   username: string;
+  token: string;
 };
 
 const KEY = "pumppos_staff";

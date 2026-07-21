@@ -96,14 +96,13 @@ export const taxInvoiceRouter = createRouter({
         return db.query.taxInvoices.findFirst({ where: eq(taxInvoices.id, existing.id) });
       }
 
-      return db.transaction((tx) => {
-        const taxInvoiceNo = nextDocNo(tx, "tax_invoice");
-        const [{ id }] = tx
+      return db.transaction(async tx => {
+        const taxInvoiceNo = await nextDocNo(tx, "tax_invoice");
+        const [invoice] = await tx
           .insert(taxInvoices)
           .values({ taxInvoiceNo, saleId: input.saleId, issuedBy: input.issuedBy, ...customer })
-          .returning({ id: taxInvoices.id })
-          .all();
-        return tx.select().from(taxInvoices).where(eq(taxInvoices.id, id)).get();
+          .returning();
+        return invoice;
       });
     }),
 });

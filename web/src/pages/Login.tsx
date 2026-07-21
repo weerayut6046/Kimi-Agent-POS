@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
-  Database,
   Droplet,
-  FolderOutput,
   LogIn,
   Network,
   ShieldCheck,
@@ -28,18 +26,12 @@ export default function Login() {
   const [username, setUsername] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [dbPath, setDbPath] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
-  const [restarting, setRestarting] = useState(false);
   const { login } = useStaff();
   const navigate = useNavigate();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
   useEffect(() => {
-    window.posDesktop
-      ?.getDbConfig()
-      .then(c => setDbPath(c.dbPath))
-      .catch(() => {});
     window.posDesktop
       ?.getAppVersion()
       .then(setAppVersion)
@@ -54,6 +46,7 @@ export default function Login() {
           name: string;
           role: "admin" | "manager" | "cashier";
           username: string;
+          token: string;
         }
       );
       navigate("/");
@@ -63,21 +56,6 @@ export default function Login() {
 
   // URL สำหรับเครื่องอื่นใน LAN (แสดงเฉพาะตอนเปิด lan_enabled ใน Settings)
   const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
-
-  // เลือกตำแหน่งไฟล์ฐานข้อมูล (desktop เท่านั้น) — สำเร็จแล้วแอปจะรีสตาร์ทเอง
-  const chooseDb = async (mode: "open" | "save") => {
-    setError("");
-    try {
-      const r = await window.posDesktop?.chooseDbPath(mode);
-      if (r && r.changed === false) {
-        if (r.error) setError(r.error);
-        return;
-      }
-    } catch {
-      // แอปออกระหว่างรีสตาร์ท — ถือว่าสำเร็จ
-    }
-    setRestarting(true);
-  };
 
   return (
     <div className="grid min-h-screen bg-slate-100 lg:grid-cols-[minmax(420px,0.95fr)_minmax(520px,1.05fr)]">
@@ -236,45 +214,10 @@ export default function Login() {
               </div>
             )}
 
-            {/* ตั้งค่าตำแหน่งฐานข้อมูล — เฉพาะ desktop app */}
-            {isDesktop && (
-              <div className="mt-4 border-t pt-3 space-y-2">
-                <p className="text-xs text-muted-foreground break-all">
-                  ฐานข้อมูล: {dbPath ?? "กำลังอ่าน..."}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => chooseDb("open")}
-                  >
-                    <Database className="w-3.5 h-3.5 mr-1" />{" "}
-                    ใช้ไฟล์ฐานข้อมูลเดิม
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 text-xs"
-                    onClick={() => chooseDb("save")}
-                  >
-                    <FolderOutput className="w-3.5 h-3.5 mr-1" />{" "}
-                    สร้างไฟล์ไว้ที่อื่น
-                  </Button>
-                </div>
-                {restarting && (
-                  <p className="text-xs text-primary font-medium">
-                    เปลี่ยนตำแหน่งแล้ว กำลังรีสตาร์ทแอป...
-                  </p>
-                )}
-                {appVersion && (
-                  <p className="text-xs text-muted-foreground/70 text-right">
-                    เวอร์ชัน {appVersion}
-                  </p>
-                )}
-              </div>
+            {isDesktop && appVersion && (
+              <p className="mt-4 border-t pt-3 text-right text-xs text-muted-foreground/70">
+                เวอร์ชัน {appVersion} · ฐานข้อมูล Supabase
+              </p>
             )}
           </CardContent>
         </Card>

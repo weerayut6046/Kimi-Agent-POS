@@ -6,6 +6,7 @@ import { adminQuery, staffIdFromHeader } from "../guard";
 import { getDb } from "../queries/connection";
 import { staffUsers } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { issueStaffSession } from "../lib/session";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -20,7 +21,13 @@ export const authRouter = createRouter({
       if (!user || user.pin !== sha256(input.pin) || !user.active) {
         throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
       }
-      return { id: user.id, name: user.name, role: user.role, username: user.username };
+      const staff = {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        username: user.username,
+      };
+      return { ...staff, token: issueStaffSession(staff) };
     }),
 
   listStaff: publicQuery.query(async () => {

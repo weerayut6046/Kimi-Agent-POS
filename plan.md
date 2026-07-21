@@ -2,7 +2,7 @@
 
 เอกสารแผนพัฒนาระบบตั้งแต่เริ่มต้นโครงการ จนถึงส่งมอบและต่อยอดในอนาคต
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.24`; รุ่นเผยแพร่ `1.0.24` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.0` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -19,10 +19,10 @@
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query                                             |
 | Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                                                 |
-| Database    | SQLite + Drizzle ORM (migrations ใน `web/db/migrations/`) — เดิมใช้ MySQL เปลี่ยนใน Phase 11                                  |
+| Database    | Supabase PostgreSQL + Drizzle ORM (private schema `pos`, migrations ใน `web/db/migrations-postgres/`)                         |
 | Validation  | Zod                                                                                                                           |
 | Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                                                  |
-| Deploy      | Windows `.exe`, Docker Compose service เดียว + SQLite volume `db_data` หรือ Web ออนไลน์ Vercel (frontend) + Railway (backend) |
+| Deploy      | Windows `.exe`/Portable โหลดเว็บกลาง; Vercel (frontend) + Railway (backend) + Supabase (database)                             |
 | Auto Update | electron-updater + Google Cloud Storage (generic provider)                                                                    |
 | เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                                                         |
 
@@ -43,7 +43,7 @@
 - รายงานยอดขาย / แดชบอร์ด / รายงานปิดวัน (Z-report: ยอดแยกวิธีชำระ, ลิตร, กะ, ค่าใช้จ่าย, เงินสดคาดหวัง)
 - บันทึกค่าใช้จ่ายหน้าร้าน (ผูกกะอัตโนมัติ)
 - Audit log การกระทำสำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, จัดการพนักงาน, กู้ฐานข้อมูล ฯลฯ — admin ดู)
-- สำรองข้อมูลอัตโนมัติรายวันตามเวลาที่ตั้ง (แยกไฟล์ pos-auto-* จากไฟล์สำรองเอง)
+- สำรอง/กู้คืนฐานข้อมูลและ Point-in-Time Recovery ผ่าน Supabase ตามแผนบริการ
 - ตั้งค่าร้าน (ชื่อ, โลโก้, ที่อยู่ ฯลฯ)
 - Desktop responsive สำหรับจอขนาดเล็ก พร้อมเมนูแบบสไลด์และพื้นที่เลื่อนในหน้า/dialog
 - Desktop NSIS ตรวจและดาวน์โหลดอัปเดตจาก Google Cloud Storage
@@ -52,7 +52,7 @@
 
 - การเชื่อมต่อตู้จ่าย/มิเตอร์จริงผ่านฮาร์ดแวร์ (บันทึกมิเตอร์ด้วยมือ)
 - ระบบบัญชี/ภาษีแบบเต็ม, e-Tax Invoice ส่งกรมสรรพากร
-- หลายสาขา / การซิงก์ข้อมูลขึ้นคลาวด์
+- การแยกข้อมูลหลายสาขาและสิทธิ์ข้ามองค์กร
 - ส่งคำสั่ง ESC/POS โดยตรง (ใช้ Chromium/browser print หรือ silent print ของ Desktop เพื่อรองรับภาษาไทย)
 
 ## 4. แผนงานเป็นระยะ (Phases)
@@ -116,13 +116,13 @@
 
 ### Phase 9 — แพ็กเกจและติดตั้งจริง ✅
 
-- `Dockerfile` + `docker-compose.yml`: container `app` ใช้ SQLite volume และ migrate + seed อัตโนมัติตอน start
-- `web/docker-entrypoint.sh`, healthcheck, volume `db_data`
+- `Dockerfile` + `docker-compose.yml`: container `app` เชื่อม Supabase ผ่าน session pooler
+- `web/docker-entrypoint.sh` ตรวจ environment ก่อนเปิด Hono backend; migration ทำแบบส่วนกลางก่อน deploy
 - **ผลลัพธ์:** `docker compose up --build` แล้วใช้งานได้ที่ http://localhost:3000
 
 ### Phase 10 — เสริมคุณภาพและต่อยอด (กำลังทำ / อนาคต) 🔄
 
-- [x] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม — integration test ผ่าน tRPC caller ลง SQLite ชั่วคราว (migrate+seed จริง): `web/api/test/testDb.ts`, `pos.sale.test.ts`, `pos.shift.test.ts`, `membership.test.ts`
+- [x] เพิ่ม unit/integration tests (Vitest) ครอบคลุม logic การขาย/ปิดกะ/แต้ม — integration test ผ่าน tRPC caller ลง PGlite PostgreSQL ชั่วคราว: `web/api/test/testDb.ts`, `pos.sale.test.ts`, `pos.shift.test.ts`, `membership.test.ts`
 - [x] ~~ใบเสร็จความร้อน (ESC/POS)~~ → **ถอดออกแล้ว** — เครื่อง Gainscha GA-E200I ไม่มีฟอนต์ไทยใน firmware พิมพ์ไทยไม่ได้ ตัดสินใจใช้พิมพ์ผ่านเบราว์เซอร์อย่างเดียว (ลบ router `printer` + `web/api/lib/escpos.ts`/`printerTransport.ts`/`receiptPrint.ts` + hook `useThermalPrint`); เหลือตั้งได้แค่ขนาดกระดาษใบเสร็จ (80/58/A5/A4 — setting `receipt_paper_size`, `printReceiptElement` ใน `web/src/lib/printDoc.ts`)
 - [x] พิมพ์ใบเสร็จเงียบอัตโนมัติหลังชำระเงิน (desktop) — IPC `print:silent` (`desktop/electron/main.ts`) เปิดหน้าต่างซ่อน render HTML ใบเสร็จด้วย Chromium แล้ว `webContents.print({ silent: true })` เข้าเครื่องพิมพ์ default ของ Windows — ภาษาไทยถูกเสมอ ไม่ต้องมีฟอนต์ไทยในเครื่องพิมพ์ ไม่เด้ง dialog; ตั้งค่า `receipt_silent_print` ในหน้า Settings (ใช้ขนาดกระดาษจาก `receipt_paper_size`), helper `printReceiptSilent` ใน `web/src/lib/printDoc.ts`
 - [x] ขายเชื่อ/ลูกค้าเครดิต — paymentMethod "credit" + `sales.customer_id`, ตาราง `debt_payments`, router `credit` (ยอดค้าง/รับชำระ/วงเงิน), หน้า `/debts` + ใบรับชำระ (เลข P), ใบเสร็จแสดงชื่อลูกค้าเครดิต
@@ -130,12 +130,12 @@
 - [x] บันทึกค่าใช้จ่ายหน้าร้าน — ตาราง `expenses`, router `expenses` (ผูกกะอัตโนมัติ), หน้า `/expenses`
 - [x] ประวัติเปลี่ยนราคาสินค้า — ตาราง `price_changes`, hook ใน `catalog.updateProduct`, ดูประวัติจากปุ่มในหน้า Settings
 - [x] Audit log — ตาราง `audit_logs` + `web/api/lib/audit.ts` ผูก mutation สำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, พนักงาน, กู้ db, ค่าใช้จ่าย, ชำระหนี้), หน้า `/audit` เฉพาะ admin
-- [x] สำรองข้อมูลอัตโนมัติ — `web/api/lib/autobackup.ts` รันใน boot (ครอบ desktop+Docker), ตั้งเวลา/จำนวนไฟล์เก็บในหน้า Settings, ไฟล์ `pos-auto-*` แยกจากสำรองเอง
+- [x] ย้ายการสำรอง/กู้คืนออกจากแอปใน `2.0.0` — ใช้ Supabase Backup และ Point-in-Time Recovery แทนไฟล์ SQLite ภายในเครื่อง
 - [x] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร — `reports.exportDailyExcel`/`exportRangeExcel` (exceljs ฝั่ง server ส่ง base64, หน้า `/reports` ปุ่มส่งออกรายวัน+ช่วงเวลา ≤92 วัน, เฉพาะ admin/manager), `reports.fuelProfit` + ตารางกำไรต่อลิตรบนหน้าเว็บ; PDF ใช้ปุ่มพิมพ์เดิม → Save as PDF ของเบราว์เซอร์
 - [x] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์ — `catalog.lowStockAlerts` (ถังต่ำกว่า `low_alert_at` + สินค้าต่ำกว่า `low_stock_at`), กระดิ่ง `LowStockAlert.tsx` ใน Layout ทุกหน้า โพล 15 วิ แสดง badge + popover รายการ, เด้ง toast (sonner) ทันทีเมื่อมีรายการใหม่ต่ำกว่าเกณฑ์, การ์ดเตือนเดิมบนหน้าแดชบอร์ดคงไว้
 - [x] นับเงินลิ้นชักครบวงจร — เงินทอนเริ่มกะ (`shifts.opening_float`), นับเงินสดแยกแบงก์/เหรียญตอนปิดกะ (`shifts.cash_counts` JSON — เซิร์ฟเวอร์รวมยอดเองจาก `web/contracts/cash.ts`), snapshot เงินสดควรมีลงกะ (`shifts.expected_cash` = เงินทอน+ขายสด+ชำระหนี้สด−ค่าใช้จ่าย คำนวณโดย `web/api/lib/cash.ts`), `debt_payments.shift_id` ผูกกะอัตโนมัติแบบค่าใช้จ่าย, แสดงส่วนต่างเงินสด (ขาด/เกิน) ในหน้าปิดกะแบบเรียลไทม์ + ประวัติกะ + Z-report + Excel, audit log `close_shift` ตอนปิดกะ
-- [x] dev server migrate อัตโนมัติตอน boot — `web/api/boot.ts` รัน drizzle migrate แบบ sync (idempotent) เมื่อ `NODE_ENV != production` ไม่ต้องรัน `npm run db:migrate` เองหลังเพิ่ม migration ใหม่ (desktop/Docker migrate ของตัวเองตอนเปิดแอปอยู่แล้ว)
-- [x] ขายหลายเครื่องพร้อมกันผ่าน LAN (multi-station) — toggle `lan_enabled` ในหน้า Settings (desktop default ปิด ต้องรีสตาร์ทแอป), เครื่องลูกเปิดเบราว์เซอร์ไปที่ `http://<IP-เครื่องหลัก>:3210` ล็อกอินด้วย PIN ตัวเอง ขายภายใต้กะรวมกะเดียวกัน; `catalog.lanInfo` แสดง URL ในหน้า Settings + หน้า Login (รายละเอียดและข้อจำกัดใน `plan-desktop.md` D7)
+- [x] ใช้ migration ส่วนกลางผ่าน `DIRECT_URL` (session pooler) และห้าม `db:push` กับ production
+- [x] เปลี่ยน multi-station จาก LAN เป็นระบบกลางใน `2.0.0` — ทุกเครื่องใช้ Vercel/Railway/Supabase ชุดเดียวกันและยืนยันสิทธิ์ด้วย signed staff session
 - [x] แก้หน้า Settings โหลดข้อมูลครั้งแรก/หลังสลับเมนู และ refresh ค่าล่าสุดหลังบันทึก เพื่อไม่แสดงฟอร์มว่างหรือค่าค้าง
 - [x] เพิ่มการตั้งค่ากระดาษใบกำกับภาษี A4/A5 พร้อมปรับ preview และ print layout
 - [x] ปรับ Desktop ให้ responsive บนจอขนาดเล็ก ปรับขนาดหน้าต่างเริ่มต้นตาม work area และให้หน้า/dialog เลื่อนด้วยล้อเมาส์ได้
@@ -148,7 +148,7 @@
 
 ### Phase 11 — Desktop App (.exe) ✅
 
-- แปลงเป็น Desktop App ด้วย Electron + SQLite (ฝังในแอป) ออกไฟล์ติดตั้ง/portable `.exe`
+- แปลงเป็น Desktop App ด้วย Electron; รุ่น `2.0.0` เปลี่ยนเป็น shell ที่โหลดเว็บกลางและไม่เก็บ database secret ในเครื่องลูก
 - ตั้งแต่ `1.0.18` ใช้ Google Cloud Storage เป็นแหล่ง Auto Update และมี `npm run publish:gcs` สำหรับเผยแพร่ไฟล์
 - รายละเอียดเต็มอยู่ในเอกสารแยก: [`plan-desktop.md`](./plan-desktop.md)
 
@@ -156,13 +156,13 @@
 
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.18` ไป `gs://kimi-agent-pos-updates`
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.20` ไป GCS พร้อมตรวจ HTTP 200, Content-Length, cache policy และ HTTP range
-- [x] Deploy เว็บออนไลน์ — frontend บน Vercel (`kimi-agent-pos.vercel.app`) rewrite `/api/*` ไป backend Docker บน Railway (volume `/data` ถาวร) ตาม `vercel.json`/`railway.toml` (รายละเอียด [`PROJECT.md`](./PROJECT.md) หัวข้อ 11)
+- [x] Deploy เว็บออนไลน์ — frontend บน Vercel (`kimi-agent-pos.vercel.app`) rewrite `/api/*` ไป backend Docker บน Railway ซึ่งเชื่อม Supabase PostgreSQL
 - [x] สร้าง NSIS Wizard ภาษาไทยพร้อม EULA/โลโก้ KY และติดตั้งสำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)
 - [x] ตรวจ public URL, ขนาดไฟล์, SHA metadata และการรองรับ HTTP range
 - [x] ย้าย updater configuration จาก GitHub Releases ไป GCS generic provider
 - [ ] ทำ bridge ให้เครื่อง `1.0.17` และเก่ากว่าได้รับ `1.0.18` หรือให้ติดตั้ง `1.0.18` ด้วยมือหนึ่งครั้ง
 - [ ] ทดสอบ Auto Update จาก `1.0.20` ไปเวอร์ชันถัดไปแบบ end-to-end
-- [ ] ทดสอบ NSIS installer, การพิมพ์, สำรอง/กู้คืน และเปิดใช้งานข้ามวันบนเครื่องปั๊มจริง
+- [ ] ทดสอบ NSIS installer, การพิมพ์, อินเทอร์เน็ตหลุด/กลับมา และเปิดใช้งานข้ามวันบนเครื่องปั๊มจริง
 - [ ] จัดทำคู่มือพนักงานและคู่มือผู้ดูแลระบบ
 - [x] เพิ่ม Code Signing สำหรับ Windows installer — ทำใน `1.0.24` แบบ self-signed (รายละเอียด `plan-desktop.md` D17)
 
@@ -178,7 +178,7 @@
 - ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build` หรือ Web ออนไลน์ Vercel + Railway (PROJECT.md หัวข้อ 11)
 - ไฟล์อัปเดต Desktop รุ่น `1.0.18` เป็นต้นไปเผยแพร่ที่ `gs://kimi-agent-pos-updates`
 - บัญชีเริ่มต้นจาก seed: `admin`/`1234`, `manager`/`2222`, `somchai`/`0000` (เปลี่ยนหลังติดตั้ง)
-- ข้อมูลอยู่ใน volume `db_data`; ค่าแวดล้อมปรับผ่าน `.env` (ดู `.env.example`)
+- ข้อมูลอยู่ใน Supabase private schema `pos`; backend เก็บ connection secret ใน Railway และปรับค่าผ่าน environment variables
 
 ## 7. ความเสี่ยงและแนวทางรับมือ
 
@@ -186,13 +186,13 @@
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
 | การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git            |
 | มิเตอร์จดผิด                       | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย                                          |
-| ข้อมูลหาย                          | volume ถาวร + แผนสำรองข้อมูล (Phase 10)                                             |
+| ข้อมูลหาย                          | Supabase Backup/PITR, migration history และเก็บ SQLite ต้นทางไว้ตรวจสอบช่วงเปลี่ยนผ่าน |
 | PIN รั่วไหล                        | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง               |
-| เน็ต/ไฟดับที่ปั๊ม                  | ระบบรัน local ไม่พึ่งคลาวด์; แนะนำ UPS                                              |
+| เน็ต/ไฟดับที่ปั๊ม                  | รุ่น `2.0.0` ต้องใช้อินเทอร์เน็ต; เตรียมลิงก์สำรอง/UPS และขั้นตอนหยุดขายชั่วคราว       |
 | รุ่นเก่ายังชี้ GitHub updater      | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                     |
-| GCS หรืออินเทอร์เน็ตใช้ไม่ได้      | งานขายยังทำงานออฟไลน์; updater บันทึก error ลง log และลองใหม่เมื่อเปิดแอปครั้งถัดไป |
+| GCS ใช้ไม่ได้                      | updater บันทึก error และลองใหม่เมื่อเปิดแอปครั้งถัดไป; เว็บหลักยังทำงานได้            |
 | Windows SmartScreen เตือน          | วางแผน Code Signing; ก่อนมี certificate ให้ตรวจ checksum และแหล่งดาวน์โหลดทุกครั้ง  |
 
 ---
 
-_สถานะ ณ 20 กรกฎาคม 2026: Phase 0–11 เผยแพร่ถึงเวอร์ชัน 1.0.24 บน GCS (Wizard ภาษาไทย, workforce, จัดการประวัติตัดกะพร้อมมิเตอร์รายหัวจ่าย, แก้ scrollbar ซ้อนบนจอเล็ก, sign executable ด้วย self-signed cert) และ deploy เว็บออนไลน์บน Vercel + Railway แล้ว ส่วน Phase 12 เหลืองานตรวจหน้างาน การส่งต่อจาก updater รุ่นเก่า และความพร้อมใช้งานจริง_
+_สถานะ ณ 21 กรกฎาคม 2026: รุ่น 2.0.0 ย้ายฐานข้อมูลและข้อมูลเดิมขึ้น Supabase PostgreSQL, deploy Vercel/Railway, เปลี่ยน Desktop เป็น online shell, ใช้ signed staff session และแก้ connection pooling/Dashboard loading แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_

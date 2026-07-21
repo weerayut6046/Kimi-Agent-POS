@@ -10,6 +10,7 @@ import {
   members,
   rewards,
   settings,
+  workShiftTemplates,
 } from "./schema";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -31,6 +32,12 @@ export async function seedIfEmpty(): Promise<boolean> {
     { username: "admin", pin: sha256("1234"), name: "เจ้าของปั๊ม", role: "admin" },
     { username: "manager", pin: sha256("2222"), name: "สมหญิง (ผู้จัดการสาขา)", role: "manager" },
     { username: "somchai", pin: sha256("0000"), name: "สมชาย (พนักงาน)", role: "cashier" },
+  ]);
+
+  await db.insert(workShiftTemplates).values([
+    { name: "กะเช้า", startTime: "06:00", endTime: "14:00", breakMinutes: 60 },
+    { name: "กะบ่าย", startTime: "14:00", endTime: "22:00", breakMinutes: 60 },
+    { name: "กะดึก", startTime: "22:00", endTime: "06:00", breakMinutes: 60 },
   ]);
 
   // สินค้า: น้ำมัน

@@ -319,9 +319,9 @@ export const catalogRouter = createRouter({
         );
       }
       // tank_refills ไม่ได้เก็บ snapshot ชื่อถัง — ลบประวัติรับเข้าของถังนี้ไปพร้อมกัน
-      db.transaction(tx => {
-        tx.delete(tankRefills).where(eq(tankRefills.tankId, input.id)).run();
-        tx.delete(fuelTanks).where(eq(fuelTanks.id, input.id)).run();
+      await db.transaction(async tx => {
+        await tx.delete(tankRefills).where(eq(tankRefills.tankId, input.id));
+        await tx.delete(fuelTanks).where(eq(fuelTanks.id, input.id));
       });
       return { ok: true };
     }),
@@ -385,12 +385,11 @@ export const catalogRouter = createRouter({
       if (!tank) throw new Error("ไม่พบถัง");
       const next = tank.currentLiters + input.liters;
       if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
-      db.transaction(tx => {
-        tx.insert(tankRefills).values(input).run();
-        tx.update(fuelTanks)
+      await db.transaction(async tx => {
+        await tx.insert(tankRefills).values(input);
+        await tx.update(fuelTanks)
           .set({ currentLiters: next })
-          .where(eq(fuelTanks.id, input.tankId))
-          .run();
+          .where(eq(fuelTanks.id, input.tankId));
       });
       return { ok: true, currentLiters: next };
     }),
@@ -414,11 +413,10 @@ export const catalogRouter = createRouter({
   // ---------- ตั้งค่า ----------
   getSettings: publicQuery.query(async () => {
     // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
-    const rows = getDb()
+    const rows = await getDb()
       .select()
       .from(settings)
-      .where(ne(settings.key, "shop_logo"))
-      .all();
+      .where(ne(settings.key, "shop_logo"));
     return mergeSettingDefaults(rows.map(r => [r.key, r.value] as const));
   }),
 
@@ -435,11 +433,10 @@ export const catalogRouter = createRouter({
     const db = getDb();
     let enabled = false;
     try {
-      const row = db
+      const [row] = await db
         .select()
         .from(settings)
-        .where(eq(settings.key, "lan_enabled"))
-        .get();
+        .where(eq(settings.key, "lan_enabled"));
       enabled = row?.value === "1";
     } catch {
       // ตาราง settings ยังไม่พร้อม — ถือว่าปิด
@@ -466,31 +463,28 @@ export const catalogRouter = createRouter({
         ),
       })
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const db = getDb();
       // ตัด key ซ้ำโดยให้ค่าตัวท้ายสุดชนะ แล้วเขียนทั้งหมดใน transaction เดียว
-      // ใช้ .run() โดยตรงเพื่อยืนยันว่าคำสั่ง SQLite ทำงานเสร็จก่อนตอบ success
       const entries = [
         ...new Map(input.entries.map(entry => [entry.key, entry.value])),
       ].map(([key, value]) => ({ key, value }));
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         for (const entry of entries) {
-          tx.insert(settings)
+          await tx.insert(settings)
             .values(entry)
             .onConflictDoUpdate({
               target: settings.key,
               set: { value: entry.value },
-            })
-            .run();
+            });
         }
       });
 
       // อ่านกลับจากฐานข้อมูลจริงให้ client ใช้เป็น source of truth ทันทีหลังบันทึก
-      const rows = db
+      const rows = await db
         .select()
         .from(settings)
-        .where(ne(settings.key, "shop_logo"))
-        .all();
+        .where(ne(settings.key, "shop_logo"));
       return {
         ok: true,
         settings: mergeSettingDefaults(

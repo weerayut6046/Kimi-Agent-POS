@@ -243,6 +243,9 @@ describe("admin จัดการประวัติการตัดกะ"
   });
 
   it("ลบประวัติได้โดยเก็บเอกสารการเงินและยกเลิกการผูกกะ", async () => {
+    const customer = await t.caller("manager").customers.create({
+      name: "ลูกค้าทดสอบประวัติกะ",
+    });
     await t.db.insert(sales).values({
       receiptNo: "SHIFT-ADMIN-001",
       shiftId,
@@ -256,7 +259,7 @@ describe("admin จัดการประวัติการตัดกะ"
     });
     await t.db.insert(debtPayments).values({
       paymentNo: "SHIFT-ADMIN-PAY-001",
-      customerId: 1,
+      customerId: customer!.id,
       amount: 50,
       shiftId,
     });

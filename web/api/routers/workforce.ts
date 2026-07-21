@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lt, lte, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   employeeProfiles,
@@ -9,6 +9,7 @@ import {
 } from "@db/schema";
 import { adminQuery, staffIdFromHeader } from "../guard";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { staffSessionFromHeader } from "../lib/session";
 import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 
@@ -158,7 +159,7 @@ export const workforceRouter = createRouter({
     .query(async ({ input, ctx }) => {
       if (input.endDate < input.startDate)
         throw new Error("ช่วงวันที่ไม่ถูกต้อง");
-      const role = ctx.req.headers.get("x-staff-role");
+      const role = staffSessionFromHeader(ctx.req)?.role;
       const currentStaffId = staffIdFromHeader(ctx.req);
       if (role !== "admin" && currentStaffId == null) {
         throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
@@ -347,20 +348,12 @@ export const workforceRouter = createRouter({
         throw new Error("สลับไม่ได้ เพราะพนักงานมีกะซ้ำในช่วงที่เลือก");
       }
 
-      db.transaction(tx => {
-        tx.update(workSchedules)
-          .set({ staffId: -first.staffId })
-          .where(eq(workSchedules.id, first.id))
-          .run();
-        tx.update(workSchedules)
-          .set({ staffId: first.staffId })
-          .where(eq(workSchedules.id, second.id))
-          .run();
-        tx.update(workSchedules)
-          .set({ staffId: second.staffId })
-          .where(eq(workSchedules.id, first.id))
-          .run();
-      });
+      await db
+        .update(workSchedules)
+        .set({
+          staffId: sql<number>`case when ${workSchedules.id} = ${first.id} then cast(${second.staffId} as integer) else cast(${first.staffId} as integer) end`,
+        })
+        .where(inArray(workSchedules.id, [first.id, second.id]));
       const [firstStaff, secondStaff] = await Promise.all([
         requireStaff(first.staffId),
         requireStaff(second.staffId),
@@ -550,7 +543,7 @@ export const workforceRouter = createRouter({
 
       let generated = 0;
       let skippedPaid = 0;
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         for (const profile of profiles) {
           const current = existingRecords.find(
             record => record.staffId === profile.staffId
@@ -607,12 +600,11 @@ export const workforceRouter = createRouter({
             note: current?.note ?? null,
           };
           if (current) {
-            tx.update(payrollRecords)
+            await tx.update(payrollRecords)
               .set(values)
-              .where(eq(payrollRecords.id, current.id))
-              .run();
+              .where(eq(payrollRecords.id, current.id));
           } else {
-            tx.insert(payrollRecords).values(values).run();
+            await tx.insert(payrollRecords).values(values);
           }
           generated += 1;
         }

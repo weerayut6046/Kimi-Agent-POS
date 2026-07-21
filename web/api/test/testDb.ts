@@ -1,44 +1,68 @@
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
 import fs from "fs";
-import os from "os";
-import path from "path";
 import { fileURLToPath } from "url";
+import * as schema from "@db/schema";
+import * as relations from "@db/relations";
 
 /**
- * ตั้งฐานข้อมูล SQLite ชั่วคราวสำหรับ integration test (ไฟล์ละฐานข้อมูลหนึ่งก้อน)
+ * ตั้ง PostgreSQL แบบ in-memory สำหรับ integration test ด้วย PGlite
  * ต้องตั้ง DATABASE_URL ก่อน import โมดูลฝั่ง API — env.ts อ่านค่าตอนโหลดโมดูล
  * และ connection.ts เก็บ singleton จึง dynamic import หลังตั้ง env เสมอ
  */
 export async function setupTestDb() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pos-test-"));
-  process.env.DATABASE_URL = path.join(dir, "test.db");
+  process.env.DATABASE_URL = "postgresql://test:test@localhost/test";
+  process.env.APP_ID = "pos-test";
+  process.env.APP_SECRET = "test-only-session-secret-at-least-32-bytes";
 
-  const { getDb, resetDb } = await import("../queries/connection");
-  const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
+  const pg = new PGlite();
+  const fullSchema = { ...schema, ...relations };
+  const testDb = drizzle({ client: pg, schema: fullSchema });
+  const { getDb, resetDb, setDbForTests } = await import("../queries/connection");
+  setDbForTests(
+    testDb as unknown as ReturnType<typeof getDb>,
+    async () => pg.close(),
+  );
+
+  // Supabase roles do not exist in a bare PGlite instance, so create them before
+  // applying the same migration used in production.
+  await pg.exec("CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;");
+  const migrationPath = fileURLToPath(
+    new URL("../../db/migrations-postgres/0000_initial_supabase.sql", import.meta.url),
+  );
+  await pg.exec(fs.readFileSync(migrationPath, "utf8"));
+
   const { seedIfEmpty } = await import("../../db/seedCore");
   const { appRouter } = await import("../router");
+  const { issueStaffSession } = await import("../lib/session");
 
   const db = getDb();
-  migrate(db, {
-    migrationsFolder: fileURLToPath(new URL("../../db/migrations", import.meta.url)),
-  });
   await seedIfEmpty();
 
-  /** สร้าง tRPC caller พร้อม header บทบาท (guard อ่าน x-staff-role) — ส่ง staffId เพิ่มได้สำหรับ actor ใน audit */
+  /** สร้าง tRPC caller พร้อม session ที่เซ็นลายเซ็นเหมือน production */
   const caller = (role?: "admin" | "manager" | "cashier", staffId?: number) =>
     appRouter.createCaller({
       req: new Request("http://test.local/api", {
-        headers: {
-          ...(role ? { "x-staff-role": role } : {}),
-          ...(staffId ? { "x-staff-id": String(staffId) } : {}),
-        },
+        headers: role
+          ? {
+              "x-staff-session": issueStaffSession({
+                id: staffId ?? (role === "admin" ? 1 : role === "manager" ? 2 : 3),
+                name:
+                  role === "admin"
+                    ? "เจ้าของปั๊ม"
+                    : role === "manager"
+                      ? "สมหญิง (ผู้จัดการสาขา)"
+                      : "สมชาย (พนักงาน)",
+                role,
+                username: role,
+              }),
+            }
+          : {},
       }),
       resHeaders: new Headers(),
     });
 
-  const cleanup = () => {
-    resetDb();
-    fs.rmSync(dir, { recursive: true, force: true });
-  };
+  const cleanup = () => resetDb();
 
   return { db, caller, cleanup };
 }

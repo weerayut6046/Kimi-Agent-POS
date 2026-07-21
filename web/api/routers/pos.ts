@@ -118,45 +118,41 @@ type DbTx = Parameters<
 
 /**
  * คืนสต๊อก (เฉพาะสินค้าที่ไม่ใช่น้ำมัน) และคืนแต้มสมาชิกของบิล
- * ใช้ตอนยกเลิก/ลบบิล — ต้องเรียกภายใน transaction (sync สำหรับ better-sqlite3)
+ * ใช้ตอนยกเลิก/ลบบิลภายใน transaction เดียวกัน
  */
-function reverseSaleEffects(
+async function reverseSaleEffects(
   tx: DbTx,
   sale: Sale,
   items: SaleItem[],
   note: string
 ) {
-  const prodRows = tx.select().from(products).all();
+  const prodRows = await tx.select().from(products);
   for (const it of items) {
     const p = prodRows.find(pr => pr.id === it.productId);
     if (p && p.category !== "fuel") {
-      tx.update(products)
+      await tx.update(products)
         .set({ stockQty: r2(p.stockQty + it.qty) })
-        .where(eq(products.id, p.id))
-        .run();
+        .where(eq(products.id, p.id));
     }
   }
   if (sale.memberId) {
-    const m = tx
+    const [m] = await tx
       .select()
       .from(members)
-      .where(eq(members.id, sale.memberId))
-      .get();
+      .where(eq(members.id, sale.memberId));
     if (m) {
       const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
-      tx.update(members)
+      await tx.update(members)
         .set({ points: restored })
-        .where(eq(members.id, m.id))
-        .run();
-      tx.insert(pointTransactions)
+        .where(eq(members.id, m.id));
+      await tx.insert(pointTransactions)
         .values({
           memberId: m.id,
           saleId: sale.id,
           type: "adjust",
           points: -(sale.pointsEarned - sale.pointsRedeemed),
           note,
-        })
-        .run();
+        });
     }
   }
 }
@@ -301,14 +297,14 @@ export const posRouter = createRouter({
         .where(eq(shiftReadings.shiftId, shift.id));
       const nozzleRows = await db.query.nozzles.findMany();
       const tankRows = await db.query.fuelTanks.findMany();
-      // คำนวณเงินสดที่ควรมีก่อนเข้า transaction (tx ของ better-sqlite3 เป็น sync ห้าม await ข้างใน)
+      // คำนวณเงินสดที่ควรมีก่อนเข้า transaction เพื่อลดเวลาถือ lock
       const cash = await shiftCashSummary(db, shift);
 
       let totalLiters = 0;
       let totalAmount = 0;
       let totalMoneyMeter = 0;
 
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         const tankDeductions = new Map<number, number>();
         for (const rd of input.readings) {
           const open = readings.find(o => o.nozzleId === rd.nozzleId);
@@ -328,15 +324,13 @@ export const posRouter = createRouter({
           totalAmount = r2(totalAmount + liters * open.pricePerLiter);
           totalMoneyMeter = r2(totalMoneyMeter + money);
 
-          tx.update(shiftReadings)
+          await tx.update(shiftReadings)
             .set({ closeMeter: rd.closeMeter, closeMoney: rd.closeMoney })
-            .where(eq(shiftReadings.id, open.id))
-            .run();
+            .where(eq(shiftReadings.id, open.id));
           // อัปเดตมิเตอร์หัวจ่าย (ทั้งลิตรและเงิน)
-          tx.update(nozzles)
+          await tx.update(nozzles)
             .set({ currentMeter: rd.closeMeter, currentMoney: rd.closeMoney })
-            .where(eq(nozzles.id, rd.nozzleId))
-            .run();
+            .where(eq(nozzles.id, rd.nozzleId));
           // หักถังน้ำมันตามลิตรที่ขาย (มิเตอร์คือแหล่งความจริงของน้ำมันออก)
           const nz = nozzleRows.find(n => n.id === rd.nozzleId);
           if (!nz) throw new Error("ไม่พบหัวจ่าย");
@@ -361,29 +355,27 @@ export const posRouter = createRouter({
         }
         for (const [tankId, liters] of tankDeductions) {
           const tank = tankRows.find(t => t.id === tankId)!;
-          tx.update(fuelTanks)
+          await tx.update(fuelTanks)
             .set({
               currentLiters: r2(Math.max(0, tank.currentLiters - liters)),
             })
-            .where(eq(fuelTanks.id, tank.id))
-            .run();
+            .where(eq(fuelTanks.id, tank.id));
         }
         // ยอดขาย POS ในกะ
-        const posRows = tx
-          .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
+        const [posRow] = await tx
+          .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)`.mapWith(Number).as("sum") })
           .from(sales)
           .where(
             and(eq(sales.shiftId, shift.id), eq(sales.status, "completed"))
-          )
-          .all();
-        tx.update(shifts)
+          );
+        await tx.update(shifts)
           .set({
             status: "closed",
             closedAt: new Date(),
             totalLiters,
             totalAmount,
             totalMoneyMeter,
-            posAmount: r2(posRows[0]?.sum ?? 0),
+            posAmount: r2(posRow?.sum ?? 0),
             countedCash,
             transferAmount:
               input.transferAmount != null ? r2(input.transferAmount) : null,
@@ -391,8 +383,7 @@ export const posRouter = createRouter({
             cashCounts: cashCountsJson,
             note: input.note,
           })
-          .where(eq(shifts.id, shift.id))
-          .run();
+          .where(eq(shifts.id, shift.id));
       });
 
       const cashDiff =
@@ -517,8 +508,8 @@ export const posRouter = createRouter({
         }
       }
 
-      const id = db.transaction(tx => {
-        const created = tx
+      const id = await db.transaction(async tx => {
+        const [created] = await tx
           .insert(shifts)
           .values({
             ...values,
@@ -537,12 +528,11 @@ export const posRouter = createRouter({
               values.expectedCash == null ? null : r2(values.expectedCash),
             note: values.note || null,
           })
-          .returning({ id: shifts.id })
-          .get();
-        for (const reading of preparedReadings) {
-          tx.insert(shiftReadings)
-            .values({ shiftId: created.id, ...reading })
-            .run();
+          .returning({ id: shifts.id });
+        if (preparedReadings.length > 0) {
+          await tx.insert(shiftReadings).values(
+            preparedReadings.map(reading => ({ shiftId: created.id, ...reading }))
+          );
         }
         return created.id;
       });
@@ -614,9 +604,9 @@ export const posRouter = createRouter({
         }
       }
 
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         for (const reading of readingValues ?? []) {
-          tx.update(shiftReadings)
+          await tx.update(shiftReadings)
             .set({
               closeMeter: r2(reading.closeMeter),
               closeMoney: r2(reading.closeMoney),
@@ -626,10 +616,9 @@ export const posRouter = createRouter({
                 eq(shiftReadings.shiftId, id),
                 eq(shiftReadings.nozzleId, reading.nozzleId)
               )
-            )
-            .run();
+            );
         }
-        tx.update(shifts)
+        await tx.update(shifts)
           .set({
             ...values,
             staffId: values.staffId ?? null,
@@ -651,8 +640,7 @@ export const posRouter = createRouter({
                 : current.cashCounts,
             note: values.note || null,
           })
-          .where(eq(shifts.id, id))
-          .run();
+          .where(eq(shifts.id, id));
       });
       logAudit({
         action: "update_shift_history",
@@ -675,24 +663,19 @@ export const posRouter = createRouter({
       if (current.status === "open") {
         throw new Error("ลบกะที่กำลังเปิดไม่ได้ กรุณาปิดกะก่อน");
       }
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         // เก็บเอกสารการเงินจริงไว้ แต่ยกเลิกการผูกกับประวัติกะที่ถูกลบ
-        tx.update(sales)
+        await tx.update(sales)
           .set({ shiftId: null })
-          .where(eq(sales.shiftId, current.id))
-          .run();
-        tx.update(debtPayments)
+          .where(eq(sales.shiftId, current.id));
+        await tx.update(debtPayments)
           .set({ shiftId: null })
-          .where(eq(debtPayments.shiftId, current.id))
-          .run();
-        tx.update(expenses)
+          .where(eq(debtPayments.shiftId, current.id));
+        await tx.update(expenses)
           .set({ shiftId: null })
-          .where(eq(expenses.shiftId, current.id))
-          .run();
-        tx.delete(shiftReadings)
-          .where(eq(shiftReadings.shiftId, current.id))
-          .run();
-        tx.delete(shifts).where(eq(shifts.id, current.id)).run();
+          .where(eq(expenses.shiftId, current.id));
+        await tx.delete(shiftReadings).where(eq(shiftReadings.shiftId, current.id));
+        await tx.delete(shifts).where(eq(shifts.id, current.id));
       });
       logAudit({
         action: "delete_shift_history",
@@ -843,9 +826,9 @@ export const posRouter = createRouter({
         }
       }
 
-      const saleId = db.transaction(tx => {
-        const receiptNo = nextDocNo(tx, "receipt");
-        const [{ id }] = tx
+      const saleId = await db.transaction(async tx => {
+        const receiptNo = await nextDocNo(tx, "receipt");
+        const [{ id }] = await tx
           .insert(sales)
           .values({
             receiptNo,
@@ -865,12 +848,10 @@ export const posRouter = createRouter({
             pointsEarned,
             pointsRedeemed: input.pointsToRedeem,
           })
-          .returning({ id: sales.id })
-          .all();
+          .returning({ id: sales.id });
 
-        for (const l of lines) {
-          tx.insert(saleItems)
-            .values({
+        await tx.insert(saleItems).values(
+          lines.map(l => ({
               saleId: id,
               productId: l.product.id,
               name: l.product.name,
@@ -878,44 +859,41 @@ export const posRouter = createRouter({
               unit: l.product.unit,
               unitPrice: l.product.price,
               amount: l.amount,
-            })
-            .run();
+            }))
+        );
+        for (const l of lines) {
           // หักสต๊อกเฉพาะสินค้าที่ไม่ใช่น้ำมัน (น้ำมันหักผ่านมิเตอร์ตอนปิดกะ)
           if (l.product.category !== "fuel") {
-            tx.update(products)
+            await tx.update(products)
               .set({ stockQty: r2(l.product.stockQty - l.qty) })
-              .where(eq(products.id, l.product.id))
-              .run();
+              .where(eq(products.id, l.product.id));
           }
         }
 
         if (member) {
           const newPoints = member.points - input.pointsToRedeem + pointsEarned;
-          tx.update(members)
+          await tx.update(members)
             .set({ points: newPoints })
-            .where(eq(members.id, member.id))
-            .run();
+            .where(eq(members.id, member.id));
           if (pointsEarned > 0) {
-            tx.insert(pointTransactions)
+            await tx.insert(pointTransactions)
               .values({
                 memberId: member.id,
                 saleId: id,
                 type: "earn",
                 points: pointsEarned,
                 note: `รับแต้มจากบิล ${receiptNo}`,
-              })
-              .run();
+              });
           }
           if (input.pointsToRedeem > 0) {
-            tx.insert(pointTransactions)
+            await tx.insert(pointTransactions)
               .values({
                 memberId: member.id,
                 saleId: id,
                 type: "redeem",
                 points: -input.pointsToRedeem,
                 note: `ใช้แต้มลดบิล ${receiptNo}`,
-              })
-              .run();
+              });
           }
         }
         return id;
@@ -1023,13 +1001,12 @@ export const posRouter = createRouter({
         .select()
         .from(saleItems)
         .where(eq(saleItems.saleId, sale.id));
-      db.transaction(tx => {
-        tx.update(sales)
+      await db.transaction(async tx => {
+        await tx.update(sales)
           .set({ status: "voided" })
-          .where(eq(sales.id, sale.id))
-          .run();
+          .where(eq(sales.id, sale.id));
         // คืนสต๊อกและแต้มอัตโนมัติ
-        reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
+        await reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
       });
       logAudit({
         action: "void_sale",
@@ -1073,8 +1050,8 @@ export const posRouter = createRouter({
       const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
       const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
 
-      db.transaction(tx => {
-        tx.update(sales)
+      await db.transaction(async tx => {
+        await tx.update(sales)
           .set({
             staffName: input.staffName ?? sale.staffName,
             paymentMethod,
@@ -1085,30 +1062,27 @@ export const posRouter = createRouter({
             changeAmt,
             pointsEarned,
           })
-          .where(eq(sales.id, sale.id))
-          .run();
+          .where(eq(sales.id, sale.id));
         // ปรับแต้มสมาชิกตามยอดใหม่ (เฉพาะส่วนต่าง)
         if (sale.memberId && pointsEarned !== sale.pointsEarned) {
           const diff = pointsEarned - sale.pointsEarned;
-          const m = tx
+          const [m] = await tx
             .select()
             .from(members)
             .where(eq(members.id, sale.memberId!))
-            .get();
+            .for("update");
           if (m) {
-            tx.update(members)
+            await tx.update(members)
               .set({ points: m.points + diff })
-              .where(eq(members.id, m.id))
-              .run();
-            tx.insert(pointTransactions)
+              .where(eq(members.id, m.id));
+            await tx.insert(pointTransactions)
               .values({
                 memberId: m.id,
                 saleId: sale.id,
                 type: "adjust",
                 points: diff,
                 note: `ปรับแต้มจากแก้ไขบิล ${sale.receiptNo}`,
-              })
-              .run();
+              });
           }
         }
       });
@@ -1148,13 +1122,13 @@ export const posRouter = createRouter({
         .select()
         .from(saleItems)
         .where(eq(saleItems.saleId, sale.id));
-      db.transaction(tx => {
+      await db.transaction(async tx => {
         if (sale.status === "completed") {
-          reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
+          await reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
         }
-        tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id)).run();
-        tx.delete(saleItems).where(eq(saleItems.saleId, sale.id)).run();
-        tx.delete(sales).where(eq(sales.id, sale.id)).run();
+        await tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id));
+        await tx.delete(saleItems).where(eq(saleItems.saleId, sale.id));
+        await tx.delete(sales).where(eq(sales.id, sale.id));
       });
       logAudit({
         action: "delete_sale",

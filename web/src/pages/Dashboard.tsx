@@ -26,15 +26,44 @@ import { trpc } from "@/providers/trpc";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel } from "@/lib/format";
 
 export default function Dashboard() {
-  const { data, isLoading } = trpc.pos.dashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-  });
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = trpc.pos.dashboard.useQuery(undefined, { refetchInterval: 30000 });
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="py-20 text-center text-muted-foreground">
         กำลังโหลดข้อมูล...
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 py-20 text-center">
+        <AlertTriangle className="size-9 text-amber-500" />
+        <div>
+          <h2 className="font-heading text-lg font-bold text-slate-800">
+            โหลดข้อมูลภาพรวมไม่สำเร็จ
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {error?.message || "กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่"}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          {isFetching ? "กำลังลองใหม่..." : "ลองใหม่"}
+        </Button>
       </div>
     );
   }

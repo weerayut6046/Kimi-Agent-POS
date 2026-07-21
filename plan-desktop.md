@@ -2,7 +2,7 @@
 
 เอกสารต่อจาก [`plan.md`](./plan.md) — อธิบายสถาปัตยกรรม สถานะ และการปล่อย Desktop Application สำหรับ Windows
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.24`; รุ่นเผยแพร่ `1.0.24` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md) (เว็บออนไลน์บน Vercel + Railway อยู่หัวข้อ 11 ของ PROJECT.md)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.0` ดูภาพรวมโครงการได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -10,95 +10,80 @@
 
 - ชุด Desktop มี NSIS installer และ Portable `.exe` เปิดใช้บน Windows ได้โดยไม่ต้องลง Node.js, MySQL หรือ Docker
 - ใช้โค้ดระบบเดิม (React + tRPC + Drizzle) เกือบทั้งหมด ไม่เขียนระบบใหม่
-- ข้อมูลอยู่ในเครื่อง ใช้งานออฟไลน์ได้ 100%
+- ใช้ฐานข้อมูลกลาง Supabase ร่วมกับเว็บและจุดขายทุกเครื่อง จึงต้องเชื่อมต่ออินเทอร์เน็ต
 - รองรับจอขนาดเล็กและอัปเดต NSIS installer ผ่าน Google Cloud Storage
 - ตัวติดตั้งเป็น Wizard ภาษาไทยพร้อม EULA/แบรนด์ KY และติดตั้งแบบ per-machine ใน `Program Files`
 
 ## 2. สถาปัตยกรรม
 
 ```
-┌─────────────────────────────────────────────┐
-│ Electron App (POS ปั๊มน้ำมัน.exe)            │
-│                                             │
-│  ┌───────────────┐    ┌──────────────────┐  │
-│  │ BrowserWindow │───▶│ Hono + tRPC      │  │
-│  │ (React UI)    │    │ server (in-proc) │  │
-│  └───────────────┘    └────────┬─────────┘  │
-│       http://127.0.0.1:3210    │ Drizzle ORM│
-│                                ▼            │
-│                        SQLite (better-      │
-│                        sqlite3)             │
-│                        %APPDATA%/pos-app/   │
-│                        pos.db               │
-└─────────────────────────────────────────────┘
+Electron BrowserWindow
+        │ HTTPS
+        ▼
+Vercel Frontend ── /api/* ──▶ Railway Hono/tRPC
+                                      │ Drizzle + postgres.js
+                                      ▼
+                           Supabase PostgreSQL (`pos`)
 ```
 
-- **Electron** (`desktop/electron/main.ts`): ตั้ง env → migrate → seed (ครั้งแรก) → สตาร์ท Hono server บน `127.0.0.1:3210` → เปิดหน้าต่างชี้เข้าตัวเอง, มี single-instance lock
-- **SQLite (better-sqlite3)**: ฐานข้อมูลฝังในแอป ไฟล์เดียวที่ `%APPDATA%/pos-app/pos.db` — ใช้ schema เดียวกันทั้ง desktop และ Docker/web (เปลี่ยนจาก MySQL ทั้งระบบ)
+- **Electron** (`desktop/electron/main.ts`): เปิด `https://kimi-agent-pos.vercel.app`, คง IPC สำหรับพิมพ์และ auto-update, มี single-instance lock
+- **Railway backend**: ถือ `APP_SECRET` และ database secret เชื่อม Supabase ผ่าน session pooler; browser/Desktop ไม่เห็น secret
+- **Supabase PostgreSQL**: ตารางอยู่ใน private schema `pos`, เปิด RLS เป็น defense in depth และไม่เปิด Data API ให้ client
 - **electron-builder**: แพ็กเกจเป็น NSIS installer + portable .exe ลง `release/`
 - **electron-updater**: แอป NSIS อ่าน `latest.yml` และดาวน์โหลด installer/blockmap จาก `https://storage.googleapis.com/kimi-agent-pos-updates/`; Portable ต้องดาวน์โหลดรุ่นใหม่เอง
 
-### การเปลี่ยนแปลงหลักจากเวอร์ชัน Web/MySQL
+### การเปลี่ยนแปลงหลักใน 2.0.0
 
-| ส่วน               | เดิม (MySQL)                                                | ใหม่ (Desktop/SQLite)                                                                  |
-| ------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Driver             | `drizzle-orm/mysql2`                                        | `drizzle-orm/better-sqlite3`                                                           |
-| Schema             | `mysqlTable`, `serial`, `mysqlEnum`, `decimal`, `timestamp` | `sqliteTable`, `integer` autoincrement, `text({enum})`, `real`, `integer` timestamp_ms |
-| คืน id หลัง insert | `$returningId()`                                            | `.returning({ id })`                                                                   |
-| Upsert             | `onDuplicateKeyUpdate`                                      | `onConflictDoUpdate`                                                                   |
-| Transaction        | async callback                                              | **sync callback** (ข้อจำกัด better-sqlite3) ใช้ `.run()/.all()/.get()`                 |
-| Migrations         | ชุด MySQL                                                   | ชุด SQLite ใหม่ใน `web/db/migrations/`                                                 |
+| ส่วน | 1.x (Desktop/SQLite) | 2.0.0 (ระบบกลาง) |
+| --- | --- | --- |
+| ฐานข้อมูล | ไฟล์ `pos.db` ต่อเครื่อง | Supabase PostgreSQL private schema `pos` |
+| Desktop | รัน Hono + DB ในเครื่อง | โหลดเว็บ production และคง IPC พิมพ์/อัปเดต |
+| หลายจุดขาย | LAN ไปเครื่องหลัก | HTTPS ไป Vercel/Railway/Supabase ชุดเดียวกัน |
+| Session | header ที่ client กำหนดได้ | token HMAC ที่ backend ลงลายเซ็น |
+| Backup | ไฟล์ SQLite ในเครื่อง | Supabase Backup/PITR |
 
 ## 3. คำสั่งที่เกี่ยวข้อง
 
 | คำสั่ง                      | ความหมาย                                                                                                                                                                                                                                                    |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev:desktop`       | พัฒนาแบบ desktop คำสั่งเดียว — script เปิด Vite โดยชี้ `%APPDATA%/pos-app/pos.db` หรือตำแหน่งที่ผู้ใช้เลือกไว้ให้ตรงกับ Desktop จริง; ถ้าพอร์ต 3000 มี web dev ที่ใช้ DB คนละไฟล์จะเลือกพอร์ตถัดไปอัตโนมัติ; ปิด Electron แล้ว Vite ที่ script เปิดจะปิดตาม |
+| `npm run dev:desktop`       | พัฒนา Desktop ผ่าน Vite โดยตั้ง `DATABASE_URL` ของ Supabase; ปิด Electron แล้ว Vite ที่ script เปิดจะปิดตาม |
 | `npm run build:desktop`     | build frontend + backend + Electron bundle ลง `dist/`                                                                                                                                                                                                       |
 | `npm run dist:exe`          | สร้าง installer/portable `.exe` ลง `release/` (ครอบ `desktop/scripts/pack-exe.mjs`)                                                                                                                                                                         |
 | `npm run publish:gcs`       | อัปโหลด installer, Portable, blockmap และ `latest.yml` ของเวอร์ชันปัจจุบันไป GCS พร้อมตั้ง cache metadata และตรวจ URL                                                                                                                                       |
-| `docker compose up --build` | รันแบบ Web (ใช้ SQLite ใน volume เช่นกัน)                                                                                                                                                                                                                   |
+| `docker compose up --build` | รัน Web/backend โดยเชื่อม Supabase จาก environment variables |
 
-### เรื่อง native module (better-sqlite3) ตอน build .exe
-
-เครื่อง build ไม่มี Visual Studio จึง compile เองไม่ได้ — `desktop/scripts/pack-exe.mjs` ทำให้อัตโนมัติ:
-
-1. ดาวน์โหลด prebuilt binary จาก GitHub Releases ของ better-sqlite3 (cache ใน `.cache/native/`)
-2. สลับ binary ใน `node_modules` เป็น **Electron ABI** ชั่วคราว → รัน electron-builder (`npmRebuild: false`) → สลับกลับเป็น Node ABI สำหรับ dev
-3. ดังนั้น **Electron ต้องตรงเวอร์ชันที่มี prebuilt** — ปัจจุบัน pin ที่ Electron 42 (ABI v146) ถ้าจะอัปเกรด Electron ให้เช็กก่อนว่า better-sqlite3 มี prebuilt ของ ABI นั้น
-
-> หมายเหตุ: ถ้ารัน electron จาก shell ที่ตั้ง `ELECTRON_RUN_AS_NODE=1` ไว้ แอปจะทำงานผิดปกติ (ตัวแปรนี้ทำให้ electron กลายเป็น node ธรรมดา) — shell ปกติของผู้ใช้ไม่มีตัวแปรนี้
+Desktop 2.0.0 ไม่มี native database module แล้ว จึงไม่ต้อง rebuild `better-sqlite3` สำหรับ Electron ABI
 
 ## 4. ข้อมูลและการสำรอง
 
-- ไฟล์ฐานข้อมูล: `%APPDATA%/pos-app/pos.db` (+ ไฟล์ WAL ขณะเปิดแอป)
-- `APP_SECRET` สุ่มครั้งแรกและเก็บที่ `%APPDATA%/pos-app/.app-secret`
-- **สำรองข้อมูล** = ปิดแอปแล้ว copy `pos.db` ไปเก็บ; **กู้คืน** = วางทับแล้วเปิดแอป (หรือใช้เมนูสำรอง/กู้ในหน้า Settings — admin)
-- **สำรองอัตโนมัติรายวัน**: เปิดได้ในหน้า Settings (ตั้งเวลา + จำนวนไฟล์ที่เก็บ) ไฟล์ `pos-auto-*` อยู่ในโฟลเดอร์ `backups` ข้างฐานข้อมูล แยกจากไฟล์ที่สำรองเอง (`pos-backup-*`)
-- ล้างข้อมูลเริ่มใหม่ = ลบ `pos.db` แล้วเปิดแอป (จะ migrate + seed ใหม่)
+- Desktop ไม่เก็บไฟล์ฐานข้อมูล, `DATABASE_URL` หรือ `APP_SECRET`
+- ข้อมูลอยู่ใน Supabase private schema `pos`; การเปลี่ยน schema ใช้ migration ใน `web/db/migrations-postgres/`
+- การสำรอง/กู้คืนและ Point-in-Time Recovery จัดการจาก Supabase Dashboard ตามแผนบริการ
+- SQLite ต้นทางใน `data/` เก็บไว้เป็นหลักฐานช่วงเปลี่ยนผ่านและไม่ถูกโหลดโดยแอปรุ่น 2.0.0
 
 ## 5. แผนงาน (สถานะ)
 
 - [x] **D1 — แปลง DB layer เป็น SQLite**: schema/connection/routers/migrations/seed, แก้จุด MySQL-specific ทั้งหมด
-- [x] **D2 — Electron shell**: `desktop/electron/main.ts`, env อัตโนมัติ, migrate+seed ตอนเปิดแอป, single instance
+- [x] **D2 — Electron shell**: `desktop/electron/main.ts`, single instance, BrowserWindow และ IPC พิมพ์
 - [x] **D3 — Build pipeline**: script `build:desktop`/`dist:exe`, electron-builder (NSIS + portable)
-- [x] **D4 — Docker/web ให้ทำงานกับ SQLite ต่อได้**: compose เหลือ service เดียว, Dockerfile ใช้ bookworm-slim
+- [x] **D4 — Docker/web**: container backend แบบ long-lived เชื่อม Supabase ผ่าน session pooler
 - [x] **D5 — ตรวจสอบระบบ**: tsc ผ่าน, smoke test ผ่านครบ (ล็อกอิน/เปิดกะ/ขาย/แต้ม/ปิดกะ/หักถัง/แดชบอร์ด)
-- [x] **D6 — Desktop smoke test**: เปิดแอปจาก `win-unpacked`, migrate/seed อัตโนมัติ, server ตอบที่ `127.0.0.1:3210` และล็อกอินได้; การตรวจเครื่องปั๊มจริงแยกไว้ใน D15
-- [x] **D7 — Multi-station ผ่าน LAN**: เครื่องลูกเปิดเบราว์เซอร์ไปที่ `http://<IP-เครื่องหลัก>:3210` ใช้งานได้ทันที (server serve ทั้งเว็บและ API โดเมนเดียวกัน) — เปิดใช้ด้วย toggle "เครือข่าย LAN" ในหน้า Settings (key `lan_enabled`, default ปิด) แล้วรีสตาร์ทแอป; `web/api/boot.ts` อ่าน setting นี้ตอน bind (`BIND_HOST` env มีสิทธิ์เหนือ, Docker pin `0.0.0.0` ใน Dockerfile), endpoint `catalog.lanInfo` คืน IP/port ให้หน้า Settings + หน้า Login แสดง URL — **กะรวมใช้ร่วมกันทุกเครื่อง** (ยอดขายระบุ staffName รายคน, เลขใบเสร็จกันชนด้วย sync transaction) — ข้อจำกัด: auth แบบ header ปลอมได้จากเครื่องใน LAN (ใช้เฉพาะ LAN ที่เชื่อถือ), ใบเสร็จพิมพ์ผ่านเบราว์เซอร์ของแต่ละเครื่อง (ถอดฟีเจอร์ ESC/POS ออกแล้ว), Windows Firewall ครั้งแรกต้องกด Allow หรือเพิ่ม rule ด้วย netsh (คำสั่งอยู่ในหน้า Settings)
-- [x] **D8 — ตั้งค่าตำแหน่งฐานข้อมูล + สำรอง/กู้คืน**: เลือกวาง `pos.db` ได้ (config ใน userData), สำรองออนไลน์ด้วย better-sqlite3 backup, กู้คืนจากไฟล์ในเครื่องหรืออัปโหลด `.db`, ดาวน์โหลดไฟล์สำรองผ่าน browser — router `dbadmin`, admin เท่านั้น
+- [x] **D6 — Desktop smoke test**: เปิดแอปจาก `win-unpacked`, โหลด production URL และคง IPC พิมพ์; การตรวจเครื่องปั๊มจริงแยกไว้ใน D15
+- [x] **D7 — Multi-station**: รุ่น 2.0.0 แทน LAN server ด้วยระบบกลาง Vercel/Railway/Supabase และ signed staff session
+- [x] **D8 — ฐานข้อมูลและ backup**: รุ่น 2.0.0 ย้ายข้อมูลขึ้น Supabase และใช้ Backup/PITR จาก Dashboard แทนไฟล์ SQLite
 - [x] **D9 — Auto Update รุ่นแรก**: เพิ่ม `electron-updater`, dialog ถามก่อนดาวน์โหลด/รีสตาร์ท และ log ที่ `%APPDATA%/pos-app/logs/update.log`; Portable อัปเดตตัวเองไม่ได้
 - [x] **D10 — ฟีเจอร์ปั๊มชุดใหญ่**: ขายเชื่อ, Z-report, ค่าใช้จ่าย, ประวัติราคา, Audit log และสำรองอัตโนมัติ รวมอยู่ใน Desktop ที่ build แล้วถึง `1.0.20`
 - [x] **D11 — Settings persistence/loading**: แก้โหลดข้อมูลเมื่อเข้าหน้า Settings ครั้งแรกและหลังสลับเมนู พร้อม refresh ค่าล่าสุดหลังบันทึก (`1.0.15`)
 - [x] **D12 — ใบกำกับภาษี A5**: เพิ่มตัวเลือก A4/A5 และปรับ preview/print layout (`1.0.16`)
 - [x] **D13 — Responsive Desktop**: ปรับขนาดเริ่มต้นตามพื้นที่จอจริง เมนูแบบสไลด์ และ scroll หน้า/dialog บนจอเล็ก (`1.0.17`)
 - [x] **D14 — ย้าย Auto Update ไป GCS**: ตั้ง generic provider, สร้าง bucket สาธารณะ, เพิ่ม `publish:gcs` และเผยแพร่ต่อเนื่องถึง `1.0.20`
-- [ ] **D15 — ตรวจรับหน้างาน**: ทดสอบ NSIS installer, Settings, เครื่องพิมพ์, A4/A5, backup/restore, LAN และเปิดข้ามวันบนเครื่องปั๊มจริง
-- [ ] **D16 — ทดสอบ updater รุ่นใหม่**: ทดสอบ `1.0.20` → เวอร์ชันถัดไปแบบ end-to-end และบันทึกผล
+- [ ] **D15 — ตรวจรับหน้างาน**: ทดสอบ NSIS installer, Settings, เครื่องพิมพ์, A4/A5, อินเทอร์เน็ตหลุด/กลับมา และเปิดข้ามวันบนเครื่องปั๊มจริง
+- [ ] **D16 — ทดสอบ updater รุ่นใหม่**: ทดสอบ `1.0.24` → `2.0.0` แบบ end-to-end และบันทึกผล
 - [x] **D17 — Code Signing**: ทำใน `1.0.24` แบบ self-signed certificate (`CN=PumpPOS Code Signing`, RSA-2048 อายุ 10 ปี) — private key เก็บที่ `desktop/certs/pumpos-codesign.pfx` (ไม่ commit), public cert ที่ `desktop/certs/pumpos-codesign.cer`; `pack-exe.mjs` ตั้ง `CSC_LINK`/`CSC_KEY_PASSWORD` ให้ electron-builder sign ทุก target (app exe, uninstaller, NSIS installer, Portable) อัตโนมัติ — เครื่อง build อื่นที่ไม่มี pfx จะ build unsigned เหมือนเดิม; **เครื่องปลายทางต้อง import root cert ครั้งเดียว** ด้วย `certs/install-pos-root-cert.bat` (แนบในตัวติดตั้งผ่าน `extraFiles`, รัน as admin) เพื่อให้ Smart App Control/SmartScreen ยอมรับ; ยังเหลืออัปเกรดเป็น OV/EV cert ถ้าต้องแจกจ่ายกว้าง
 - [x] **D18 — UX/UI Station Console**: ปรับ design system, navigation แบ่งกลุ่ม, Login, Dashboard, POS, touch targets, safe-area และ mobile cart sheet (`1.0.20`)
 - [x] **D19 — เอกสารลูกค้าเครดิต**: เพิ่มใบขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร A4 พร้อม preview/print และจำกัดสิทธิ์ admin/manager (`1.0.20`)
 - [x] **D20 — Installer Wizard ภาษาไทย**: เพิ่มหน้าต้อนรับ, EULA, เลือกโฟลเดอร์, หน้าพร้อมติดตั้ง, ไอคอน/ภาพแบรนด์ KY และตั้ง per-machine สำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)
+- [x] **D21 — Supabase central database (`2.0.0`)**: migrate schema/data เดิมครบ 25 ตาราง, เปลี่ยน Desktop เป็น online shell, deploy Vercel/Railway, signed staff session, session pooler และแก้ Dashboard loading timeout
 
 ### การปล่อยเวอร์ชันใหม่ (auto-update)
 
@@ -116,14 +101,12 @@
 
 | ความเสี่ยง                                          | แนวทางรับมือ                                                                                                    |
 | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| better-sqlite3 เป็น native module                   | electron-builder rebuild ตอนแพ็กเกจ; ถ้าเครื่อง build ไม่มี VS Build Tools ต้องใช้เวอร์ชันที่มี prebuilt binary |
-| ข้อมูลเดิมใน MySQL ไม่ได้ย้าย                       | เวอร์ชัน SQLite เริ่มฐานใหม่; ถ้าต้องย้ายข้อมูลเก่า ทำสคริปต์ export/import แยก                                 |
-| port 3210 ชนโปรแกรมอื่น                             | ตั้ง `PORT` ใน env ของ shortcut ได้; มี single-instance lock กันเปิดซ้อน                                        |
-| ไฟดับระหว่างเขียนข้อมูล                             | SQLite journal mode WAL + transaction ทุกจุดสำคัญ; แนะนำ UPS + สำรอง pos.db ทุกวัน                              |
-| Windows Defender/SmartScreen เตือน exe ไม่มีลายเซ็น | แจ้งผู้ใช้กด Run anyway (รุ่นแรกยังไม่ sign); อนาคตซื้อ code-signing certificate                                |
+| อินเทอร์เน็ตขาดระหว่างขาย                           | รุ่น 2.0.0 ต้องออนไลน์; เตรียมลิงก์สำรอง/UPS และขั้นตอนหยุดขายชั่วคราว                                          |
+| Supabase/Railway/Vercel ขัดข้อง                     | ตรวจ status/log, คง SQLite ต้นทางสำหรับตรวจสอบ และใช้แผน backup/PITR                                             |
+| Windows Defender/SmartScreen เตือน                  | build sign ด้วย self-signed cert; เครื่องปลายทางต้อง import root cert หรืออัปเกรดเป็น OV/EV ในอนาคต             |
 | รุ่นเก่าไม่รู้จัก GCS                               | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                                                 |
 | อัปโหลด `latest.yml` ก่อน installer เสร็จ           | ใช้ `npm run publish:gcs` และตรวจ URL/ขนาดทุกไฟล์ก่อนแจ้งผู้ใช้                                                 |
-| GCS หรืออินเทอร์เน็ตขัดข้อง                         | ระบบขายยังทำงานออฟไลน์; updater เขียน log และลองใหม่เมื่อเปิดแอปครั้งถัดไป                                      |
+| GCS ขัดข้อง                                          | updater เขียน log และลองใหม่เมื่อเปิดแอปครั้งถัดไป; เว็บ production ยังใช้งานได้                                 |
 
 ---
 

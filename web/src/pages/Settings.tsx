@@ -12,9 +12,7 @@ import {
   FileText,
   ImagePlus,
   Database,
-  Download,
   History,
-  Upload,
   Save,
   Printer,
   Network,
@@ -76,6 +74,7 @@ export default function Settings() {
   const { staff } = useStaff();
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
+  const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
   const settingsSaveInFlight = useRef(false);
 
   // โพลทุก 5 วิ — ค่าที่แสดงสดใกล้ realtime: แก้จากเครื่องอื่น (multi-station) หรือที่อื่นแล้วหน้านี้อัปเดตเอง
@@ -186,7 +185,7 @@ export default function Settings() {
       await utils.catalog.getSettings.cancel();
     },
     onSuccess: result => {
-      // ใช้ค่าที่ API อ่านกลับจาก SQLite เป็น source of truth และไม่ invalidate ซ้ำทันที
+      // ใช้ค่าที่ API อ่านกลับจาก PostgreSQL เป็น source of truth และไม่ invalidate ซ้ำทันที
       // เพราะ invalidate อาจไปรอ request เก่าที่กำลังวิ่งอยู่แล้วนำค่าเก่ากลับมาทับหน้าจอ
       setPrevSettingMap(result.settings);
       setForm(result.settings);
@@ -272,93 +271,10 @@ export default function Settings() {
     onError: e => fail(e.message),
   });
 
-  // ---------- ฐานข้อมูล: สำรอง / กู้คืน ----------
-  const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
-  const uploadDbRef = useRef<HTMLInputElement>(null);
+  // ---------- ฐานข้อมูลบน Supabase ----------
   const { data: dbInfo } = trpc.dbadmin.dbInfo.useQuery(undefined, {
     enabled: isAdmin,
   });
-  const afterRestore = () => {
-    localStorage.removeItem("pumppos_staff");
-    alert("กู้คืนข้อมูลสำเร็จ ระบบจะกลับไปหน้าเข้าสู่ระบบ");
-    window.location.href = "/login";
-  };
-  const backupDb = trpc.dbadmin.backup.useMutation({
-    onSuccess: r => {
-      utils.dbadmin.dbInfo.invalidate();
-      ok(`สำรองข้อมูลแล้ว: ${r.name}`);
-    },
-    onError: e => fail(e.message),
-  });
-  const restoreDb = trpc.dbadmin.restore.useMutation({
-    onSuccess: afterRestore,
-    onError: e => fail(e.message),
-  });
-  const deleteBackup = trpc.dbadmin.deleteBackup.useMutation({
-    onSuccess: () => {
-      utils.dbadmin.dbInfo.invalidate();
-      ok("ลบไฟล์สำรองแล้ว");
-    },
-    onError: e => fail(e.message),
-  });
-  const uploadRestore = trpc.dbadmin.restoreUpload.useMutation({
-    onSuccess: afterRestore,
-    onError: e => fail(e.message),
-  });
-
-  const fmtSize = (n?: number) =>
-    n == null
-      ? "-"
-      : n >= 1048576
-        ? `${(n / 1048576).toFixed(1)} MB`
-        : `${Math.max(1, Math.round(n / 1024))} KB`;
-
-  const downloadBackup = async (name: string) => {
-    try {
-      const r = await utils.dbadmin.readBackup.fetch({ fileName: name });
-      const bin = Uint8Array.from(atob(r.contentBase64), c => c.charCodeAt(0));
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(
-        new Blob([bin], { type: "application/octet-stream" })
-      );
-      a.download = r.fileName;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e) {
-      fail(e instanceof Error ? e.message : "ดาวน์โหลดไม่สำเร็จ");
-    }
-  };
-
-  const onUploadDbFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (file.size > 40_000_000) {
-      fail("ไฟล์ใหญ่เกิน 40MB");
-      return;
-    }
-    if (
-      !confirm(
-        `ยืนยันอัปโหลด "${file.name}" เพื่อกู้คืนทับข้อมูลปัจจุบัน?\n(ระบบจะสำรองข้อมูลเดิมไว้ให้อัตโนมัติ)`
-      )
-    )
-      return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const contentBase64 = String(reader.result).split(",")[1] ?? "";
-      uploadRestore.mutate({ fileName: file.name, contentBase64 });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const chooseDbLocation = async (mode: "open" | "save") => {
-    try {
-      const r = await window.posDesktop?.chooseDbPath(mode);
-      if (r && r.changed === false && r.error) fail(r.error);
-    } catch {
-      // แอปออกระหว่างรีสตาร์ท — ถือว่าสำเร็จ
-    }
-  };
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1132,180 +1048,20 @@ export default function Settings() {
         </Card>
       )}
 
-      {/* ฐานข้อมูล: สำรอง / กู้คืน / ย้ายตำแหน่ง (admin) */}
+      {/* ฐานข้อมูล Supabase (admin) */}
       {isAdmin && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="font-heading text-base flex items-center gap-2">
-              <Database className="w-4 h-4" /> ฐานข้อมูล — สำรอง / กู้คืน
-              (admin)
+              <Database className="w-4 h-4" /> ฐานข้อมูล Supabase (admin)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-xs text-muted-foreground break-all">
-              ไฟล์ฐานข้อมูล: {dbInfo?.dbPath ?? "..."} (
-              {fmtSize(dbInfo?.sizeBytes)})
+            <p className="text-sm">ผู้ให้บริการ: {dbInfo?.dbPath ?? "Supabase PostgreSQL"}</p>
+            <p className="text-xs text-muted-foreground">
+              {dbInfo?.managedBackupMessage ??
+                "การสำรองข้อมูลและกู้คืนทำจาก Supabase Dashboard"}
             </p>
-
-            {isDesktop && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => chooseDbLocation("open")}
-                >
-                  ใช้ไฟล์ฐานข้อมูลเดิม…
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => chooseDbLocation("save")}
-                >
-                  ย้ายฐานข้อมูลไปที่อื่น…
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  เปลี่ยนตำแหน่งแล้วแอปจะรีสตาร์ทอัตโนมัติ
-                </span>
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={backupDb.isPending}
-                onClick={() => backupDb.mutate()}
-              >
-                <Save className="w-4 h-4 mr-1" />{" "}
-                {backupDb.isPending ? "กำลังสำรอง..." : "สำรองข้อมูลตอนนี้"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={uploadRestore.isPending}
-                onClick={() => uploadDbRef.current?.click()}
-              >
-                <Upload className="w-4 h-4 mr-1" /> อัปโหลดไฟล์ .db เพื่อกู้คืน
-              </Button>
-              <input
-                ref={uploadDbRef}
-                type="file"
-                accept=".db,.sqlite,.sqlite3"
-                className="hidden"
-                onChange={onUploadDbFile}
-              />
-            </div>
-
-            <div className="border rounded-lg divide-y">
-              {(dbInfo?.backups ?? []).length === 0 && (
-                <p className="text-xs text-muted-foreground p-3">
-                  ยังไม่มีไฟล์สำรอง — ไฟล์สำรองจะถูกเก็บในโฟลเดอร์ backups
-                  ข้างไฟล์ฐานข้อมูล
-                </p>
-              )}
-              {(dbInfo?.backups ?? []).map(b => (
-                <div
-                  key={b.name}
-                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
-                >
-                  <div>
-                    <div className="text-sm font-mono">{b.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {fmtSize(b.sizeBytes)} ·{" "}
-                      {new Date(b.modifiedAt).toLocaleString("th-TH")}
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="ดาวน์โหลด"
-                      onClick={() => downloadBackup(b.name)}
-                    >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="กู้คืน"
-                      disabled={restoreDb.isPending}
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `ยืนยันกู้คืนข้อมูลจาก "${b.name}"?\nข้อมูลปัจจุบันจะถูกแทนที่ (ระบบสำรองของเดิมไว้ให้อัตโนมัติ)`
-                          )
-                        ) {
-                          restoreDb.mutate({ fileName: b.name });
-                        }
-                      }}
-                    >
-                      <History className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive"
-                      title="ลบ"
-                      disabled={deleteBackup.isPending}
-                      onClick={() => {
-                        if (confirm(`ยืนยันลบไฟล์สำรอง "${b.name}"?`))
-                          deleteBackup.mutate({ fileName: b.name });
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* สำรองอัตโนมัติรายวัน */}
-            <div className="border rounded-lg p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="backup_auto_enabled" className="cursor-pointer">
-                  สำรองอัตโนมัติรายวัน
-                </Label>
-                <Switch
-                  id="backup_auto_enabled"
-                  checked={form.backup_auto_enabled === "1"}
-                  onCheckedChange={v =>
-                    set("backup_auto_enabled", v ? "1" : "0")
-                  }
-                />
-              </div>
-              {form.backup_auto_enabled === "1" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>เวลาที่สำรอง</Label>
-                    <Input
-                      type="time"
-                      value={form.backup_auto_time ?? "23:30"}
-                      onChange={e => set("backup_auto_time", e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>เก็บไฟล์อัตโนมัติไว้ (ไฟล์)</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={form.backup_auto_keep ?? "7"}
-                      onChange={e => set("backup_auto_keep", e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                ไฟล์สำรองอัตโนมัติจะชื่อ pos-auto-* แยกจากไฟล์ที่สำรองเอง
-                (pos-backup-*) — ระบบลบเฉพาะไฟล์ auto ที่เก่าเกินจำนวนที่เก็บ
-              </p>
-              <Button
-                size="sm"
-                disabled={saveSettings.isPending}
-                onClick={saveAll}
-              >
-                บันทึกการตั้งค่า
-              </Button>
-            </div>
           </CardContent>
         </Card>
       )}

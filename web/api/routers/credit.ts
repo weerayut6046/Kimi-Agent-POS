@@ -103,10 +103,9 @@ export const creditRouter = createRouter({
         where: eq(shifts.status, "open"),
       });
 
-      // transaction ของ better-sqlite3 เป็น synchronous — ห้าม await ข้างใน
-      const paymentId = db.transaction(tx => {
-        const paymentNo = nextDocNo(tx, "debt_payment");
-        const [{ id }] = tx
+      const paymentId = await db.transaction(async tx => {
+        const paymentNo = await nextDocNo(tx, "debt_payment");
+        const [{ id }] = await tx
           .insert(debtPayments)
           .values({
             paymentNo,
@@ -117,8 +116,7 @@ export const creditRouter = createRouter({
             staffName: input.staffName,
             note: input.note,
           })
-          .returning({ id: debtPayments.id })
-          .all();
+          .returning({ id: debtPayments.id });
         return id;
       });
       const payment = await db.query.debtPayments.findFirst({

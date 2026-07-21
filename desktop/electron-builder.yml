@@ -13,8 +13,6 @@ extraFiles:
     to: certs/pumpos-codesign.cer
   - from: desktop/scripts/install-pos-root-cert.bat
     to: certs/install-pos-root-cert.bat
-asarUnpack:
-  - node_modules/better-sqlite3/**
 npmRebuild: false
 win:
   icon: app.ico

@@ -67,18 +67,23 @@ export const membershipRouter = createRouter({
     .input(z.object({ memberId: z.number(), points: z.number().int(), note: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const m = await db.query.members.findFirst({ where: eq(members.id, input.memberId) });
-      if (!m) throw new Error("ไม่พบสมาชิก");
-      const next = m.points + input.points;
-      if (next < 0) throw new Error("แต้มติดลบไม่ได้");
-      db.transaction((tx) => {
-        tx.update(members).set({ points: next }).where(eq(members.id, m.id)).run();
-        tx.insert(pointTransactions).values({
-          memberId: m.id,
+      const { member: m, next } = await db.transaction(async tx => {
+        const [member] = await tx
+          .select()
+          .from(members)
+          .where(eq(members.id, input.memberId))
+          .for("update");
+        if (!member) throw new Error("ไม่พบสมาชิก");
+        const nextPoints = member.points + input.points;
+        if (nextPoints < 0) throw new Error("แต้มติดลบไม่ได้");
+        await tx.update(members).set({ points: nextPoints }).where(eq(members.id, member.id));
+        await tx.insert(pointTransactions).values({
+          memberId: member.id,
           type: "adjust",
           points: input.points,
           note: input.note,
-        }).run();
+        });
+        return { member, next: nextPoints };
       });
       logAudit({
         action: "adjust_points",
@@ -136,30 +141,32 @@ export const membershipRouter = createRouter({
     .input(z.object({ memberId: z.number(), rewardId: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
-      const [m, rw] = await Promise.all([
-        db.query.members.findFirst({ where: eq(members.id, input.memberId) }),
-        db.query.rewards.findFirst({ where: eq(rewards.id, input.rewardId) }),
-      ]);
-      if (!m) throw new Error("ไม่พบสมาชิก");
-      if (!rw || !rw.active) throw new Error("ไม่พบของรางวัล");
-      if (rw.stock <= 0) throw new Error("ของรางวัลหมด");
-      if (m.points < rw.pointsRequired) throw new Error("แต้มไม่พอ");
-      db.transaction((tx) => {
-        tx.update(members).set({ points: m.points - rw.pointsRequired }).where(eq(members.id, m.id)).run();
-        tx.update(rewards).set({ stock: rw.stock - 1 }).where(eq(rewards.id, rw.id)).run();
-        tx.insert(rewardRedemptions).values({
+      return db.transaction(async tx => {
+        const [memberRows, rewardRows] = await Promise.all([
+          tx.select().from(members).where(eq(members.id, input.memberId)).for("update"),
+          tx.select().from(rewards).where(eq(rewards.id, input.rewardId)).for("update"),
+        ]);
+        const m = memberRows[0];
+        const rw = rewardRows[0];
+        if (!m) throw new Error("ไม่พบสมาชิก");
+        if (!rw || !rw.active) throw new Error("ไม่พบของรางวัล");
+        if (rw.stock <= 0) throw new Error("ของรางวัลหมด");
+        if (m.points < rw.pointsRequired) throw new Error("แต้มไม่พอ");
+        await tx.update(members).set({ points: m.points - rw.pointsRequired }).where(eq(members.id, m.id));
+        await tx.update(rewards).set({ stock: rw.stock - 1 }).where(eq(rewards.id, rw.id));
+        await tx.insert(rewardRedemptions).values({
           memberId: m.id,
           rewardId: rw.id,
           pointsUsed: rw.pointsRequired,
-        }).run();
-        tx.insert(pointTransactions).values({
+        });
+        await tx.insert(pointTransactions).values({
           memberId: m.id,
           type: "redeem",
           points: -rw.pointsRequired,
           note: `แลกรางวัล: ${rw.name}`,
-        }).run();
+        });
+        return { ok: true, pointsLeft: m.points - rw.pointsRequired };
       });
-      return { ok: true, pointsLeft: m.points - rw.pointsRequired };
     }),
 
   redemptionHistory: publicQuery.query(async () => {

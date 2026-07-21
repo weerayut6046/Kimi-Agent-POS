@@ -1,40 +1,54 @@
-import fs from "fs";
-import path from "path";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import { env } from "../lib/env";
 import * as schema from "@db/schema";
 import * as relations from "@db/relations";
 
 const fullSchema = { ...schema, ...relations };
 
+let client: ReturnType<typeof postgres> | undefined;
 let instance: ReturnType<typeof drizzle<typeof fullSchema>> | undefined;
+let testCleanup: (() => Promise<void>) | undefined;
 
-/** path สุทธิของไฟล์ฐานข้อมูลที่ใช้อยู่ */
-export function getDbPath() {
-  return path.resolve(env.databaseUrl);
+function requiresSsl(connectionString: string): boolean {
+  const hostname = new URL(connectionString).hostname;
+  return hostname !== "localhost" && hostname !== "127.0.0.1";
 }
 
+/** PostgreSQL connection shared by the API process. Supabase's pooler requires prepared statements to be disabled. */
 export function getDb() {
   if (!instance) {
-    const dbPath = getDbPath();
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const sqlite = new Database(dbPath);
-    sqlite.pragma("journal_mode = WAL");
-    sqlite.pragma("foreign_keys = ON");
-    instance = drizzle(sqlite, { schema: fullSchema });
+    client = postgres(env.databaseUrl, {
+      prepare: false,
+      ssl: requiresSsl(env.databaseUrl) ? "require" : false,
+      max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
+      idle_timeout: 20,
+      connect_timeout: 10,
+    });
+    instance = drizzle(client, { schema: fullSchema });
   }
   return instance;
 }
 
-/** ปิด connection และล้าง singleton (ใช้ตอน restore ฐานข้อมูล — connection จะถูกเปิดใหม่ที่ request ถัดไป) */
-export function resetDb() {
-  if (instance) {
-    try {
-      instance.$client.close();
-    } catch {
-      // ปิดไม่สำเร็จก็ไม่เป็นไร — process กำลังจะใช้ไฟล์ใหม่ต่อ
-    }
-    instance = undefined;
+/** Close the shared PostgreSQL pool. Primarily used by tests and graceful shutdown. */
+export async function resetDb() {
+  const activeClient = client;
+  const cleanup = testCleanup;
+  client = undefined;
+  instance = undefined;
+  testCleanup = undefined;
+  if (activeClient) await activeClient.end({ timeout: 5 });
+  if (cleanup) await cleanup();
+}
+
+/** Inject an isolated PostgreSQL-compatible database for integration tests. */
+export function setDbForTests(
+  db: ReturnType<typeof drizzle<typeof fullSchema>>,
+  cleanup: () => Promise<void>,
+) {
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("setDbForTests is available only when NODE_ENV=test");
   }
+  instance = db;
+  testCleanup = cleanup;
 }
