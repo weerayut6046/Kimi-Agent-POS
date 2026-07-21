@@ -29,6 +29,8 @@ export const env = {
   gcsBackupBucket: process.env.GCS_BACKUP_BUCKET ?? "",
   gcsBackupProjectId: process.env.GCS_BACKUP_PROJECT_ID ?? "",
   gcsBackupCredentialsBase64: process.env.GCS_BACKUP_CREDENTIALS_BASE64 ?? "",
+  gcsBackupDeleteEnabled:
+    process.env.GCS_BACKUP_DELETE_ENABLED?.toLowerCase() === "true",
   backupCronSecret: process.env.BACKUP_CRON_SECRET ?? "",
   pgDumpPath: process.env.PG_DUMP_PATH || "pg_dump",
   pgRestorePath: process.env.PG_RESTORE_PATH || "pg_restore",

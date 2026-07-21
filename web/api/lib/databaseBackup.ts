@@ -3,7 +3,11 @@ import { spawn } from "child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { basename, join } from "path";
-import { Storage, type StorageOptions } from "@google-cloud/storage";
+import {
+  Storage,
+  type FileMetadata,
+  type StorageOptions,
+} from "@google-cloud/storage";
 import { env } from "./env";
 
 const BACKUP_SCHEMA = "pos";
@@ -20,6 +24,13 @@ export type DatabaseBackup = {
   createdAt: Date;
   sha256: string;
   trigger: BackupTrigger | "monthly";
+};
+
+export type DatabaseBackupDeletion = {
+  objectName: string;
+  fileName: string;
+  manifestDeleted: boolean;
+  warning: string;
 };
 
 export class BackupNotConfiguredError extends Error {}
@@ -292,6 +303,10 @@ export function backupIsConfigured(): boolean {
   return Boolean(env.gcsBackupBucket);
 }
 
+export function backupDeleteIsEnabled(): boolean {
+  return backupIsConfigured() && env.gcsBackupDeleteEnabled;
+}
+
 export async function createDatabaseBackup(
   trigger: BackupTrigger
 ): Promise<DatabaseBackup> {
@@ -310,6 +325,124 @@ export function isSafeBackupObjectName(objectName: string): boolean {
     /^(manual|scheduled|monthly)\/[A-Za-z0-9_./-]+\.dump$/.test(objectName) &&
     !objectName.includes("..")
   );
+}
+
+export function validateManualBackupDeletion(
+  objectName: string,
+  confirmation: string
+): string {
+  if (!isSafeBackupObjectName(objectName)) {
+    throw new Error("ชื่อไฟล์สำรองไม่ถูกต้อง");
+  }
+  if (!objectName.startsWith("manual/")) {
+    throw new Error(
+      "ลบผ่านแอปได้เฉพาะไฟล์ที่สั่งสำรองเองเท่านั้น ไฟล์อัตโนมัติและรายเดือนจะลบตาม Lifecycle"
+    );
+  }
+
+  const fileName = basename(objectName);
+  if (confirmation !== fileName) {
+    throw new Error("กรุณาพิมพ์ชื่อไฟล์สำรองให้ตรงทุกตัวอักษรเพื่อยืนยันการลบ");
+  }
+  return fileName;
+}
+
+function gcsErrorCode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return;
+  const code = Number((error as { code?: unknown }).code);
+  return Number.isFinite(code) ? code : undefined;
+}
+
+function backupDeleteError(error: unknown): Error {
+  const code = gcsErrorCode(error);
+  if (code === 403) {
+    return new Error(
+      "GCS service account ยังไม่มีสิทธิ์ storage.objects.delete สำหรับ bucket สำรอง"
+    );
+  }
+  if (code === 404)
+    return new Error("ไม่พบไฟล์สำรองที่เลือก หรือไฟล์ถูกลบไปแล้ว");
+  if (code === 412) {
+    return new Error(
+      "ไฟล์สำรองมีการเปลี่ยนแปลงหลังเปิดหน้าจอ กรุณารีเฟรชรายการแล้วลองใหม่"
+    );
+  }
+  return new Error("ลบไฟล์สำรองจาก Private GCS ไม่สำเร็จ");
+}
+
+export async function deleteManualDatabaseBackup(
+  objectName: string,
+  confirmation: string
+): Promise<DatabaseBackupDeletion> {
+  const fileName = validateManualBackupDeletion(objectName, confirmation);
+  if (!env.gcsBackupDeleteEnabled) {
+    throw new Error(
+      "ยังไม่เปิดการลบไฟล์สำรองบน production (GCS_BACKUP_DELETE_ENABLED=true)"
+    );
+  }
+
+  const bucket = getStorage().bucket(requiredBackupBucket());
+  const dumpFile = bucket.file(objectName);
+  const manifestFile = bucket.file(`${objectName}.json`);
+
+  let dumpMetadata: FileMetadata;
+  try {
+    [dumpMetadata] = await dumpFile.getMetadata();
+  } catch (error) {
+    throw backupDeleteError(error);
+  }
+  if (String(dumpMetadata.metadata?.trigger || "") !== "manual") {
+    throw new Error(
+      "Metadata ของไฟล์ไม่ใช่ manual backup จึงปฏิเสธการลบเพื่อความปลอดภัย"
+    );
+  }
+  const dumpGeneration = String(dumpMetadata.generation || "");
+  if (!dumpGeneration) {
+    throw new Error(
+      "ไม่พบ generation ของไฟล์สำรอง จึงไม่สามารถลบอย่างปลอดภัยได้"
+    );
+  }
+
+  let manifestGeneration = "";
+  let manifestMetadata: FileMetadata | undefined;
+  try {
+    [manifestMetadata] = await manifestFile.getMetadata();
+  } catch (error) {
+    if (gcsErrorCode(error) === 404) {
+      manifestMetadata = undefined;
+    } else {
+      throw backupDeleteError(error);
+    }
+  }
+  if (manifestMetadata) {
+    manifestGeneration = String(manifestMetadata.generation || "");
+    if (!manifestGeneration) {
+      throw new Error(
+        "ไม่พบ generation ของ manifest จึงไม่สามารถลบอย่างปลอดภัยได้"
+      );
+    }
+  }
+
+  try {
+    await dumpFile.delete({ ifGenerationMatch: dumpGeneration });
+  } catch (error) {
+    throw backupDeleteError(error);
+  }
+
+  let manifestDeleted = false;
+  let warning = "";
+  if (manifestGeneration) {
+    try {
+      await manifestFile.delete({ ifGenerationMatch: manifestGeneration });
+      manifestDeleted = true;
+    } catch (error) {
+      console.error(`ลบ manifest ของ ${objectName} ไม่สำเร็จ:`, error);
+      warning =
+        "ลบไฟล์ dump แล้ว แต่ลบ manifest ไม่สำเร็จ ระบบ Lifecycle จะจัดการไฟล์ manifest ภายหลัง";
+    }
+  }
+
+  return { objectName, fileName, manifestDeleted, warning };
 }
 
 function triggerFromObjectName(objectName: string): DatabaseBackup["trigger"] {

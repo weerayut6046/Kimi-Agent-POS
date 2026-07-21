@@ -19,6 +19,7 @@ describe("dbadmin backup policy", () => {
     expect(info.supabasePlan).toBe("Pro");
     expect(info.supabaseDailyRetentionDays).toBe(7);
     expect(info.offsiteConfigured).toBe(false);
+    expect(info.offsiteDeleteEnabled).toBe(false);
     expect(info.backups).toEqual([]);
 
     await expect(t.caller("cashier").dbadmin.dbInfo()).rejects.toThrow(
@@ -26,12 +27,39 @@ describe("dbadmin backup policy", () => {
     );
   });
 
-  it("ไม่อนุญาตให้กู้คืนหรือทำลายไฟล์สำรองผ่านแอป production", async () => {
+  it("ไม่อนุญาตให้กู้คืนทับ production", async () => {
     await expect(
       t.caller("admin").dbadmin.restore({ fileName: "backup.dump" })
     ).rejects.toThrow("project ทดสอบ");
+  });
+
+  it("ลบได้เฉพาะ manual backup ที่พิมพ์ชื่อไฟล์ยืนยันตรงกัน", async () => {
     await expect(
-      t.caller("admin").dbadmin.deleteBackup({ fileName: "backup.dump" })
-    ).rejects.toThrow("project ทดสอบ");
+      t.caller("admin").dbadmin.deleteBackup({
+        fileName: "scheduled/2026/07/21/backup.dump",
+        confirmation: "backup.dump",
+      })
+    ).rejects.toThrow("เฉพาะไฟล์ที่สั่งสำรองเอง");
+
+    await expect(
+      t.caller("admin").dbadmin.deleteBackup({
+        fileName: "manual/2026/07/21/backup.dump",
+        confirmation: "wrong.dump",
+      })
+    ).rejects.toThrow("พิมพ์ชื่อไฟล์สำรองให้ตรง");
+
+    await expect(
+      t.caller("admin").dbadmin.deleteBackup({
+        fileName: "manual/2026/07/21/backup.dump",
+        confirmation: "backup.dump",
+      })
+    ).rejects.toThrow("GCS_BACKUP_DELETE_ENABLED=true");
+
+    await expect(
+      t.caller("cashier").dbadmin.deleteBackup({
+        fileName: "manual/2026/07/21/backup.dump",
+        confirmation: "backup.dump",
+      })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
   });
 });

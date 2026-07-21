@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, shell } from "electron";
 import path from "path";
 import { fitWindowToWorkArea } from "../windowBounds";
 
@@ -17,12 +17,12 @@ function registerIpc() {
     "print:silent",
     async (
       _event,
-      payload: { html: string; widthUm: number; heightUm: number },
+      payload: { html: string; widthUm: number; heightUm: number }
     ) => {
       const win = new BrowserWindow({ show: false, width: 800, height: 600 });
       try {
         await win.loadURL(
-          `data:text/html;charset=utf-8,${encodeURIComponent(payload.html)}`,
+          `data:text/html;charset=utf-8,${encodeURIComponent(payload.html)}`
         );
         await new Promise<void>((resolve, reject) => {
           win.webContents.print(
@@ -33,14 +33,14 @@ function registerIpc() {
               pageSize: { width: payload.widthUm, height: payload.heightUm },
             },
             (ok, reason) =>
-              ok ? resolve() : reject(new Error(reason || "พิมพ์ไม่สำเร็จ")),
+              ok ? resolve() : reject(new Error(reason || "พิมพ์ไม่สำเร็จ"))
           );
         });
         return { ok: true };
       } finally {
         win.destroy();
       }
-    },
+    }
   );
 }
 
@@ -58,7 +58,21 @@ function createWindow(url: string) {
       nodeIntegration: false,
     },
   });
-  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    try {
+      const parsed = new URL(targetUrl);
+      if (
+        parsed.protocol === "https:" &&
+        (parsed.hostname === "supabase.com" ||
+          parsed.hostname.endsWith(".supabase.com"))
+      ) {
+        void shell.openExternal(targetUrl);
+      }
+    } catch {
+      // URL ที่ไม่ถูกต้องหรือไม่อยู่ใน allowlist จะถูกปฏิเสธด้านล่าง
+    }
+    return { action: "deny" };
+  });
   void win.loadURL(url);
   return win;
 }

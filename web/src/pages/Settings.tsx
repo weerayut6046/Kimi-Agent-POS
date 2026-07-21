@@ -89,6 +89,13 @@ function backupTriggerLabel(
   return "อัตโนมัติ";
 }
 
+type BackupSelection = {
+  objectName: string;
+  fileName: string;
+  sha256: string;
+  trigger: "manual" | "scheduled" | "monthly";
+};
+
 export default function Settings() {
   const { staff } = useStaff();
   const utils = trpc.useUtils();
@@ -161,6 +168,11 @@ export default function Settings() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [downloadingBackup, setDownloadingBackup] = useState("");
+  const [restoreBackupTarget, setRestoreBackupTarget] =
+    useState<BackupSelection | null>(null);
+  const [deleteBackupTarget, setDeleteBackupTarget] =
+    useState<BackupSelection | null>(null);
+  const [deleteBackupConfirmation, setDeleteBackupConfirmation] = useState("");
 
   // sync ฟอร์มจาก settingMap ด้วย pattern adjust-state-during-render (แทน useEffect เพื่อเลี่ยง cascading render)
   // merge แบบเก็บ keys ที่แก้ค้างไว้ (ค่าต่างจาก snapshot รอบก่อนและยังไม่ตรง server รอบใหม่)
@@ -304,6 +316,19 @@ export default function Settings() {
     onSuccess: async result => {
       await refetchDbInfo();
       ok(`สำรองข้อมูลสำเร็จ: ${result.backup.fileName}`);
+    },
+    onError: e => fail(e.message),
+  });
+  const deleteBackup = trpc.dbadmin.deleteBackup.useMutation({
+    onSuccess: async result => {
+      setDeleteBackupTarget(null);
+      setDeleteBackupConfirmation("");
+      await refetchDbInfo();
+      ok(
+        result.backup.warning
+          ? `ลบ ${result.backup.fileName} แล้ว — ${result.backup.warning}`
+          : `ลบไฟล์สำรอง ${result.backup.fileName} แล้ว`
+      );
     },
     onError: e => fail(e.message),
   });
@@ -1214,7 +1239,7 @@ export default function Settings() {
                         <TableHead>ประเภท</TableHead>
                         <TableHead>ขนาด</TableHead>
                         <TableHead>SHA-256</TableHead>
-                        <TableHead className="text-right">ดาวน์โหลด</TableHead>
+                        <TableHead className="text-right">จัดการ</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1236,21 +1261,59 @@ export default function Settings() {
                               ? `${backup.sha256.slice(0, 12)}…`
                               : "—"}
                           </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() =>
-                                void downloadBackup(backup.objectName)
-                              }
-                              disabled={downloadingBackup === backup.objectName}
-                            >
-                              <Download className="mr-1 h-3.5 w-3.5" />
-                              {downloadingBackup === backup.objectName
-                                ? "กำลังเตรียม..."
-                                : "ดาวน์โหลด"}
-                            </Button>
+                          <TableCell>
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  void downloadBackup(backup.objectName)
+                                }
+                                disabled={
+                                  downloadingBackup === backup.objectName
+                                }
+                              >
+                                <Download className="mr-1 h-3.5 w-3.5" />
+                                {downloadingBackup === backup.objectName
+                                  ? "กำลังเตรียม..."
+                                  : "ดาวน์โหลด"}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setRestoreBackupTarget(backup)}
+                              >
+                                <History className="mr-1 h-3.5 w-3.5" />
+                                Restore
+                              </Button>
+                              {backup.trigger === "manual" ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-destructive hover:text-destructive"
+                                  title={
+                                    dbInfo.offsiteDeleteEnabled
+                                      ? "ลบ Manual Backup"
+                                      : "Railway ยังไม่ได้เปิด GCS_BACKUP_DELETE_ENABLED"
+                                  }
+                                  disabled={!dbInfo.offsiteDeleteEnabled}
+                                  onClick={() => {
+                                    setDeleteBackupTarget(backup);
+                                    setDeleteBackupConfirmation("");
+                                  }}
+                                >
+                                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                  ลบ
+                                </Button>
+                              ) : (
+                                <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
+                                  ลบตาม Lifecycle
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1275,6 +1338,165 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+
+      {/* Restore ทำได้ผ่านฐานทดสอบเท่านั้น */}
+      <Dialog
+        open={!!restoreBackupTarget}
+        onOpenChange={open => !open && setRestoreBackupTarget(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading">
+              Restore ลง Supabase โปรเจกต์ทดสอบ
+            </DialogTitle>
+          </DialogHeader>
+          {restoreBackupTarget && (
+            <div className="space-y-4 text-sm">
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                ระบบจะไม่กู้ไฟล์นี้ทับ production โดยตรง
+                ต้องตรวจข้อมูลบนโปรเจกต์ทดสอบก่อนทุกครั้ง
+              </div>
+              <div className="space-y-1 rounded-lg border p-3">
+                <p className="font-medium">ไฟล์ที่เลือก</p>
+                <p className="break-all font-mono text-xs">
+                  {restoreBackupTarget.fileName}
+                </p>
+                <p className="break-all font-mono text-xs text-muted-foreground">
+                  SHA-256: {restoreBackupTarget.sha256 || "ไม่ระบุ"}
+                </p>
+              </div>
+              <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
+                <li>ดาวน์โหลดไฟล์และตรวจ SHA-256 ให้ตรงกับรายการ</li>
+                <li>
+                  สร้าง Supabase โปรเจกต์ทดสอบ หรือใช้ Restore-to-New-Project
+                  จาก Supabase Backup
+                </li>
+                <li>
+                  กู้ไฟล์นี้ด้วย <code>pg_restore</code> ไปยัง Session pooler
+                  ของโปรเจกต์ทดสอบเท่านั้น
+                </li>
+                <li>
+                  ทดสอบ Login, Dashboard, เปิดกะ, การขาย และรายงาน
+                  ก่อนวางแผนสลับ DATABASE_URL
+                </li>
+              </ol>
+            </div>
+          )}
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  restoreBackupTarget &&
+                  void downloadBackup(restoreBackupTarget.objectName)
+                }
+                disabled={
+                  !restoreBackupTarget ||
+                  downloadingBackup === restoreBackupTarget.objectName
+                }
+              >
+                <Download className="mr-1.5 h-4 w-4" /> ดาวน์โหลดไฟล์นี้
+              </Button>
+              <Button asChild type="button" variant="outline">
+                <a
+                  href={
+                    dbInfo?.supabaseRestoreToNewProjectUrl ??
+                    "https://supabase.com/dashboard"
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  เปิด Restore-to-New-Project
+                </a>
+              </Button>
+            </div>
+            <Button type="button" onClick={() => setRestoreBackupTarget(null)}>
+              ปิด
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete เปิดเฉพาะ Manual Backup และต้องพิมพ์ชื่อไฟล์ยืนยัน */}
+      <Dialog
+        open={!!deleteBackupTarget}
+        onOpenChange={open => {
+          if (!open && !deleteBackup.isPending) {
+            setDeleteBackupTarget(null);
+            setDeleteBackupConfirmation("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-destructive">
+              ยืนยันลบ Manual Backup
+            </DialogTitle>
+          </DialogHeader>
+          {deleteBackupTarget && (
+            <div className="space-y-4 text-sm">
+              <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                <p>
+                  ระบบจะลบทั้งไฟล์ dump และ manifest จาก Private GCS
+                  โดยไฟล์ยังอยู่ใน GCS Soft Delete ตามระยะเวลาที่ bucket กำหนด
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="backup-delete-confirmation">
+                  พิมพ์ชื่อไฟล์ต่อไปนี้เพื่อยืนยัน
+                </Label>
+                <p className="break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
+                  {deleteBackupTarget.fileName}
+                </p>
+                <Input
+                  id="backup-delete-confirmation"
+                  autoComplete="off"
+                  value={deleteBackupConfirmation}
+                  onChange={event =>
+                    setDeleteBackupConfirmation(event.target.value)
+                  }
+                  placeholder={deleteBackupTarget.fileName}
+                  disabled={deleteBackup.isPending}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deleteBackup.isPending}
+              onClick={() => {
+                setDeleteBackupTarget(null);
+                setDeleteBackupConfirmation("");
+              }}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                !deleteBackupTarget ||
+                deleteBackup.isPending ||
+                deleteBackupConfirmation !== deleteBackupTarget.fileName
+              }
+              onClick={() => {
+                if (!deleteBackupTarget) return;
+                deleteBackup.mutate({
+                  fileName: deleteBackupTarget.objectName,
+                  confirmation: deleteBackupConfirmation,
+                });
+              }}
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              {deleteBackup.isPending ? "กำลังลบ..." : "ลบไฟล์สำรอง"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog สินค้า */}
       <Dialog open={!!editP} onOpenChange={o => !o && setEditP(null)}>

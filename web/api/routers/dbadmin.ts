@@ -5,8 +5,10 @@ import { actorFromReq, logAudit } from "../lib/audit";
 import { env } from "../lib/env";
 import {
   backupIsConfigured,
+  backupDeleteIsEnabled,
   createBackupDownloadUrl,
   createDatabaseBackup,
+  deleteManualDatabaseBackup,
   listDatabaseBackups,
 } from "../lib/databaseBackup";
 
@@ -37,7 +39,11 @@ export const dbadminRouter = createRouter({
       supabaseDashboardUrl: env.supabaseProjectRef
         ? `https://supabase.com/dashboard/project/${env.supabaseProjectRef}/database/backups/scheduled`
         : "https://supabase.com/dashboard",
+      supabaseRestoreToNewProjectUrl: env.supabaseProjectRef
+        ? `https://supabase.com/dashboard/project/${env.supabaseProjectRef}/database/backups/restore-to-new-project`
+        : "https://supabase.com/dashboard",
       offsiteConfigured: backupIsConfigured(),
+      offsiteDeleteEnabled: backupDeleteIsEnabled(),
       offsiteBucket: env.gcsBackupBucket,
       offsiteSchedule: "ทุก 6 ชั่วโมง",
       offsiteDailyRetentionDays: 35,
@@ -68,8 +74,26 @@ export const dbadminRouter = createRouter({
     .input(z.object({ fileName: z.string().min(1) }))
     .mutation(managedRestoreOnly),
   deleteBackup: adminQuery
-    .input(z.object({ fileName: z.string().min(1) }))
-    .mutation(managedRestoreOnly),
+    .input(
+      z.object({
+        fileName: z.string().min(1).max(500),
+        confirmation: z.string().min(1).max(255),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const backup = await deleteManualDatabaseBackup(
+        input.fileName,
+        input.confirmation
+      );
+      const actor = actorFromReq(ctx.req);
+      logAudit({
+        action: "delete_manual_backup",
+        ...actor,
+        detail: `ลบ Manual Backup ${backup.fileName} จาก Private GCS`,
+        refType: "database_backup",
+      });
+      return { ok: true, backup };
+    }),
   restoreUpload: adminQuery
     .input(
       z.object({
