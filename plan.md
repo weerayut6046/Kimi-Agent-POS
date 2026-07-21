@@ -2,7 +2,7 @@
 
 เอกสารแผนพัฒนาระบบตั้งแต่เริ่มต้นโครงการ จนถึงส่งมอบและต่อยอดในอนาคต
 
-> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.0` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.1` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -15,16 +15,16 @@
 
 ## 2. เทคโนโลยีที่ใช้
 
-| ส่วน        | เทคโนโลยี                                                                                                                     |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query                                             |
-| Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                                                 |
-| Database    | Supabase PostgreSQL + Drizzle ORM (private schema `pos`, migrations ใน `web/db/migrations-postgres/`)                         |
-| Validation  | Zod                                                                                                                           |
-| Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                                                  |
-| Deploy      | Windows `.exe`/Portable โหลดเว็บกลาง; Vercel (frontend) + Railway (backend) + Supabase (database)                             |
-| Auto Update | electron-updater + Google Cloud Storage (generic provider)                                                                    |
-| เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                                                         |
+| ส่วน        | เทคโนโลยี                                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Frontend    | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, react-router, TanStack Query                     |
+| Backend     | Hono + tRPC (อยู่ใน repo เดียวกัน `web/api/`)                                                         |
+| Database    | Supabase PostgreSQL + Drizzle ORM (private schema `pos`, migrations ใน `web/db/migrations-postgres/`) |
+| Validation  | Zod                                                                                                   |
+| Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                          |
+| Deploy      | Windows `.exe`/Portable โหลดเว็บกลาง; Vercel (frontend) + Railway (backend) + Supabase (database)     |
+| Auto Update | electron-updater + Google Cloud Storage (generic provider)                                            |
+| เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                                 |
 
 โครงสร้างหลัก: `web/` คือ web app ทั้งก้อน — `web/src/` (หน้าจอ), `web/api/` (tRPC routers), `web/db/` (schema, migrations, seed), `web/contracts/` (types/errors ที่แชร์กัน) — ส่วน `desktop/` เป็น Electron shell ที่ห่อ web app
 
@@ -130,7 +130,7 @@
 - [x] บันทึกค่าใช้จ่ายหน้าร้าน — ตาราง `expenses`, router `expenses` (ผูกกะอัตโนมัติ), หน้า `/expenses`
 - [x] ประวัติเปลี่ยนราคาสินค้า — ตาราง `price_changes`, hook ใน `catalog.updateProduct`, ดูประวัติจากปุ่มในหน้า Settings
 - [x] Audit log — ตาราง `audit_logs` + `web/api/lib/audit.ts` ผูก mutation สำคัญ (void/แก้/ลบบิล, ปรับแต้ม, เปลี่ยนราคา, พนักงาน, กู้ db, ค่าใช้จ่าย, ชำระหนี้), หน้า `/audit` เฉพาะ admin
-- [x] ย้ายการสำรอง/กู้คืนออกจากแอปใน `2.0.0` — ใช้ Supabase Backup และ Point-in-Time Recovery แทนไฟล์ SQLite ภายในเครื่อง
+- [x] ระบบสำรองสองชั้นใน `2.0.0` — Supabase Pro Daily Backup 7 วัน + Logical Backup ทุก 6 ชั่วโมงไป Private GCS, แสดงสถานะ/ดาวน์โหลดจาก Settings และบังคับ Restore ผ่านฐานทดสอบ
 - [x] ส่งออกรายงาน Excel/PDF, รายงานกำไรต่อลิตร — `reports.exportDailyExcel`/`exportRangeExcel` (exceljs ฝั่ง server ส่ง base64, หน้า `/reports` ปุ่มส่งออกรายวัน+ช่วงเวลา ≤92 วัน, เฉพาะ admin/manager), `reports.fuelProfit` + ตารางกำไรต่อลิตรบนหน้าเว็บ; PDF ใช้ปุ่มพิมพ์เดิม → Save as PDF ของเบราว์เซอร์
 - [x] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์ — `catalog.lowStockAlerts` (ถังต่ำกว่า `low_alert_at` + สินค้าต่ำกว่า `low_stock_at`), กระดิ่ง `LowStockAlert.tsx` ใน Layout ทุกหน้า โพล 15 วิ แสดง badge + popover รายการ, เด้ง toast (sonner) ทันทีเมื่อมีรายการใหม่ต่ำกว่าเกณฑ์, การ์ดเตือนเดิมบนหน้าแดชบอร์ดคงไว้
 - [x] นับเงินลิ้นชักครบวงจร — เงินทอนเริ่มกะ (`shifts.opening_float`), นับเงินสดแยกแบงก์/เหรียญตอนปิดกะ (`shifts.cash_counts` JSON — เซิร์ฟเวอร์รวมยอดเองจาก `web/contracts/cash.ts`), snapshot เงินสดควรมีลงกะ (`shifts.expected_cash` = เงินทอน+ขายสด+ชำระหนี้สด−ค่าใช้จ่าย คำนวณโดย `web/api/lib/cash.ts`), `debt_payments.shift_id` ผูกกะอัตโนมัติแบบค่าใช้จ่าย, แสดงส่วนต่างเงินสด (ขาด/เกิน) ในหน้าปิดกะแบบเรียลไทม์ + ประวัติกะ + Z-report + Excel, audit log `close_shift` ตอนปิดกะ
@@ -182,17 +182,17 @@
 
 ## 7. ความเสี่ยงและแนวทางรับมือ
 
-| ความเสี่ยง                         | แนวทางรับมือ                                                                        |
-| ---------------------------------- | ----------------------------------------------------------------------------------- |
-| การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git            |
-| มิเตอร์จดผิด                       | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย                                          |
-| ข้อมูลหาย                          | Supabase Backup/PITR, migration history และเก็บ SQLite ต้นทางไว้ตรวจสอบช่วงเปลี่ยนผ่าน |
-| PIN รั่วไหล                        | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง               |
-| เน็ต/ไฟดับที่ปั๊ม                  | รุ่น `2.0.0` ต้องใช้อินเทอร์เน็ต; เตรียมลิงก์สำรอง/UPS และขั้นตอนหยุดขายชั่วคราว       |
-| รุ่นเก่ายังชี้ GitHub updater      | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                     |
-| GCS ใช้ไม่ได้                      | updater บันทึก error และลองใหม่เมื่อเปิดแอปครั้งถัดไป; เว็บหลักยังทำงานได้            |
-| Windows SmartScreen เตือน          | วางแผน Code Signing; ก่อนมี certificate ให้ตรวจ checksum และแหล่งดาวน์โหลดทุกครั้ง  |
+| ความเสี่ยง                         | แนวทางรับมือ                                                                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git                                                               |
+| มิเตอร์จดผิด                       | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย                                                                                             |
+| ข้อมูลหาย                          | Supabase Daily Backup, Private GCS 6 ชั่วโมง, restore drill รายเดือน, migration history และเก็บ SQLite ต้นทางไว้ตรวจสอบช่วงเปลี่ยนผ่าน |
+| PIN รั่วไหล                        | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง                                                                  |
+| เน็ต/ไฟดับที่ปั๊ม                  | รุ่น `2.0.0` ต้องใช้อินเทอร์เน็ต; เตรียมลิงก์สำรอง/UPS และขั้นตอนหยุดขายชั่วคราว                                                       |
+| รุ่นเก่ายังชี้ GitHub updater      | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                                                                        |
+| GCS ใช้ไม่ได้                      | updater บันทึก error และลองใหม่เมื่อเปิดแอปครั้งถัดไป; เว็บหลักยังทำงานได้                                                             |
+| Windows SmartScreen เตือน          | วางแผน Code Signing; ก่อนมี certificate ให้ตรวจ checksum และแหล่งดาวน์โหลดทุกครั้ง                                                     |
 
 ---
 
-_สถานะ ณ 21 กรกฎาคม 2026: รุ่น 2.0.0 ย้ายฐานข้อมูลและข้อมูลเดิมขึ้น Supabase PostgreSQL, deploy Vercel/Railway, เปลี่ยน Desktop เป็น online shell, ใช้ signed staff session และแก้ connection pooling/Dashboard loading แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_
+_สถานะ ณ 21 กรกฎาคม 2026: รุ่น 2.0.1 ใช้ฐานข้อมูลกลาง Supabase PostgreSQL, deploy Vercel/Railway Singapore, เพิ่ม Private GCS Backup และปรับ Dashboard/Settings เพื่อลด database round-trip แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_

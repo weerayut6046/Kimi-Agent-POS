@@ -130,7 +130,8 @@ async function reverseSaleEffects(
   for (const it of items) {
     const p = prodRows.find(pr => pr.id === it.productId);
     if (p && p.category !== "fuel") {
-      await tx.update(products)
+      await tx
+        .update(products)
         .set({ stockQty: r2(p.stockQty + it.qty) })
         .where(eq(products.id, p.id));
     }
@@ -142,17 +143,17 @@ async function reverseSaleEffects(
       .where(eq(members.id, sale.memberId));
     if (m) {
       const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
-      await tx.update(members)
+      await tx
+        .update(members)
         .set({ points: restored })
         .where(eq(members.id, m.id));
-      await tx.insert(pointTransactions)
-        .values({
-          memberId: m.id,
-          saleId: sale.id,
-          type: "adjust",
-          points: -(sale.pointsEarned - sale.pointsRedeemed),
-          note,
-        });
+      await tx.insert(pointTransactions).values({
+        memberId: m.id,
+        saleId: sale.id,
+        type: "adjust",
+        points: -(sale.pointsEarned - sale.pointsRedeemed),
+        note,
+      });
     }
   }
 }
@@ -324,11 +325,13 @@ export const posRouter = createRouter({
           totalAmount = r2(totalAmount + liters * open.pricePerLiter);
           totalMoneyMeter = r2(totalMoneyMeter + money);
 
-          await tx.update(shiftReadings)
+          await tx
+            .update(shiftReadings)
             .set({ closeMeter: rd.closeMeter, closeMoney: rd.closeMoney })
             .where(eq(shiftReadings.id, open.id));
           // อัปเดตมิเตอร์หัวจ่าย (ทั้งลิตรและเงิน)
-          await tx.update(nozzles)
+          await tx
+            .update(nozzles)
             .set({ currentMeter: rd.closeMeter, currentMoney: rd.closeMoney })
             .where(eq(nozzles.id, rd.nozzleId));
           // หักถังน้ำมันตามลิตรที่ขาย (มิเตอร์คือแหล่งความจริงของน้ำมันออก)
@@ -355,7 +358,8 @@ export const posRouter = createRouter({
         }
         for (const [tankId, liters] of tankDeductions) {
           const tank = tankRows.find(t => t.id === tankId)!;
-          await tx.update(fuelTanks)
+          await tx
+            .update(fuelTanks)
             .set({
               currentLiters: r2(Math.max(0, tank.currentLiters - liters)),
             })
@@ -363,12 +367,17 @@ export const posRouter = createRouter({
         }
         // ยอดขาย POS ในกะ
         const [posRow] = await tx
-          .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)`.mapWith(Number).as("sum") })
+          .select({
+            sum: sql<number>`coalesce(sum(${sales.total}),0)`
+              .mapWith(Number)
+              .as("sum"),
+          })
           .from(sales)
           .where(
             and(eq(sales.shiftId, shift.id), eq(sales.status, "completed"))
           );
-        await tx.update(shifts)
+        await tx
+          .update(shifts)
           .set({
             status: "closed",
             closedAt: new Date(),
@@ -530,9 +539,14 @@ export const posRouter = createRouter({
           })
           .returning({ id: shifts.id });
         if (preparedReadings.length > 0) {
-          await tx.insert(shiftReadings).values(
-            preparedReadings.map(reading => ({ shiftId: created.id, ...reading }))
-          );
+          await tx
+            .insert(shiftReadings)
+            .values(
+              preparedReadings.map(reading => ({
+                shiftId: created.id,
+                ...reading,
+              }))
+            );
         }
         return created.id;
       });
@@ -606,7 +620,8 @@ export const posRouter = createRouter({
 
       await db.transaction(async tx => {
         for (const reading of readingValues ?? []) {
-          await tx.update(shiftReadings)
+          await tx
+            .update(shiftReadings)
             .set({
               closeMeter: r2(reading.closeMeter),
               closeMoney: r2(reading.closeMoney),
@@ -618,7 +633,8 @@ export const posRouter = createRouter({
               )
             );
         }
-        await tx.update(shifts)
+        await tx
+          .update(shifts)
           .set({
             ...values,
             staffId: values.staffId ?? null,
@@ -665,16 +681,21 @@ export const posRouter = createRouter({
       }
       await db.transaction(async tx => {
         // เก็บเอกสารการเงินจริงไว้ แต่ยกเลิกการผูกกับประวัติกะที่ถูกลบ
-        await tx.update(sales)
+        await tx
+          .update(sales)
           .set({ shiftId: null })
           .where(eq(sales.shiftId, current.id));
-        await tx.update(debtPayments)
+        await tx
+          .update(debtPayments)
           .set({ shiftId: null })
           .where(eq(debtPayments.shiftId, current.id));
-        await tx.update(expenses)
+        await tx
+          .update(expenses)
           .set({ shiftId: null })
           .where(eq(expenses.shiftId, current.id));
-        await tx.delete(shiftReadings).where(eq(shiftReadings.shiftId, current.id));
+        await tx
+          .delete(shiftReadings)
+          .where(eq(shiftReadings.shiftId, current.id));
         await tx.delete(shifts).where(eq(shifts.id, current.id));
       });
       logAudit({
@@ -852,19 +873,20 @@ export const posRouter = createRouter({
 
         await tx.insert(saleItems).values(
           lines.map(l => ({
-              saleId: id,
-              productId: l.product.id,
-              name: l.product.name,
-              qty: l.qty,
-              unit: l.product.unit,
-              unitPrice: l.product.price,
-              amount: l.amount,
-            }))
+            saleId: id,
+            productId: l.product.id,
+            name: l.product.name,
+            qty: l.qty,
+            unit: l.product.unit,
+            unitPrice: l.product.price,
+            amount: l.amount,
+          }))
         );
         for (const l of lines) {
           // หักสต๊อกเฉพาะสินค้าที่ไม่ใช่น้ำมัน (น้ำมันหักผ่านมิเตอร์ตอนปิดกะ)
           if (l.product.category !== "fuel") {
-            await tx.update(products)
+            await tx
+              .update(products)
               .set({ stockQty: r2(l.product.stockQty - l.qty) })
               .where(eq(products.id, l.product.id));
           }
@@ -872,28 +894,27 @@ export const posRouter = createRouter({
 
         if (member) {
           const newPoints = member.points - input.pointsToRedeem + pointsEarned;
-          await tx.update(members)
+          await tx
+            .update(members)
             .set({ points: newPoints })
             .where(eq(members.id, member.id));
           if (pointsEarned > 0) {
-            await tx.insert(pointTransactions)
-              .values({
-                memberId: member.id,
-                saleId: id,
-                type: "earn",
-                points: pointsEarned,
-                note: `รับแต้มจากบิล ${receiptNo}`,
-              });
+            await tx.insert(pointTransactions).values({
+              memberId: member.id,
+              saleId: id,
+              type: "earn",
+              points: pointsEarned,
+              note: `รับแต้มจากบิล ${receiptNo}`,
+            });
           }
           if (input.pointsToRedeem > 0) {
-            await tx.insert(pointTransactions)
-              .values({
-                memberId: member.id,
-                saleId: id,
-                type: "redeem",
-                points: -input.pointsToRedeem,
-                note: `ใช้แต้มลดบิล ${receiptNo}`,
-              });
+            await tx.insert(pointTransactions).values({
+              memberId: member.id,
+              saleId: id,
+              type: "redeem",
+              points: -input.pointsToRedeem,
+              note: `ใช้แต้มลดบิล ${receiptNo}`,
+            });
           }
         }
         return id;
@@ -1002,11 +1023,17 @@ export const posRouter = createRouter({
         .from(saleItems)
         .where(eq(saleItems.saleId, sale.id));
       await db.transaction(async tx => {
-        await tx.update(sales)
+        await tx
+          .update(sales)
           .set({ status: "voided" })
           .where(eq(sales.id, sale.id));
         // คืนสต๊อกและแต้มอัตโนมัติ
-        await reverseSaleEffects(tx, sale, items, `ยกเลิกบิล ${sale.receiptNo}`);
+        await reverseSaleEffects(
+          tx,
+          sale,
+          items,
+          `ยกเลิกบิล ${sale.receiptNo}`
+        );
       });
       logAudit({
         action: "void_sale",
@@ -1051,7 +1078,8 @@ export const posRouter = createRouter({
       const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
 
       await db.transaction(async tx => {
-        await tx.update(sales)
+        await tx
+          .update(sales)
           .set({
             staffName: input.staffName ?? sale.staffName,
             paymentMethod,
@@ -1072,17 +1100,17 @@ export const posRouter = createRouter({
             .where(eq(members.id, sale.memberId!))
             .for("update");
           if (m) {
-            await tx.update(members)
+            await tx
+              .update(members)
               .set({ points: m.points + diff })
               .where(eq(members.id, m.id));
-            await tx.insert(pointTransactions)
-              .values({
-                memberId: m.id,
-                saleId: sale.id,
-                type: "adjust",
-                points: diff,
-                note: `ปรับแต้มจากแก้ไขบิล ${sale.receiptNo}`,
-              });
+            await tx.insert(pointTransactions).values({
+              memberId: m.id,
+              saleId: sale.id,
+              type: "adjust",
+              points: diff,
+              note: `ปรับแต้มจากแก้ไขบิล ${sale.receiptNo}`,
+            });
           }
         }
       });
@@ -1144,119 +1172,129 @@ export const posRouter = createRouter({
   dashboard: publicQuery.query(async () => {
     const db = getDb();
     const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    );
-
-    // ยอดวันนี้
-    const todayRows = await db
-      .select({
-        total: sql<number>`coalesce(sum(${sales.total}),0)`,
-        bills: sql<number>`count(*)`,
-      })
-      .from(sales)
-      .where(
-        and(gte(sales.createdAt, startOfDay), eq(sales.status, "completed"))
+    const bangkokOffsetMs = 7 * 60 * 60 * 1000;
+    const bangkokNow = new Date(now.getTime() + bangkokOffsetMs);
+    const bangkokYear = bangkokNow.getUTCFullYear();
+    const bangkokMonth = bangkokNow.getUTCMonth();
+    const bangkokDate = bangkokNow.getUTCDate();
+    const bangkokMidnight = (dayOffset: number) =>
+      new Date(
+        Date.UTC(bangkokYear, bangkokMonth, bangkokDate + dayOffset) -
+          bangkokOffsetMs
       );
+    const startOfDay = bangkokMidnight(0);
+    const chartStart = bangkokMidnight(-6);
+    const endOfToday = bangkokMidnight(1);
+    const saleDate = sql<string>`to_char(${sales.createdAt} at time zone 'Asia/Bangkok', 'YYYY-MM-DD')`;
 
-    // ลิตรวันนี้ (จาก sale_items หน่วยลิตร)
-    const todaySaleIds = (
-      await db
-        .select({ id: sales.id })
-        .from(sales)
-        .where(
-          and(gte(sales.createdAt, startOfDay), eq(sales.status, "completed"))
-        )
-    ).map(r => r.id);
+    // ทุก query เป็นอิสระต่อกัน จึงทำพร้อมกันเพื่อลด network round-trip
+    const [dailyRows, fuelRows, openShift, tankRows, productRows, recent] =
+      await Promise.all([
+        // รวมกราฟ 7 วันและยอดวันนี้ด้วย query เดียว
+        db
+          .select({
+            date: saleDate,
+            total: sql<number>`coalesce(sum(${sales.total}), 0)`,
+            bills: sql<number>`count(*)`,
+          })
+          .from(sales)
+          .where(
+            and(
+              gte(sales.createdAt, chartStart),
+              lt(sales.createdAt, endOfToday),
+              eq(sales.status, "completed")
+            )
+          )
+          .groupBy(saleDate),
+        // รวมรายการขายกับสินค้าในฐานข้อมูล ไม่ต้องโหลดทุก row มาหาใน Node
+        db
+          .select({
+            code: products.code,
+            name: saleItems.name,
+            liters: sql<number>`coalesce(sum(${saleItems.qty}), 0)`,
+            amount: sql<number>`coalesce(sum(${saleItems.amount}), 0)`,
+          })
+          .from(saleItems)
+          .innerJoin(sales, eq(saleItems.saleId, sales.id))
+          .leftJoin(products, eq(saleItems.productId, products.id))
+          .where(
+            and(
+              gte(sales.createdAt, startOfDay),
+              lt(sales.createdAt, endOfToday),
+              eq(sales.status, "completed"),
+              eq(saleItems.unit, "ลิตร")
+            )
+          )
+          .groupBy(products.code, saleItems.name),
+        db.query.shifts.findFirst({
+          where: eq(shifts.status, "open"),
+          orderBy: (s, { desc: d }) => [d(s.openedAt)],
+        }),
+        db.query.fuelTanks.findMany(),
+        db.query.products.findMany(),
+        db.select().from(sales).orderBy(desc(sales.createdAt)).limit(8),
+      ]);
+
+    const dailyByDate = new Map(dailyRows.map(row => [row.date, row]));
+    const chart = Array.from({ length: 7 }, (_, index) => {
+      const daysAgo = 6 - index;
+      const date = new Date(
+        Date.UTC(bangkokYear, bangkokMonth, bangkokDate - daysAgo)
+      );
+      const dateKey = date.toISOString().slice(0, 10);
+      const row = dailyByDate.get(dateKey);
+      return {
+        date: dateKey,
+        label: `${date.getUTCDate()}/${date.getUTCMonth() + 1}`,
+        total: r2(Number(row?.total ?? 0)),
+        bills: Number(row?.bills ?? 0),
+      };
+    });
+    const today = dailyByDate.get(bangkokNow.toISOString().slice(0, 10));
+
     let litersToday = 0;
     const fuelByCode: Record<
       string,
       { name: string; liters: number; amount: number }
     > = {};
-    if (todaySaleIds.length > 0) {
-      const itemRows = await db
-        .select()
-        .from(saleItems)
-        .where(inArray(saleItems.saleId, todaySaleIds));
-      const prodRows = await db.query.products.findMany();
-      for (const it of itemRows) {
-        if (it.unit === "ลิตร") {
-          litersToday = r2(litersToday + it.qty);
-          const code =
-            prodRows.find(p => p.id === it.productId)?.code ?? "OTHER";
-          if (!fuelByCode[code])
-            fuelByCode[code] = { name: it.name, liters: 0, amount: 0 };
-          fuelByCode[code].liters = r2(fuelByCode[code].liters + it.qty);
-          fuelByCode[code].amount = r2(fuelByCode[code].amount + it.amount);
-        }
-      }
+    for (const row of fuelRows) {
+      const code = row.code ?? "OTHER";
+      const liters = Number(row.liters);
+      const amount = Number(row.amount);
+      litersToday = r2(litersToday + liters);
+      const current = fuelByCode[code] ?? {
+        name: row.name,
+        liters: 0,
+        amount: 0,
+      };
+      current.liters = r2(current.liters + liters);
+      current.amount = r2(current.amount + amount);
+      fuelByCode[code] = current;
     }
 
-    // กราฟ 7 วันย้อนหลัง
-    const chart: {
-      date: string;
-      label: string;
-      total: number;
-      bills: number;
-    }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const d1 = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - i + 1
-      );
-      const rows = await db
-        .select({
-          total: sql<number>`coalesce(sum(${sales.total}),0)`,
-          bills: sql<number>`count(*)`,
-        })
-        .from(sales)
-        .where(
-          and(
-            gte(sales.createdAt, d0),
-            lt(sales.createdAt, d1),
-            eq(sales.status, "completed")
-          )
-        );
-      chart.push({
-        date: d0.toISOString().slice(0, 10),
-        label: `${d0.getDate()}/${d0.getMonth() + 1}`,
-        total: r2(rows[0]?.total ?? 0),
-        bills: rows[0]?.bills ?? 0,
-      });
-    }
-
-    // กะปัจจุบัน
-    const openShift = await db.query.shifts.findFirst({
-      where: eq(shifts.status, "open"),
-      orderBy: (s, { desc: d }) => [d(s.openedAt)],
-    });
-
-    // สต๊อกต่ำ
-    const tankRows = await db.query.fuelTanks.findMany();
+    const tanks = tankRows.map(tank => ({
+      ...tank,
+      percent: Math.round(
+        (tank.currentLiters / Math.max(tank.capacityLiters, 1)) * 100
+      ),
+      isLow: tank.currentLiters <= tank.lowAlertAt,
+    }));
     const lowTanks = tankRows.filter(t => t.currentLiters <= t.lowAlertAt);
-    const prodRows2 = await db.query.products.findMany();
-    const lowProducts = prodRows2.filter(
-      p => p.active && p.category !== "fuel" && p.stockQty <= p.lowStockAt
+    const lowProducts = productRows.filter(
+      product =>
+        product.active &&
+        product.category !== "fuel" &&
+        product.stockQty <= product.lowStockAt
     );
 
-    // บิลล่าสุด
-    const recent = await db
-      .select()
-      .from(sales)
-      .orderBy(desc(sales.createdAt))
-      .limit(8);
-
     return {
-      todayTotal: r2(todayRows[0]?.total ?? 0),
-      todayBills: todayRows[0]?.bills ?? 0,
+      todayTotal: r2(Number(today?.total ?? 0)),
+      todayBills: Number(today?.bills ?? 0),
       litersToday,
       fuelByCode,
       chart,
       openShift: openShift ?? null,
+      tanks,
       lowTanks,
       lowProducts,
       recentSales: recent,

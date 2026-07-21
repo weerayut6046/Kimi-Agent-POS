@@ -26,15 +26,8 @@ import { trpc } from "@/providers/trpc";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel } from "@/lib/format";
 
 export default function Dashboard() {
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = trpc.pos.dashboard.useQuery(undefined, { refetchInterval: 30000 });
-  const { data: tanks } = trpc.catalog.listTanks.useQuery();
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    trpc.pos.dashboard.useQuery(undefined, { refetchInterval: 30000 });
 
   if (isLoading) {
     return (
@@ -296,7 +289,7 @@ export default function Dashboard() {
             <p className="text-xs text-slate-400">ปริมาณคงเหลือล่าสุด</p>
           </CardHeader>
           <CardContent className="space-y-4 px-5">
-            {(tanks ?? []).map(t => (
+            {data.tanks.map(t => (
               <div key={t.id}>
                 <div className="mb-1.5 flex justify-between text-sm">
                   <span className="font-medium text-slate-700">{t.name}</span>

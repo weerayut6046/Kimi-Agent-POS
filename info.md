@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build ในเครื่อง `2.0.0`; รุ่นเผยแพร่ `2.0.0`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build ในเครื่อง `2.0.1`; รุ่นเผยแพร่ `2.0.1`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
 
 ## Technology stack
 
@@ -31,6 +31,7 @@
 - [`README.md`](./README.md) — วิธีติดตั้งและเริ่มพัฒนา
 - [`plan.md`](./plan.md) — แผนระบบทั้งหมด
 - [`plan-desktop.md`](./plan-desktop.md) — แผน Desktop และ Auto Update
+- [`docs/database-backup-restore.md`](./docs/database-backup-restore.md) — นโยบาย Backup สองชั้น, การตรวจสอบ และ Restore drill
 
 ## กฎสำคัญ
 
@@ -39,4 +40,5 @@
 - Build Desktop ด้วย `npm run dist:exe`
 - NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator
 - รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
+- ฐานข้อมูลสำรองด้วย Supabase Pro รายวันและ Private GCS ทุก 6 ชั่วโมง; ห้าม Restore ทับ production จากหน้าแอป
 - อย่า commit ไฟล์ฐานข้อมูล, secrets, `dist/` หรือ `release/`

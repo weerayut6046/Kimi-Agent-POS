@@ -17,6 +17,11 @@ import {
   Printer,
   Network,
   Copy,
+  Cloud,
+  Download,
+  RefreshCw,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,6 +74,20 @@ const emptyProduct = {
   stockQty: 0,
   lowStockAt: 0,
 };
+
+function fmtFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function backupTriggerLabel(
+  trigger: "manual" | "scheduled" | "monthly"
+): string {
+  if (trigger === "manual") return "สั่งสำรองเอง";
+  if (trigger === "monthly") return "สำเนารายเดือน";
+  return "อัตโนมัติ";
+}
 
 export default function Settings() {
   const { staff } = useStaff();
@@ -141,6 +160,7 @@ export default function Settings() {
   } | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [downloadingBackup, setDownloadingBackup] = useState("");
 
   // sync ฟอร์มจาก settingMap ด้วย pattern adjust-state-during-render (แทน useEffect เพื่อเลี่ยง cascading render)
   // merge แบบเก็บ keys ที่แก้ค้างไว้ (ค่าต่างจาก snapshot รอบก่อนและยังไม่ตรง server รอบใหม่)
@@ -272,9 +292,40 @@ export default function Settings() {
   });
 
   // ---------- ฐานข้อมูลบน Supabase ----------
-  const { data: dbInfo } = trpc.dbadmin.dbInfo.useQuery(undefined, {
+  const {
+    data: dbInfo,
+    isFetching: dbInfoFetching,
+    refetch: refetchDbInfo,
+  } = trpc.dbadmin.dbInfo.useQuery(undefined, {
     enabled: isAdmin,
+    refetchInterval: 60_000,
   });
+  const backupNow = trpc.dbadmin.backup.useMutation({
+    onSuccess: async result => {
+      await refetchDbInfo();
+      ok(`สำรองข้อมูลสำเร็จ: ${result.backup.fileName}`);
+    },
+    onError: e => fail(e.message),
+  });
+  const downloadBackup = async (objectName: string) => {
+    setDownloadingBackup(objectName);
+    try {
+      const result = await utils.dbadmin.readBackup.fetch({
+        fileName: objectName,
+      });
+      const anchor = document.createElement("a");
+      anchor.href = result.url;
+      anchor.download = "";
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDownloadingBackup("");
+    }
+  };
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1048,20 +1099,179 @@ export default function Settings() {
         </Card>
       )}
 
-      {/* ฐานข้อมูล Supabase (admin) */}
+      {/* ฐานข้อมูลและ Backup (admin) */}
       {isAdmin && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="font-heading text-base flex items-center gap-2">
-              <Database className="w-4 h-4" /> ฐานข้อมูล Supabase (admin)
+              <Database className="w-4 h-4" /> ฐานข้อมูลและการสำรองข้อมูล
+              (admin)
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm">ผู้ให้บริการ: {dbInfo?.dbPath ?? "Supabase PostgreSQL"}</p>
-            <p className="text-xs text-muted-foreground">
-              {dbInfo?.managedBackupMessage ??
-                "การสำรองข้อมูลและกู้คืนทำจาก Supabase Dashboard"}
-            </p>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-medium">
+                    <ShieldCheck className="h-4 w-4 text-emerald-600" />{" "}
+                    Supabase Backup
+                  </div>
+                  <Badge variant="secondary">
+                    แผน {dbInfo?.supabasePlan ?? "Pro"}
+                  </Badge>
+                </div>
+                <p className="text-sm">สำรองอัตโนมัติรายวันโดย Supabase</p>
+                <p className="text-xs text-muted-foreground">
+                  กู้คืนย้อนหลังได้ {dbInfo?.supabaseDailyRetentionDays ?? 7}{" "}
+                  วัน
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Cloud className="h-4 w-4 text-sky-600" /> Private GCS
+                  </div>
+                  <Badge
+                    variant={
+                      dbInfo?.offsiteConfigured ? "default" : "destructive"
+                    }
+                  >
+                    {dbInfo?.offsiteConfigured
+                      ? "พร้อมใช้งาน"
+                      : "ยังไม่ตั้งค่า"}
+                  </Badge>
+                </div>
+                <p className="text-sm">
+                  สำรอง Logical Backup{" "}
+                  {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
+                </p>
+                <p className="break-all text-xs text-muted-foreground">
+                  {dbInfo?.offsiteBucket || "Private bucket กำลังรอการตั้งค่า"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35} วัน ·
+                  รายเดือน {dbInfo?.offsiteMonthlyRetentionDays ?? 370} วัน
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => backupNow.mutate()}
+                disabled={!dbInfo?.offsiteConfigured || backupNow.isPending}
+              >
+                <Database className="mr-1.5 h-4 w-4" />
+                {backupNow.isPending
+                  ? "กำลังสำรองข้อมูล..."
+                  : "สำรองข้อมูลตอนนี้"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void refetchDbInfo()}
+                disabled={dbInfoFetching}
+              >
+                <RefreshCw
+                  className={`mr-1.5 h-4 w-4 ${dbInfoFetching ? "animate-spin" : ""}`}
+                />
+                ตรวจสอบสถานะ
+              </Button>
+              <Button asChild type="button" variant="outline">
+                <a
+                  href={
+                    dbInfo?.supabaseDashboardUrl ??
+                    "https://supabase.com/dashboard"
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  เปิด Supabase Backups
+                </a>
+              </Button>
+            </div>
+
+            {dbInfo?.backupListError && (
+              <p className="text-sm text-destructive">
+                {dbInfo.backupListError}
+              </p>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">ไฟล์สำรองนอกระบบล่าสุด</p>
+                <span className="text-xs text-muted-foreground">
+                  ลิงก์ดาวน์โหลดมีอายุ 15 นาที
+                </span>
+              </div>
+              {dbInfo?.backups.length ? (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>วันที่สำรอง</TableHead>
+                        <TableHead>ประเภท</TableHead>
+                        <TableHead>ขนาด</TableHead>
+                        <TableHead>SHA-256</TableHead>
+                        <TableHead className="text-right">ดาวน์โหลด</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbInfo.backups.slice(0, 12).map(backup => (
+                        <TableRow key={backup.objectName}>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {fmtDateTime(backup.createdAt)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {backupTriggerLabel(backup.trigger)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">
+                            {fmtFileSize(backup.sizeBytes)}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {backup.sha256
+                              ? `${backup.sha256.slice(0, 12)}…`
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                void downloadBackup(backup.objectName)
+                              }
+                              disabled={downloadingBackup === backup.objectName}
+                            >
+                              <Download className="mr-1 h-3.5 w-3.5" />
+                              {downloadingBackup === backup.objectName
+                                ? "กำลังเตรียม..."
+                                : "ดาวน์โหลด"}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
+                  “สำรองข้อมูลตอนนี้”
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="text-xs">
+                {dbInfo?.managedRestoreMessage ??
+                  "การกู้คืนต้องทำลงฐานทดสอบก่อนตรวจสอบและสลับการเชื่อมต่อ ห้ามกู้ทับฐาน production โดยตรง"}
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

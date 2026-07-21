@@ -22,7 +22,9 @@ export function getDb() {
       prepare: false,
       ssl: requiresSsl(env.databaseUrl) ? "require" : false,
       max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
-      idle_timeout: 20,
+      // Keep the pool warm between POS actions. Reconnecting through a remote
+      // pooler costs far more than the queries themselves.
+      idle_timeout: Number(process.env.DATABASE_IDLE_TIMEOUT_SECONDS ?? 300),
       connect_timeout: 10,
     });
     instance = drizzle(client, { schema: fullSchema });
@@ -44,7 +46,7 @@ export async function resetDb() {
 /** Inject an isolated PostgreSQL-compatible database for integration tests. */
 export function setDbForTests(
   db: ReturnType<typeof drizzle<typeof fullSchema>>,
-  cleanup: () => Promise<void>,
+  cleanup: () => Promise<void>
 ) {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("setDbForTests is available only when NODE_ENV=test");

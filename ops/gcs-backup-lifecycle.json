@@ -1,0 +1,18 @@
+{
+  "rule": [
+    {
+      "action": { "type": "Delete" },
+      "condition": {
+        "age": 35,
+        "matchesPrefix": ["scheduled/", "manual/"]
+      }
+    },
+    {
+      "action": { "type": "Delete" },
+      "condition": {
+        "age": 370,
+        "matchesPrefix": ["monthly/"]
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import os from "os";
-import { desc, eq, ne } from "drizzle-orm";
+import { desc, eq, ne, sql } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -387,7 +387,8 @@ export const catalogRouter = createRouter({
       if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
       await db.transaction(async tx => {
         await tx.insert(tankRefills).values(input);
-        await tx.update(fuelTanks)
+        await tx
+          .update(fuelTanks)
           .set({ currentLiters: next })
           .where(eq(fuelTanks.id, input.tankId));
       });
@@ -469,16 +470,15 @@ export const catalogRouter = createRouter({
       const entries = [
         ...new Map(input.entries.map(entry => [entry.key, entry.value])),
       ].map(([key, value]) => ({ key, value }));
-      await db.transaction(async tx => {
-        for (const entry of entries) {
-          await tx.insert(settings)
-            .values(entry)
-            .onConflictDoUpdate({
-              target: settings.key,
-              set: { value: entry.value },
-            });
-        }
-      });
+      if (entries.length > 0) {
+        await db
+          .insert(settings)
+          .values(entries)
+          .onConflictDoUpdate({
+            target: settings.key,
+            set: { value: sql`excluded.value` },
+          });
+      }
 
       // อ่านกลับจากฐานข้อมูลจริงให้ client ใช้เป็น source of truth ทันทีหลังบันทึก
       const rows = await db
