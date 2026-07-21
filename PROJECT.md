@@ -2,14 +2,14 @@
 
 เอกสารนี้เป็นจุดเริ่มต้นสำหรับผู้พัฒนาและผู้ดูแลระบบ อธิบายสถานะ สถาปัตยกรรม วิธีพัฒนา การสำรองข้อมูล และขั้นตอนปล่อยเวอร์ชันของระบบ POS ปั๊มน้ำมัน
 
-> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.21`; รุ่นเผยแพร่บน GCS `1.0.21`; เว็บออนไลน์ deploy ที่ Vercel + Railway (ดูหัวข้อ 11)
+> อัปเดตล่าสุด: 20 กรกฎาคม 2026 — source/build ในเครื่อง `1.0.22`; รุ่นเผยแพร่บน GCS `1.0.22`; เว็บออนไลน์ deploy ที่ Vercel + Railway (ดูหัวข้อ 11)
 
 ## 1. สถานะปัจจุบัน
 
 | รายการ            | สถานะ                                                               |
 | ----------------- | ------------------------------------------------------------------- |
-| เวอร์ชันใน source | `1.0.21`                                                            |
-| รุ่นเผยแพร่ล่าสุด | `1.0.21`                                                            |
+| เวอร์ชันใน source | `1.0.22`                                                            |
+| รุ่นเผยแพร่ล่าสุด | `1.0.22`                                                            |
 | Branch หลัก       | `main`                                                              |
 | รูปแบบใช้งานหลัก  | Windows Desktop (Electron, NSIS installer)                          |
 | รูปแบบเสริม       | Portable `.exe`, Web ผ่าน Docker และ Web ออนไลน์ (Vercel + Railway) |
@@ -20,11 +20,11 @@
 
 ไฟล์ติดตั้งรุ่นล่าสุดที่เผยแพร่:
 
-- [POS-Pump-Setup-1.0.21.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Setup-1.0.21.exe)
-- [POS-Pump-Portable-1.0.21.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Portable-1.0.21.exe)
+- [POS-Pump-Setup-1.0.22.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Setup-1.0.22.exe)
+- [POS-Pump-Portable-1.0.22.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Portable-1.0.22.exe)
 - [latest.yml](https://storage.googleapis.com/kimi-agent-pos-updates/latest.yml)
 
-รุ่น `1.0.21` เผยแพร่แล้วเมื่อ 20 กรกฎาคม 2026 — เพิ่ม Wizard ภาษาไทยพร้อม EULA/โลโก้ KY ติดตั้งแบบ per-machine ใน `Program Files`, ฟีเจอร์พนักงานและตารางงาน (workforce), admin จัดการประวัติตัดกะ และ config deploy เว็บออนไลน์; อัปโหลด installer + Portable + blockmap + `latest.yml` ขึ้น GCS แล้ว (ยังไม่ได้สร้าง git tag เช่นเดียวกับรุ่น `1.0.18`–`1.0.20`)
+รุ่น `1.0.21` เพิ่ม Wizard ภาษาไทยพร้อม EULA/โลโก้ KY ติดตั้งแบบ per-machine ใน `Program Files`, ฟีเจอร์พนักงานและตารางงาน (workforce), admin จัดการประวัติตัดกะ และ config deploy เว็บออนไลน์ ส่วนรุ่น `1.0.22` (เผยแพร่ 20 กรกฎาคม 2026) เพิ่มการบันทึกเลขมิเตอร์เปิด–ปิดรายหัวจ่ายตอนสร้าง/แก้ประวัติตัดกะ พร้อมคำนวณยอดรวมให้อัตโนมัติ — ทุกรุ่นอัปโหลด installer + Portable + blockmap + `latest.yml` ขึ้น GCS แล้ว (ไม่ได้สร้าง git tag เช่นเดียวกับรุ่น `1.0.18` เป็นต้นมา)
 
 ## 2. เป้าหมายและผู้ใช้
 
