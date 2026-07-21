@@ -11,6 +11,7 @@ import {
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 let t: TestDb;
+const r2 = (value: number) => Math.round(value * 100) / 100;
 
 beforeAll(async () => {
   t = await setupTestDb();
@@ -77,6 +78,76 @@ describe("admin จัดการประวัติการตัดกะ"
       limit: 50,
     });
     expect(byId.map(row => row.id)).toContain(shiftId);
+  });
+
+  it("เพิ่มประวัติพร้อมเลขเปิด-ปิดรายหัวจ่ายและคำนวณยอดรวม", async () => {
+    const nozzleRows = (await t.db.query.nozzles.findMany()).filter(
+      nozzle => nozzle.active
+    );
+    expect(nozzleRows.length).toBeGreaterThan(0);
+    const productRows = await t.db.query.products.findMany();
+    const readings = nozzleRows.map((nozzle, index) => ({
+      nozzleId: nozzle.id,
+      openMeter: 1000 + index * 100,
+      closeMeter: 1010.125 + index * 100,
+      openMoney: 10_000 + index * 1000,
+      closeMoney: 10_400 + index * 1000,
+    }));
+    let expectedLiters = 0;
+    let expectedAmount = 0;
+    for (const reading of readings) {
+      const nozzle = nozzleRows.find(row => row.id === reading.nozzleId)!;
+      const price =
+        productRows.find(product => product.id === nozzle.productId)?.price ??
+        0;
+      const liters = r2(reading.closeMeter - reading.openMeter);
+      expectedLiters = r2(expectedLiters + liters);
+      expectedAmount = r2(expectedAmount + r2(liters * price));
+    }
+
+    const created = await t.caller("admin", 1).pos.createShiftHistory({
+      ...historyInput,
+      staffName: "ประวัติพร้อมมิเตอร์",
+      totalLiters: 0,
+      totalAmount: 0,
+      totalMoneyMeter: 0,
+      readings,
+    });
+
+    expect(created).toMatchObject({
+      totalLiters: expectedLiters,
+      totalAmount: expectedAmount,
+      totalMoneyMeter: 400 * readings.length,
+    });
+    const stored = await t.db.query.shifts.findFirst({
+      where: eq(shifts.id, created.id),
+    });
+    expect(stored).toMatchObject({
+      totalLiters: expectedLiters,
+      totalAmount: expectedAmount,
+      totalMoneyMeter: 400 * readings.length,
+    });
+    const storedReadings = await t.db.query.shiftReadings.findMany({
+      where: eq(shiftReadings.shiftId, created.id),
+    });
+    expect(storedReadings).toHaveLength(readings.length);
+    expect(storedReadings[0]).toMatchObject({
+      openMeter: readings[0]?.openMeter,
+      closeMeter: readings[0]?.closeMeter,
+      openMoney: readings[0]?.openMoney,
+      closeMoney: readings[0]?.closeMoney,
+    });
+
+    await expect(
+      t.caller("admin", 1).pos.createShiftHistory({
+        ...historyInput,
+        readings: readings.map((reading, index) =>
+          index === 0
+            ? { ...reading, closeMeter: reading.openMeter - 1 }
+            : reading
+        ),
+      })
+    ).rejects.toThrow("เลขลิตรปิดกะ");
   });
 
   it("admin แก้ไขข้อมูลสรุปของกะปิดแล้วได้", async () => {

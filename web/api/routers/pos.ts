@@ -51,7 +51,21 @@ const shiftHistoryFields = {
 };
 
 const shiftHistoryRecordInput = z
-  .object(shiftHistoryFields)
+  .object({
+    ...shiftHistoryFields,
+    readings: z
+      .array(
+        z.object({
+          nozzleId: z.number().int().positive(),
+          openMeter: z.number().nonnegative(),
+          closeMeter: z.number().nonnegative(),
+          openMoney: z.number().nonnegative(),
+          closeMoney: z.number().nonnegative(),
+        })
+      )
+      .min(1)
+      .optional(),
+  })
   .refine(value => value.closedAt >= value.openedAt, {
     message: "เวลาปิดกะต้องไม่ก่อนเวลาเปิดกะ",
     path: ["closedAt"],
@@ -447,33 +461,99 @@ export const posRouter = createRouter({
     .input(shiftHistoryRecordInput)
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const [{ id }] = await db
-        .insert(shifts)
-        .values({
-          ...input,
-          staffId: input.staffId ?? null,
-          status: "closed",
-          totalLiters: r2(input.totalLiters),
-          totalAmount: r2(input.totalAmount),
-          totalMoneyMeter: r2(input.totalMoneyMeter),
-          posAmount: r2(input.posAmount),
-          openingFloat: r2(input.openingFloat),
-          countedCash: input.countedCash == null ? null : r2(input.countedCash),
-          transferAmount:
-            input.transferAmount == null ? null : r2(input.transferAmount),
-          expectedCash:
-            input.expectedCash == null ? null : r2(input.expectedCash),
-          note: input.note || null,
-        })
-        .returning({ id: shifts.id });
+      const { readings: readingValues, ...values } = input;
+      let totalLiters = r2(values.totalLiters);
+      let totalAmount = r2(values.totalAmount);
+      let totalMoneyMeter = r2(values.totalMoneyMeter);
+      const preparedReadings: Array<{
+        nozzleId: number;
+        openMeter: number;
+        closeMeter: number;
+        openMoney: number;
+        closeMoney: number;
+        pricePerLiter: number;
+      }> = [];
+
+      if (readingValues) {
+        const [nozzleRows, productRows] = await Promise.all([
+          db.query.nozzles.findMany(),
+          db.query.products.findMany(),
+        ]);
+        const activeNozzles = nozzleRows.filter(nozzle => nozzle.active);
+        if (
+          readingValues.length !== activeNozzles.length ||
+          new Set(readingValues.map(reading => reading.nozzleId)).size !==
+            readingValues.length
+        ) {
+          throw new Error("ข้อมูลหัวจ่ายของกะไม่ครบหรือซ้ำกัน");
+        }
+        totalLiters = 0;
+        totalAmount = 0;
+        totalMoneyMeter = 0;
+        for (const reading of readingValues) {
+          const nozzle = activeNozzles.find(row => row.id === reading.nozzleId);
+          if (!nozzle) throw new Error("ไม่พบหัวจ่ายในข้อมูลกะ");
+          if (reading.closeMeter < reading.openMeter) {
+            throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
+          }
+          if (reading.closeMoney < reading.openMoney) {
+            throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
+          }
+          const product = productRows.find(row => row.id === nozzle.productId);
+          const pricePerLiter = product?.price ?? 0;
+          const liters = r2(reading.closeMeter - reading.openMeter);
+          const money = r2(reading.closeMoney - reading.openMoney);
+          totalLiters = r2(totalLiters + liters);
+          totalAmount = r2(totalAmount + r2(liters * pricePerLiter));
+          totalMoneyMeter = r2(totalMoneyMeter + money);
+          preparedReadings.push({
+            nozzleId: reading.nozzleId,
+            openMeter: reading.openMeter,
+            closeMeter: reading.closeMeter,
+            openMoney: r2(reading.openMoney),
+            closeMoney: r2(reading.closeMoney),
+            pricePerLiter: r2(pricePerLiter),
+          });
+        }
+      }
+
+      const id = db.transaction(tx => {
+        const created = tx
+          .insert(shifts)
+          .values({
+            ...values,
+            staffId: values.staffId ?? null,
+            status: "closed",
+            totalLiters,
+            totalAmount,
+            totalMoneyMeter,
+            posAmount: r2(values.posAmount),
+            openingFloat: r2(values.openingFloat),
+            countedCash:
+              values.countedCash == null ? null : r2(values.countedCash),
+            transferAmount:
+              values.transferAmount == null ? null : r2(values.transferAmount),
+            expectedCash:
+              values.expectedCash == null ? null : r2(values.expectedCash),
+            note: values.note || null,
+          })
+          .returning({ id: shifts.id })
+          .get();
+        for (const reading of preparedReadings) {
+          tx.insert(shiftReadings)
+            .values({ shiftId: created.id, ...reading })
+            .run();
+        }
+        return created.id;
+      });
       logAudit({
         action: "create_shift_history",
         ...actorFromReq(ctx.req),
-        detail: `เพิ่มประวัติตัดกะ #${id} (${input.staffName}) เปิด ${input.openedAt.toISOString()} ปิด ${input.closedAt.toISOString()}`,
+        detail: `เพิ่มประวัติตัดกะ #${id} (${values.staffName}) เปิด ${values.openedAt.toISOString()} ปิด ${values.closedAt.toISOString()}${readingValues ? ` พร้อมเลขมิเตอร์ ${readingValues.length} หัวจ่าย` : ""}`,
         refType: "shift",
         refId: id,
       });
-      return { ok: true, id };
+      return { ok: true, id, totalLiters, totalAmount, totalMoneyMeter };
     }),
 
   updateShiftHistory: adminQuery

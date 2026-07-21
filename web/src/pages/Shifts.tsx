@@ -91,9 +91,9 @@ type HistoryReadingForm = {
   nozzleId: number;
   label: string;
   productName: string;
-  openMeter: number;
+  openMeter: number | string;
   closeMeter: string;
-  openMoney: number;
+  openMoney: number | string;
   closeMoney: string;
   pricePerLiter: number;
 };
@@ -111,7 +111,7 @@ function toDateTimeLocal(value: Date | string | number) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function newHistoryForm(): HistoryForm {
+function newHistoryForm(readings: HistoryReadingForm[]): HistoryForm {
   const closedAt = new Date();
   const openedAt = new Date(closedAt.getTime() - 8 * 60 * 60 * 1000);
   return {
@@ -128,37 +128,50 @@ function newHistoryForm(): HistoryForm {
     transferAmount: "",
     expectedCash: "",
     note: "",
-    readings: null,
+    readings,
   };
 }
 
-function getHistoryReadingPreview(readings: HistoryReadingForm[] | null) {
+function getHistoryReadingPreview(
+  readings: HistoryReadingForm[] | null,
+  countZeroOpeningMoney = false
+) {
   if (!readings?.length) return null;
   let totalLiters = 0;
   let totalAmount = 0;
   let totalMoneyMeter = 0;
   let valid = true;
   for (const reading of readings) {
-    if (reading.closeMeter === "" || reading.closeMoney === "") {
+    if (
+      reading.openMeter === "" ||
+      reading.openMoney === "" ||
+      reading.closeMeter === "" ||
+      reading.closeMoney === ""
+    ) {
       valid = false;
       continue;
     }
     const closeMeter = Number(reading.closeMeter);
     const closeMoney = Number(reading.closeMoney);
+    const openMeter = Number(reading.openMeter);
+    const openMoney = Number(reading.openMoney);
+    const tracksMoney = countZeroOpeningMoney || openMoney > 0;
     if (
       !Number.isFinite(closeMeter) ||
       !Number.isFinite(closeMoney) ||
-      closeMeter < reading.openMeter ||
-      (reading.openMoney > 0 && closeMoney < reading.openMoney)
+      !Number.isFinite(openMeter) ||
+      !Number.isFinite(openMoney) ||
+      closeMeter < openMeter ||
+      (tracksMoney && closeMoney < openMoney)
     ) {
       valid = false;
       continue;
     }
-    const liters = r2(closeMeter - reading.openMeter);
+    const liters = r2(closeMeter - openMeter);
     totalLiters = r2(totalLiters + liters);
     totalAmount = r2(totalAmount + liters * reading.pricePerLiter);
-    if (reading.openMoney > 0) {
-      totalMoneyMeter = r2(totalMoneyMeter + closeMoney - reading.openMoney);
+    if (tracksMoney) {
+      totalMoneyMeter = r2(totalMoneyMeter + closeMoney - openMoney);
     }
   }
   return { totalLiters, totalAmount, totalMoneyMeter, valid };
@@ -190,6 +203,7 @@ function HistoryMeterEditor({
   readings,
   preview,
   onChange,
+  editableOpening = false,
 }: {
   readings: HistoryReadingForm[];
   preview: {
@@ -199,6 +213,7 @@ function HistoryMeterEditor({
     valid: boolean;
   };
   onChange: (readings: HistoryReadingForm[]) => void;
+  editableOpening?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -206,19 +221,20 @@ function HistoryMeterEditor({
         {readings.map((reading, index) => {
           const closeMeter = Number(reading.closeMeter);
           const closeMoney = Number(reading.closeMoney);
+          const openMeter = Number(reading.openMeter);
+          const openMoney = Number(reading.openMoney);
+          const tracksMoney = editableOpening || openMoney > 0;
           const meterInvalid =
-            reading.closeMeter !== "" && closeMeter < reading.openMeter;
+            reading.closeMeter !== "" && closeMeter < openMeter;
           const moneyInvalid =
-            reading.closeMoney !== "" &&
-            reading.openMoney > 0 &&
-            closeMoney < reading.openMoney;
+            reading.closeMoney !== "" && tracksMoney && closeMoney < openMoney;
           const litersSold =
             reading.closeMeter !== "" && !meterInvalid
-              ? r2(closeMeter - reading.openMeter)
+              ? r2(closeMeter - openMeter)
               : null;
           const meterSales =
-            reading.closeMoney !== "" && reading.openMoney > 0 && !moneyInvalid
-              ? r2(closeMoney - reading.openMoney)
+            reading.closeMoney !== "" && tracksMoney && !moneyInvalid
+              ? r2(closeMoney - openMoney)
               : null;
           const moneyInputId = "history-close-money-" + reading.nozzleId;
           const meterInputId = "history-close-meter-" + reading.nozzleId;
@@ -255,12 +271,61 @@ function HistoryMeterEditor({
                       htmlFor={moneyInputId}
                       className="text-xs font-semibold text-slate-700"
                     >
-                      มิเตอร์ P ปิดกะ
+                      {editableOpening ? "มิเตอร์ P" : "มิเตอร์ P ปิดกะ"}
                     </Label>
-                    <span className="text-[11px] text-slate-400">
-                      เริ่ม ฿{fmtNum(reading.openMoney)}
-                    </span>
+                    {!editableOpening && (
+                      <span className="text-[11px] text-slate-400">
+                        เริ่ม ฿{fmtNum(openMoney)}
+                      </span>
+                    )}
                   </div>
+                  {editableOpening && (
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor={`history-open-money-${reading.nozzleId}`}
+                        className="text-[11px] font-medium text-slate-500"
+                      >
+                        P ตั้งต้น
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                          ฿
+                        </span>
+                        <Input
+                          id={`history-open-money-${reading.nozzleId}`}
+                          aria-label={reading.label + " P ตั้งต้น"}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          required
+                          className="rounded-xl bg-slate-50 pl-8 font-medium tabular-nums"
+                          value={String(reading.openMoney)}
+                          onChange={event =>
+                            onChange(
+                              readings.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      openMoney: event.target.value,
+                                    }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <Label
+                    htmlFor={moneyInputId}
+                    className={
+                      editableOpening
+                        ? "text-[11px] font-medium text-slate-500"
+                        : "sr-only"
+                    }
+                  >
+                    P ปิดกะ
+                  </Label>
                   <div className="relative">
                     <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
                       ฿
@@ -270,7 +335,7 @@ function HistoryMeterEditor({
                       aria-label={reading.label + " P ปิดกะ"}
                       aria-invalid={moneyInvalid}
                       type="number"
-                      min={reading.openMoney}
+                      min={openMoney}
                       step="0.01"
                       required
                       className="rounded-xl bg-white pl-8 font-medium tabular-nums"
@@ -299,19 +364,68 @@ function HistoryMeterEditor({
                       htmlFor={meterInputId}
                       className="text-xs font-semibold text-slate-700"
                     >
-                      มิเตอร์ L ปิดกะ
+                      {editableOpening ? "มิเตอร์ L" : "มิเตอร์ L ปิดกะ"}
                     </Label>
-                    <span className="text-[11px] text-slate-400">
-                      เริ่ม {fmtNum(reading.openMeter)}
-                    </span>
+                    {!editableOpening && (
+                      <span className="text-[11px] text-slate-400">
+                        เริ่ม {fmtNum(openMeter)}
+                      </span>
+                    )}
                   </div>
+                  {editableOpening && (
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor={`history-open-meter-${reading.nozzleId}`}
+                        className="text-[11px] font-medium text-slate-500"
+                      >
+                        L ตั้งต้น
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id={`history-open-meter-${reading.nozzleId}`}
+                          aria-label={reading.label + " L ตั้งต้น"}
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          required
+                          className="rounded-xl bg-slate-50 pr-12 font-medium tabular-nums"
+                          value={String(reading.openMeter)}
+                          onChange={event =>
+                            onChange(
+                              readings.map((item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      openMeter: event.target.value,
+                                    }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                          ลิตร
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <Label
+                    htmlFor={meterInputId}
+                    className={
+                      editableOpening
+                        ? "text-[11px] font-medium text-slate-500"
+                        : "sr-only"
+                    }
+                  >
+                    L ปิดกะ
+                  </Label>
                   <div className="relative">
                     <Input
                       id={meterInputId}
                       aria-label={reading.label + " L ปิดกะ"}
                       aria-invalid={meterInvalid}
                       type="number"
-                      min={reading.openMeter}
+                      min={openMeter}
                       step="0.001"
                       required
                       className="rounded-xl bg-white pr-12 font-medium tabular-nums"
@@ -641,15 +755,22 @@ export default function Shifts() {
 
   const submitHistoryForm = () => {
     if (!historyForm) return;
+    const previewTotals =
+      historyForm.readings?.length && historyReadingPreview
+        ? historyReadingPreview
+        : null;
     const values = {
       staffId:
         historyForm.staffId === "manual" ? null : Number(historyForm.staffId),
       staffName: historyForm.staffName,
       openedAt: new Date(historyForm.openedAt),
       closedAt: new Date(historyForm.closedAt),
-      totalLiters: Number(historyForm.totalLiters),
-      totalAmount: Number(historyForm.totalAmount),
-      totalMoneyMeter: Number(historyForm.totalMoneyMeter),
+      totalLiters:
+        previewTotals?.totalLiters ?? Number(historyForm.totalLiters),
+      totalAmount:
+        previewTotals?.totalAmount ?? Number(historyForm.totalAmount),
+      totalMoneyMeter:
+        previewTotals?.totalMoneyMeter ?? Number(historyForm.totalMoneyMeter),
       posAmount: Number(historyForm.posAmount),
       openingFloat: Number(historyForm.openingFloat),
       countedCash:
@@ -679,7 +800,16 @@ export default function Shifts() {
           : {}),
       });
     } else {
-      createShiftHistory.mutate(values);
+      createShiftHistory.mutate({
+        ...values,
+        readings: historyForm.readings?.map(reading => ({
+          nozzleId: reading.nozzleId,
+          openMeter: Number(reading.openMeter),
+          closeMeter: Number(reading.closeMeter),
+          openMoney: Number(reading.openMoney),
+          closeMoney: Number(reading.closeMoney),
+        })),
+      });
     }
   };
 
@@ -691,7 +821,10 @@ export default function Shifts() {
     [pumps]
   );
 
-  const historyReadingPreview = getHistoryReadingPreview(historyReadings);
+  const historyReadingPreview = getHistoryReadingPreview(
+    historyReadings,
+    historyForm?.id == null
+  );
   const historyTiming = getHistoryTiming(
     historyForm?.openedAt,
     historyForm?.closedAt
@@ -1157,10 +1290,28 @@ export default function Shifts() {
           </CardTitle>
           {isAdmin && (
             <Button
+              disabled={!pumps}
               onClick={() => {
                 setNotice("");
                 setErr("");
-                setHistoryForm(newHistoryForm());
+                if (nozzleList.length === 0) {
+                  setErr("ไม่พบหัวจ่ายที่เปิดใช้งาน กรุณาตั้งค่าหัวจ่ายก่อน");
+                  return;
+                }
+                setHistoryForm(
+                  newHistoryForm(
+                    nozzleList.map(nozzle => ({
+                      nozzleId: nozzle.id,
+                      label: nozzle.label,
+                      productName: nozzle.product?.name ?? "ไม่ทราบชนิดน้ำมัน",
+                      openMeter: String(nozzle.currentMeter),
+                      closeMeter: "",
+                      openMoney: String(nozzle.currentMoney),
+                      closeMoney: "",
+                      pricePerLiter: nozzle.product?.price ?? 0,
+                    }))
+                  )
+                );
               }}
             >
               <Plus className="mr-2 h-4 w-4" /> เพิ่มประวัติ
@@ -1620,16 +1771,21 @@ export default function Shifts() {
                           </div>
                           <div>
                             <h3 className="text-sm font-bold text-slate-900">
-                              เลขมิเตอร์ปิดกะ
+                              {historyForm.id
+                                ? "เลขมิเตอร์ปิดกะ"
+                                : "เลขมิเตอร์เปิด–ปิดกะ"}
                             </h3>
                             <p className="text-[11px] text-slate-500">
-                              กรอกเลขปลายทาง ระบบจะคำนวณยอดรวมให้อัตโนมัติ
+                              {historyForm.id
+                                ? "กรอกเลขปลายทาง ระบบจะคำนวณยอดรวมให้อัตโนมัติ"
+                                : "ตรวจเลขตั้งต้นและกรอกเลขปิดกะ ระบบจะคำนวณยอดรวมให้อัตโนมัติ"}
                             </p>
                           </div>
                         </div>
                         <HistoryMeterEditor
                           readings={historyReadings}
                           preview={historyReadingPreview}
+                          editableOpening={historyForm.id == null}
                           onChange={readings =>
                             setHistoryForm({ ...historyForm, readings })
                           }
@@ -1844,7 +2000,7 @@ export default function Shifts() {
                       !historyForm.openedAt ||
                       !historyForm.closedAt ||
                       historyTiming.invalid ||
-                      (historyForm.id != null && historyReadings === null) ||
+                      !historyReadings?.length ||
                       historyReadingPreview?.valid === false ||
                       createShiftHistory.isPending ||
                       updateShiftHistory.isPending
