@@ -29,6 +29,7 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -149,6 +150,7 @@ export default function Layout() {
     refetchInterval: 30000,
   });
   const [now, setNow] = useState(() => new Date());
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const shopName = settingMap?.shop_name ?? "PumpPOS";
   const visibleMenus = useMemo(
     () =>
@@ -197,6 +199,7 @@ export default function Layout() {
       <NavLink
         to={menu.to}
         end={menu.end}
+        onClick={closeOnClick ? () => setMobileMenuOpen(false) : undefined}
         className={({ isActive }) =>
           cn(
             "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
@@ -227,11 +230,11 @@ export default function Layout() {
       </NavLink>
     );
 
-    return closeOnClick ? <SheetClose asChild>{link}</SheetClose> : link;
+    return link;
   };
 
   return (
-    <Sheet>
+    <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
       <div className="flex min-h-[100dvh] bg-background">
         <aside className="fixed inset-y-0 z-30 hidden w-[276px] flex-col overflow-hidden bg-[#091a36] text-white lg:flex">
           <div className="pointer-events-none absolute -right-20 top-16 size-52 rounded-full bg-blue-500/[0.12] blur-3xl" />
@@ -464,7 +467,9 @@ export default function Layout() {
             <SheetTitle className="font-heading text-base font-semibold text-white">
               {shopName}
             </SheetTitle>
-            <p className="text-[11px] text-white/[0.45]">เมนูจัดการสถานี</p>
+            <SheetDescription className="text-[11px] text-white/[0.55]">
+              เมนูจัดการสถานี
+            </SheetDescription>
           </SheetHeader>
           <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 station-scrollbar">
             {(["station", "customer", "document", "system"] as const).map(
