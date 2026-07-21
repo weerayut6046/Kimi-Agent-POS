@@ -51,5 +51,9 @@ coverage/
 # Scratch test DBs from shift-history UI work
 .codex-shift-history-ui/
 
+# Code-signing private key + password — ห้าม commit (เก็บเฉพาะ .cer สาธารณะ)
+desktop/certs/*.pfx
+desktop/certs/pfx-password.txt
+
 .vercel
 .env*

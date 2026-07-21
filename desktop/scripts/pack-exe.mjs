@@ -67,6 +67,20 @@ fs.mkdirSync(releaseDir, { recursive: true });
 console.log(`>> better-sqlite3 ${bsVer}: สลับเป็น Electron ABI v${eAbi} (Electron ${electronVer})`);
 fs.copyFileSync(electronBin, bindingFile);
 
+// code signing: ถ้ามี self-signed cert ใน desktop/certs ให้ sign ทุก target (exe/installer/portable)
+// ผ่านตัวแปรมาตรฐานของ electron-builder — เครื่องอื่นที่ไม่มี pfx จะ build แบบ unsigned เหมือนเดิม
+const pfxFile = path.join(root, "desktop", "certs", "pumpos-codesign.pfx");
+const pfxPassFile = path.join(root, "desktop", "certs", "pfx-password.txt");
+if (fs.existsSync(pfxFile)) {
+  process.env.CSC_LINK = pfxFile;
+  process.env.CSC_KEY_PASSWORD = fs.existsSync(pfxPassFile)
+    ? fs.readFileSync(pfxPassFile, "utf8").trim()
+    : "";
+  console.log(">> พบ code-signing certificate — sign build นี้ (self-signed)");
+} else {
+  console.log(">> ไม่พบ desktop/certs/pumpos-codesign.pfx — build แบบ unsigned");
+}
+
 let code = 1;
 try {
   // ส่งอาร์กิวเมนต์เพิ่มเติมต่อให้ electron-builder ได้ เช่น -c.directories.output=release2
