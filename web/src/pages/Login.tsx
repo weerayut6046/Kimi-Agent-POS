@@ -229,11 +229,14 @@ export default function Login() {
                   <Input
                     id="login-pin"
                     type={showPin ? "text" : "password"}
-                    inputMode="numeric"
+                    inputMode="text"
                     value={pin}
                     onChange={e => setPin(e.target.value)}
                     placeholder="••••"
                     autoComplete="current-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="h-12 bg-slate-50/80 pl-11 pr-12 text-lg tracking-[0.22em] focus:bg-white"
                   />
                   <button
