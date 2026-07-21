@@ -2,7 +2,7 @@ export const fmtMoney = (n: number) =>
   n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const fmtNum = (n: number) =>
-  n.toLocaleString("th-TH", { maximumFractionDigits: 2 });
+  n.toLocaleString("th-TH", { maximumFractionDigits: 3 });
 
 export const fmtDate = (d: Date | string) =>
   new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });

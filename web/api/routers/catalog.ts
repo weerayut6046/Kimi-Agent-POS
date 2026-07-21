@@ -16,6 +16,26 @@ import {
   shifts,
 } from "@db/schema";
 
+const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
+
+function parseTankDisplayOrder(value: string | null | undefined): number[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed.filter(
+          (id): id is number =>
+            typeof id === "number" && Number.isInteger(id) && id > 0
+        )
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export const catalogRouter = createRouter({
   // ---------- สินค้า ----------
   listProducts: publicQuery.query(async () => {
@@ -231,17 +251,90 @@ export const catalogRouter = createRouter({
   // ---------- ถังน้ำมัน ----------
   listTanks: publicQuery.query(async () => {
     const db = getDb();
-    const [tankRows, prodRows] = await Promise.all([
+    const [tankRows, prodRows, nozzleRows, savedOrder] = await Promise.all([
       db.query.fuelTanks.findMany(),
       db.query.products.findMany(),
+      db.query.nozzles.findMany(),
+      db.query.settings.findFirst({
+        where: eq(settings.key, TANK_DISPLAY_ORDER_KEY),
+      }),
     ]);
-    return tankRows.map(t => ({
-      ...t,
-      product: prodRows.find(p => p.id === t.productId) ?? null,
-      percent: Math.round((t.currentLiters / t.capacityLiters) * 100),
-      isLow: t.currentLiters <= t.lowAlertAt,
-    }));
+    const firstNozzleByTank = new Map<number, number>();
+    for (const nozzle of nozzleRows) {
+      if (nozzle.tankId == null) continue;
+      const current = firstNozzleByTank.get(nozzle.tankId);
+      if (current == null || nozzle.id < current) {
+        firstNozzleByTank.set(nozzle.tankId, nozzle.id);
+      }
+    }
+    const displayOrder = parseTankDisplayOrder(savedOrder?.value);
+    const displayIndex = new Map(
+      displayOrder.map((tankId, index) => [tankId, index])
+    );
+    // ใช้ลำดับที่ผู้ใช้บันทึก; ถังใหม่/ยังไม่เคยจัดเรียงต่อท้ายตามตำแหน่งหัวจ่าย
+    return tankRows
+      .sort((a, b) => {
+        const savedA = displayIndex.get(a.id);
+        const savedB = displayIndex.get(b.id);
+        if (savedA != null && savedB != null) return savedA - savedB;
+        if (savedA != null) return -1;
+        if (savedB != null) return 1;
+        return (
+          (firstNozzleByTank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+            (firstNozzleByTank.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+          a.id - b.id
+        );
+      })
+      .map(t => ({
+        ...t,
+        product: prodRows.find(p => p.id === t.productId) ?? null,
+        percent: Math.round((t.currentLiters / t.capacityLiters) * 100),
+        isLow: t.currentLiters <= t.lowAlertAt,
+      }));
   }),
+
+  reorderTanks: adminQuery
+    .input(
+      z.object({
+        tankIds: z.array(z.number().int().positive()).min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tankIds = [...new Set(input.tankIds)];
+      if (tankIds.length !== input.tankIds.length) {
+        throw new Error("ลำดับถังมีรายการซ้ำ กรุณาลองใหม่");
+      }
+
+      const db = getDb();
+      const currentTanks = await db.query.fuelTanks.findMany({
+        columns: { id: true },
+      });
+      const currentIds = new Set(currentTanks.map(tank => tank.id));
+      if (
+        tankIds.length !== currentIds.size ||
+        tankIds.some(tankId => !currentIds.has(tankId))
+      ) {
+        throw new Error("รายการถังมีการเปลี่ยนแปลง กรุณารีเฟรชแล้วลองใหม่");
+      }
+
+      await db
+        .insert(settings)
+        .values({
+          key: TANK_DISPLAY_ORDER_KEY,
+          value: JSON.stringify(tankIds),
+        })
+        .onConflictDoUpdate({
+          target: settings.key,
+          set: { value: JSON.stringify(tankIds) },
+        });
+      logAudit({
+        action: "reorder_tanks",
+        ...actorFromReq(ctx.req),
+        detail: `จัดลำดับถังน้ำมัน: ${tankIds.join(" → ")}`,
+        refType: "fuel_tank",
+      });
+      return { ok: true, tankIds };
+    }),
 
   // รายการแจ้งเตือนสต็อกต่ำ: ถังน้ำมันใกล้หมด + สินค้า (ไม่ใช่น้ำมัน) ต่ำกว่าเกณฑ์
   // ใช้โดยกระดิ่งแจ้งเตือนใน Layout ที่โพลเป็นระยะ — เงื่อนไขต้องตรงกับ pos.dashboard

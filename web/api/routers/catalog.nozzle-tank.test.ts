@@ -12,6 +12,40 @@ beforeAll(async () => {
 afterAll(() => t.cleanup());
 
 describe("การผูกหัวจ่ายกับถังน้ำมัน", () => {
+  it("คืนรายการถังตามตำแหน่งหัวจ่ายเพื่อให้ตู้หน้าอยู่ก่อนตู้หลัง", async () => {
+    const tanks = await t.caller().catalog.listTanks();
+    const pumps = await t.caller().catalog.listPumps();
+    const nozzles = pumps.flatMap(pump => pump.nozzles);
+    const firstNozzleIds = tanks.map(tank =>
+      Math.min(
+        ...nozzles
+          .filter(nozzle => nozzle.tankId === tank.id)
+          .map(nozzle => nozzle.id)
+      )
+    );
+
+    expect(firstNozzleIds).toEqual([...firstNozzleIds].sort((a, b) => a - b));
+  });
+
+  it("admin ลากสลับและบันทึกลำดับถังถาวรได้", async () => {
+    const original = await t.caller().catalog.listTanks();
+    const reversedIds = original.map(tank => tank.id).reverse();
+
+    await expect(
+      t.caller("cashier").catalog.reorderTanks({ tankIds: reversedIds })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+
+    await t.caller("admin").catalog.reorderTanks({ tankIds: reversedIds });
+    const reordered = await t.caller().catalog.listTanks();
+    expect(reordered.map(tank => tank.id)).toEqual(reversedIds);
+
+    await expect(
+      t.caller("admin").catalog.reorderTanks({
+        tankIds: [reversedIds[0]!, reversedIds[0]!],
+      })
+    ).rejects.toThrow("รายการซ้ำ");
+  });
+
   it("seed ผูกทุกหัวจ่ายกับถังชนิดเดียวกัน", async () => {
     const pumps = await t.caller().catalog.listPumps();
     const nozzleRows = pumps.flatMap(pump => pump.nozzles);

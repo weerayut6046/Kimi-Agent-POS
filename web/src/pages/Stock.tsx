@@ -1,4 +1,22 @@
-import { useState, type CSSProperties } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Fuel,
   Package,
@@ -10,6 +28,7 @@ import {
   Gauge,
   BellRing,
   ShieldCheck,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,6 +112,58 @@ function TankLevelVisual({
   );
 }
 
+function SortableTankItem({
+  id,
+  label,
+  enabled,
+  saving,
+  children,
+}: {
+  id: number;
+  label: string;
+  enabled: boolean;
+  saving: boolean;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !enabled || saving });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 30 : undefined,
+      }}
+      className={`relative ${isDragging ? "scale-[1.02] opacity-90 drop-shadow-2xl" : ""}`}
+    >
+      {enabled && (
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          disabled={saving}
+          className="absolute right-4 top-[18px] z-20 grid size-9 touch-none place-items-center rounded-xl border border-violet-100 bg-white/90 text-violet-500 shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 active:cursor-grabbing disabled:cursor-wait disabled:opacity-50 md:cursor-grab"
+          aria-label={`ลากเพื่อย้ายตำแหน่ง ${label}`}
+          title="กดค้างแล้วลากเพื่อสลับตำแหน่ง"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export default function Stock() {
   const utils = trpc.useUtils();
   const { staff } = useStaff();
@@ -100,6 +171,16 @@ export default function Stock() {
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: refills } = trpc.catalog.listRefills.useQuery();
+  const orderedTanks = tanks;
+  const tankSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const [refillTank, setRefillTank] = useState<{
     id: number;
@@ -125,6 +206,8 @@ export default function Stock() {
     lowAlertAt: string;
   } | null>(null);
   const [err, setErr] = useState("");
+
+  const reorderTanksMut = trpc.catalog.reorderTanks.useMutation();
 
   const createTankMut = trpc.catalog.createTank.useMutation({
     onSuccess: () => {
@@ -175,6 +258,31 @@ export default function Stock() {
     onError: e => setErr(e.message),
   });
 
+  const handleTankDragEnd = async ({ active, over }: DragEndEvent) => {
+    if (!isAdmin || !over || active.id === over.id || !orderedTanks) return;
+    const oldIndex = orderedTanks.findIndex(tank => tank.id === active.id);
+    const newIndex = orderedTanks.findIndex(tank => tank.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const previous = orderedTanks;
+    const next = arrayMove(orderedTanks, oldIndex, newIndex);
+    utils.catalog.listTanks.setData(undefined, next);
+    setErr("");
+    try {
+      await reorderTanksMut.mutateAsync({
+        tankIds: next.map(tank => tank.id),
+      });
+      await utils.catalog.listTanks.invalidate();
+    } catch (error) {
+      utils.catalog.listTanks.setData(undefined, previous);
+      setErr(
+        error instanceof Error
+          ? error.message
+          : "บันทึกลำดับถังไม่สำเร็จ กรุณาลองใหม่"
+      );
+    }
+  };
+
   const goods = (products ?? []).filter(p => p.category !== "fuel");
   const fuelProducts = (products ?? []).filter(
     p => p.category === "fuel" && p.active
@@ -216,167 +324,202 @@ export default function Stock() {
           </Button>
         )}
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {(tanks ?? []).map(t => {
-          const statusLabel = t.isLow
-            ? "ระดับต่ำ"
-            : t.percent >= 80
-              ? "เกือบเต็ม"
-              : "พร้อมใช้งาน";
+      {isAdmin && (
+        <div className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs font-medium text-violet-700">
+          <GripVertical className="size-4" />
+          {reorderTanksMut.isPending
+            ? "กำลังบันทึกลำดับถัง..."
+            : "กดค้างที่ปุ่มจับบนการ์ด แล้วลากเพื่อสลับตำแหน่ง"}
+        </div>
+      )}
+      <DndContext
+        sensors={tankSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleTankDragEnd}
+      >
+        <SortableContext
+          items={(orderedTanks ?? []).map(tank => tank.id)}
+          strategy={rectSortingStrategy}
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {(orderedTanks ?? []).map(t => {
+              const statusLabel = t.isLow
+                ? "ระดับต่ำ"
+                : t.percent >= 80
+                  ? "เกือบเต็ม"
+                  : "พร้อมใช้งาน";
 
-          return (
-            <Card
-              key={t.id}
-              className={`interactive-card spotlight-card group gap-0 overflow-hidden py-0 ${
-                t.isLow ? "border-red-200/90 ring-red-100" : "border-white/90"
-              }`}
-            >
-              <div
-                className={`h-1.5 bg-gradient-to-r ${
-                  t.isLow
-                    ? "from-red-500 via-rose-400 to-orange-400"
-                    : "from-violet-600 via-indigo-500 to-cyan-400"
-                }`}
-              />
-              <CardHeader className="flex-row items-center justify-between gap-3 border-b border-slate-100/80 px-5 py-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div
-                    className={`grid size-10 shrink-0 place-items-center rounded-2xl shadow-inner ring-1 ring-white ${
+              return (
+                <SortableTankItem
+                  key={t.id}
+                  id={t.id}
+                  label={t.name}
+                  enabled={isAdmin}
+                  saving={reorderTanksMut.isPending}
+                >
+                  <Card
+                    className={`interactive-card spotlight-card group gap-0 overflow-hidden py-0 ${
                       t.isLow
-                        ? "bg-red-50 text-red-600"
-                        : "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"
+                        ? "border-red-200/90 ring-red-100"
+                        : "border-white/90"
                     }`}
                   >
-                    <Fuel className="size-[18px]" />
-                  </div>
-                  <div className="min-w-0">
-                    <CardTitle className="truncate font-heading text-base font-bold text-slate-900">
-                      {t.name}
-                    </CardTitle>
-                    <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                      Tank telemetry
-                    </div>
-                  </div>
-                </div>
-                <div
-                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                    t.isLow
-                      ? "bg-red-50 text-red-700 ring-1 ring-red-100"
-                      : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                  }`}
-                >
-                  {t.isLow ? (
-                    <AlertTriangle className="size-3" />
-                  ) : (
-                    <ShieldCheck className="size-3" />
-                  )}
-                  {statusLabel}
-                </div>
-              </CardHeader>
-
-              <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
-                <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
-                  <TankLevelVisual percent={t.percent} isLow={t.isLow} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
-                      น้ำมันคงเหลือ
-                    </div>
                     <div
-                      className={`mt-1 font-heading text-2xl font-extrabold number-display ${
-                        t.isLow ? "text-red-600" : "text-slate-950"
+                      className={`h-1.5 bg-gradient-to-r ${
+                        t.isLow
+                          ? "from-red-500 via-rose-400 to-orange-400"
+                          : "from-violet-600 via-indigo-500 to-cyan-400"
+                      }`}
+                    />
+                    <CardHeader
+                      className={`flex-row items-center justify-between gap-3 border-b border-slate-100/80 px-5 py-4 ${
+                        isAdmin ? "pr-16" : ""
                       }`}
                     >
-                      {fmtNum(t.currentLiters)}
-                      <span className="ml-1 text-xs font-semibold text-slate-400">
-                        ลิตร
-                      </span>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
-                        <Gauge className="size-3.5 text-violet-500" />
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          ความจุ
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div
+                          className={`grid size-10 shrink-0 place-items-center rounded-2xl shadow-inner ring-1 ring-white ${
+                            t.isLow
+                              ? "bg-red-50 text-red-600"
+                              : "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"
+                          }`}
+                        >
+                          <Fuel className="size-[18px]" />
                         </div>
-                        <div className="text-xs font-bold text-slate-700 number-display">
-                          {fmtNum(t.capacityLiters)} ล.
-                        </div>
-                      </div>
-                      <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
-                        <BellRing className="size-3.5 text-orange-500" />
-                        <div className="mt-1 text-[9px] text-slate-400">
-                          แจ้งเตือน
-                        </div>
-                        <div className="text-xs font-bold text-slate-700 number-display">
-                          {fmtNum(t.lowAlertAt)} ล.
+                        <div className="min-w-0">
+                          <CardTitle className="truncate font-heading text-base font-bold text-slate-900">
+                            {t.name}
+                          </CardTitle>
+                          <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                            ถัง #{t.id} ·{" "}
+                            {t.product?.name ?? "ไม่ระบุชนิดน้ำมัน"}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </div>
+                      <div
+                        className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                          t.isLow
+                            ? "bg-red-50 text-red-700 ring-1 ring-red-100"
+                            : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                        }`}
+                      >
+                        {t.isLow ? (
+                          <AlertTriangle className="size-3" />
+                        ) : (
+                          <ShieldCheck className="size-3" />
+                        )}
+                        {statusLabel}
+                      </div>
+                    </CardHeader>
 
-                <div
-                  className={`grid gap-2 ${
-                    isAdmin
-                      ? "grid-cols-[minmax(0,1fr)_auto_auto]"
-                      : "grid-cols-1"
-                  }`}
-                >
-                  <Button
-                    size="sm"
-                    className="shine-button h-10 min-w-0 rounded-xl"
-                    onClick={() => setRefillTank({ id: t.id, name: t.name })}
-                  >
-                    <PlusCircle className="size-4" />
-                    <span className="truncate">รับน้ำมันเข้าถัง</span>
-                  </Button>
-                  {isAdmin && (
-                    <>
-                      <Button
-                        size="icon-sm"
-                        variant="outline"
-                        title="แก้ไขถัง"
-                        aria-label={`แก้ไข ${t.name}`}
-                        className="rounded-xl text-violet-700"
-                        onClick={() =>
-                          setEditTank({
-                            id: t.id,
-                            name: t.name,
-                            productId: t.productId,
-                            currentLiters: t.currentLiters,
-                            capacityLiters: t.capacityLiters,
-                            lowAlertAt: t.lowAlertAt,
-                          })
-                        }
+                    <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
+                      <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
+                        <TankLevelVisual percent={t.percent} isLow={t.isLow} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                            น้ำมันคงเหลือ
+                          </div>
+                          <div
+                            className={`mt-1 font-heading text-2xl font-extrabold number-display ${
+                              t.isLow ? "text-red-600" : "text-slate-950"
+                            }`}
+                          >
+                            {fmtNum(t.currentLiters)}
+                            <span className="ml-1 text-xs font-semibold text-slate-400">
+                              ลิตร
+                            </span>
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                              <Gauge className="size-3.5 text-violet-500" />
+                              <div className="mt-1 text-[9px] text-slate-400">
+                                ความจุ
+                              </div>
+                              <div className="text-xs font-bold text-slate-700 number-display">
+                                {fmtNum(t.capacityLiters)} ล.
+                              </div>
+                            </div>
+                            <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                              <BellRing className="size-3.5 text-orange-500" />
+                              <div className="mt-1 text-[9px] text-slate-400">
+                                แจ้งเตือน
+                              </div>
+                              <div className="text-xs font-bold text-slate-700 number-display">
+                                {fmtNum(t.lowAlertAt)} ล.
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`grid gap-2 ${
+                          isAdmin
+                            ? "grid-cols-[minmax(0,1fr)_auto_auto]"
+                            : "grid-cols-1"
+                        }`}
                       >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="outline"
-                        title="ลบถัง"
-                        aria-label={`ลบ ${t.name}`}
-                        className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                        disabled={deleteTankMut.isPending}
-                        onClick={() => {
-                          if (
-                            confirm(
-                              `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
-                            )
-                          ) {
-                            deleteTankMut.mutate({ id: t.id });
+                        <Button
+                          size="sm"
+                          className="shine-button h-10 min-w-0 rounded-xl"
+                          onClick={() =>
+                            setRefillTank({ id: t.id, name: t.name })
                           }
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                        >
+                          <PlusCircle className="size-4" />
+                          <span className="truncate">รับน้ำมันเข้าถัง</span>
+                        </Button>
+                        {isAdmin && (
+                          <>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              title="แก้ไขถัง"
+                              aria-label={`แก้ไข ${t.name}`}
+                              className="rounded-xl text-violet-700"
+                              onClick={() =>
+                                setEditTank({
+                                  id: t.id,
+                                  name: t.name,
+                                  productId: t.productId,
+                                  currentLiters: t.currentLiters,
+                                  capacityLiters: t.capacityLiters,
+                                  lowAlertAt: t.lowAlertAt,
+                                })
+                              }
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              title="ลบถัง"
+                              aria-label={`ลบ ${t.name}`}
+                              className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                              disabled={deleteTankMut.isPending}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
+                                  )
+                                ) {
+                                  deleteTankMut.mutate({ id: t.id });
+                                }
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </SortableTankItem>
+              );
+            })}
+          </div>
+        </SortableContext>
+      </DndContext>
 
       {/* สต๊อกสินค้า */}
       <Card>

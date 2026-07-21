@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -26,6 +26,9 @@
     "db:push": "drizzle-kit push --config web/drizzle.config.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
     "@google-cloud/storage": "7.21.0",
     "@hono/node-server": "^1.14.3",
     "@hookform/resolvers": "^5.2.2",

@@ -151,6 +151,43 @@ describe("openShift / closeShift", () => {
     expect(await t.caller().pos.currentShift()).toBeNull();
   });
 
+  it("หักสต๊อกครบ 3 ตำแหน่งเมื่อหลายหัวจ่ายใช้ถังเดียวกัน", async () => {
+    const nz = await allNozzles();
+    const db7 = await t.db.query.products.findFirst({
+      where: eq(products.code, "DB7"),
+    });
+    const db7Nozzles = nz.filter(nozzle => nozzle.productId === db7!.id);
+    expect(db7Nozzles).toHaveLength(2);
+
+    const tankBefore = (await tankOf("DB7"))!;
+    const { shiftId } = await t.caller().pos.openShift({
+      staffName: "กะทดสอบทศนิยมลิตร",
+      readings: nz.map(nozzle => ({
+        nozzleId: nozzle.id,
+        openMeter: nozzle.currentMeter,
+        openMoney: nozzle.currentMoney,
+      })),
+    });
+    const litersByNozzle = new Map([
+      [db7Nozzles[0]!.id, 0.123],
+      [db7Nozzles[1]!.id, 0.234],
+    ]);
+
+    const result = await t.caller().pos.closeShift({
+      shiftId,
+      readings: nz.map(nozzle => ({
+        nozzleId: nozzle.id,
+        closeMeter: nozzle.currentMeter + (litersByNozzle.get(nozzle.id) ?? 0),
+        closeMoney: nozzle.currentMoney,
+      })),
+    });
+
+    expect(result.totalLiters).toBe(0.357);
+    expect((await tankOf("DB7"))!.currentLiters).toBe(
+      tankBefore.currentLiters - 0.357
+    );
+  });
+
   it("กะที่เปิดด้วย P = 0 จะข้ามการเทียบยอด P (ยอดเงินนับจากลิตรอย่างเดียว)", async () => {
     const nz = await allNozzles();
     const { shiftId } = await t.caller().pos.openShift({

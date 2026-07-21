@@ -33,6 +33,7 @@ import {
 } from "@db/schema";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
 const shiftHistoryFields = {
   staffId: z.number().int().positive().nullable().optional(),
@@ -312,7 +313,8 @@ export const posRouter = createRouter({
           if (!open) throw new Error("ไม่พบเลขตั้งต้นของหัวจ่าย");
           if (rd.closeMeter < open.openMeter)
             throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
-          const liters = r2(rd.closeMeter - open.openMeter);
+          // มิเตอร์และสต๊อกเก็บ 3 ตำแหน่ง ห้ามปัดเป็นสตางค์ก่อนหักถัง
+          const liters = r3(rd.closeMeter - open.openMeter);
           // กะที่เปิดก่อนมีระบบ P จะมี openMoney = 0 → ข้ามการเทียบยอด P รอบนี้
           // แต่ยังบันทึก P ปลายทางลงหัวจ่าย เพื่อให้กะถัดไปเทียบได้ถูกต้อง
           let money = 0;
@@ -321,7 +323,7 @@ export const posRouter = createRouter({
               throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
             money = r2(rd.closeMoney - open.openMoney);
           }
-          totalLiters = r2(totalLiters + liters);
+          totalLiters = r3(totalLiters + liters);
           totalAmount = r2(totalAmount + liters * open.pricePerLiter);
           totalMoneyMeter = r2(totalMoneyMeter + money);
 
@@ -352,7 +354,7 @@ export const posRouter = createRouter({
             }
             tankDeductions.set(
               tank.id,
-              r2((tankDeductions.get(tank.id) ?? 0) + liters)
+              r3((tankDeductions.get(tank.id) ?? 0) + liters)
             );
           }
         }
@@ -361,7 +363,7 @@ export const posRouter = createRouter({
           await tx
             .update(fuelTanks)
             .set({
-              currentLiters: r2(Math.max(0, tank.currentLiters - liters)),
+              currentLiters: r3(Math.max(0, tank.currentLiters - liters)),
             })
             .where(eq(fuelTanks.id, tank.id));
         }
@@ -462,7 +464,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const { readings: readingValues, ...values } = input;
-      let totalLiters = r2(values.totalLiters);
+      let totalLiters = r3(values.totalLiters);
       let totalAmount = r2(values.totalAmount);
       let totalMoneyMeter = r2(values.totalMoneyMeter);
       const preparedReadings: Array<{
@@ -501,9 +503,9 @@ export const posRouter = createRouter({
           }
           const product = productRows.find(row => row.id === nozzle.productId);
           const pricePerLiter = product?.price ?? 0;
-          const liters = r2(reading.closeMeter - reading.openMeter);
+          const liters = r3(reading.closeMeter - reading.openMeter);
           const money = r2(reading.closeMoney - reading.openMoney);
-          totalLiters = r2(totalLiters + liters);
+          totalLiters = r3(totalLiters + liters);
           totalAmount = r2(totalAmount + r2(liters * pricePerLiter));
           totalMoneyMeter = r2(totalMoneyMeter + money);
           preparedReadings.push({
@@ -570,7 +572,7 @@ export const posRouter = createRouter({
         throw new Error("แก้ไขกะที่กำลังเปิดไม่ได้ กรุณาปิดกะก่อน");
       }
       const { id, readings: readingValues, ...values } = input;
-      let totalLiters = r2(values.totalLiters);
+      let totalLiters = r3(values.totalLiters);
       let totalAmount = r2(values.totalAmount);
       let totalMoneyMeter = r2(values.totalMoneyMeter);
       const existingReadings = readingValues
@@ -605,12 +607,12 @@ export const posRouter = createRouter({
           ) {
             throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
           }
-          const liters = r2(reading.closeMeter - existing.openMeter);
+          const liters = r3(reading.closeMeter - existing.openMeter);
           const money =
             existing.openMoney > 0
               ? r2(reading.closeMoney - existing.openMoney)
               : 0;
-          totalLiters = r2(totalLiters + liters);
+          totalLiters = r3(totalLiters + liters);
           totalAmount = r2(totalAmount + r2(liters * existing.pricePerLiter));
           totalMoneyMeter = r2(totalMoneyMeter + money);
         }
@@ -744,7 +746,7 @@ export const posRouter = createRouter({
           const nz = nozzleRows.find(n => n.id === r.nozzleId);
           const prod = prodRows.find(p => p.id === nz?.productId);
           const liters =
-            r.closeMeter != null ? r2(r.closeMeter - r.openMeter) : null;
+            r.closeMeter != null ? r3(r.closeMeter - r.openMeter) : null;
           const money =
             r.closeMoney != null && r.openMoney > 0
               ? r2(r.closeMoney - r.openMoney)
@@ -1307,13 +1309,13 @@ export const posRouter = createRouter({
       const code = row.code ?? "OTHER";
       const liters = Number(row.liters);
       const amount = Number(row.amount);
-      litersToday = r2(litersToday + liters);
+      litersToday = r3(litersToday + liters);
       const current = fuelByCode[code] ?? {
         name: row.name,
         liters: 0,
         amount: 0,
       };
-      current.liters = r2(current.liters + liters);
+      current.liters = r3(current.liters + liters);
       current.amount = r2(current.amount + amount);
       fuelByCode[code] = current;
     }

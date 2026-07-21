@@ -12,6 +12,7 @@ import { setupTestDb, type TestDb } from "../test/testDb";
 
 let t: TestDb;
 const r2 = (value: number) => Math.round(value * 100) / 100;
+const r3 = (value: number) => Math.round(value * 1000) / 1000;
 
 beforeAll(async () => {
   t = await setupTestDb();
@@ -57,7 +58,7 @@ describe("admin จัดการประวัติการตัดกะ"
     expect(stored).toMatchObject({
       staffName: "พนักงานย้อนหลัง",
       status: "closed",
-      totalLiters: 100.13,
+      totalLiters: 100.125,
       totalAmount: 4000.56,
       totalMoneyMeter: 4001.56,
     });
@@ -100,8 +101,8 @@ describe("admin จัดการประวัติการตัดกะ"
       const price =
         productRows.find(product => product.id === nozzle.productId)?.price ??
         0;
-      const liters = r2(reading.closeMeter - reading.openMeter);
-      expectedLiters = r2(expectedLiters + liters);
+      const liters = r3(reading.closeMeter - reading.openMeter);
+      expectedLiters = r3(expectedLiters + liters);
       expectedAmount = r2(expectedAmount + r2(liters * price));
     }
 

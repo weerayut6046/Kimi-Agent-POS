@@ -58,6 +58,7 @@ import CashDenomCounter from "@/components/CashDenomCounter";
 import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const DIFF_TOLERANCE = 1; // บาท
 
 type HistoryStatusFilter = "all" | "open" | "closed";
@@ -167,8 +168,8 @@ function getHistoryReadingPreview(
       valid = false;
       continue;
     }
-    const liters = r2(closeMeter - openMeter);
-    totalLiters = r2(totalLiters + liters);
+    const liters = r3(closeMeter - openMeter);
+    totalLiters = r3(totalLiters + liters);
     totalAmount = r2(totalAmount + liters * reading.pricePerLiter);
     if (tracksMoney) {
       totalMoneyMeter = r2(totalMoneyMeter + closeMoney - openMoney);
@@ -230,7 +231,7 @@ function HistoryMeterEditor({
             reading.closeMoney !== "" && tracksMoney && closeMoney < openMoney;
           const litersSold =
             reading.closeMeter !== "" && !meterInvalid
-              ? r2(closeMeter - openMeter)
+              ? r3(closeMeter - openMeter)
               : null;
           const meterSales =
             reading.closeMoney !== "" && tracksMoney && !moneyInvalid
@@ -849,7 +850,7 @@ export default function Shifts() {
       if (cp && cp >= r.openMoney) money += cp - r.openMoney;
     }
     return {
-      liters: r2(liters),
+      liters: r3(liters),
       amountL: r2(amountL),
       money: r2(money),
       diff: r2(money - amountL),
@@ -939,7 +940,7 @@ export default function Shifts() {
                     </span>
                     <Input
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       value={openVals[n.id]?.l ?? String(n.currentMeter)}
                       onChange={e =>
                         setOpenVals(m => ({
@@ -1021,7 +1022,7 @@ export default function Shifts() {
                 const cl = Number(closeVals[r.nozzleId]?.l);
                 const cp = Number(closeVals[r.nozzleId]?.p);
                 const liters =
-                  cl && cl >= r.openMeter ? r2(cl - r.openMeter) : null;
+                  cl && cl >= r.openMeter ? r3(cl - r.openMeter) : null;
                 const money =
                   cp && cp >= r.openMoney ? r2(cp - r.openMoney) : null;
                 const amountL =
@@ -1097,7 +1098,7 @@ export default function Shifts() {
                       </span>
                       <Input
                         type="number"
-                        step="0.01"
+                        step="0.001"
                         placeholder="เลขลิตรปลายทาง"
                         value={closeVals[r.nozzleId]?.l ?? ""}
                         onChange={e =>
