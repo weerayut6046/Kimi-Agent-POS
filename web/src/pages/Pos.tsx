@@ -20,6 +20,7 @@ import {
   CircleAlert,
   Package,
   ArrowRight,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,37 +74,42 @@ const paymentIcons = {
 function productTone(code: string, category: string) {
   if (category !== "fuel") {
     return {
-      bar: "bg-slate-400",
+      bar: "bg-gradient-to-r from-slate-400 to-slate-600",
       icon: "bg-slate-100 text-slate-600",
       code: "bg-slate-100 text-slate-500",
+      wash: "from-slate-100/80 via-white/80 to-white/70",
     };
   }
   const normalized = code.toUpperCase();
   if (normalized.includes("D") || normalized.includes("B7")) {
     return {
-      bar: "bg-blue-600",
+      bar: "bg-gradient-to-r from-blue-500 to-indigo-600",
       icon: "bg-blue-50 text-blue-700",
       code: "bg-blue-50 text-blue-700",
+      wash: "from-blue-100/75 via-white/80 to-white/70",
     };
   }
   if (normalized.includes("91")) {
     return {
-      bar: "bg-emerald-500",
+      bar: "bg-gradient-to-r from-emerald-400 to-teal-600",
       icon: "bg-emerald-50 text-emerald-700",
       code: "bg-emerald-50 text-emerald-700",
+      wash: "from-emerald-100/70 via-white/80 to-white/70",
     };
   }
   if (normalized.includes("95")) {
     return {
-      bar: "bg-orange-500",
+      bar: "bg-gradient-to-r from-orange-400 to-rose-500",
       icon: "bg-orange-50 text-orange-700",
       code: "bg-orange-50 text-orange-700",
+      wash: "from-orange-100/75 via-white/80 to-white/70",
     };
   }
   return {
-    bar: "bg-violet-500",
+    bar: "bg-gradient-to-r from-violet-500 to-fuchsia-500",
     icon: "bg-violet-50 text-violet-700",
     code: "bg-violet-50 text-violet-700",
+    wash: "from-violet-100/75 via-white/80 to-white/70",
   };
 }
 
@@ -320,35 +326,56 @@ export default function Pos() {
 
   return (
     <div
-      className={`grid grid-cols-1 gap-5 lg:grid-cols-5 xl:gap-6 ${cart.length > 0 ? "pb-20 lg:pb-0" : ""}`}
+      className={`grid grid-cols-1 gap-5 lg:grid-cols-5 xl:gap-6 ${cart.length > 0 ? "pb-24 lg:pb-0" : ""}`}
     >
       {/* แผงเลือกสินค้า */}
       <section className="space-y-4 lg:col-span-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="page-kicker">รายการขายใหม่</div>
-            <h1 className="page-heading mt-1">ขายหน้าลาน</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              เลือกชนิดน้ำมันหรือสินค้าเพื่อเริ่มทำรายการ
-            </p>
+        <div className="relative overflow-hidden rounded-[24px] bg-gradient-to-br from-[#151333] via-[#211d59] to-[#124254] p-5 text-white shadow-[0_22px_54px_rgba(31,25,84,0.22)] ring-1 ring-white/10 sm:p-6">
+          <div className="surface-grid pointer-events-none absolute inset-0 opacity-60" />
+          <div className="ambient-float pointer-events-none absolute -right-14 -top-20 size-56 rounded-full bg-violet-500/25 blur-3xl" />
+          <div className="relative flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-200/80 backdrop-blur-sm">
+                <Sparkles className="size-3" /> New transaction
+              </div>
+              <h1 className="mt-3 font-heading text-2xl font-extrabold tracking-[-0.04em] sm:text-3xl">
+                จุดขายอัจฉริยะ
+              </h1>
+              <p className="mt-1.5 text-sm text-white/50">
+                แตะสินค้า ระบุจำนวน และชำระเงินได้ใน flow เดียว
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="hidden rounded-2xl border border-white/10 bg-white/[0.065] px-4 py-2.5 text-right backdrop-blur-sm sm:block">
+                <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">
+                  พร้อมขาย
+                </div>
+                <div className="mt-0.5 text-sm font-bold text-cyan-200 number-display">
+                  {activeProducts.length} รายการ
+                </div>
+              </div>
+              {currentShift ? (
+                <Badge className="h-10 gap-2 border border-cyan-300/20 bg-cyan-300/10 px-3 text-cyan-100 hover:bg-cyan-300/15">
+                  <span className="relative flex size-2">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-cyan-300 opacity-50" />
+                    <span className="relative size-2 rounded-full bg-cyan-300" />
+                  </span>
+                  กะของ {currentShift.staffName}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="h-10 gap-2 border-orange-300/25 bg-orange-300/10 px-3 text-orange-100"
+                >
+                  <CircleAlert className="size-4" /> ยังไม่ได้เปิดกะ
+                </Badge>
+              )}
+            </div>
           </div>
-          {currentShift ? (
-            <Badge className="h-9 gap-2 border border-emerald-200 bg-emerald-50 px-3 text-emerald-700 hover:bg-emerald-50">
-              <span className="size-2 rounded-full bg-emerald-500" /> กะของ{" "}
-              {currentShift.staffName}
-            </Badge>
-          ) : (
-            <Badge
-              variant="outline"
-              className="h-9 gap-2 border-amber-300 bg-amber-50 px-3 text-amber-700"
-            >
-              <CircleAlert className="size-4" /> ยังไม่ได้เปิดกะ
-            </Badge>
-          )}
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid h-12 w-full grid-cols-3 rounded-xl bg-slate-200/70 p-1">
+          <TabsList className="grid h-14 w-full grid-cols-3 rounded-2xl bg-white/70 p-1.5 shadow-[0_12px_30px_rgba(41,34,98,0.08)] ring-1 ring-slate-200/60 backdrop-blur-xl">
             <TabsTrigger value="fuel" className="h-full gap-2">
               <Fuel className="size-4" /> น้ำมัน
             </TabsTrigger>
@@ -385,12 +412,17 @@ export default function Pos() {
                     addToCart(p, 1);
                   }
                 }}
-                className="group relative min-h-[126px] overflow-hidden rounded-xl border border-slate-200 bg-white p-3 text-left shadow-[0_3px_14px_rgba(15,23,42,0.045)] transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_10px_26px_rgba(37,99,235,0.12)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 active:translate-y-0 sm:min-h-[142px] sm:p-4"
+                className="spotlight-card group relative min-h-[142px] overflow-hidden rounded-[20px] border border-white/90 bg-white/80 p-3 text-left shadow-[0_10px_30px_rgba(39,33,88,0.07)] ring-1 ring-slate-200/60 backdrop-blur-md transition-all duration-300 hover:-translate-y-1.5 hover:scale-[1.015] hover:border-violet-200 hover:shadow-[0_20px_46px_rgba(75,57,170,0.16)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-500/20 active:translate-y-0 active:scale-[0.99] sm:min-h-[156px] sm:p-4"
               >
-                <span className={`absolute inset-x-0 top-0 h-1 ${tone.bar}`} />
+                <span
+                  className={`pointer-events-none absolute inset-0 bg-gradient-to-br opacity-70 ${tone.wash}`}
+                />
+                <span
+                  className={`absolute inset-x-0 top-0 h-1.5 ${tone.bar}`}
+                />
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div
-                    className={`grid size-9 place-items-center rounded-lg ${tone.icon}`}
+                    className={`relative grid size-10 place-items-center rounded-xl shadow-inner ring-1 ring-white transition-all duration-300 group-hover:-rotate-6 group-hover:scale-110 ${tone.icon}`}
                   >
                     {p.category === "fuel" ? (
                       <Fuel className="size-[18px]" />
@@ -399,15 +431,15 @@ export default function Pos() {
                     )}
                   </div>
                   <span
-                    className={`rounded-md px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wide ${tone.code}`}
+                    className={`relative rounded-lg px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wide ring-1 ring-black/[0.03] ${tone.code}`}
                   >
                     {p.code}
                   </span>
                 </div>
-                <div className="min-h-10 text-sm font-semibold leading-snug text-slate-800">
+                <div className="relative min-h-10 text-sm font-semibold leading-snug text-slate-800">
                   {p.name}
                 </div>
-                <div className="mt-2 flex items-end justify-between gap-2">
+                <div className="relative mt-2 flex items-end justify-between gap-2">
                   <div className="font-heading text-lg font-bold text-slate-900 number-display">
                     ฿{fmtMoney(p.price)}
                     <span className="ml-0.5 text-[11px] font-normal text-slate-400">
@@ -417,6 +449,11 @@ export default function Pos() {
                   {p.category !== "fuel" && (
                     <span className="text-[10px] text-slate-400">
                       เหลือ {fmtNum(p.stockQty)}
+                    </span>
+                  )}
+                  {p.category === "fuel" && (
+                    <span className="grid size-7 place-items-center rounded-full bg-white/80 text-violet-500 opacity-0 shadow-sm ring-1 ring-violet-100 transition-all duration-300 group-hover:opacity-100">
+                      <ArrowRight className="size-3.5" />
                     </span>
                   )}
                 </div>
@@ -437,18 +474,19 @@ export default function Pos() {
       {/* ตะกร้า */}
       {(() => {
         const cartPanel = (
-          <Card className="h-fit gap-0 overflow-hidden border-slate-200 py-0 lg:sticky lg:top-[92px] lg:col-span-2">
-            <CardHeader className="border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-14 sm:px-5 lg:pr-5">
-              <div className="flex items-center justify-between gap-3">
+          <Card className="h-fit gap-0 overflow-hidden border-white/90 py-0 shadow-[0_22px_58px_rgba(38,30,90,0.13)] lg:sticky lg:top-[108px] lg:col-span-2">
+            <CardHeader className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-[#17143a] via-[#272162] to-[#154457] px-4 py-5 pr-14 text-white sm:px-5 lg:pr-5">
+              <div className="surface-grid pointer-events-none absolute inset-0 opacity-50" />
+              <div className="relative flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="grid size-10 place-items-center rounded-xl bg-[#0b2854] text-white">
+                  <div className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-lg shadow-violet-950/25 ring-1 ring-white/20">
                     <ShoppingBasket className="size-5" />
                   </div>
                   <div>
-                    <CardTitle className="font-heading text-base">
+                    <CardTitle className="font-heading text-base text-white">
                       รายการขาย
                     </CardTitle>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-white/45">
                       {cart.length
                         ? `${cart.length} รายการในบิล`
                         : "รอเลือกสินค้า"}
@@ -462,26 +500,26 @@ export default function Pos() {
                       setCart([]);
                       setMobileCartOpen(false);
                     }}
-                    className="text-xs font-medium text-slate-400 hover:text-red-600"
+                    className="text-xs font-medium text-white/45 transition-colors hover:text-rose-300"
                   >
                     ล้างรายการ
                   </button>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4 px-4 py-4 sm:px-5">
+            <CardContent className="space-y-4 bg-white/60 px-4 py-4 sm:px-5">
               {/* สมาชิก */}
               {member ? (
-                <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                <div className="flex items-center justify-between rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-cyan-50 px-3 py-2.5">
                   <div className="flex items-center gap-2.5 text-sm">
-                    <div className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white">
+                    <div className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-md shadow-violet-500/20">
                       <Star className="size-4 fill-white/20" />
                     </div>
                     <div>
-                      <div className="font-semibold text-blue-950">
+                      <div className="font-semibold text-violet-950">
                         {member.name}
                       </div>
-                      <div className="text-xs text-blue-700/70">
+                      <div className="text-xs text-violet-700/70">
                         สมาชิก · {member.points} แต้ม
                       </div>
                     </div>
@@ -493,7 +531,7 @@ export default function Pos() {
                       setMember(null);
                       setPointsToRedeem(0);
                     }}
-                    className="grid size-8 place-items-center rounded-lg text-blue-500 hover:bg-blue-100"
+                    className="grid size-8 place-items-center rounded-lg text-violet-500 hover:bg-violet-100"
                   >
                     <X className="size-4" />
                   </button>
@@ -558,7 +596,7 @@ export default function Pos() {
                 {cart.map(l => (
                   <div
                     key={l.product.id}
-                    className="rounded-xl border border-slate-200 bg-white p-3 text-sm"
+                    className="rounded-2xl border border-white bg-gradient-to-br from-white to-violet-50/35 p-3 text-sm shadow-sm ring-1 ring-slate-200/70 transition-all hover:border-violet-200 hover:shadow-md"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
@@ -587,7 +625,7 @@ export default function Pos() {
                         <button
                           type="button"
                           aria-label="ลดจำนวน"
-                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-blue-700"
+                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700"
                           onClick={() => setQty(l.product.id, l.qty - 1)}
                         >
                           <Minus className="size-3.5" />
@@ -598,7 +636,7 @@ export default function Pos() {
                         <button
                           type="button"
                           aria-label="เพิ่มจำนวน"
-                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-blue-700"
+                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700"
                           onClick={() => setQty(l.product.id, l.qty + 1)}
                         >
                           <Plus className="size-3.5" />
@@ -663,7 +701,7 @@ export default function Pos() {
                     />
                   </div>
                 )}
-                <div className="mt-3 flex items-end justify-between rounded-xl bg-[#0b2854] px-4 py-3.5 text-white shadow-lg shadow-blue-950/10">
+                <div className="mt-3 flex items-end justify-between rounded-2xl bg-gradient-to-br from-[#181540] via-[#292269] to-[#145064] px-4 py-4 text-white shadow-[0_16px_34px_rgba(36,29,91,0.22)] ring-1 ring-white/10">
                   <div>
                     <div className="text-xs font-medium text-blue-200">
                       ยอดสุทธิ
@@ -699,7 +737,7 @@ export default function Pos() {
                             ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
                             : undefined
                         }
-                        className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-xl border text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/20" : "border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
+                        className={`flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "-translate-y-0.5 border-violet-500 bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-lg shadow-violet-500/25" : "border-slate-200 bg-white/80 text-slate-500 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 hover:shadow-md"}`}
                       >
                         <PaymentIcon className="size-[18px]" />
                         {paymentLabel[m]}
@@ -840,7 +878,7 @@ export default function Pos() {
                 </div>
               )}
               <Button
-                className="h-14 w-full justify-between rounded-xl bg-gradient-to-r from-blue-700 to-blue-600 px-5 text-base font-heading shadow-lg shadow-blue-600/20 hover:from-blue-800 hover:to-blue-700"
+                className="shine-button h-14 w-full justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-5 text-base font-heading shadow-[0_16px_34px_rgba(88,70,220,0.28)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500"
                 disabled={cart.length === 0 || salePending}
                 onClick={() => void checkout()}
               >
@@ -874,7 +912,7 @@ export default function Pos() {
               <Button
                 type="button"
                 onClick={() => setMobileCartOpen(true)}
-                className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-[#0b2854] px-4 text-white shadow-[0_14px_36px_rgba(11,40,84,0.32)] hover:bg-[#123867] lg:hidden"
+                className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-4 text-white shadow-[0_18px_42px_rgba(65,49,175,0.35)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500 lg:hidden"
                 aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
               >
                 <span className="flex items-center gap-2">
@@ -899,16 +937,17 @@ export default function Pos() {
       <Dialog open={!!fuelDialog} onOpenChange={o => !o && setFuelDialog(null)}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
           <DialogHeader>
-            <div className="border-b border-slate-200 bg-slate-50 px-6 py-5">
+            <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-[#17143a] via-[#282263] to-[#15505d] px-6 py-5 text-white">
+              <div className="surface-grid pointer-events-none absolute inset-0 opacity-50" />
               <div className="flex items-center gap-3">
-                <div className="grid size-11 place-items-center rounded-xl bg-blue-600 text-white">
+                <div className="relative grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-lg ring-1 ring-white/20">
                   <Fuel className="size-5" />
                 </div>
                 <div>
-                  <DialogTitle className="font-heading text-lg">
+                  <DialogTitle className="relative font-heading text-lg text-white">
                     {fuelDialog?.name}
                   </DialogTitle>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="relative mt-0.5 text-xs text-white/50">
                     ราคา ฿{fmtMoney(fuelDialog?.price ?? 0)} ต่อลิตร
                   </p>
                 </div>
@@ -919,14 +958,14 @@ export default function Pos() {
             <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
               <button
                 type="button"
-                className={`h-11 rounded-lg text-sm font-semibold transition-all ${fuelMode === "baht" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}
+                className={`h-11 rounded-xl text-sm font-semibold transition-all ${fuelMode === "baht" ? "bg-white text-violet-700 shadow-md" : "text-slate-500"}`}
                 onClick={() => setFuelMode("baht")}
               >
                 ระบุจำนวนเงิน
               </button>
               <button
                 type="button"
-                className={`h-11 rounded-lg text-sm font-semibold transition-all ${fuelMode === "liters" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}
+                className={`h-11 rounded-xl text-sm font-semibold transition-all ${fuelMode === "liters" ? "bg-white text-violet-700 shadow-md" : "text-slate-500"}`}
                 onClick={() => setFuelMode("liters")}
               >
                 ระบุจำนวนลิตร
@@ -972,9 +1011,9 @@ export default function Pos() {
                 className="h-16 text-right text-3xl font-bold number-display"
               />
             </div>
-            <div className="flex min-h-12 items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm">
-              <span className="text-blue-700">คำนวณได้</span>
-              <span className="font-heading text-lg font-bold text-blue-900 number-display">
+            <div className="flex min-h-12 items-center justify-between rounded-2xl bg-gradient-to-r from-violet-50 to-cyan-50 px-4 py-3 text-sm ring-1 ring-violet-100/70">
+              <span className="text-violet-700">คำนวณได้</span>
+              <span className="font-heading text-lg font-bold text-violet-950 number-display">
                 {fuelDialog && Number(fuelValue) > 0
                   ? fuelMode === "baht"
                     ? `${fmtNum(Number(fuelValue) / fuelDialog.price)} ลิตร`

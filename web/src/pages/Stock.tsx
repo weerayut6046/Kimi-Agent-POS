@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import {
   Fuel,
   Package,
@@ -7,12 +7,14 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Gauge,
+  BellRing,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -40,6 +42,56 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, categoryLabel } from "@/lib/format";
 import type { Product } from "@db/schema";
+
+function TankLevelVisual({
+  percent,
+  isLow,
+}: {
+  percent: number;
+  isLow: boolean;
+}) {
+  const safePercent = Math.max(0, Math.min(100, percent));
+  const tankColor = isLow
+    ? "#ef4444"
+    : safePercent < 50
+      ? "#f59e0b"
+      : "#6d5df4";
+  const tankColorLight = isLow
+    ? "#fb7185"
+    : safePercent < 50
+      ? "#fbbf24"
+      : "#22d3ee";
+  const style = {
+    "--tank-level": `${safePercent}%`,
+    "--tank-color": tankColor,
+    "--tank-color-light": tankColorLight,
+    "--tank-marker": `${18 + safePercent * 1.42}px`,
+  } as CSSProperties;
+
+  return (
+    <div
+      className="tank-visual"
+      style={style}
+      role="img"
+      aria-label={`ระดับน้ำมัน ${safePercent}%`}
+    >
+      <div className="tank-cap" />
+      <div className="tank-body">
+        <div className="tank-liquid">
+          <span className="tank-bubble tank-bubble-one" />
+          <span className="tank-bubble tank-bubble-two" />
+          <span className="tank-bubble tank-bubble-three" />
+        </div>
+        <div className="tank-gloss" />
+        <div className="tank-bands" />
+        <div className="tank-percent number-display">{safePercent}%</div>
+      </div>
+      <div className="tank-level-marker" />
+      <div className="tank-leg tank-leg-left" />
+      <div className="tank-leg tank-leg-right" />
+    </div>
+  );
+}
 
 export default function Stock() {
   const utils = trpc.useUtils();
@@ -165,82 +217,165 @@ export default function Stock() {
         )}
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {(tanks ?? []).map(t => (
-          <Card key={t.id} className={t.isLow ? "border-destructive" : ""}>
-            <CardHeader className="pb-2 flex-row items-center justify-between">
-              <CardTitle className="font-heading text-base flex items-center gap-2">
-                <Fuel className="w-4 h-4 text-primary" /> {t.name}
-              </CardTitle>
-              {t.isLow && (
-                <Badge variant="destructive" className="gap-1">
-                  <AlertTriangle className="w-3 h-3" /> ต่ำกว่าเกณฑ์
-                </Badge>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-center">
-                <div
-                  className={`font-heading text-3xl font-bold ${t.isLow ? "text-destructive" : "text-primary"}`}
-                >
-                  {t.percent}%
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {fmtNum(t.currentLiters)} / {fmtNum(t.capacityLiters)} ลิตร
-                </div>
-              </div>
-              <Progress
-                value={t.percent}
-                className={t.isLow ? "[&>div]:bg-destructive" : ""}
+        {(tanks ?? []).map(t => {
+          const statusLabel = t.isLow
+            ? "ระดับต่ำ"
+            : t.percent >= 80
+              ? "เกือบเต็ม"
+              : "พร้อมใช้งาน";
+
+          return (
+            <Card
+              key={t.id}
+              className={`interactive-card spotlight-card group gap-0 overflow-hidden py-0 ${
+                t.isLow ? "border-red-200/90 ring-red-100" : "border-white/90"
+              }`}
+            >
+              <div
+                className={`h-1.5 bg-gradient-to-r ${
+                  t.isLow
+                    ? "from-red-500 via-rose-400 to-orange-400"
+                    : "from-violet-600 via-indigo-500 to-cyan-400"
+                }`}
               />
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={() => setRefillTank({ id: t.id, name: t.name })}
-              >
-                <PlusCircle className="w-4 h-4 mr-1" /> รับน้ำมันเข้าถัง
-              </Button>
-              {isAdmin && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="flex-1"
-                    onClick={() =>
-                      setEditTank({
-                        id: t.id,
-                        name: t.name,
-                        productId: t.productId,
-                        currentLiters: t.currentLiters,
-                        capacityLiters: t.capacityLiters,
-                        lowAlertAt: t.lowAlertAt,
-                      })
-                    }
+              <CardHeader className="flex-row items-center justify-between gap-3 border-b border-slate-100/80 px-5 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={`grid size-10 shrink-0 place-items-center rounded-2xl shadow-inner ring-1 ring-white ${
+                      t.isLow
+                        ? "bg-red-50 text-red-600"
+                        : "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"
+                    }`}
                   >
-                    <Pencil className="w-4 h-4 mr-1" /> แก้ไขถัง
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-destructive"
-                    disabled={deleteTankMut.isPending}
-                    onClick={() => {
-                      if (
-                        confirm(
-                          `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
-                        )
-                      ) {
-                        deleteTankMut.mutate({ id: t.id });
-                      }
-                    }}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                    <Fuel className="size-[18px]" />
+                  </div>
+                  <div className="min-w-0">
+                    <CardTitle className="truncate font-heading text-base font-bold text-slate-900">
+                      {t.name}
+                    </CardTitle>
+                    <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                      Tank telemetry
+                    </div>
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                <div
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                    t.isLow
+                      ? "bg-red-50 text-red-700 ring-1 ring-red-100"
+                      : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                  }`}
+                >
+                  {t.isLow ? (
+                    <AlertTriangle className="size-3" />
+                  ) : (
+                    <ShieldCheck className="size-3" />
+                  )}
+                  {statusLabel}
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
+                <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
+                  <TankLevelVisual percent={t.percent} isLow={t.isLow} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                      น้ำมันคงเหลือ
+                    </div>
+                    <div
+                      className={`mt-1 font-heading text-2xl font-extrabold number-display ${
+                        t.isLow ? "text-red-600" : "text-slate-950"
+                      }`}
+                    >
+                      {fmtNum(t.currentLiters)}
+                      <span className="ml-1 text-xs font-semibold text-slate-400">
+                        ลิตร
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                        <Gauge className="size-3.5 text-violet-500" />
+                        <div className="mt-1 text-[9px] text-slate-400">
+                          ความจุ
+                        </div>
+                        <div className="text-xs font-bold text-slate-700 number-display">
+                          {fmtNum(t.capacityLiters)} ล.
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                        <BellRing className="size-3.5 text-orange-500" />
+                        <div className="mt-1 text-[9px] text-slate-400">
+                          แจ้งเตือน
+                        </div>
+                        <div className="text-xs font-bold text-slate-700 number-display">
+                          {fmtNum(t.lowAlertAt)} ล.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className={`grid gap-2 ${
+                    isAdmin
+                      ? "grid-cols-[minmax(0,1fr)_auto_auto]"
+                      : "grid-cols-1"
+                  }`}
+                >
+                  <Button
+                    size="sm"
+                    className="shine-button h-10 min-w-0 rounded-xl"
+                    onClick={() => setRefillTank({ id: t.id, name: t.name })}
+                  >
+                    <PlusCircle className="size-4" />
+                    <span className="truncate">รับน้ำมันเข้าถัง</span>
+                  </Button>
+                  {isAdmin && (
+                    <>
+                      <Button
+                        size="icon-sm"
+                        variant="outline"
+                        title="แก้ไขถัง"
+                        aria-label={`แก้ไข ${t.name}`}
+                        className="rounded-xl text-violet-700"
+                        onClick={() =>
+                          setEditTank({
+                            id: t.id,
+                            name: t.name,
+                            productId: t.productId,
+                            currentLiters: t.currentLiters,
+                            capacityLiters: t.capacityLiters,
+                            lowAlertAt: t.lowAlertAt,
+                          })
+                        }
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="outline"
+                        title="ลบถัง"
+                        aria-label={`ลบ ${t.name}`}
+                        className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        disabled={deleteTankMut.isPending}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
+                            )
+                          ) {
+                            deleteTankMut.mutate({ id: t.id });
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* สต๊อกสินค้า */}

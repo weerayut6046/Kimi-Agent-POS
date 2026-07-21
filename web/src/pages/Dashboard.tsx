@@ -1,12 +1,15 @@
 import { Link } from "react-router";
 import {
-  Banknote,
-  Droplet,
-  ReceiptText,
+  Activity,
   AlertTriangle,
-  Fuel,
-  PackageX,
   ArrowRight,
+  ArrowUpRight,
+  Banknote,
+  Boxes,
+  Droplet,
+  Gauge,
+  ReceiptText,
+  Sparkles,
   TrendingUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,13 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
-  BarChart,
-  Bar,
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
 } from "recharts";
 import { trpc } from "@/providers/trpc";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel } from "@/lib/format";
@@ -31,8 +34,12 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="py-20 text-center text-muted-foreground">
-        กำลังโหลดข้อมูล...
+      <div className="flex min-h-80 flex-col items-center justify-center gap-4 text-muted-foreground">
+        <div className="relative grid size-14 place-items-center rounded-2xl bg-white shadow-lg ring-1 ring-violet-100">
+          <span className="absolute inset-0 animate-ping rounded-2xl bg-violet-400/15" />
+          <Activity className="relative size-6 animate-pulse text-violet-600" />
+        </div>
+        <span className="text-sm font-medium">กำลังเตรียมศูนย์ควบคุม...</span>
       </div>
     );
   }
@@ -61,27 +68,36 @@ export default function Dashboard() {
     );
   }
 
+  const averageBill = data.todayBills ? data.todayTotal / data.todayBills : 0;
+  const lowStockCount = data.lowTanks.length + data.lowProducts.length;
+  const fuelTotal = Object.values(data.fuelByCode).reduce(
+    (sum, fuel) => sum + fuel.amount,
+    0
+  );
   const stats = [
     {
-      label: "ยอดขายวันนี้",
-      value: `฿${fmtMoney(data.todayTotal)}`,
-      icon: Banknote,
-      soft: "bg-blue-50 text-blue-700",
-      bar: "bg-blue-500",
-    },
-    {
-      label: "น้ำมันขายวันนี้",
+      label: "น้ำมันที่จ่ายแล้ว",
       value: `${fmtNum(data.litersToday)} ลิตร`,
       icon: Droplet,
-      soft: "bg-cyan-50 text-cyan-700",
-      bar: "bg-cyan-500",
+      color: "text-cyan-700",
+      iconBg: "from-cyan-100 to-blue-50",
+      glow: "bg-cyan-400/15",
     },
     {
-      label: "จำนวนบิลวันนี้",
+      label: "จำนวนธุรกรรม",
       value: `${data.todayBills} บิล`,
       icon: ReceiptText,
-      soft: "bg-violet-50 text-violet-700",
-      bar: "bg-violet-500",
+      color: "text-violet-700",
+      iconBg: "from-violet-100 to-fuchsia-50",
+      glow: "bg-violet-400/15",
+    },
+    {
+      label: "ยอดเฉลี่ยต่อบิล",
+      value: `฿${fmtMoney(averageBill)}`,
+      icon: Banknote,
+      color: "text-orange-700",
+      iconBg: "from-orange-100 to-amber-50",
+      glow: "bg-orange-400/15",
     },
   ];
 
@@ -94,122 +110,241 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 lg:space-y-6">
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2854] p-5 text-white shadow-xl shadow-blue-950/10 sm:p-6">
-        <div className="pointer-events-none absolute -right-12 -top-20 size-64 rounded-full bg-blue-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute bottom-0 right-16 h-24 w-40 -skew-x-12 bg-orange-400/10" />
-        <div className="relative flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-300">
-              Station overview
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
+        <div className="aurora-border relative z-0 overflow-hidden rounded-[28px] bg-gradient-to-br from-[#11112c] via-[#1b1950] to-[#12344c] p-5 text-white shadow-[0_28px_70px_rgba(30,24,82,0.28)] sm:p-7 lg:p-8">
+          <div className="surface-grid pointer-events-none absolute inset-0 opacity-70" />
+          <div className="ambient-float pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-violet-500/30 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-24 right-1/4 size-52 rounded-full bg-cyan-400/15 blur-3xl" />
+
+          <div className="relative flex h-full min-h-[330px] flex-col">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.075] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/80 backdrop-blur-md">
+                <Sparkles className="size-3.5 text-cyan-300" /> Command center
+              </div>
+              <div className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5 text-[11px] text-white/55 backdrop-blur-sm">
+                {todayLabel}
+              </div>
             </div>
-            <h1 className="mt-1 font-heading text-2xl font-bold sm:text-3xl">
-              ภาพรวมสถานี
-            </h1>
-            <p className="mt-1.5 text-sm text-blue-100/[0.65]">{todayLabel}</p>
-            <div className="mt-4">
-              {data.openShift ? (
-                <div className="inline-flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100">
-                  <span className="relative flex size-2">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                    <span className="relative size-2 rounded-full bg-emerald-400" />
-                  </span>
-                  กะเปิดอยู่ · {data.openShift.staffName} · เริ่ม{" "}
-                  {fmtTime(data.openShift.openedAt)}
+
+            <div className="mt-8">
+              <p className="text-xs font-medium text-white/50">ยอดขายวันนี้</p>
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                <h1 className="font-heading text-4xl font-extrabold leading-none tracking-[-0.06em] sm:text-5xl lg:text-[3.5rem] number-display">
+                  ฿{fmtMoney(data.todayTotal)}
+                </h1>
+                <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
+                  <TrendingUp className="size-3" /> อัปเดตแบบเรียลไทม์
                 </div>
-              ) : (
-                <Link
-                  to="/shifts"
-                  className="inline-flex items-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-medium text-amber-100 hover:bg-amber-300/[0.15]"
-                >
-                  <AlertTriangle className="size-4" /> ยังไม่ได้เปิดกะ ·
-                  เปิดกะตอนนี้
-                </Link>
-              )}
+              </div>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-white/50">
+                ดูยอดขาย สถานะกะ และสัญญาณสำคัญของสถานีได้จากหน้าจอเดียว
+              </p>
+            </div>
+
+            <div className="mt-auto flex flex-wrap items-end justify-between gap-5 pt-8">
+              <div className="flex gap-6">
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-white/35">
+                    ปริมาณจ่าย
+                  </div>
+                  <div className="mt-1 font-heading text-lg font-bold number-display">
+                    {fmtNum(data.litersToday)} ลิตร
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-white/10" />
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.16em] text-white/35">
+                    ธุรกรรม
+                  </div>
+                  <div className="mt-1 font-heading text-lg font-bold number-display">
+                    {data.todayBills} บิล
+                  </div>
+                </div>
+              </div>
+              <Link to="/pos" className="w-full sm:w-auto">
+                <Button className="shine-button h-12 w-full gap-2 rounded-2xl border border-white/15 bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500 px-5 text-white shadow-[0_12px_32px_rgba(76,84,255,0.35)] hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-400 sm:w-auto">
+                  เริ่มขายสินค้า <ArrowUpRight className="size-4" />
+                </Button>
+              </Link>
             </div>
           </div>
-          <Link to="/pos" className="w-full sm:w-auto">
-            <Button className="h-12 w-full gap-3 rounded-xl bg-orange-500 px-5 text-white shadow-lg shadow-orange-950/20 hover:bg-orange-600 sm:w-auto">
-              <ReceiptText className="size-5" /> เริ่มขายสินค้า{" "}
-              <ArrowRight className="size-4" />
-            </Button>
-          </Link>
         </div>
+
+        <Card className="spotlight-card gap-0 overflow-hidden py-0">
+          <CardHeader className="border-b border-slate-100/80 px-5 py-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="page-kicker">Live operations</div>
+                <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
+                  สถานะสถานี
+                </CardTitle>
+              </div>
+              <span className="relative flex size-3">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-cyan-400 opacity-50" />
+                <span className="relative size-3 rounded-full bg-cyan-500" />
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col gap-3 p-5">
+            <div
+              className={`rounded-2xl border p-4 ${
+                data.openShift
+                  ? "border-cyan-100 bg-gradient-to-br from-cyan-50 to-white"
+                  : "border-orange-100 bg-gradient-to-br from-orange-50 to-white"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={`grid size-11 place-items-center rounded-2xl ${
+                    data.openShift
+                      ? "bg-cyan-500 text-white shadow-lg shadow-cyan-500/20"
+                      : "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                  }`}
+                >
+                  <Gauge className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs text-slate-500">สถานะกะ</div>
+                  <div className="truncate font-semibold text-slate-900">
+                    {data.openShift ? "กำลังให้บริการ" : "รอเปิดกะ"}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-400">
+                    {data.openShift
+                      ? `${data.openShift.staffName} · เริ่ม ${fmtTime(data.openShift.openedAt)}`
+                      : "เปิดกะเพื่อเริ่มรับรายการ"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-[#f3f1ff] p-4">
+                <Boxes className="size-5 text-violet-600" />
+                <div className="mt-3 text-2xl font-extrabold text-slate-900 number-display">
+                  {lowStockCount}
+                </div>
+                <div className="text-[11px] text-slate-500">รายการต้องดูแล</div>
+              </div>
+              <div className="rounded-2xl bg-[#ecfbf9] p-4">
+                <ReceiptText className="size-5 text-cyan-600" />
+                <div className="mt-3 text-2xl font-extrabold text-slate-900 number-display">
+                  {data.todayBills}
+                </div>
+                <div className="text-[11px] text-slate-500">บิลวันนี้</div>
+              </div>
+            </div>
+
+            <div className="mt-auto grid grid-cols-2 gap-2 pt-1">
+              <Link
+                to="/shifts"
+                className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+              >
+                จัดการกะ <ArrowRight className="size-3.5" />
+              </Link>
+              <Link
+                to="/stock"
+                className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-all hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-700"
+              >
+                ดูสต๊อก <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
       </section>
 
-      {/* แจ้งเตือนสต๊อกต่ำ */}
       {(data.lowTanks.length > 0 || data.lowProducts.length > 0) && (
-        <Card className="gap-0 border-amber-200 bg-amber-50/80 py-0 shadow-none">
-          <CardContent className="flex flex-wrap items-center gap-3 px-4 py-3.5">
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-700">
+        <Card className="gap-0 overflow-hidden border-orange-200/80 bg-gradient-to-r from-orange-50/90 via-amber-50/80 to-white/80 py-0 shadow-[0_12px_30px_rgba(251,146,60,0.08)]">
+          <CardContent className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-orange-500 text-white shadow-lg shadow-orange-500/20">
               <AlertTriangle className="size-[18px]" />
             </div>
-            <div className="text-sm text-amber-900">
-              {data.lowTanks.map(t => (
-                <span key={t.id} className="mr-4">
-                  <Fuel className="w-3.5 h-3.5 inline mr-1" />
-                  {t.name} เหลือ {fmtNum(t.currentLiters)} ลิตร (ต่ำกว่าเกณฑ์!)
-                </span>
-              ))}
-              {data.lowProducts.map(p => (
-                <span key={p.id} className="mr-4">
-                  <PackageX className="w-3.5 h-3.5 inline mr-1" />
-                  {p.name} เหลือ {fmtNum(p.stockQty)} {p.unit}
-                </span>
-              ))}
+            <div className="min-w-0 flex-1 text-sm text-orange-950">
+              <div className="font-semibold">มีรายการที่ควรตรวจสอบ</div>
+              <div className="mt-0.5 truncate text-xs text-orange-800/60">
+                {[
+                  ...data.lowTanks.map(
+                    tank => `${tank.name} ${fmtNum(tank.currentLiters)} ลิตร`
+                  ),
+                  ...data.lowProducts.map(
+                    product =>
+                      `${product.name} ${fmtNum(product.stockQty)} ${product.unit}`
+                  ),
+                ].join(" · ")}
+              </div>
             </div>
-            <Link to="/stock" className="ml-auto">
+            <Link to="/stock">
               <Button
                 size="sm"
                 variant="outline"
-                className="border-amber-300 bg-white text-amber-800"
+                className="border-orange-200 bg-white/90 text-orange-800 hover:border-orange-300 hover:bg-orange-100"
               >
-                จัดการสต๊อก <ArrowRight className="size-3.5" />
+                จัดการทันที <ArrowRight className="size-3.5" />
               </Button>
             </Link>
           </CardContent>
         </Card>
       )}
 
-      {/* สถิติหลัก */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {stats.map(s => (
-          <Card key={s.label} className="relative gap-0 overflow-hidden py-0">
-            <span className={`absolute inset-y-0 left-0 w-1 ${s.bar}`} />
-            <CardContent className="flex items-center gap-4 p-4 pl-5 sm:p-5 sm:pl-6">
+        {stats.map(stat => (
+          <Card
+            key={stat.label}
+            className="interactive-card spotlight-card group gap-0 overflow-hidden py-0"
+          >
+            <span
+              className={`pointer-events-none absolute -right-8 -top-8 size-28 rounded-full blur-2xl ${stat.glow}`}
+            />
+            <CardContent className="relative flex items-center gap-4 p-5">
               <div
-                className={`grid size-11 shrink-0 place-items-center rounded-xl ${s.soft}`}
+                className={`grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br shadow-inner ring-1 ring-white transition-all duration-300 group-hover:-rotate-6 group-hover:scale-110 ${stat.iconBg} ${stat.color}`}
               >
-                <s.icon className="size-5" />
+                <stat.icon className="size-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-slate-500">
-                  {s.label}
+                <div className="text-[11px] font-medium text-slate-500">
+                  {stat.label}
                 </div>
-                <div className="mt-1 truncate font-heading text-xl font-bold text-slate-900 number-display">
-                  {s.value}
+                <div className="mt-1 truncate font-heading text-xl font-extrabold text-slate-900 number-display">
+                  {stat.value}
                 </div>
               </div>
-              <TrendingUp className="size-4 text-slate-300" />
+              <span className="grid size-8 place-items-center rounded-full bg-slate-50 text-slate-300 transition-all group-hover:bg-violet-50 group-hover:text-violet-500">
+                <ArrowUpRight className="size-4" />
+              </span>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* กราฟ 7 วัน */}
-        <Card className="gap-4 lg:col-span-2">
-          <CardHeader className="px-5 pb-0">
-            <CardTitle className="font-heading text-base text-slate-800">
-              ยอดขาย 7 วันย้อนหลัง
-            </CardTitle>
-            <p className="text-xs text-slate-400">แนวโน้มยอดขายรวมรายวัน</p>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="gap-4 overflow-hidden lg:col-span-2">
+          <CardHeader className="flex-row items-start justify-between px-5 pb-0 sm:px-6">
+            <div>
+              <div className="page-kicker">Revenue pulse</div>
+              <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
+                จังหวะยอดขาย 7 วัน
+              </CardTitle>
+              <p className="mt-1 text-xs text-slate-400">
+                แนวโน้มยอดขายรวมรายวัน
+              </p>
+            </div>
+            <div className="grid size-10 place-items-center rounded-2xl bg-violet-50 text-violet-600">
+              <TrendingUp className="size-5" />
+            </div>
           </CardHeader>
-          <CardContent className="h-64 px-3 pb-2 sm:px-5">
+          <CardContent className="h-72 px-2 pb-2 sm:px-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.chart}>
+              <AreaChart data={data.chart} margin={{ left: 0, right: 8 }}>
+                <defs>
+                  <linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7667f7" stopOpacity={0.38} />
+                    <stop offset="65%" stopColor="#7667f7" stopOpacity={0.08} />
+                    <stop offset="100%" stopColor="#7667f7" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid
-                  stroke="#e2e8f0"
-                  strokeDasharray="4 4"
+                  stroke="#e8e7f0"
+                  strokeDasharray="3 7"
                   vertical={false}
                 />
                 <XAxis
@@ -217,146 +352,179 @@ export default function Dashboard() {
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
+                  tick={{ fill: "#8b8aa1" }}
                 />
                 <YAxis
                   fontSize={11}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(v: number) => `${v / 1000}k`}
+                  width={42}
+                  tick={{ fill: "#8b8aa1" }}
+                  tickFormatter={(value: number) => `${value / 1000}k`}
                 />
                 <Tooltip
-                  cursor={{ fill: "#eff6ff" }}
+                  cursor={{ stroke: "#8b7cf8", strokeDasharray: "4 4" }}
                   contentStyle={{
-                    borderRadius: 12,
-                    borderColor: "#dbeafe",
-                    boxShadow: "0 12px 30px rgba(15,23,42,.1)",
+                    borderRadius: 16,
+                    borderColor: "rgba(221, 217, 250, .9)",
+                    boxShadow: "0 18px 45px rgba(39,32,89,.16)",
+                    background: "rgba(255,255,255,.94)",
                   }}
-                  formatter={v => [`฿${fmtMoney(Number(v))}`, "ยอดขาย"]}
-                  labelFormatter={l => `วันที่ ${l}`}
+                  formatter={value => [`฿${fmtMoney(Number(value))}`, "ยอดขาย"]}
+                  labelFormatter={label => `วันที่ ${label}`}
                 />
-                <Bar dataKey="total" fill="#2563eb" radius={[7, 7, 0, 0]} />
-              </BarChart>
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#6d5df4"
+                  strokeWidth={3}
+                  fill="url(#salesArea)"
+                  activeDot={{ r: 5, fill: "#18c7bf", strokeWidth: 3 }}
+                  animationDuration={900}
+                />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* ยอดแยกชนิดน้ำมัน */}
         <Card className="gap-4">
           <CardHeader className="px-5 pb-0">
-            <CardTitle className="font-heading text-base text-slate-800">
-              น้ำมันที่ขายวันนี้
+            <div className="page-kicker">Fuel mix</div>
+            <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
+              สัดส่วนน้ำมันวันนี้
             </CardTitle>
-            <p className="text-xs text-slate-400">แยกตามชนิดเชื้อเพลิง</p>
+            <p className="text-xs text-slate-400">ยอดขายแยกตามชนิดเชื้อเพลิง</p>
           </CardHeader>
-          <CardContent className="space-y-2 px-5">
+          <CardContent className="space-y-4 px-5">
             {Object.keys(data.fuelByCode).length === 0 && (
-              <p className="text-sm text-muted-foreground py-6 text-center">
+              <p className="py-8 text-center text-sm text-muted-foreground">
                 ยังไม่มียอดขายน้ำมันวันนี้
               </p>
             )}
-            {Object.entries(data.fuelByCode).map(([code, f]) => (
-              <div
-                key={code}
-                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="size-2 rounded-full bg-blue-500" />
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700">
-                      {f.name}
+            {Object.entries(data.fuelByCode).map(([code, fuel], index) => {
+              const percent = fuelTotal ? (fuel.amount / fuelTotal) * 100 : 0;
+              const barColors = [
+                "from-violet-500 to-indigo-500",
+                "from-cyan-400 to-teal-500",
+                "from-orange-400 to-rose-500",
+                "from-fuchsia-400 to-violet-500",
+              ];
+              return (
+                <div key={code} className="group">
+                  <div className="mb-2 flex items-end justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-700">
+                        {fuel.name}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-400">
+                        {fmtNum(fuel.liters)} ลิตร
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400">
-                      {fmtNum(f.liters)} ลิตร
+                    <div className="font-heading text-sm font-bold text-slate-800 number-display">
+                      ฿{fmtMoney(fuel.amount)}
                     </div>
                   </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 shadow-inner">
+                    <div
+                      className={`h-full rounded-full bg-gradient-to-r transition-all duration-700 group-hover:brightness-110 ${barColors[index % barColors.length]}`}
+                      style={{ width: `${Math.max(percent, 4)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="font-heading font-bold text-slate-800 number-display">
-                  ฿{fmtMoney(f.amount)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* ระดับถังน้ำมัน */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="gap-4">
           <CardHeader className="px-5 pb-0">
-            <CardTitle className="font-heading text-base text-slate-800">
+            <div className="page-kicker">Tank telemetry</div>
+            <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
               ระดับน้ำมันในถัง
             </CardTitle>
-            <p className="text-xs text-slate-400">ปริมาณคงเหลือล่าสุด</p>
           </CardHeader>
-          <CardContent className="space-y-4 px-5">
-            {data.tanks.map(t => (
-              <div key={t.id}>
-                <div className="mb-1.5 flex justify-between text-sm">
-                  <span className="font-medium text-slate-700">{t.name}</span>
+          <CardContent className="space-y-5 px-5">
+            {data.tanks.map(tank => (
+              <div key={tank.id}>
+                <div className="mb-2 flex justify-between text-sm">
+                  <span className="font-semibold text-slate-700">
+                    {tank.name}
+                  </span>
                   <span
                     className={
-                      t.isLow
-                        ? "text-destructive font-semibold"
+                      tank.isLow
+                        ? "font-semibold text-destructive"
                         : "text-muted-foreground"
                     }
                   >
-                    {fmtNum(t.currentLiters)} / {fmtNum(t.capacityLiters)} ล.
+                    {fmtNum(tank.percent)}%
                   </span>
                 </div>
                 <Progress
-                  value={t.percent}
-                  className={
-                    t.isLow ? "[&>div]:bg-destructive" : "[&>div]:bg-primary"
-                  }
+                  value={tank.percent}
+                  className={`h-2.5 ${
+                    tank.isLow
+                      ? "[&>div]:bg-destructive"
+                      : "[&>div]:bg-violet-600"
+                  }`}
                 />
+                <div className="mt-1.5 text-right text-[10px] text-slate-400">
+                  {fmtNum(tank.currentLiters)} / {fmtNum(tank.capacityLiters)}{" "}
+                  ล.
+                </div>
               </div>
             ))}
           </CardContent>
         </Card>
 
-        {/* บิลล่าสุด */}
         <Card className="gap-3 lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between px-5 pb-0">
             <div>
-              <CardTitle className="font-heading text-base text-slate-800">
-                บิลล่าสุด
+              <div className="page-kicker">Latest activity</div>
+              <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
+                การขายล่าสุด
               </CardTitle>
-              <p className="mt-1 text-xs text-slate-400">
-                รายการที่เพิ่งชำระเงิน
-              </p>
             </div>
             <Link to="/sales">
-              <Button variant="ghost" size="sm">
-                ดูทั้งหมด
+              <Button variant="ghost" size="sm" className="text-violet-700">
+                ดูทั้งหมด <ArrowRight className="size-3.5" />
               </Button>
             </Link>
           </CardHeader>
           <CardContent className="px-5">
-            <div className="divide-y">
+            <div className="space-y-1">
               {data.recentSales.length === 0 && (
-                <p className="text-sm text-muted-foreground py-6 text-center">
+                <p className="py-8 text-center text-sm text-muted-foreground">
                   ยังไม่มีการขาย
                 </p>
               )}
-              {data.recentSales.map(s => (
+              {data.recentSales.map(sale => (
                 <div
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 py-3"
+                  key={sale.id}
+                  className="group -mx-2 flex items-center justify-between gap-3 rounded-2xl px-3 py-3 transition-all hover:bg-violet-50/60"
                 >
-                  <div>
-                    <div className="text-sm font-semibold text-slate-700">
-                      {s.receiptNo}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-400 transition-all group-hover:bg-violet-100 group-hover:text-violet-600">
+                      <ReceiptText className="size-[18px]" />
                     </div>
-                    <div className="mt-0.5 text-xs text-slate-400">
-                      {fmtTime(s.createdAt)} · {paymentLabel[s.paymentMethod]} ·{" "}
-                      {s.staffName || "-"}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-700">
+                        {sale.receiptNo}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-slate-400">
+                        {fmtTime(sale.createdAt)} ·{" "}
+                        {paymentLabel[sale.paymentMethod]} ·{" "}
+                        {sale.staffName || "-"}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-heading font-bold text-slate-800 number-display">
-                      ฿{fmtMoney(s.total)}
+                    <div className="font-heading font-bold text-slate-900 number-display">
+                      ฿{fmtMoney(sale.total)}
                     </div>
-                    {s.status === "voided" && (
+                    {sale.status === "voided" && (
                       <Badge variant="destructive" className="text-[10px]">
                         ยกเลิก
                       </Badge>

@@ -5,16 +5,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-semibold transition-all duration-200 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/35 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold transition-all duration-200 active:translate-y-px active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:ring-[4px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-sm shadow-blue-950/10 hover:bg-blue-700 hover:shadow-md",
+          "bg-gradient-to-br from-violet-500 via-violet-600 to-indigo-700 text-primary-foreground shadow-[0_7px_18px_rgba(109,79,246,0.28)] hover:-translate-y-0.5 hover:from-violet-500 hover:via-indigo-600 hover:to-indigo-700 hover:shadow-[0_12px_26px_rgba(109,79,246,0.36)]",
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
-          "border border-slate-300 bg-white shadow-xs hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border border-slate-200/90 bg-white/80 shadow-xs backdrop-blur-sm hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-800 hover:shadow-md dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:

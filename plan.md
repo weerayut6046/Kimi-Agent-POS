@@ -2,7 +2,7 @@
 
 เอกสารแผนพัฒนาระบบตั้งแต่เริ่มต้นโครงการ จนถึงส่งมอบและต่อยอดในอนาคต
 
-> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.2` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
+> อัปเดตล่าสุด: 21 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.3` ดูภาพรวมปัจจุบันได้ที่ [`PROJECT.md`](./PROJECT.md)
 
 ---
 
@@ -195,4 +195,4 @@
 
 ---
 
-_สถานะ ณ 21 กรกฎาคม 2026: รุ่น 2.0.2 ใช้ฐานข้อมูลกลาง Supabase PostgreSQL, deploy Vercel/Railway Singapore, เพิ่ม Private GCS Backup และ Offline-first Desktop Sales พร้อม durable outbox/idempotent sync แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_
+_สถานะ ณ 21 กรกฎาคม 2026: รุ่น 2.0.3 ใช้ฐานข้อมูลกลาง Supabase PostgreSQL, deploy Vercel/Railway Singapore, มี Private GCS Backup และ Offline-first Desktop Sales พร้อม durable outbox/idempotent sync พร้อมยกเครื่อง UX/UI เป็น Modern Command Center แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_
