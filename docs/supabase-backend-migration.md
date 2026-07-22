@@ -21,8 +21,8 @@ is deployed and verified.
 
 ### Stage 1: stock visibility reads
 
-`catalog.listProducts`, `catalog.listTanks`, and `catalog.lowStockAlerts` are
-served directly by the `pos-api` Edge Function using the dedicated
+`catalog.listProducts`, `catalog.listTanks`, `catalog.lowStockAlerts`, and
+`catalog.priceHistory` are served directly by the `pos-api` Edge Function using the dedicated
 `pos_catalog_reader_live` database role. Earlier reader login roles are disabled
 after pooler-safe credential rotations; rotate by creating a new role rather
 than changing a password on a role already used by the pooler.

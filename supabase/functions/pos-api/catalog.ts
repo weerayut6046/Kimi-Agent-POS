@@ -7,6 +7,7 @@ export type CatalogReadResult = {
   listProducts: () => Promise<unknown>;
   listTanks: () => Promise<unknown>;
   lowStockAlerts: () => Promise<unknown>;
+  priceHistory: (productId: number) => Promise<unknown>;
 };
 
 export type StaffIdentity = {
@@ -39,6 +40,17 @@ type ProductRow = {
 };
 
 type NozzleRow = { id: number; tankId: number | null };
+
+type PriceChangeRow = {
+  id: number;
+  productId: number | null;
+  productCode: string;
+  productName: string;
+  oldPrice: number;
+  newPrice: number;
+  changedBy: string;
+  createdAt: Date;
+};
 
 function toNumber(value: unknown): number {
   const numberValue = typeof value === "number" ? value : Number(value);
@@ -130,6 +142,29 @@ export function createCatalogReader(
       cost: toNumber(product.cost),
       stockQty: toNumber(product.stockQty),
       lowStockAt: toNumber(product.lowStockAt),
+    }));
+  };
+
+  const priceHistory = async (productId: number) => {
+    const rows = await getClient()<PriceChangeRow[]>`
+      select
+        id,
+        product_id as "productId",
+        product_code as "productCode",
+        product_name as "productName",
+        old_price::double precision as "oldPrice",
+        new_price::double precision as "newPrice",
+        changed_by as "changedBy",
+        created_at as "createdAt"
+      from pos.price_changes
+      where product_id = ${productId}
+      order by created_at desc, id desc
+      limit 50
+    `;
+    return rows.map((change) => ({
+      ...change,
+      oldPrice: toNumber(change.oldPrice),
+      newPrice: toNumber(change.newPrice),
     }));
   };
 
@@ -312,5 +347,11 @@ export function createCatalogReader(
     };
   };
 
-  return { isActiveStaff, listProducts, listTanks, lowStockAlerts };
+  return {
+    isActiveStaff,
+    listProducts,
+    listTanks,
+    lowStockAlerts,
+    priceHistory,
+  };
 }

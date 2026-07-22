@@ -71,6 +71,7 @@ const LOCAL_CATALOG_PROCEDURES = new Set([
   "catalog.listProducts",
   "catalog.listTanks",
   "catalog.lowStockAlerts",
+  "catalog.priceHistory",
 ]);
 
 function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -201,6 +202,19 @@ function procedureFromUrl(url: URL): string | null {
     : null;
 }
 
+function trpcInput(url: URL, body?: Uint8Array<ArrayBuffer>): unknown {
+  const encoded = url.searchParams.get("input") ??
+    (body ? new TextDecoder().decode(body) : null);
+  if (!encoded) throw new Error("input is required");
+  const parsed: unknown = JSON.parse(encoded);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("invalid input envelope");
+  }
+  const json = (parsed as { json?: unknown }).json;
+  if (json === undefined) throw new Error("input json is required");
+  return json;
+}
+
 async function requestIdentity(request: Request): Promise<string> {
   // Do not trust the client-controlled x-forwarded-for chain. Supabase/Vercel
   // overwrite these platform headers at the edge; using only the first trusted
@@ -319,6 +333,25 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
       }
     }
 
+    let priceHistoryProductId: number | undefined;
+    if (procedure === "catalog.priceHistory") {
+      try {
+        const input = trpcInput(url, body);
+        if (
+          !input ||
+          typeof input !== "object" ||
+          Array.isArray(input) ||
+          !Number.isSafeInteger((input as { productId?: unknown }).productId) ||
+          Number((input as { productId: number }).productId) <= 0
+        ) {
+          throw new Error("invalid product id");
+        }
+        priceHistoryProductId = (input as { productId: number }).productId;
+      } catch {
+        return errorResponse(400, "INVALID_INPUT", "Invalid product id");
+      }
+    }
+
     if (catalogReader && LOCAL_CATALOG_PROCEDURES.has(procedure)) {
       try {
         const staff: StaffIdentity | null = claims
@@ -335,7 +368,9 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
           ? await catalogReader.listProducts()
           : procedure === "catalog.listTanks"
           ? await catalogReader.listTanks()
-          : await catalogReader.lowStockAlerts();
+          : procedure === "catalog.lowStockAlerts"
+          ? await catalogReader.lowStockAlerts()
+          : await catalogReader.priceHistory(priceHistoryProductId!);
         const response = trpcResult(result, headers);
         if (
           (await response.clone().arrayBuffer()).byteLength >

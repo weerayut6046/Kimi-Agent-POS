@@ -142,6 +142,7 @@ describe("Supabase business API gateway", () => {
         lowProducts: [],
         count: 0,
       })),
+      priceHistory: vi.fn(async () => []),
     };
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.lowStockAlerts")
@@ -171,6 +172,7 @@ describe("Supabase business API gateway", () => {
         lowProducts: [],
         count: 0,
       })),
+      priceHistory: vi.fn(async () => []),
     };
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.listProducts")
@@ -187,6 +189,60 @@ describe("Supabase business API gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("validates and serves migrated price history reads", async () => {
+    const fetchMock = okFetch();
+    const reader = {
+      isActiveStaff: vi.fn(async () => true),
+      listProducts: vi.fn(async () => []),
+      listTanks: vi.fn(async () => []),
+      lowStockAlerts: vi.fn(async () => ({
+        lowTanks: [],
+        lowProducts: [],
+        count: 0,
+      })),
+      priceHistory: vi.fn(async (productId: number) => [{ productId }]),
+    };
+    const query = `?input=${encodeURIComponent(JSON.stringify({
+      json: { productId: 12 },
+    }))}`;
+    const response = await gateway(fetchMock, { catalogReader: reader })(
+      edgeRequest("catalog.priceHistory", { query })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      result: { data: { json: [{ productId: 12 }] } },
+    });
+    expect(reader.priceHistory).toHaveBeenCalledWith(12);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed migrated price history input", async () => {
+    const fetchMock = okFetch();
+    const reader = {
+      isActiveStaff: vi.fn(async () => true),
+      listProducts: vi.fn(async () => []),
+      listTanks: vi.fn(async () => []),
+      lowStockAlerts: vi.fn(async () => ({
+        lowTanks: [],
+        lowProducts: [],
+        count: 0,
+      })),
+      priceHistory: vi.fn(async () => []),
+    };
+    const response = await gateway(fetchMock, { catalogReader: reader })(
+      edgeRequest("catalog.priceHistory", {
+        query: `?input=${encodeURIComponent(JSON.stringify({
+          json: { productId: -1 },
+        }))}`,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(reader.priceHistory).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the migrated catalog staff check is stale", async () => {
     const fetchMock = okFetch();
     const reader = {
@@ -198,6 +254,7 @@ describe("Supabase business API gateway", () => {
         lowProducts: [],
         count: 0,
       })),
+      priceHistory: vi.fn(async () => []),
     };
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.listTanks")
