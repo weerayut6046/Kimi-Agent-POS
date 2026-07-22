@@ -19,6 +19,7 @@ export default defineConfig({
       "web/api/**/*.spec.ts",
       "web/src/**/*.test.ts",
       "desktop/**/*.test.ts",
+      "supabase/functions/**/*.test.ts",
     ],
   },
 });
