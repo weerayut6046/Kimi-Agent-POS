@@ -68,6 +68,7 @@ const EDGE_EXCLUDED_PROCEDURES = new Set([
 // Read-only stock/catalog queries are the first workload moved into Supabase.
 // Writes and all other procedures continue through the rollback-safe upstream.
 const LOCAL_CATALOG_PROCEDURES = new Set([
+  "catalog.listProducts",
   "catalog.listTanks",
   "catalog.lowStockAlerts",
 ]);
@@ -330,7 +331,9 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
         if (!staff || !(await catalogReader.isActiveStaff(staff))) {
           return errorResponse(401, "UNAUTHORIZED", "Session expired");
         }
-        const result = procedure === "catalog.listTanks"
+        const result = procedure === "catalog.listProducts"
+          ? await catalogReader.listProducts()
+          : procedure === "catalog.listTanks"
           ? await catalogReader.listTanks()
           : await catalogReader.lowStockAlerts();
         const response = trpcResult(result, headers);

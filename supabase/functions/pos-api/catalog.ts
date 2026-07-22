@@ -4,6 +4,7 @@ type SqlClient = ReturnType<typeof postgres>;
 
 export type CatalogReadResult = {
   isActiveStaff: (staff: StaffIdentity) => Promise<boolean>;
+  listProducts: () => Promise<unknown>;
   listTanks: () => Promise<unknown>;
   lowStockAlerts: () => Promise<unknown>;
 };
@@ -103,6 +104,33 @@ export function createCatalogReader(
     return Boolean(
       row?.active && row.username === staff.username && row.role === staff.role,
     );
+  };
+
+  const listProducts = async () => {
+    const rows = await getClient()<ProductRow[]>`
+      select
+        id,
+        code,
+        name,
+        category,
+        unit,
+        price::double precision as price,
+        cost::double precision as cost,
+        stock_qty::double precision as "stockQty",
+        low_stock_at::double precision as "lowStockAt",
+        created_at as "createdAt",
+        active
+      from pos.products
+      order by category asc, id asc
+      limit 1000
+    `;
+    return rows.map((product) => ({
+      ...product,
+      price: toNumber(product.price),
+      cost: toNumber(product.cost),
+      stockQty: toNumber(product.stockQty),
+      lowStockAt: toNumber(product.lowStockAt),
+    }));
   };
 
   const listTanks = async () => {
@@ -284,5 +312,5 @@ export function createCatalogReader(
     };
   };
 
-  return { isActiveStaff, listTanks, lowStockAlerts };
+  return { isActiveStaff, listProducts, listTanks, lowStockAlerts };
 }

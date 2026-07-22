@@ -135,6 +135,7 @@ describe("Supabase business API gateway", () => {
       isActiveStaff: vi.fn(async staff =>
         staff.id === 7 && staff.username === "admin" && staff.role === "admin"
       ),
+      listProducts: vi.fn(async () => []),
       listTanks: vi.fn(async () => [{ id: 1, name: "Tank" }]),
       lowStockAlerts: vi.fn(async () => ({
         lowTanks: [],
@@ -159,10 +160,38 @@ describe("Supabase business API gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("serves migrated product reads from Supabase", async () => {
+    const fetchMock = okFetch();
+    const reader = {
+      isActiveStaff: vi.fn(async () => true),
+      listProducts: vi.fn(async () => [{ id: 1, code: "GSH95" }]),
+      listTanks: vi.fn(async () => []),
+      lowStockAlerts: vi.fn(async () => ({
+        lowTanks: [],
+        lowProducts: [],
+        count: 0,
+      })),
+    };
+    const response = await gateway(fetchMock, { catalogReader: reader })(
+      edgeRequest("catalog.listProducts")
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-pumppos-data-source")).toBe(
+      "supabase-postgres"
+    );
+    await expect(response.json()).resolves.toEqual({
+      result: { data: { json: [{ id: 1, code: "GSH95" }] } },
+    });
+    expect(reader.listProducts).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the migrated catalog staff check is stale", async () => {
     const fetchMock = okFetch();
     const reader = {
       isActiveStaff: vi.fn(async () => false),
+      listProducts: vi.fn(async () => []),
       listTanks: vi.fn(async () => []),
       lowStockAlerts: vi.fn(async () => ({
         lowTanks: [],
