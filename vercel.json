@@ -10,6 +10,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/trpc/assistant.chat",
+      "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-assistant"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://api-production-dc37.up.railway.app/api/:path*"
     },
