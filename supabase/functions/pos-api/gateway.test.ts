@@ -1,0 +1,286 @@
+import { createHmac } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { createBusinessGateway } from "./gateway.ts";
+
+const APP_SECRET = "0123456789abcdef0123456789abcdef";
+const ALLOWED_ORIGIN = "https://kimi-agent-pos.vercel.app";
+const UPSTREAM_BASE = "https://api-production-dc37.up.railway.app/api/trpc/";
+const NOW = 1_800_000_000_000;
+
+function sessionToken(exp = Math.floor(NOW / 1_000) + 300): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      id: 7,
+      name: "Admin",
+      role: "admin",
+      username: "admin",
+      exp,
+    })
+  ).toString("base64url");
+  const signature = createHmac("sha256", APP_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function edgeRequest(
+  procedure: string,
+  options: {
+    method?: string;
+    token?: string | null;
+    origin?: string | null;
+    body?: string;
+    headers?: HeadersInit;
+    query?: string;
+  } = {}
+): Request {
+  const method = options.method ?? "GET";
+  const headers = new Headers(options.headers);
+  if (options.origin !== null) {
+    headers.set("Origin", options.origin ?? ALLOWED_ORIGIN);
+  }
+  if (options.token !== null) {
+    headers.set("x-staff-session", options.token ?? sessionToken());
+  }
+  if (options.body !== undefined) {
+    headers.set("Content-Type", "application/json");
+  }
+  return new Request(
+    `https://example.supabase.co/functions/v1/pos-api/${procedure}${options.query ?? ""}`,
+    {
+      method,
+      headers,
+      body: options.body,
+    }
+  );
+}
+
+function gateway(
+  fetchImpl: typeof fetch,
+  overrides: Partial<Parameters<typeof createBusinessGateway>[0]> = {}
+) {
+  return createBusinessGateway({
+    appSecret: APP_SECRET,
+    upstreamBaseUrl: UPSTREAM_BASE,
+    allowedOrigins: new Set([ALLOWED_ORIGIN]),
+    fetchImpl,
+    now: () => NOW,
+    ...overrides,
+  });
+}
+
+function okFetch(body = '{"result":{"data":{"json":{"ok":true}}}}') {
+  return vi.fn(
+    async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+  ) as unknown as typeof fetch;
+}
+
+describe("Supabase business API gateway", () => {
+  it("forwards an authenticated request and only the approved headers", async () => {
+    const fetchMock = okFetch();
+    const handler = gateway(fetchMock);
+    const token = sessionToken();
+    const response = await handler(
+      edgeRequest("pos.dashboard", {
+        method: "POST",
+        token,
+        query: "?batch=1",
+        body: '{"json":{"date":"2026-07-22"}}',
+        headers: {
+          Accept: "application/json",
+          Authorization: "Bearer must-not-forward",
+          Cookie: "private=cookie",
+          "trpc-accept": "application/jsonl",
+          "x-private-header": "must-not-forward",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store, private");
+    expect(response.headers.get("x-pumppos-gateway")).toBe("supabase-edge");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [URL, RequestInit];
+    expect(url.toString()).toBe(`${UPSTREAM_BASE}pos.dashboard?batch=1`);
+    const forwarded = new Headers(init.headers);
+    expect(forwarded.get("x-staff-session")).toBe(token);
+    expect(forwarded.get("trpc-accept")).toBe("application/jsonl");
+    expect(forwarded.has("authorization")).toBe(false);
+    expect(forwarded.has("cookie")).toBe(false);
+    expect(forwarded.has("x-private-header")).toBe(false);
+  });
+
+  it("accepts the normalized path supplied by the hosted Edge runtime", async () => {
+    const fetchMock = okFetch();
+    const response = await gateway(fetchMock)(
+      new Request("https://example.supabase.co/pos-api/catalog.listTanks", {
+        headers: {
+          Origin: ALLOWED_ORIGIN,
+          "x-staff-session": sessionToken(),
+        },
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["missing", null],
+    ["tampered", `${sessionToken()}x`],
+    ["expired", sessionToken(Math.floor(NOW / 1_000) - 1)],
+  ])(
+    "rejects a %s session before contacting the worker",
+    async (_name, token) => {
+      const fetchMock = okFetch();
+      const response = await gateway(fetchMock)(
+        edgeRequest("catalog.listTanks", { token })
+      );
+      expect(response.status).toBe(401);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["ping", "auth.login", "auth.currentStaff", "catalog.lanInfo"])(
+    "allows the pre-login procedure %s without a session",
+    async procedure => {
+      const fetchMock = okFetch();
+      const response = await gateway(fetchMock)(
+        edgeRequest(procedure, { token: null })
+      );
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("rejects an untrusted browser origin and handles trusted preflight", async () => {
+    const fetchMock = okFetch();
+    const handler = gateway(fetchMock);
+    const rejected = await handler(
+      edgeRequest("ping", {
+        token: null,
+        origin: "https://attacker.example",
+      })
+    );
+    const preflight = await handler(
+      edgeRequest("ping", {
+        method: "OPTIONS",
+        token: null,
+      })
+    );
+    expect(rejected.status).toBe(403);
+    expect(rejected.headers.has("access-control-allow-origin")).toBe(false);
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(
+      ALLOWED_ORIGIN
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "assistant.chat",
+    "dbadmin.readBackup",
+    "reports.exportDailyExcel",
+    "reports.exportRangeExcel",
+    "unknown.read",
+    "pos%2Fcreate",
+  ])("does not expose the excluded procedure %s", async procedure => {
+    const fetchMock = okFetch();
+    const response = await gateway(fetchMock)(edgeRequest(procedure));
+    expect(response.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces the request size from both content-length and actual bytes", async () => {
+    const fetchMock = okFetch();
+    const handler = gateway(fetchMock, { maxRequestBytes: 4 });
+    const declared = await handler(
+      edgeRequest("pos.createSale", {
+        method: "POST",
+        headers: { "Content-Length": "5" },
+        body: "{}",
+      })
+    );
+    const actual = await handler(
+      edgeRequest("pos.createSale", {
+        method: "POST",
+        body: "12345",
+      })
+    );
+    expect(declared.status).toBe(413);
+    expect(actual.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized upstream response", async () => {
+    const fetchMock = okFetch("12345");
+    const response = await gateway(fetchMock, { maxResponseBytes: 4 })(
+      edgeRequest("catalog.listProducts")
+    );
+    expect(response.status).toBe(502);
+    await expect(response.text()).resolves.not.toContain("12345");
+  });
+
+  it("rate limits login attempts by a non-reversible client identity", async () => {
+    const fetchMock = okFetch();
+    const handler = gateway(fetchMock, { loginRequestsPerMinute: 2 });
+    const requestLogin = () =>
+      handler(
+        edgeRequest("auth.login", {
+          method: "POST",
+          token: null,
+          body: '{"json":{"username":"admin","pin":"0000"}}',
+          headers: { "cf-connecting-ip": "203.0.113.8" },
+        })
+      );
+
+    expect((await requestLogin()).status).toBe(200);
+    expect((await requestLogin()).status).toBe(200);
+    expect((await requestLogin()).status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a sanitized timeout without leaking the upstream error", async () => {
+    const fetchMock = vi.fn(
+      async (_url: URL | RequestInfo, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("secret upstream detail", "AbortError"));
+          });
+        })
+    ) as unknown as typeof fetch;
+    const response = await gateway(fetchMock, { upstreamTimeoutMs: 1 })(
+      edgeRequest("catalog.listTanks")
+    );
+    expect(response.status).toBe(504);
+    await expect(response.text()).resolves.not.toContain(
+      "secret upstream detail"
+    );
+  });
+
+  it("refuses unsafe configuration and unsupported methods", async () => {
+    expect(() =>
+      createBusinessGateway({
+        appSecret: "short",
+        upstreamBaseUrl: UPSTREAM_BASE,
+        allowedOrigins: new Set(),
+      })
+    ).toThrow(/APP_SECRET/);
+    expect(() =>
+      createBusinessGateway({
+        appSecret: APP_SECRET,
+        upstreamBaseUrl: "http://internal.example/api/trpc/",
+        allowedOrigins: new Set(),
+      })
+    ).toThrow(/HTTPS/);
+
+    const response = await gateway(okFetch())(
+      edgeRequest("ping", { method: "DELETE", token: null })
+    );
+    expect(response.status).toBe(405);
+  });
+});

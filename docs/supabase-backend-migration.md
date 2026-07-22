@@ -19,6 +19,16 @@ is deployed and verified.
 6. Replace Railway-only backup/report jobs, run restore drills, then retire
    Railway after an agreed observation window.
 
+### Database bootstrap note
+
+The application tables are owned by Drizzle and their canonical migrations live
+under `web/db/migrations-postgres/`. The Supabase migrations in this directory
+only contain changes that reference Supabase-managed schemas (Auth and
+Realtime) plus security hardening. A new project must therefore be bootstrapped
+with the Drizzle migrations first (`DIRECT_URL` pointed at the project), then
+the Supabase migrations can be pushed. Do not run the bridge migrations against
+a blank database or copy the remote migration history blindly.
+
 ## Transitional assistant gateway
 
 `supabase/functions/pos-assistant` preserves the existing tRPC request and

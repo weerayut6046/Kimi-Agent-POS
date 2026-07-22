@@ -14,6 +14,42 @@
       "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-assistant"
     },
     {
+      "source": "/api/trpc/dbadmin.dbInfo",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.dbInfo"
+    },
+    {
+      "source": "/api/trpc/dbadmin.backup",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.backup"
+    },
+    {
+      "source": "/api/trpc/dbadmin.readBackup",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.readBackup"
+    },
+    {
+      "source": "/api/trpc/dbadmin.restore",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.restore"
+    },
+    {
+      "source": "/api/trpc/dbadmin.deleteBackup",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.deleteBackup"
+    },
+    {
+      "source": "/api/trpc/dbadmin.restoreUpload",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.restoreUpload"
+    },
+    {
+      "source": "/api/trpc/reports.exportDailyExcel",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/reports.exportDailyExcel"
+    },
+    {
+      "source": "/api/trpc/reports.exportRangeExcel",
+      "destination": "https://api-production-dc37.up.railway.app/api/trpc/reports.exportRangeExcel"
+    },
+    {
+      "source": "/api/trpc/:procedure",
+      "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-api/:procedure"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://api-production-dc37.up.railway.app/api/:path*"
     },

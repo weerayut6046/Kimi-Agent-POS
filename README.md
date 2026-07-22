@@ -79,6 +79,7 @@ npx @railway/cli up        # backend — build จาก web/Dockerfile บน R
 - ประวัติแชตอยู่ในหน่วยความจำของหน้าเว็บเท่านั้น ไม่บันทึกลง Supabase และหายเมื่อ logout/โหลดหน้าใหม่
 - ข้อความคำถามที่ผ่านการกรองยังถูกส่งไปประมวลผลที่ DeepSeek ซึ่งเป็นผู้ให้บริการภายนอก จึงต้องแจ้งพนักงานไม่ให้พิมพ์ข้อมูลส่วนบุคคล ความลับ หรือข้อมูลระบบลงในคำถาม
 - ตั้ง `DEEPSEEK_API_KEY` เฉพาะที่ Railway/backend และห้ามตั้งชื่อแปรเป็น `VITE_DEEPSEEK_API_KEY`; ถ้าไม่มี key ปุ่มแชตยังเปิดได้แต่ backend จะปฏิเสธคำขออย่างปลอดภัย
+- สำหรับ Supabase Realtime ให้ตั้ง `VITE_SUPABASE_URL` และ `VITE_SUPABASE_PUBLISHABLE_KEY` ใน Environment ของ Vercel (Production/Preview ตามที่ใช้งาน) หรือใน `.env` สำหรับ local development ใช้เฉพาะ URL และ publishable key เท่านั้น ห้ามใส่ `service_role`/secret key หรือ `DEEPSEEK_API_KEY` ในตัวแปรที่ขึ้นต้นด้วย `VITE_`
 - จำกัดข้อความ 8 ครั้งต่อนาทีต่อพนักงาน, จำกัดขนาดข้อความ/ผลลัพธ์, timeout 25 วินาที และไม่แสดง upstream error หรือ API key กลับไปที่ client
 
 ## Development (ไม่ใช้ Docker)

@@ -186,6 +186,8 @@ Vercel เก็บ frontend และ rewrite `/api/*` ไป Railway ส่ว
 
 ตัวแปรแวดล้อมบน Railway: `APP_ID`, `APP_SECRET` (สุ่มตอน deploy), `DATABASE_URL` (Supabase session pooler สำหรับ backend แบบ long-lived), `DATABASE_POOL_SIZE=5`, `DEEPSEEK_API_KEY` (server-only), `DEEPSEEK_MODEL=deepseek-v4-flash`, `SEED_ON_START=false`
 
+ตัวแปรแวดล้อมฝั่ง Vercel ที่ถูกฝังใน frontend สำหรับ Supabase Realtime: `VITE_SUPABASE_URL` และ `VITE_SUPABASE_PUBLISHABLE_KEY` (ใช้ publishable key เท่านั้น; ห้ามใช้ `service_role`/secret key หรือ DeepSeek key)
+
 ผู้ช่วย AI ใช้ gateway ฝั่ง Railway เรียก DeepSeek Chat Completions โดย browser/Desktop ไม่เห็น API key; DeepSeek ใช้เลือกเครื่องมือ read-only เท่านั้น ส่วนผล query ยอดขาย/กะ/สต๊อกจัดรูปภายใน backend และไม่ส่งกลับไปยัง DeepSeek ระบบไม่ส่ง PII/credential/รายละเอียดบิลและไม่บันทึกบทสนทนาลงฐานข้อมูล
 
 ขั้นตอน deploy รอบใหม่ (ทำจาก root ของ repo ต้องมี token ของแต่ละบริการ):

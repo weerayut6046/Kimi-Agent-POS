@@ -56,6 +56,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let channel: RealtimeChannel | null = null;
     let channelConnecting = false;
     let supabaseSubscribed = false;
+    let channelRetryTimer: number | undefined;
+    let channelRetryMs = 1_000;
 
     const invalidateActiveQueries = () => {
       if (invalidateTimer !== undefined) return;
@@ -148,6 +150,56 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       await supabase.realtime.setAuth(session.access_token);
     };
 
+    const clearChannelRetry = () => {
+      if (channelRetryTimer === undefined) return;
+      window.clearTimeout(channelRetryTimer);
+      channelRetryTimer = undefined;
+    };
+
+    const removeSupabaseChannel = (expected?: RealtimeChannel) => {
+      if (expected && channel !== expected) return;
+      const previous = channel;
+      channel = null;
+      supabaseSubscribed = false;
+      if (previous && supabase) void supabase.removeChannel(previous);
+    };
+
+    const scheduleSupabaseRetry = () => {
+      if (
+        stopped ||
+        !supabase ||
+        supabaseSubscribed ||
+        channel ||
+        channelConnecting ||
+        channelRetryTimer !== undefined
+      ) {
+        return;
+      }
+
+      const delay = channelRetryMs;
+      channelRetryMs = Math.min(channelRetryMs * 2, 30_000);
+      channelRetryTimer = window.setTimeout(() => {
+        channelRetryTimer = undefined;
+        if (stopped || !supabase || supabaseSubscribed || channel) return;
+        void supabase.auth
+          .getSession()
+          .then(({ data }) => {
+            if (data.session) void connectSupabase(data.session);
+          })
+          .catch(() => {
+            // Keep the SSE fallback alive while Supabase Auth is unavailable.
+            startSseFallback();
+            scheduleSupabaseRetry();
+          });
+      }, delay);
+    };
+
+    const recoverSupabaseChannel = (failedChannel?: RealtimeChannel) => {
+      removeSupabaseChannel(failedChannel);
+      startSseFallback();
+      scheduleSupabaseRetry();
+    };
+
     const connectSupabase = async (session: Session) => {
       if (!supabase || stopped || channel || channelConnecting) return;
       channelConnecting = true;
@@ -162,9 +214,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           );
         channel = nextChannel;
         nextChannel.subscribe(status => {
-          if (stopped) return;
+          if (stopped || channel !== nextChannel) return;
           if (status === "SUBSCRIBED") {
             supabaseSubscribed = true;
+            channelRetryMs = 1_000;
+            clearChannelRetry();
             stopSseFallback();
             // Re-fetch after switching transports to close the handover window.
             invalidateActiveQueries();
@@ -175,15 +229,18 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             status === "TIMED_OUT" ||
             status === "CLOSED"
           ) {
-            supabaseSubscribed = false;
-            startSseFallback();
+            // Drop the failed channel before retrying; otherwise the stale
+            // object prevents connectSupabase from creating a new transport.
+            recoverSupabaseChannel(nextChannel);
           }
         });
       } catch {
-        supabaseSubscribed = false;
-        startSseFallback();
+        recoverSupabaseChannel();
       } finally {
         channelConnecting = false;
+        if (!stopped && !supabaseSubscribed && !channel) {
+          scheduleSupabaseRetry();
+        }
       }
     };
 
@@ -201,11 +258,15 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         window.setTimeout(() => {
           if (stopped) return;
           if (session) {
-            void authenticateRealtime(session).then(() => {
-              if (!channel) void connectSupabase(session);
-            });
+            void authenticateRealtime(session)
+              .then(() => {
+                if (!channel) void connectSupabase(session);
+              })
+              .catch(() => recoverSupabaseChannel());
           } else {
-            supabaseSubscribed = false;
+            clearChannelRetry();
+            channelRetryMs = 1_000;
+            removeSupabaseChannel();
             startSseFallback();
           }
         }, 0);
@@ -217,7 +278,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       stopped = true;
       authSubscription?.unsubscribe();
       stopSseFallback();
-      if (channel && supabase) void supabase.removeChannel(channel);
+      clearChannelRetry();
+      removeSupabaseChannel();
       if (invalidateTimer !== undefined) window.clearTimeout(invalidateTimer);
     };
   }, [queryClient, staffId]);
