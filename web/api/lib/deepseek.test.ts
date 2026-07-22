@@ -175,6 +175,7 @@ describe("DeepSeek server gateway", () => {
           }),
         },
       ],
+      forcedToolName: "get_today_sales_overview",
       fetchImpl,
     });
 
@@ -184,7 +185,12 @@ describe("DeepSeek server gateway", () => {
       actions: [{ kind: "navigate", label: "เปิดรายงาน", path: "/reports" }],
     });
     expect(fetchImpl).toHaveBeenCalledOnce();
-    expect(String(fetchImpl.mock.calls[0][1]?.body)).not.toContain("9999");
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(requestBody.tool_choice).toEqual({
+      type: "function",
+      function: { name: "get_today_sales_overview" },
+    });
+    expect(JSON.stringify(requestBody)).not.toContain("9999");
   });
 
   it("does not execute a tool name that was not allowlisted", async () => {

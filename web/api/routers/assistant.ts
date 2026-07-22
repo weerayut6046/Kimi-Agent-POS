@@ -32,6 +32,64 @@ const RATE_LIMIT_REQUESTS = 8;
 const requestTimesByStaff = new Map<number, number[]>();
 const noArgumentsSchema = z.object({}).strict();
 
+const FORCED_TOOL_INTENTS: ReadonlyArray<{
+  toolName: string;
+  patterns: readonly RegExp[];
+}> = [
+  {
+    toolName: "get_admin_documents",
+    patterns: [
+      /(?:ขอ|เตรียม|ดาวน์โหลด).{0,30}(?:เอกสาร|รายงาน|ใบเสร็จ|ใบกำกับภาษี)/i,
+      /(?:เอกสาร|รายงาน|ใบเสร็จ|ใบกำกับภาษี).{0,30}(?:ทั้งหมด|ทุกอย่าง|ดาวน์โหลด)/i,
+    ],
+  },
+  {
+    toolName: "get_admin_business_summary",
+    patterns: [
+      /(?:สรุป|ภาพรวม).{0,30}(?:ธุรกิจ|ทุกโมดูล|ทั้งระบบ)/i,
+      /(?:ธุรกิจ|ทุกโมดูล).{0,30}(?:สรุป|ภาพรวม)/i,
+    ],
+  },
+  {
+    toolName: "get_all_fuel_tank_levels",
+    patterns: [
+      /(?:ปริมาณ|ระดับ).{0,30}(?:น้ำมัน|ถัง)/i,
+      /(?:น้ำมัน|ถัง).{0,30}(?:คงเหลือ|เหลือเท่า|ปริมาณ|ระดับ)/i,
+      /(?:น้ำมัน|สต๊อก|สต็อก).{0,30}ทุกถัง/i,
+    ],
+  },
+  {
+    toolName: "get_low_stock",
+    patterns: [
+      /(?:สต๊อก|สต็อก|สินค้า|ถัง|น้ำมัน).{0,30}(?:ต่ำ|ใกล้หมด|ต่ำกว่าเกณฑ์)/i,
+      /(?:ต่ำ|ใกล้หมด|ต่ำกว่าเกณฑ์).{0,30}(?:สต๊อก|สต็อก|สินค้า|ถัง|น้ำมัน)/i,
+    ],
+  },
+  {
+    toolName: "get_today_sales_overview",
+    patterns: [
+      /ยอดขาย.{0,20}(?:วันนี้|ประจำวัน)/i,
+      /(?:วันนี้|ประจำวัน).{0,20}ยอดขาย/i,
+    ],
+  },
+  {
+    toolName: "get_open_shift_status",
+    patterns: [/(?:สถานะ|เปิด|ปิด).{0,20}กะ/i, /กะ.{0,20}(?:สถานะ|เปิด|ปิด)/i],
+  },
+];
+
+export function selectForcedAssistantTool(
+  message: string,
+  tools: readonly DeepSeekAssistantTool[]
+): string | undefined {
+  const available = new Set(tools.map(tool => tool.definition.function.name));
+  return FORCED_TOOL_INTENTS.find(
+    intent =>
+      available.has(intent.toolName) &&
+      intent.patterns.some(pattern => pattern.test(message))
+  )?.toolName;
+}
+
 const messageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string().trim().min(1).max(2_000),
@@ -583,6 +641,11 @@ export const assistantRouter = createRouter({
           content: redactSensitiveText(message.content),
         })
       );
+      const tools = buildTools(access.role, access.permissions);
+      const forcedToolName = selectForcedAssistantTool(
+        conversation.at(-1)?.content ?? "",
+        tools
+      );
 
       try {
         const result = await runDeepSeekAssistant({
@@ -590,7 +653,8 @@ export const assistantRouter = createRouter({
           model: env.deepseekModel,
           systemPrompt: buildSystemPrompt(),
           conversation,
-          tools: buildTools(access.role, access.permissions),
+          tools,
+          forcedToolName,
         });
         return {
           answer: result.answer,

@@ -27,6 +27,14 @@ type DeepSeekToolDefinition = {
   };
 };
 
+type DeepSeekToolChoice =
+  | "auto"
+  | "none"
+  | {
+      type: "function";
+      function: { name: string };
+    };
+
 export type DeepSeekAssistantTool = {
   definition: DeepSeekToolDefinition;
   execute: (argumentsValue: unknown) => Promise<unknown>;
@@ -110,6 +118,7 @@ async function requestCompletion(input: {
   messages: DeepSeekRequestMessage[];
   tools: DeepSeekAssistantTool[];
   allowTools: boolean;
+  forcedToolName?: string;
   fetchImpl: typeof fetch;
 }) {
   const controller = new AbortController();
@@ -131,7 +140,14 @@ async function requestCompletion(input: {
         ...(input.tools.length
           ? {
               tools: input.tools.map(tool => tool.definition),
-              tool_choice: input.allowTools ? "auto" : "none",
+              tool_choice: (input.allowTools
+                ? input.forcedToolName
+                  ? {
+                      type: "function",
+                      function: { name: input.forcedToolName },
+                    }
+                  : "auto"
+                : "none") satisfies DeepSeekToolChoice,
             }
           : {}),
       }),
@@ -187,6 +203,7 @@ export async function runDeepSeekAssistant(input: {
   systemPrompt: string;
   conversation: DeepSeekConversationMessage[];
   tools: DeepSeekAssistantTool[];
+  forcedToolName?: string;
   fetchImpl?: typeof fetch;
 }): Promise<DeepSeekAssistantResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
@@ -197,6 +214,10 @@ export async function runDeepSeekAssistant(input: {
   const toolsByName = new Map(
     input.tools.map(tool => [tool.definition.function.name, tool])
   );
+  const forcedToolName =
+    input.forcedToolName && toolsByName.has(input.forcedToolName)
+      ? input.forcedToolName
+      : undefined;
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     const allowTools = round < MAX_TOOL_ROUNDS;
@@ -206,6 +227,7 @@ export async function runDeepSeekAssistant(input: {
       messages,
       tools: input.tools,
       allowTools,
+      forcedToolName: round === 0 ? forcedToolName : undefined,
       fetchImpl,
     });
     const toolCalls = allowTools
@@ -213,6 +235,12 @@ export async function runDeepSeekAssistant(input: {
       : [];
 
     if (!toolCalls.length) {
+      if (round === 0 && forcedToolName) {
+        throw new DeepSeekAssistantError(
+          "invalid_response",
+          "DeepSeek did not call the required tool"
+        );
+      }
       const answer = responseMessage.content?.trim();
       if (!answer) {
         throw new DeepSeekAssistantError(

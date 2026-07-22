@@ -132,7 +132,12 @@ describe("AI assistant security", () => {
     expect(result.answer).toContain("ไม่ได้ส่งให้ DeepSeek");
     expect(result.includeInModelContext).toBe(false);
     expect(fetchMock).toHaveBeenCalledOnce();
-    const externalRequest = String(fetchMock.mock.calls[0][1]?.body);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    const externalRequest = JSON.stringify(requestBody);
+    expect(requestBody.tool_choice).toEqual({
+      type: "function",
+      function: { name: "get_all_fuel_tank_levels" },
+    });
     expect(externalRequest).toContain("get_all_fuel_tank_levels");
     expect(externalRequest).not.toContain("ถังดีเซล B7");
     expect(externalRequest).not.toContain("3100");
