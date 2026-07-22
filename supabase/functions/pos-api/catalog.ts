@@ -101,17 +101,49 @@ export function createCatalogReader(
     return client;
   };
 
+  const resetClient = async () => {
+    const previous = client;
+    client = undefined;
+    if (previous) {
+      try {
+        await previous.end({ timeout: 1 });
+      } catch {
+        // The failed connection is already unusable; the next attempt creates
+        // a fresh pooler connection.
+      }
+    }
+  };
+
+  const read = async <T>(operation: (sql: SqlClient) => Promise<T>) => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await operation(getClient());
+      } catch (error) {
+        lastError = error;
+        if (attempt === 1) break;
+        await resetClient();
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Catalog database read failed");
+  };
+
   const isActiveStaff = async (staff: StaffIdentity) => {
-    const rows = await getClient()<{
-      active: boolean;
-      username: string;
-      role: StaffIdentity["role"];
-    }[]>`
-      select active, username, role
-      from pos.staff_users
-      where id = ${staff.id}
-      limit 1
-    `;
+    const rows = await read((sql) =>
+      sql<{
+        active: boolean;
+        username: string;
+        role: StaffIdentity["role"];
+      }[]>`
+        select active, username, role
+        from pos.staff_users
+        where id = ${staff.id}
+        limit 1
+      `
+    );
     const row = rows[0];
     return Boolean(
       row?.active && row.username === staff.username && row.role === staff.role,
@@ -119,59 +151,64 @@ export function createCatalogReader(
   };
 
   const listProducts = async () => {
-    const rows = await getClient()<ProductRow[]>`
-      select
-        id,
-        code,
-        name,
-        category,
-        unit,
-        price::double precision as price,
-        cost::double precision as cost,
-        stock_qty::double precision as "stockQty",
-        low_stock_at::double precision as "lowStockAt",
-        created_at as "createdAt",
-        active
-      from pos.products
-      order by category asc, id asc
-      limit 1000
-    `;
-    return rows.map((product) => ({
-      ...product,
-      price: toNumber(product.price),
-      cost: toNumber(product.cost),
-      stockQty: toNumber(product.stockQty),
-      lowStockAt: toNumber(product.lowStockAt),
-    }));
+    return read(async (sql) => {
+      const rows = await sql<ProductRow[]>`
+        select
+          id,
+          code,
+          name,
+          category,
+          unit,
+          price::double precision as price,
+          cost::double precision as cost,
+          stock_qty::double precision as "stockQty",
+          low_stock_at::double precision as "lowStockAt",
+          created_at as "createdAt",
+          active
+        from pos.products
+        order by category asc, id asc
+        limit 1000
+      `;
+      return rows.map((product) => ({
+        ...product,
+        price: toNumber(product.price),
+        cost: toNumber(product.cost),
+        stockQty: toNumber(product.stockQty),
+        lowStockAt: toNumber(product.lowStockAt),
+      }));
+    });
   };
 
   const priceHistory = async (productId: number) => {
-    const rows = await getClient()<PriceChangeRow[]>`
-      select
-        id,
-        product_id as "productId",
-        product_code as "productCode",
-        product_name as "productName",
-        old_price::double precision as "oldPrice",
-        new_price::double precision as "newPrice",
-        changed_by as "changedBy",
-        created_at as "createdAt"
-      from pos.price_changes
-      where product_id = ${productId}
-      order by created_at desc, id desc
-      limit 50
-    `;
-    return rows.map((change) => ({
-      ...change,
-      oldPrice: toNumber(change.oldPrice),
-      newPrice: toNumber(change.newPrice),
-    }));
+    return read(async (sql) => {
+      const rows = await sql<PriceChangeRow[]>`
+        select
+          id,
+          product_id as "productId",
+          product_code as "productCode",
+          product_name as "productName",
+          old_price::double precision as "oldPrice",
+          new_price::double precision as "newPrice",
+          changed_by as "changedBy",
+          created_at as "createdAt"
+        from pos.price_changes
+        where product_id = ${productId}
+        order by created_at desc, id desc
+        limit 50
+      `;
+      return rows.map((change) => ({
+        ...change,
+        oldPrice: toNumber(change.oldPrice),
+        newPrice: toNumber(change.newPrice),
+      }));
+    });
   };
 
   const listTanks = async () => {
-    const sql = getClient();
-    const [tankRows, productRows, nozzleRows, settingRows] = await Promise.all([
-      sql<TankRow[]>`
+    return read(async (sql) => {
+      const [tankRows, productRows, nozzleRows, settingRows] = await Promise
+        .all([
+          sql<TankRow[]>`
         select
           id,
           product_id as "productId",
@@ -182,7 +219,7 @@ export function createCatalogReader(
         from pos.fuel_tanks
         limit 1000
       `,
-      sql<ProductRow[]>`
+          sql<ProductRow[]>`
         select
           id,
           code,
@@ -198,77 +235,78 @@ export function createCatalogReader(
         from pos.products
         limit 1000
       `,
-      sql<NozzleRow[]>`
+          sql<NozzleRow[]>`
         select id, tank_id as "tankId"
         from pos.nozzles
         limit 1000
       `,
-      sql<{ value: string }[]>`
+          sql<{ value: string }[]>`
         select value
         from pos.settings
         where key = 'tank_display_order'
         limit 1
       `,
-    ]);
+        ]);
 
-    const firstNozzleByTank = new Map<number, number>();
-    for (const nozzle of nozzleRows) {
-      if (nozzle.tankId == null) continue;
-      const current = firstNozzleByTank.get(nozzle.tankId);
-      if (current == null || nozzle.id < current) {
-        firstNozzleByTank.set(nozzle.tankId, nozzle.id);
+      const firstNozzleByTank = new Map<number, number>();
+      for (const nozzle of nozzleRows) {
+        if (nozzle.tankId == null) continue;
+        const current = firstNozzleByTank.get(nozzle.tankId);
+        if (current == null || nozzle.id < current) {
+          firstNozzleByTank.set(nozzle.tankId, nozzle.id);
+        }
       }
-    }
 
-    const displayOrder = parseTankDisplayOrder(settingRows[0]?.value);
-    const displayIndex = new Map(
-      displayOrder.map((tankId, index) => [tankId, index]),
-    );
+      const displayOrder = parseTankDisplayOrder(settingRows[0]?.value);
+      const displayIndex = new Map(
+        displayOrder.map((tankId, index) => [tankId, index]),
+      );
 
-    return tankRows
-      .map((tank) => ({
-        ...tank,
-        capacityLiters: toNumber(tank.capacityLiters),
-        currentLiters: toNumber(tank.currentLiters),
-        lowAlertAt: toNumber(tank.lowAlertAt),
-      }))
-      .sort((a, b) => {
-        const savedA = displayIndex.get(a.id);
-        const savedB = displayIndex.get(b.id);
-        if (savedA != null && savedB != null) return savedA - savedB;
-        if (savedA != null) return -1;
-        if (savedB != null) return 1;
-        return (
-          (firstNozzleByTank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
-            (firstNozzleByTank.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
-          a.id - b.id
-        );
-      })
-      .map((tank) => {
-        const product = productRows.find((row) => row.id === tank.productId);
-        return {
+      return tankRows
+        .map((tank) => ({
           ...tank,
-          product: product
-            ? {
-              ...product,
-              price: toNumber(product.price),
-              cost: toNumber(product.cost),
-              stockQty: toNumber(product.stockQty),
-              lowStockAt: toNumber(product.lowStockAt),
-            }
-            : null,
-          percent: Math.round(
-            (tank.currentLiters / Math.max(tank.capacityLiters, 1)) * 100,
-          ),
-          isLow: tank.currentLiters <= tank.lowAlertAt,
-        };
-      });
+          capacityLiters: toNumber(tank.capacityLiters),
+          currentLiters: toNumber(tank.currentLiters),
+          lowAlertAt: toNumber(tank.lowAlertAt),
+        }))
+        .sort((a, b) => {
+          const savedA = displayIndex.get(a.id);
+          const savedB = displayIndex.get(b.id);
+          if (savedA != null && savedB != null) return savedA - savedB;
+          if (savedA != null) return -1;
+          if (savedB != null) return 1;
+          return (
+            (firstNozzleByTank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+              (firstNozzleByTank.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+            a.id - b.id
+          );
+        })
+        .map((tank) => {
+          const product = productRows.find((row) => row.id === tank.productId);
+          return {
+            ...tank,
+            product: product
+              ? {
+                ...product,
+                price: toNumber(product.price),
+                cost: toNumber(product.cost),
+                stockQty: toNumber(product.stockQty),
+                lowStockAt: toNumber(product.lowStockAt),
+              }
+              : null,
+            percent: Math.round(
+              (tank.currentLiters / Math.max(tank.capacityLiters, 1)) * 100,
+            ),
+            isLow: tank.currentLiters <= tank.lowAlertAt,
+          };
+        });
+    });
   };
 
   const lowStockAlerts = async () => {
-    const sql = getClient();
-    const [tankRows, productRows] = await Promise.all([
-      sql<TankRow[]>`
+    return read(async (sql) => {
+      const [tankRows, productRows] = await Promise.all([
+        sql<TankRow[]>`
         select
           id,
           product_id as "productId",
@@ -279,18 +317,18 @@ export function createCatalogReader(
         from pos.fuel_tanks
         limit 1000
       `,
-      sql<
-        Pick<
-          ProductRow,
-          | "id"
-          | "name"
-          | "unit"
-          | "stockQty"
-          | "lowStockAt"
-          | "active"
-          | "category"
-        >[]
-      >`
+        sql<
+          Pick<
+            ProductRow,
+            | "id"
+            | "name"
+            | "unit"
+            | "stockQty"
+            | "lowStockAt"
+            | "active"
+            | "category"
+          >[]
+        >`
         select
           id,
           name,
@@ -302,49 +340,50 @@ export function createCatalogReader(
         from pos.products
         limit 1000
       `,
-    ]);
+      ]);
 
-    const lowTanks = tankRows
-      .map((tank) => ({
-        ...tank,
-        capacityLiters: toNumber(tank.capacityLiters),
-        currentLiters: toNumber(tank.currentLiters),
-        lowAlertAt: toNumber(tank.lowAlertAt),
-      }))
-      .filter((tank) => tank.currentLiters <= tank.lowAlertAt)
-      .map((tank) => ({
-        id: tank.id,
-        name: tank.name,
-        currentLiters: tank.currentLiters,
-        capacityLiters: tank.capacityLiters,
-        lowAlertAt: tank.lowAlertAt,
-      }));
+      const lowTanks = tankRows
+        .map((tank) => ({
+          ...tank,
+          capacityLiters: toNumber(tank.capacityLiters),
+          currentLiters: toNumber(tank.currentLiters),
+          lowAlertAt: toNumber(tank.lowAlertAt),
+        }))
+        .filter((tank) => tank.currentLiters <= tank.lowAlertAt)
+        .map((tank) => ({
+          id: tank.id,
+          name: tank.name,
+          currentLiters: tank.currentLiters,
+          capacityLiters: tank.capacityLiters,
+          lowAlertAt: tank.lowAlertAt,
+        }));
 
-    const lowProducts = productRows
-      .map((product) => ({
-        ...product,
-        stockQty: toNumber(product.stockQty),
-        lowStockAt: toNumber(product.lowStockAt),
-      }))
-      .filter(
-        (product) =>
-          product.active &&
-          product.category !== "fuel" &&
-          product.stockQty <= product.lowStockAt,
-      )
-      .map((product) => ({
-        id: product.id,
-        name: product.name,
-        unit: product.unit,
-        stockQty: product.stockQty,
-        lowStockAt: product.lowStockAt,
-      }));
+      const lowProducts = productRows
+        .map((product) => ({
+          ...product,
+          stockQty: toNumber(product.stockQty),
+          lowStockAt: toNumber(product.lowStockAt),
+        }))
+        .filter(
+          (product) =>
+            product.active &&
+            product.category !== "fuel" &&
+            product.stockQty <= product.lowStockAt,
+        )
+        .map((product) => ({
+          id: product.id,
+          name: product.name,
+          unit: product.unit,
+          stockQty: product.stockQty,
+          lowStockAt: product.lowStockAt,
+        }));
 
-    return {
-      lowTanks,
-      lowProducts,
-      count: lowTanks.length + lowProducts.length,
-    };
+      return {
+        lowTanks,
+        lowProducts,
+        count: lowTanks.length + lowProducts.length,
+      };
+    });
   };
 
   return {
