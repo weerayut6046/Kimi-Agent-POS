@@ -8,6 +8,27 @@
       "when": 1784602990497,
       "tag": "0000_initial_supabase",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784681933102,
+      "tag": "0001_flippant_young_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784685372004,
+      "tag": "0002_remarkable_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784685977641,
+      "tag": "0003_overrated_ultimates",
+      "breakpoints": true
     }
   ]
 }

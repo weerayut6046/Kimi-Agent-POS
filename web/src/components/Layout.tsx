@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
+import AssistantChat from "@/components/AssistantChat";
 import { useStaff } from "@/hooks/useStaff";
 import LowStockAlert from "@/components/LowStockAlert";
 import {
@@ -50,8 +51,13 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import {
+  hasMenuPermission,
+  type MenuPermissionKey,
+} from "@contracts/menuPermissions";
 
 type MenuItem = {
+  permission: MenuPermissionKey;
   to: string;
   label: string;
   shortLabel?: string;
@@ -65,6 +71,7 @@ type MenuItem = {
 
 const menus: MenuItem[] = [
   {
+    permission: "dashboard",
     to: "/",
     label: "ภาพรวมสถานี",
     shortLabel: "ภาพรวม",
@@ -73,6 +80,7 @@ const menus: MenuItem[] = [
     group: "station",
   },
   {
+    permission: "pos",
     to: "/pos",
     label: "ขายหน้าลาน",
     shortLabel: "ขาย",
@@ -80,6 +88,7 @@ const menus: MenuItem[] = [
     group: "station",
   },
   {
+    permission: "shifts",
     to: "/shifts",
     label: "จัดการกะ",
     shortLabel: "กะ",
@@ -87,6 +96,7 @@ const menus: MenuItem[] = [
     group: "station",
   },
   {
+    permission: "workforce",
     to: "/workforce",
     label: "พนักงานและตารางงาน",
     shortLabel: "พนักงาน",
@@ -94,35 +104,64 @@ const menus: MenuItem[] = [
     group: "station",
   },
   {
+    permission: "stock",
     to: "/stock",
     label: "สต๊อกและถัง",
     shortLabel: "สต๊อก",
     icon: Fuel,
     group: "station",
   },
-  { to: "/members", label: "สมาชิก", icon: Users, group: "customer" },
   {
+    permission: "members",
+    to: "/members",
+    label: "สมาชิก",
+    icon: Users,
+    group: "customer",
+  },
+  {
+    permission: "customers",
     to: "/customers",
     label: "ลูกค้าธุรกิจ",
     icon: Building2,
     group: "customer",
   },
-  { to: "/debts", label: "ลูกหนี้เครดิต", icon: HandCoins, group: "customer" },
-  { to: "/sales", label: "ประวัติการขาย", icon: Receipt, group: "document" },
   {
+    permission: "debts",
+    to: "/debts",
+    label: "ลูกหนี้เครดิต",
+    icon: HandCoins,
+    group: "customer",
+  },
+  {
+    permission: "sales",
+    to: "/sales",
+    label: "ประวัติการขาย",
+    icon: Receipt,
+    group: "document",
+  },
+  {
+    permission: "reports",
     to: "/reports",
     label: "รายงานปิดวัน",
     icon: ClipboardList,
     group: "document",
   },
-  { to: "/expenses", label: "ค่าใช้จ่าย", icon: Banknote, group: "document" },
   {
+    permission: "expenses",
+    to: "/expenses",
+    label: "ค่าใช้จ่าย",
+    icon: Banknote,
+    group: "document",
+  },
+  {
+    permission: "tax_invoices",
     to: "/tax-invoices",
     label: "ใบกำกับภาษี",
     icon: FileText,
     group: "document",
   },
   {
+    permission: "documents",
     to: "/documents",
     label: "เอกสาร",
     icon: FileSignature,
@@ -130,6 +169,7 @@ const menus: MenuItem[] = [
     group: "document",
   },
   {
+    permission: "audit",
     to: "/audit",
     label: "บันทึกการใช้งาน",
     icon: ScrollText,
@@ -137,6 +177,7 @@ const menus: MenuItem[] = [
     group: "system",
   },
   {
+    permission: "settings",
     to: "/settings",
     label: "ตั้งค่าระบบ",
     shortLabel: "ตั้งค่า",
@@ -166,17 +207,17 @@ export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const shopName = settingMap?.shop_name ?? "PumpPOS";
-  const visibleMenus = useMemo(
-    () =>
-      menus.filter(
-        menu =>
-          (!menu.adminOnly || staff?.role === "admin") &&
-          (!menu.managerOnly ||
-            staff?.role === "admin" ||
-            staff?.role === "manager")
-      ),
-    [staff?.role]
-  );
+  const visibleMenus = useMemo(() => {
+    if (!staff) return [];
+    return menus.filter(
+      menu =>
+        hasMenuPermission(staff.role, staff.menuPermissions, menu.permission) &&
+        (!menu.adminOnly || staff.role === "admin") &&
+        (!menu.managerOnly ||
+          staff.role === "admin" ||
+          staff.role === "manager")
+    );
+  }, [staff]);
   const currentMenu = visibleMenus.find(menu =>
     menu.end
       ? location.pathname === menu.to
@@ -636,6 +677,7 @@ export default function Layout() {
           )}
         </CommandList>
       </CommandDialog>
+      <AssistantChat />
     </Sheet>
   );
 }

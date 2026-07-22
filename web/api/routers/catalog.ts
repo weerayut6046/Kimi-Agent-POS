@@ -1,7 +1,7 @@
 import { z } from "zod";
 import os from "os";
 import { desc, eq, ne, sql } from "drizzle-orm";
-import { createRouter, publicQuery } from "../middleware";
+import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
@@ -523,7 +523,12 @@ export const catalogRouter = createRouter({
 
   // ข้อมูลสำหรับเชื่อมต่อจากเครื่องอื่นใน LAN (multi-station) — urls คืนเสมอให้หน้า Settings preview ได้
   // ส่วนหน้า Login จะแสดงเฉพาะตอน enabled (เปิดใน Settings แล้วรีสตาร์ทแอป)
-  lanInfo: publicQuery.query(async () => {
+  lanInfo: anonymousQuery.query(async () => {
+    // LAN discovery is a local-development legacy feature. Never disclose
+    // Railway/container interface addresses from the public cloud endpoint.
+    if (process.env.NODE_ENV === "production") {
+      return { enabled: false, port: 0, urls: [] as string[] };
+    }
     const db = getDb();
     let enabled = false;
     try {

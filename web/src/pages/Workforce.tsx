@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   ArrowLeftRight,
   CalendarDays,
@@ -148,6 +149,12 @@ function statusBadge(status: ScheduleStatus) {
 export default function Workforce() {
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const initialTab =
+    requestedTab === "employees" || requestedTab === "payroll"
+      ? requestedTab
+      : "schedule";
   const utils = trpc.useUtils();
   const [startDate, setStartDate] = useState(localDateText());
   const endDate = addDays(startDate, 6);
@@ -404,7 +411,7 @@ export default function Workforce() {
         </div>
       )}
 
-      <Tabs defaultValue="schedule" className="gap-4">
+      <Tabs defaultValue={initialTab} className="gap-4">
         <TabsList>
           <TabsTrigger value="schedule">
             <CalendarDays /> ตารางงาน
@@ -935,7 +942,9 @@ export default function Workforce() {
                         </div>
                         <div className="mt-1 font-semibold">
                           +฿
-                          {fmtMoney(myPayroll.overtimeAmount + myPayroll.bonus)}{" "}
+                          {fmtMoney(
+                            myPayroll.overtimeAmount + myPayroll.bonus
+                          )}{" "}
                           / -฿
                           {fmtMoney(myPayroll.deduction)}
                         </div>

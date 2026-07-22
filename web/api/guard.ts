@@ -1,13 +1,24 @@
 import { publicQuery } from "./middleware";
 import { staffSessionFromHeader } from "./lib/session";
+import { TRPCError } from "@trpc/server";
 
 /**
  * adminQuery — procedure สำหรับงานเพิ่ม/แก้ไข/ลบข้อมูล
  * อนุญาตเฉพาะผู้ใช้ที่ส่ง role = "admin" มาทาง header (ออกแบบสำหรับระบบ PIN ภายในปั๊ม)
  */
 export const adminQuery = publicQuery.use(({ ctx, next }) => {
-  if (staffSessionFromHeader(ctx.req)?.role !== "admin") {
-    throw new Error("สิทธิ์ไม่เพียงพอ — การกระทำนี้สงวนไว้สำหรับผู้ดูแลระบบ (admin)");
+  const session = staffSessionFromHeader(ctx.req);
+  if (!session) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+    });
+  }
+  if (session.role !== "admin") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "สิทธิ์ไม่เพียงพอ — การกระทำนี้สงวนไว้สำหรับผู้ดูแลระบบ (admin)",
+    });
   }
   return next({ ctx });
 });
@@ -17,9 +28,19 @@ export const adminQuery = publicQuery.use(({ ctx, next }) => {
  * อนุญาตเฉพาะผู้ดูแลระบบ (admin) หรือผู้จัดการสาขา (manager)
  */
 export const managerQuery = publicQuery.use(({ ctx, next }) => {
-  const role = staffSessionFromHeader(ctx.req)?.role;
-  if (role !== "admin" && role !== "manager") {
-    throw new Error("สิทธิ์ไม่เพียงพอ — การกระทำนี้สงวนไว้สำหรับผู้ดูแลระบบหรือผู้จัดการสาขา");
+  const session = staffSessionFromHeader(ctx.req);
+  if (!session) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+    });
+  }
+  if (session.role !== "admin" && session.role !== "manager") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "สิทธิ์ไม่เพียงพอ — การกระทำนี้สงวนไว้สำหรับผู้ดูแลระบบหรือผู้จัดการสาขา",
+    });
   }
   return next({ ctx });
 });

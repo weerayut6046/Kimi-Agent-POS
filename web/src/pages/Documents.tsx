@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   FileSignature,
   Printer,
@@ -45,7 +46,13 @@ const DOCS: { key: DocKey; icon: LucideIcon; title: string; desc: string }[] = [
 export default function Documents() {
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
-  const [openDoc, setOpenDoc] = useState<DocKey | null>(null);
+  const [searchParams] = useSearchParams();
+  const requestedType = searchParams.get("type");
+  const [openDoc, setOpenDoc] = useState<DocKey | null>(
+    requestedType === "credit-request" || requestedType === "vehicle-fleet"
+      ? requestedType
+      : null
+  );
   const [cust, setCust] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const docRef = useRef<HTMLDivElement>(null);

@@ -9,6 +9,8 @@ services:
       APP_SECRET: ${APP_SECRET:-dev-secret-change-me}
       DATABASE_URL: ${DATABASE_URL:?กรุณาตั้งค่า Supabase DATABASE_URL ในไฟล์ .env}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
       SEED_ON_START: ${SEED_ON_START:-false}
     ports:
       - "${APP_PORT:-3000}:3000"

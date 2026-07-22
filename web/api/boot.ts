@@ -3,9 +3,15 @@ import { bodyLimit } from "hono/body-limit";
 import { timingSafeEqual } from "crypto";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+import { streamSSE } from "hono/streaming";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { activeStaffSessionFromRequest } from "./lib/authorization";
+import {
+  RealtimeCapacityError,
+  subscribeRealtime,
+} from "./lib/realtime";
 import {
   BackupInProgressError,
   createDatabaseBackup,
@@ -50,6 +56,75 @@ app.post("/api/internal/database-backup", async c => {
     console.error("สำรองฐานข้อมูลตามเวลาไม่สำเร็จ:", error);
     return c.json({ ok: false, error: "Database backup failed" }, 500);
   }
+});
+app.get("/api/realtime", async c => {
+  const session = await activeStaffSessionFromRequest(c.req.raw);
+  if (!session) {
+    c.header("Cache-Control", "no-store");
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  let deliver: (data: string) => void = () => undefined;
+  let unsubscribe: () => void;
+  try {
+    unsubscribe = subscribeRealtime(session.id, event => {
+      deliver(JSON.stringify(event));
+    });
+  } catch (error) {
+    if (error instanceof RealtimeCapacityError) {
+      c.header("Cache-Control", "no-store");
+      return c.json({ error: "Realtime temporarily unavailable" }, 503);
+    }
+    throw error;
+  }
+
+  const response = streamSSE(c, async stream => {
+    let active = true;
+    let finish: () => void = () => undefined;
+    let writes = Promise.resolve();
+    const done = new Promise<void>(resolve => {
+      finish = resolve;
+    });
+
+    const stop = () => {
+      if (!active) return;
+      active = false;
+      finish();
+    };
+    const enqueue = (event: string, data: string) => {
+      if (!active) return;
+      writes = writes
+        .then(() => stream.writeSSE({ event, data, retry: 1_000 }))
+        .catch(stop);
+    };
+
+    deliver = data => enqueue("invalidate", data);
+    stream.onAbort(stop);
+    enqueue("ready", "{}");
+
+    const heartbeat = setInterval(
+      () => enqueue("heartbeat", "{}"),
+      15_000
+    );
+    const expiresInMs = Math.max(1, session.exp * 1_000 - Date.now());
+    const expiry = setTimeout(stop, expiresInMs);
+
+    try {
+      await done;
+      await writes;
+    } finally {
+      clearInterval(heartbeat);
+      clearTimeout(expiry);
+      unsubscribe();
+    }
+  });
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, private, no-transform"
+  );
+  response.headers.set("X-Accel-Buffering", "no");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 });
 app.use("/api/trpc/*", async c => {
   return fetchRequestHandler({

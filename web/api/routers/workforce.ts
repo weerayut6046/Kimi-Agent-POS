@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
   employeeProfiles,
   payrollRecords,
@@ -162,7 +163,10 @@ export const workforceRouter = createRouter({
       const role = staffSessionFromHeader(ctx.req)?.role;
       const currentStaffId = staffIdFromHeader(ctx.req);
       if (role !== "admin" && currentStaffId == null) {
-        throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+        });
       }
       const filters = [
         gte(workSchedules.workDate, input.startDate),

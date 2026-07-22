@@ -1,0 +1,1 @@
+CREATE INDEX "staffuser_access_group_idx" ON "pos"."staff_users" USING btree ("access_group_id");

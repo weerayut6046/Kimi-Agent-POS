@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { getFirstAllowedMenuPath } from "@contracts/menuPermissions";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -47,16 +48,8 @@ export default function Login() {
 
   const loginMut = trpc.auth.login.useMutation({
     onSuccess: s => {
-      login(
-        s as {
-          id: number;
-          name: string;
-          role: "admin" | "manager" | "cashier";
-          username: string;
-          token: string;
-        }
-      );
-      navigate("/");
+      login(s);
+      navigate(getFirstAllowedMenuPath(s.role, s.menuPermissions) ?? "/");
     },
     onError: e => setError(e.message || "เข้าสู่ระบบไม่สำเร็จ"),
   });

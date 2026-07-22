@@ -1,29 +1,53 @@
-﻿import {
+import {
   pgSchema,
   text,
   integer,
   boolean,
   timestamp,
   numeric,
+  jsonb,
   index,
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import type { MenuPermissionKey } from "@contracts/menuPermissions";
 
 // Keep application tables outside Supabase's exposed `public` schema.
 export const posSchema = pgSchema("pos");
 
-// ============ พนักงาน ============
-export const staffUsers = posSchema.table("staff_users", {
+// ============ กลุ่มสิทธิ์เมนู ============
+export const staffAccessGroups = posSchema.table("staff_access_groups", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  username: text("username").notNull().unique(),
-  pin: text("pin").notNull(), // SHA-256 hash
-  name: text("name").notNull(),
-  role: text("role", { enum: ["admin", "manager", "cashier"] }).notNull().default("cashier"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull().defaultNow(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull().default(""),
+  role: text("role", { enum: ["manager", "cashier"] }).notNull(),
+  menuPermissions: jsonb("menu_permissions").$type<MenuPermissionKey[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }).enableRLS();
+
+// ============ พนักงาน ============
+export const staffUsers = posSchema.table(
+  "staff_users",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    username: text("username").notNull().unique(),
+    pin: text("pin").notNull(), // SHA-256 hash
+    name: text("name").notNull(),
+    role: text("role", { enum: ["admin", "manager", "cashier"] }).notNull().default("cashier"),
+    accessGroupId: integer("access_group_id").references(
+      () => staffAccessGroups.id,
+      { onDelete: "set null" },
+    ),
+    menuPermissions: jsonb("menu_permissions").$type<MenuPermissionKey[]>(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull().defaultNow(),
+  },
+  (t) => ({
+    accessGroupIdx: index("staffuser_access_group_idx").on(t.accessGroupId),
+  }),
+).enableRLS();
 
 // ============ ตารางงานพนักงาน & เงินเดือน ============
 export const workShiftTemplates = posSchema.table("work_shift_templates", {

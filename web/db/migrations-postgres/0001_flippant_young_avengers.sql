@@ -1,0 +1,1 @@
+ALTER TABLE "pos"."staff_users" ADD COLUMN "menu_permissions" jsonb;

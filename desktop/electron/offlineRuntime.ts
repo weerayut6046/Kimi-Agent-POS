@@ -470,6 +470,11 @@ export class DesktopOfflineRuntime {
     res: import("node:http").ServerResponse,
     requestUrl: URL
   ): Promise<void> {
+    if (requestUrl.pathname === "/api/realtime") {
+      await this.proxyRealtime(req, res, requestUrl);
+      return;
+    }
+
     const method = req.method ?? "GET";
     const body = await this.readBody(req);
     const key = this.cacheKey(
@@ -548,6 +553,81 @@ export class DesktopOfflineRuntime {
       );
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Stream the authenticated realtime channel without buffering it in the
+   * desktop cache. Only the session and Accept headers are forwarded.
+   */
+  private async proxyRealtime(
+    req: IncomingMessage,
+    res: import("node:http").ServerResponse,
+    requestUrl: URL
+  ): Promise<void> {
+    if ((req.method ?? "GET") !== "GET") {
+      res.writeHead(405, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        allow: "GET",
+      });
+      res.end(JSON.stringify({ error: "Method Not Allowed" }));
+      return;
+    }
+
+    const headers = new Headers({ Accept: "text/event-stream" });
+    const staffSession = req.headers["x-staff-session"];
+    if (typeof staffSession === "string") {
+      headers.set("x-staff-session", staffSession);
+    }
+
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once("close", abort);
+
+    try {
+      const remoteUrl = `${this.options.remoteOrigin}${requestUrl.pathname}`;
+      const response = await fetch(remoteUrl, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      res.writeHead(response.status, {
+        "content-type":
+          response.headers.get("content-type") ??
+          "application/json; charset=utf-8",
+        "cache-control": "no-store, no-cache, private, no-transform",
+        "x-content-type-options": "nosniff",
+      });
+
+      if (!response.body) {
+        res.end();
+        return;
+      }
+
+      const reader = response.body.getReader();
+      while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(Buffer.from(value))) {
+          await new Promise<void>(resolve => res.once("drain", resolve));
+        }
+      }
+      if (!res.writableEnded) res.end();
+    } catch {
+      if (controller.signal.aborted) return;
+      if (!res.headersSent) {
+        res.writeHead(503, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+        });
+      }
+      if (!res.writableEnded) {
+        res.end(JSON.stringify({ error: "Realtime temporarily unavailable" }));
+      }
+    } finally {
+      res.off("close", abort);
     }
   }
 

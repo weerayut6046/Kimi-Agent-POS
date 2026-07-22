@@ -32,6 +32,8 @@ export const env = {
   gcsBackupDeleteEnabled:
     process.env.GCS_BACKUP_DELETE_ENABLED?.toLowerCase() === "true",
   backupCronSecret: process.env.BACKUP_CRON_SECRET ?? "",
+  deepseekApiKey: process.env.DEEPSEEK_API_KEY ?? "",
+  deepseekModel: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
   pgDumpPath: process.env.PG_DUMP_PATH || "pg_dump",
   pgRestorePath: process.env.PG_RESTORE_PATH || "pg_restore",
 };

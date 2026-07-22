@@ -1,6 +1,7 @@
 import { getDb } from "../queries/connection";
 import { staffSessionFromHeader } from "./session";
 import { auditLogs } from "@db/schema";
+import { publishRealtimeInvalidation } from "./realtime";
 
 /**
  * อ่านตัวตนผู้ทำรายการจาก session ที่ตรวจลายเซ็นแล้ว
@@ -32,6 +33,7 @@ export function logAudit(entry: {
         refType: entry.refType ?? null,
         refId: entry.refId ?? null,
       });
+      publishRealtimeInvalidation();
     } catch (err) {
       console.error("บันทึก audit log ไม่สำเร็จ:", err);
     }

@@ -4,6 +4,7 @@ import {
   Store,
   Fuel,
   UserCog,
+  UsersRound,
   Plus,
   Pencil,
   Gift,
@@ -40,6 +41,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -63,6 +65,26 @@ import {
 } from "@/lib/format";
 import { createInitialSettingsForm } from "./settingsForm";
 import type { Product } from "@db/schema";
+import {
+  MENU_PERMISSION_DEFINITIONS,
+  MENU_PERMISSION_GROUP_LABELS,
+  getRoleMenuPermissions,
+  isRoleEligibleForMenu,
+  normalizeMenuPermissions,
+  type MenuPermissionGroup,
+  type MenuPermissionKey,
+  type StaffRole,
+} from "@contracts/menuPermissions";
+
+function staffMenuPermissions(
+  role: StaffRole,
+  value: unknown
+): MenuPermissionKey[] {
+  const stored = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : undefined;
+  return normalizeMenuPermissions(role, stored);
+}
 
 const emptyProduct = {
   code: "",
@@ -96,6 +118,230 @@ type BackupSelection = {
   trigger: "manual" | "scheduled" | "monthly";
 };
 
+type AccessGroupForm = {
+  id?: number;
+  name: string;
+  description: string;
+  role: "manager" | "cashier";
+  menuPermissions: MenuPermissionKey[];
+};
+
+function MenuPermissionEditor({
+  role,
+  value,
+  onChange,
+}: {
+  role: StaffRole;
+  value: MenuPermissionKey[];
+  onChange: (permissions: MenuPermissionKey[]) => void;
+}) {
+  if (role === "admin") {
+    return (
+      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+        <div className="flex items-center gap-2 font-semibold">
+          <ShieldCheck className="size-4" /> ผู้ดูแลระบบใช้ได้ทุกเมนู
+        </div>
+        <p className="mt-1 text-xs text-violet-700/80">
+          สิทธิ์ของ admin จะเปิดครบเสมอเพื่อป้องกันระบบไม่มีผู้ดูแล
+        </p>
+      </div>
+    );
+  }
+
+  const eligible = MENU_PERMISSION_DEFINITIONS.filter(item =>
+    isRoleEligibleForMenu(role, item.key)
+  );
+  const selected = new Set(value);
+  const groups: MenuPermissionGroup[] = [
+    "station",
+    "customer",
+    "document",
+    "system",
+  ];
+
+  return (
+    <div className="space-y-3 rounded-2xl border bg-slate-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold">เมนูที่อนุญาตให้ใช้งาน</div>
+          <div className="text-xs text-muted-foreground">
+            เมนูที่ปิดจะไม่แสดงและเปิดด้วย URL โดยตรงไม่ได้
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onChange(eligible.map(item => item.key))}
+          >
+            เปิดทั้งหมด
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => onChange([])}
+          >
+            ปิดทั้งหมด
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {groups.map(group => {
+          const items = eligible.filter(item => item.group === group);
+          if (!items.length) return null;
+          return (
+            <div key={group} className="rounded-xl border bg-white p-3">
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">
+                {MENU_PERMISSION_GROUP_LABELS[group]}
+              </div>
+              <div className="space-y-2.5">
+                {items.map(item => (
+                  <label
+                    key={item.key}
+                    className="flex cursor-pointer items-center justify-between gap-3 text-sm"
+                  >
+                    <span>{item.label}</span>
+                    <Switch
+                      checked={selected.has(item.key)}
+                      onCheckedChange={checked =>
+                        onChange(
+                          checked
+                            ? [...value, item.key]
+                            : value.filter(key => key !== item.key)
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {value.length === 0 && (
+        <p className="text-xs font-medium text-destructive">
+          กรุณาเปิดอย่างน้อย 1 เมนูก่อนบันทึก
+        </p>
+      )}
+    </div>
+  );
+}
+
+type AccessGroupOption = {
+  id: number;
+  name: string;
+  role: "manager" | "cashier";
+  menuPermissions: MenuPermissionKey[];
+};
+
+function StaffGroupBadge({
+  groupId,
+  groups,
+}: {
+  groupId: unknown;
+  groups: AccessGroupOption[];
+}) {
+  const group =
+    typeof groupId === "number"
+      ? groups.find(item => item.id === groupId)
+      : null;
+  return group ? (
+    <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-medium">
+      กลุ่ม {group.name}
+    </span>
+  ) : null;
+}
+
+function StaffAccessSelector({
+  role,
+  accessGroupId,
+  menuPermissions,
+  groups,
+  onGroupChange,
+  onPermissionsChange,
+}: {
+  role: StaffRole;
+  accessGroupId: number | null;
+  menuPermissions: MenuPermissionKey[];
+  groups: AccessGroupOption[];
+  onGroupChange: (groupId: number | null) => void;
+  onPermissionsChange: (permissions: MenuPermissionKey[]) => void;
+}) {
+  if (role === "admin") {
+    return (
+      <MenuPermissionEditor
+        role={role}
+        value={menuPermissions}
+        onChange={onPermissionsChange}
+      />
+    );
+  }
+
+  const eligibleGroups = groups.filter(group => group.role === role);
+  const selectedGroup = eligibleGroups.find(
+    group => group.id === accessGroupId
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <Label>กลุ่มสิทธิ์</Label>
+        <Select
+          value={accessGroupId ? String(accessGroupId) : "individual"}
+          onValueChange={value =>
+            onGroupChange(value === "individual" ? null : Number(value))
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="individual">กำหนดเฉพาะผู้ใช้คนนี้</SelectItem>
+            {eligibleGroups.map(group => (
+              <SelectItem key={group.id} value={String(group.id)}>
+                {group.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          เมื่อเลือกกลุ่ม ผู้ใช้จะรับการเปลี่ยนแปลงสิทธิ์ของกลุ่มโดยอัตโนมัติ
+        </p>
+      </div>
+
+      {selectedGroup ? (
+        <div className="rounded-2xl border border-violet-200 bg-violet-50/70 p-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-violet-800">
+            <UsersRound className="size-4" /> รับสิทธิ์จากกลุ่ม{" "}
+            {selectedGroup.name}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {MENU_PERMISSION_DEFINITIONS.filter(item =>
+              selectedGroup.menuPermissions.includes(item.key)
+            ).map(item => (
+              <span
+                key={item.key}
+                className="rounded-full bg-white px-2 py-1 text-[11px] text-violet-700 ring-1 ring-violet-100"
+              >
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <MenuPermissionEditor
+          role={role}
+          value={menuPermissions}
+          onChange={onPermissionsChange}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { staff } = useStaff();
   const utils = trpc.useUtils();
@@ -116,7 +362,20 @@ export default function Settings() {
   });
   const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
-  const { data: staffList } = trpc.auth.listStaff.useQuery();
+  const { data: publicStaffList } = trpc.auth.listStaff.useQuery();
+  const { data: staffAccessList } = trpc.auth.listStaffAccess.useQuery(
+    undefined,
+    {
+      enabled: isAdmin,
+    }
+  );
+  const { data: accessGroups } = trpc.auth.listAccessGroups.useQuery(
+    undefined,
+    {
+      enabled: isAdmin,
+    }
+  );
+  const staffList = isAdmin ? staffAccessList : publicStaffList;
   const { data: rewards } = trpc.membership.listRewards.useQuery();
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
@@ -138,18 +397,24 @@ export default function Settings() {
     { enabled: histP != null }
   );
   const [showStaff, setShowStaff] = useState(false);
+  const [editAccessGroup, setEditAccessGroup] =
+    useState<AccessGroupForm | null>(null);
   const [newStaff, setNewStaff] = useState({
     username: "",
     pin: "",
     name: "",
     role: "cashier" as "admin" | "manager" | "cashier",
+    accessGroupId: null as number | null,
+    menuPermissions: getRoleMenuPermissions("cashier"),
   });
   const [editS, setEditS] = useState<{
     id: number;
     username: string;
     name: string;
     role: "admin" | "manager" | "cashier";
+    accessGroupId: number | null;
     pin: string;
+    menuPermissions: MenuPermissionKey[];
   } | null>(null);
   const [editN, setEditN] = useState<{
     id: number;
@@ -251,8 +516,17 @@ export default function Settings() {
   const createStaff = trpc.auth.createStaff.useMutation({
     onSuccess: () => {
       utils.auth.listStaff.invalidate();
+      utils.auth.listStaffAccess.invalidate();
+      utils.auth.listAccessGroups.invalidate();
       setShowStaff(false);
-      setNewStaff({ username: "", pin: "", name: "", role: "cashier" });
+      setNewStaff({
+        username: "",
+        pin: "",
+        name: "",
+        role: "cashier",
+        accessGroupId: null,
+        menuPermissions: getRoleMenuPermissions("cashier"),
+      });
       ok("เพิ่มพนักงานแล้ว");
     },
     onError: e => fail(e.message),
@@ -260,6 +534,8 @@ export default function Settings() {
   const updateStaff = trpc.auth.updateStaff.useMutation({
     onSuccess: () => {
       utils.auth.listStaff.invalidate();
+      utils.auth.listStaffAccess.invalidate();
+      utils.auth.listAccessGroups.invalidate();
       setEditS(null);
       ok("แก้ไขพนักงานแล้ว");
     },
@@ -268,7 +544,34 @@ export default function Settings() {
   const deleteStaff = trpc.auth.deleteStaff.useMutation({
     onSuccess: () => {
       utils.auth.listStaff.invalidate();
+      utils.auth.listStaffAccess.invalidate();
+      utils.auth.listAccessGroups.invalidate();
       ok("ลบพนักงานแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const createAccessGroup = trpc.auth.createAccessGroup.useMutation({
+    onSuccess: () => {
+      utils.auth.listAccessGroups.invalidate();
+      setEditAccessGroup(null);
+      ok("เพิ่มกลุ่มสิทธิ์แล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const updateAccessGroup = trpc.auth.updateAccessGroup.useMutation({
+    onSuccess: () => {
+      utils.auth.listAccessGroups.invalidate();
+      utils.auth.listStaffAccess.invalidate();
+      setEditAccessGroup(null);
+      ok("แก้ไขกลุ่มสิทธิ์แล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const deleteAccessGroup = trpc.auth.deleteAccessGroup.useMutation({
+    onSuccess: () => {
+      utils.auth.listAccessGroups.invalidate();
+      utils.auth.listStaffAccess.invalidate();
+      ok("ลบกลุ่มสิทธิ์แล้ว");
     },
     onError: e => fail(e.message),
   });
@@ -926,6 +1229,103 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      {isAdmin && (
+        <Card className="border-violet-200/70 bg-gradient-to-br from-white to-violet-50/40">
+          <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="font-heading flex items-center gap-2 text-base">
+                <UsersRound className="size-4 text-violet-600" />{" "}
+                กลุ่มสิทธิ์ผู้ใช้
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                กำหนดเมนูครั้งเดียว แล้วนำพนักงานหลายคนเข้าใช้กลุ่มเดียวกัน
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setEditAccessGroup({
+                  name: "",
+                  description: "",
+                  role: "cashier",
+                  menuPermissions: getRoleMenuPermissions("cashier"),
+                })
+              }
+            >
+              <Plus className="mr-1 size-4" /> เพิ่มกลุ่ม
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {(accessGroups ?? []).map(group => (
+                <div
+                  key={group.id}
+                  className="rounded-2xl border bg-white p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold">
+                        {group.name}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        {group.description || "ไม่มีรายละเอียด"}
+                      </div>
+                    </div>
+                    <Badge variant="secondary">
+                      {roleLabel[group.role] ?? group.role}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
+                      {group.menuPermissions.length} เมนู
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                      {group.memberCount} คน
+                    </span>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-1 border-t pt-2">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-8"
+                      onClick={() =>
+                        setEditAccessGroup({
+                          id: group.id,
+                          name: group.name,
+                          description: group.description,
+                          role: group.role,
+                          menuPermissions: [...group.menuPermissions],
+                        })
+                      }
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-8 text-destructive"
+                      disabled={deleteAccessGroup.isPending}
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `ยืนยันลบกลุ่ม "${group.name}"? สมาชิก ${group.memberCount} คนจะกลับไปใช้สิทธิ์รายบุคคล`
+                          )
+                        ) {
+                          deleteAccessGroup.mutate({ id: group.id });
+                        }
+                      }}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* พนักงาน */}
         <Card>
@@ -961,6 +1361,28 @@ export default function Settings() {
                   <div className="text-xs text-muted-foreground">
                     @{s.username}
                   </div>
+                  {isAdmin && (
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
+                      <span>
+                        ใช้งานได้{" "}
+                        {
+                          staffMenuPermissions(
+                            s.role,
+                            "menuPermissions" in s
+                              ? s.menuPermissions
+                              : undefined
+                          ).length
+                        }{" "}
+                        เมนู
+                      </span>
+                      <StaffGroupBadge
+                        groupId={
+                          "accessGroupId" in s ? s.accessGroupId : undefined
+                        }
+                        groups={accessGroups ?? []}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   <Badge variant={s.role === "admin" ? "default" : "secondary"}>
@@ -972,15 +1394,26 @@ export default function Settings() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() =>
+                        onClick={() => {
                           setEditS({
                             id: s.id,
                             username: s.username,
                             name: s.name,
                             role: s.role,
+                            accessGroupId:
+                              "accessGroupId" in s &&
+                              typeof s.accessGroupId === "number"
+                                ? s.accessGroupId
+                                : null,
                             pin: "",
-                          })
-                        }
+                            menuPermissions: staffMenuPermissions(
+                              s.role,
+                              "menuPermissions" in s
+                                ? s.menuPermissions
+                                : undefined
+                            ),
+                          });
+                        }}
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
@@ -1707,11 +2140,125 @@ export default function Settings() {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog กลุ่มสิทธิ์ */}
+      <Dialog
+        open={!!editAccessGroup}
+        onOpenChange={open => !open && setEditAccessGroup(null)}
+      >
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-heading">
+              {editAccessGroup?.id ? "แก้ไขกลุ่มสิทธิ์" : "เพิ่มกลุ่มสิทธิ์"}
+            </DialogTitle>
+            <DialogDescription>
+              สมาชิกทุกคนในกลุ่มจะเห็นและเข้าใช้งานเฉพาะเมนูที่เปิดไว้
+            </DialogDescription>
+          </DialogHeader>
+          {editAccessGroup && (
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>ชื่อกลุ่ม</Label>
+                  <Input
+                    value={editAccessGroup.name}
+                    onChange={event =>
+                      setEditAccessGroup({
+                        ...editAccessGroup,
+                        name: event.target.value,
+                      })
+                    }
+                    placeholder="เช่น พนักงานหน้าลาน"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>ระดับผู้ใช้ของกลุ่ม</Label>
+                  <Select
+                    value={editAccessGroup.role}
+                    disabled={Boolean(editAccessGroup.id)}
+                    onValueChange={value =>
+                      setEditAccessGroup({
+                        ...editAccessGroup,
+                        role: value as "manager" | "cashier",
+                        menuPermissions: getRoleMenuPermissions(
+                          value as "manager" | "cashier"
+                        ),
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                      <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>รายละเอียด</Label>
+                <Input
+                  value={editAccessGroup.description}
+                  onChange={event =>
+                    setEditAccessGroup({
+                      ...editAccessGroup,
+                      description: event.target.value,
+                    })
+                  }
+                  placeholder="อธิบายหน้าที่หรือขอบเขตของกลุ่ม"
+                />
+              </div>
+              <MenuPermissionEditor
+                role={editAccessGroup.role}
+                value={editAccessGroup.menuPermissions}
+                onChange={menuPermissions =>
+                  setEditAccessGroup({ ...editAccessGroup, menuPermissions })
+                }
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              className="w-full"
+              disabled={
+                !editAccessGroup?.name.trim() ||
+                editAccessGroup.menuPermissions.length === 0 ||
+                createAccessGroup.isPending ||
+                updateAccessGroup.isPending
+              }
+              onClick={() => {
+                if (!editAccessGroup) return;
+                if (editAccessGroup.id) {
+                  updateAccessGroup.mutate({
+                    id: editAccessGroup.id,
+                    name: editAccessGroup.name,
+                    description: editAccessGroup.description,
+                    menuPermissions: editAccessGroup.menuPermissions,
+                  });
+                } else {
+                  createAccessGroup.mutate({
+                    name: editAccessGroup.name,
+                    description: editAccessGroup.description,
+                    role: editAccessGroup.role,
+                    menuPermissions: editAccessGroup.menuPermissions,
+                  });
+                }
+              }}
+            >
+              {editAccessGroup?.id ? "บันทึกกลุ่มสิทธิ์" : "เพิ่มกลุ่มสิทธิ์"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog พนักงาน */}
       <Dialog open={showStaff} onOpenChange={setShowStaff}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-heading">เพิ่มพนักงาน</DialogTitle>
+            <DialogDescription>
+              กรอกข้อมูลบัญชีและเลือกเมนูที่พนักงานคนนี้สามารถใช้งานได้
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
@@ -1750,6 +2297,8 @@ export default function Settings() {
                   setNewStaff({
                     ...newStaff,
                     role: v as "admin" | "manager" | "cashier",
+                    accessGroupId: null,
+                    menuPermissions: getRoleMenuPermissions(v as StaffRole),
                   })
                 }
               >
@@ -1763,6 +2312,18 @@ export default function Settings() {
                 </SelectContent>
               </Select>
             </div>
+            <StaffAccessSelector
+              role={newStaff.role}
+              accessGroupId={newStaff.accessGroupId}
+              menuPermissions={newStaff.menuPermissions}
+              groups={accessGroups ?? []}
+              onGroupChange={accessGroupId =>
+                setNewStaff({ ...newStaff, accessGroupId })
+              }
+              onPermissionsChange={menuPermissions =>
+                setNewStaff({ ...newStaff, menuPermissions })
+              }
+            />
           </div>
           <DialogFooter>
             <Button
@@ -1771,6 +2332,9 @@ export default function Settings() {
                 !newStaff.name ||
                 newStaff.username.length < 3 ||
                 newStaff.pin.length < 4 ||
+                (newStaff.role !== "admin" &&
+                  newStaff.accessGroupId === null &&
+                  newStaff.menuPermissions.length === 0) ||
                 createStaff.isPending
               }
               onClick={() => createStaff.mutate(newStaff)}
@@ -1783,9 +2347,12 @@ export default function Settings() {
 
       {/* Dialog แก้ไขพนักงาน */}
       <Dialog open={!!editS} onOpenChange={o => !o && setEditS(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-heading">แก้ไขพนักงาน</DialogTitle>
+            <DialogDescription>
+              แก้ไขข้อมูลบัญชีและกำหนดสิทธิ์เมนูสำหรับพนักงานคนนี้
+            </DialogDescription>
           </DialogHeader>
           {editS && (
             <div className="space-y-3">
@@ -1822,6 +2389,8 @@ export default function Settings() {
                     setEditS({
                       ...editS,
                       role: v as "admin" | "manager" | "cashier",
+                      accessGroupId: null,
+                      menuPermissions: getRoleMenuPermissions(v as StaffRole),
                     })
                   }
                 >
@@ -1835,12 +2404,30 @@ export default function Settings() {
                   </SelectContent>
                 </Select>
               </div>
+              <StaffAccessSelector
+                role={editS.role}
+                accessGroupId={editS.accessGroupId}
+                menuPermissions={editS.menuPermissions}
+                groups={accessGroups ?? []}
+                onGroupChange={accessGroupId =>
+                  setEditS({ ...editS, accessGroupId })
+                }
+                onPermissionsChange={menuPermissions =>
+                  setEditS({ ...editS, menuPermissions })
+                }
+              />
             </div>
           )}
           <DialogFooter>
             <Button
               className="w-full"
-              disabled={!editS?.name || updateStaff.isPending}
+              disabled={
+                !editS?.name ||
+                (editS.role !== "admin" &&
+                  editS.accessGroupId === null &&
+                  editS.menuPermissions.length === 0) ||
+                updateStaff.isPending
+              }
               onClick={() =>
                 editS &&
                 updateStaff.mutate({
@@ -1848,6 +2435,8 @@ export default function Settings() {
                   name: editS.name,
                   username: editS.username,
                   role: editS.role,
+                  accessGroupId: editS.accessGroupId,
+                  menuPermissions: editS.menuPermissions,
                   ...(editS.pin ? { pin: editS.pin } : {}),
                 })
               }

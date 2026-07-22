@@ -32,6 +32,18 @@ export function getDb() {
   return instance;
 }
 
+/**
+ * Raw PostgreSQL client for server-only features such as LISTEN/NOTIFY.
+ * Never expose this client or its connection string to browser code.
+ */
+export function getPostgresClient() {
+  getDb();
+  if (!client) {
+    throw new Error("PostgreSQL client is not available");
+  }
+  return client;
+}
+
 /** Close the shared PostgreSQL pool. Primarily used by tests and graceful shutdown. */
 export async function resetDb() {
   const activeClient = client;

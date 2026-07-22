@@ -1,4 +1,4 @@
-import { createRouter, publicQuery } from "./middleware";
+import { anonymousQuery, createRouter } from "./middleware";
 import { authRouter } from "./routers/auth";
 import { catalogRouter } from "./routers/catalog";
 import { posRouter } from "./routers/pos";
@@ -11,9 +11,10 @@ import { expensesRouter } from "./routers/expenses";
 import { reportsRouter } from "./routers/reports";
 import { auditRouter } from "./routers/audit";
 import { workforceRouter } from "./routers/workforce";
+import { assistantRouter } from "./routers/assistant";
 
 export const appRouter = createRouter({
-  ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
+  ping: anonymousQuery.query(() => ({ ok: true, ts: Date.now() })),
   auth: authRouter,
   catalog: catalogRouter,
   pos: posRouter,
@@ -26,6 +27,7 @@ export const appRouter = createRouter({
   reports: reportsRouter,
   audit: auditRouter,
   workforce: workforceRouter,
+  assistant: assistantRouter,
 });
 
 export type AppRouter = typeof appRouter;

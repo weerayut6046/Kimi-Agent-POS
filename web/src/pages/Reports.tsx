@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { ClipboardList, FileSpreadsheet, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +41,14 @@ const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 export default function Reports() {
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
-  const [date, setDate] = useState(todayStr());
+  const [searchParams] = useSearchParams();
+  const requestedDate = searchParams.get("date") ?? "";
+  const requestedFrom = searchParams.get("from") ?? "";
+  const requestedTo = searchParams.get("to") ?? "";
+  const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const [date, setDate] = useState(
+    validDate(requestedDate) ? requestedDate : todayStr()
+  );
   const utils = trpc.useUtils();
 
   const {
@@ -61,8 +69,12 @@ export default function Reports() {
   );
   const [exporting, setExporting] = useState(false);
   const [exportErr, setExportErr] = useState("");
-  const [rangeFrom, setRangeFrom] = useState(todayStr());
-  const [rangeTo, setRangeTo] = useState(todayStr());
+  const [rangeFrom, setRangeFrom] = useState(
+    validDate(requestedFrom) ? requestedFrom : todayStr()
+  );
+  const [rangeTo, setRangeTo] = useState(
+    validDate(requestedTo) ? requestedTo : todayStr()
+  );
 
   const runExport = async (
     fetch: () => Promise<{ fileName: string; contentBase64: string }>
