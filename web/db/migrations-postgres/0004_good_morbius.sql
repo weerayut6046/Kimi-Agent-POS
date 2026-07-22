@@ -1,0 +1,2 @@
+ALTER TABLE "pos"."staff_users" ADD COLUMN "supabase_auth_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "pos"."staff_users" ADD CONSTRAINT "staff_users_supabase_auth_user_id_unique" UNIQUE("supabase_auth_user_id");

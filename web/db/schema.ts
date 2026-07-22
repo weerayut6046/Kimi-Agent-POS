@@ -6,6 +6,7 @@ import {
   timestamp,
   numeric,
   jsonb,
+  uuid,
   index,
   uniqueIndex,
   type AnyPgColumn,
@@ -40,6 +41,7 @@ export const staffUsers = posSchema.table(
       { onDelete: "set null" },
     ),
     menuPermissions: jsonb("menu_permissions").$type<MenuPermissionKey[]>(),
+    supabaseAuthUserId: uuid("supabase_auth_user_id").unique(),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull().defaultNow(),

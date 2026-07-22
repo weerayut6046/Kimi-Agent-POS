@@ -47,8 +47,8 @@ export default function Login() {
   }, []);
 
   const loginMut = trpc.auth.login.useMutation({
-    onSuccess: s => {
-      login(s);
+    onSuccess: async s => {
+      await login(s);
       navigate(getFirstAllowedMenuPath(s.role, s.menuPermissions) ?? "/");
     },
     onError: e => setError(e.message || "เข้าสู่ระบบไม่สำเร็จ"),

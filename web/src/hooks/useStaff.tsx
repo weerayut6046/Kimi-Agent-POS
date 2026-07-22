@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -12,6 +13,11 @@ import {
   type MenuPermissionKey,
   type StaffRole,
 } from "@contracts/menuPermissions";
+import {
+  clearSupabaseSession,
+  installSupabaseSession,
+  type SupabaseRealtimeSession,
+} from "@/lib/supabase";
 
 export type StaffSession = {
   id: number;
@@ -23,17 +29,21 @@ export type StaffSession = {
   token: string;
 };
 
+export type StaffLoginResult = StaffSession & {
+  supabaseSession: SupabaseRealtimeSession | null;
+};
+
 const KEY = "pumppos_staff";
 
 const StaffContext = createContext<{
   staff: StaffSession | null;
   isCheckingSession: boolean;
-  login: (s: StaffSession) => void;
+  login: (s: StaffLoginResult) => Promise<void>;
   logout: () => void;
 }>({
   staff: null,
   isCheckingSession: false,
-  login: () => {},
+  login: async () => {},
   logout: () => {},
 });
 
@@ -75,6 +85,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
   });
   const [sessionNonce, setSessionNonce] = useState(() => Date.now());
+  const bootstrappedSupabaseStaffId = useRef<number | null>(null);
 
   const currentStaff = trpc.auth.currentStaff.useQuery(
     { staffId: staff?.id ?? 1, sessionNonce },
@@ -85,28 +96,30 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       refetchOnMount: "always",
     }
   );
+  const { mutateAsync: issueRealtimeSession } =
+    trpc.auth.realtimeSession.useMutation();
 
   const fresh = currentStaff.data;
   const hasSessionToken = Boolean(staff?.token);
   const sessionAccepted = Boolean(
     staff &&
-      hasSessionToken &&
-      currentStaff.isSuccess &&
-      fresh?.authenticated &&
-      fresh.id === staff.id
+    hasSessionToken &&
+    currentStaff.isSuccess &&
+    fresh?.authenticated &&
+    fresh.id === staff.id
   );
   const sessionRejected = Boolean(
     staff &&
-      (!hasSessionToken ||
-        (currentStaff.isSuccess &&
-          (!fresh?.authenticated || fresh.id !== staff.id)))
+    (!hasSessionToken ||
+      (currentStaff.isSuccess &&
+        (!fresh?.authenticated || fresh.id !== staff.id)))
   );
   const isCheckingSession = Boolean(
     staff &&
-      hasSessionToken &&
-      !sessionAccepted &&
-      !sessionRejected &&
-      !currentStaff.isError
+    hasSessionToken &&
+    !sessionAccepted &&
+    !sessionRejected &&
+    !currentStaff.isError
   );
   const effectiveStaff = useMemo<StaffSession | null>(
     () =>
@@ -131,21 +144,55 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(KEY, JSON.stringify(effectiveStaff));
     } else if (!staff || sessionRejected) {
       localStorage.removeItem(KEY);
+      if (sessionRejected) void clearSupabaseSession();
     }
   }, [effectiveStaff, sessionRejected, staff]);
 
-  const login = (s: StaffSession) => {
-    const normalized = {
-      ...s,
-      menuPermissions: normalizeMenuPermissions(s.role, s.menuPermissions),
+  useEffect(() => {
+    const staffId = effectiveStaff?.id;
+    if (!staffId) {
+      bootstrappedSupabaseStaffId.current = null;
+      return;
+    }
+    if (bootstrappedSupabaseStaffId.current === staffId) return;
+    bootstrappedSupabaseStaffId.current = staffId;
+
+    let cancelled = false;
+    void issueRealtimeSession()
+      .then(async session => {
+        if (cancelled) return;
+        const installed = await installSupabaseSession(session);
+        if (!installed && !cancelled) await clearSupabaseSession();
+      })
+      .catch(async () => {
+        if (!cancelled) await clearSupabaseSession();
+      });
+    return () => {
+      cancelled = true;
     };
+  }, [effectiveStaff?.id, issueRealtimeSession]);
+
+  const login = async (s: StaffLoginResult) => {
+    const { supabaseSession, ...staffSession } = s;
+    const normalized = {
+      ...staffSession,
+      menuPermissions: normalizeMenuPermissions(
+        staffSession.role,
+        staffSession.menuPermissions
+      ),
+    };
+    bootstrappedSupabaseStaffId.current = normalized.id;
+    const installed = await installSupabaseSession(supabaseSession);
+    if (!installed) await clearSupabaseSession();
     localStorage.setItem(KEY, JSON.stringify(normalized));
     setSessionNonce(previous => previous + 1);
     setStaff(normalized);
   };
   const logout = () => {
     localStorage.removeItem(KEY);
+    bootstrappedSupabaseStaffId.current = null;
     setStaff(null);
+    void clearSupabaseSession();
   };
 
   return (

@@ -8,10 +8,7 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { activeStaffSessionFromRequest } from "./lib/authorization";
-import {
-  RealtimeCapacityError,
-  subscribeRealtime,
-} from "./lib/realtime";
+import { RealtimeCapacityError, subscribeRealtime } from "./lib/realtime";
 import {
   BackupInProgressError,
   createDatabaseBackup,
@@ -101,10 +98,7 @@ app.get("/api/realtime", async c => {
     stream.onAbort(stop);
     enqueue("ready", "{}");
 
-    const heartbeat = setInterval(
-      () => enqueue("heartbeat", "{}"),
-      15_000
-    );
+    const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
     const expiresInMs = Math.max(1, session.exp * 1_000 - Date.now());
     const expiry = setTimeout(stop, expiresInMs);
 
@@ -127,12 +121,16 @@ app.get("/api/realtime", async c => {
   return response;
 });
 app.use("/api/trpc/*", async c => {
-  return fetchRequestHandler({
+  const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
     req: c.req.raw,
     router: appRouter,
     createContext,
   });
+  response.headers.set("Cache-Control", "no-store, private");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  return response;
 });
 app.all("/api/*", c => c.json({ error: "Not Found" }, 404));
 

@@ -8,24 +8,30 @@ function required(name: string): string {
   return value ?? "";
 }
 
+const databaseUrl = required("DATABASE_URL");
+const supabaseProjectRef =
+  process.env.SUPABASE_PROJECT_REF ||
+  (() => {
+    try {
+      return (
+        decodeURIComponent(new URL(databaseUrl).username).split(".")[1] ?? ""
+      );
+    } catch {
+      return "";
+    }
+  })();
+
 export const env = {
   appId: required("APP_ID"),
   appSecret: required("APP_SECRET"),
   isProduction: process.env.NODE_ENV === "production",
-  databaseUrl: required("DATABASE_URL"),
-  supabaseProjectRef:
-    process.env.SUPABASE_PROJECT_REF ||
-    (() => {
-      try {
-        return (
-          decodeURIComponent(new URL(required("DATABASE_URL")).username).split(
-            "."
-          )[1] ?? ""
-        );
-      } catch {
-        return "";
-      }
-    })(),
+  databaseUrl,
+  supabaseProjectRef,
+  supabaseUrl:
+    process.env.SUPABASE_URL ||
+    (supabaseProjectRef ? `https://${supabaseProjectRef}.supabase.co` : ""),
+  supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY ?? "",
+  supabaseSecretKey: process.env.SUPABASE_SECRET_KEY ?? "",
   gcsBackupBucket: process.env.GCS_BACKUP_BUCKET ?? "",
   gcsBackupProjectId: process.env.GCS_BACKUP_PROJECT_ID ?? "",
   gcsBackupCredentialsBase64: process.env.GCS_BACKUP_CREDENTIALS_BASE64 ?? "",

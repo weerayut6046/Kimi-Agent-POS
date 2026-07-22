@@ -1,21 +1,6 @@
 import { Routes, Route, Navigate } from "react-router";
-import Layout from "@/components/Layout";
+import { lazy, Suspense, type ReactNode } from "react";
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
-import Pos from "@/pages/Pos";
-import Shifts from "@/pages/Shifts";
-import Stock from "@/pages/Stock";
-import Members from "@/pages/Members";
-import Customers from "@/pages/Customers";
-import Debts from "@/pages/Debts";
-import Sales from "@/pages/Sales";
-import Expenses from "@/pages/Expenses";
-import Reports from "@/pages/Reports";
-import TaxInvoices from "@/pages/TaxInvoices";
-import Documents from "@/pages/Documents";
-import Audit from "@/pages/Audit";
-import Settings from "@/pages/Settings";
-import Workforce from "@/pages/Workforce";
 import { useStaff } from "@/hooks/useStaff";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +8,23 @@ import {
   hasMenuPermission,
   type MenuPermissionKey,
 } from "@contracts/menuPermissions";
-import type { ReactNode } from "react";
+
+const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Layout = lazy(() => import("@/components/Layout"));
+const Pos = lazy(() => import("@/pages/Pos"));
+const Shifts = lazy(() => import("@/pages/Shifts"));
+const Stock = lazy(() => import("@/pages/Stock"));
+const Members = lazy(() => import("@/pages/Members"));
+const Customers = lazy(() => import("@/pages/Customers"));
+const Debts = lazy(() => import("@/pages/Debts"));
+const Sales = lazy(() => import("@/pages/Sales"));
+const Expenses = lazy(() => import("@/pages/Expenses"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const TaxInvoices = lazy(() => import("@/pages/TaxInvoices"));
+const Documents = lazy(() => import("@/pages/Documents"));
+const Audit = lazy(() => import("@/pages/Audit"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const Workforce = lazy(() => import("@/pages/Workforce"));
 
 function MenuRoute({
   permission,
@@ -90,131 +91,143 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={<Navigate to={landingPath} replace />} />
-      <Route element={<Layout />}>
-        <Route
-          path="/"
-          element={
-            <MenuRoute permission="dashboard">
-              <Dashboard />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/pos"
-          element={
-            <MenuRoute permission="pos">
-              <Pos />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/shifts"
-          element={
-            <MenuRoute permission="shifts">
-              <Shifts />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/workforce"
-          element={
-            <MenuRoute permission="workforce">
-              <Workforce />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/stock"
-          element={
-            <MenuRoute permission="stock">
-              <Stock />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/members"
-          element={
-            <MenuRoute permission="members">
-              <Members />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/customers"
-          element={
-            <MenuRoute permission="customers">
-              <Customers />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/debts"
-          element={
-            <MenuRoute permission="debts">
-              <Debts />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/sales"
-          element={
-            <MenuRoute permission="sales">
-              <Sales />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/expenses"
-          element={
-            <MenuRoute permission="expenses">
-              <Expenses />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <MenuRoute permission="reports">
-              <Reports />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/tax-invoices"
-          element={
-            <MenuRoute permission="tax_invoices">
-              <TaxInvoices />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/documents"
-          element={
-            <MenuRoute permission="documents">
-              <Documents />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/audit"
-          element={
-            <MenuRoute permission="audit">
-              <Audit />
-            </MenuRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <MenuRoute permission="settings">
-              <Settings />
-            </MenuRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to={landingPath} replace />} />
-      </Route>
-    </Routes>
+    <Suspense
+      fallback={
+        <main className="grid min-h-screen place-items-center bg-[#f6f5fb]">
+          <span
+            className="size-6 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600"
+            role="status"
+            aria-label="Loading"
+          />
+        </main>
+      }
+    >
+      <Routes>
+        <Route path="/login" element={<Navigate to={landingPath} replace />} />
+        <Route element={<Layout />}>
+          <Route
+            path="/"
+            element={
+              <MenuRoute permission="dashboard">
+                <Dashboard />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/pos"
+            element={
+              <MenuRoute permission="pos">
+                <Pos />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/shifts"
+            element={
+              <MenuRoute permission="shifts">
+                <Shifts />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/workforce"
+            element={
+              <MenuRoute permission="workforce">
+                <Workforce />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/stock"
+            element={
+              <MenuRoute permission="stock">
+                <Stock />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/members"
+            element={
+              <MenuRoute permission="members">
+                <Members />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <MenuRoute permission="customers">
+                <Customers />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/debts"
+            element={
+              <MenuRoute permission="debts">
+                <Debts />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/sales"
+            element={
+              <MenuRoute permission="sales">
+                <Sales />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/expenses"
+            element={
+              <MenuRoute permission="expenses">
+                <Expenses />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <MenuRoute permission="reports">
+                <Reports />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/tax-invoices"
+            element={
+              <MenuRoute permission="tax_invoices">
+                <TaxInvoices />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <MenuRoute permission="documents">
+                <Documents />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/audit"
+            element={
+              <MenuRoute permission="audit">
+                <Audit />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <MenuRoute permission="settings">
+                <Settings />
+              </MenuRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to={landingPath} replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }

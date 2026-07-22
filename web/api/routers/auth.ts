@@ -1,12 +1,21 @@
 import { z } from "zod";
 import { createHash } from "crypto";
 import { eq } from "drizzle-orm";
-import { anonymousQuery, createRouter, publicQuery } from "../middleware";
+import {
+  anonymousQuery,
+  authenticatedStaffAction,
+  createRouter,
+  publicQuery,
+} from "../middleware";
 import { adminQuery, staffIdFromHeader } from "../guard";
 import { getDb } from "../queries/connection";
 import { staffAccessGroups, staffUsers } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { issueStaffSession, staffSessionFromHeader } from "../lib/session";
+import {
+  issueSupabaseStaffSession,
+  staffAuthBridgeFailureCode,
+} from "../lib/supabaseAuth";
 import {
   MENU_PERMISSION_KEYS,
   normalizeMenuPermissions,
@@ -38,6 +47,22 @@ async function accessGroupForUser(accessGroupId: number | null) {
       where: eq(staffAccessGroups.id, accessGroupId),
     })) ?? null
   );
+}
+
+async function optionalSupabaseSession(user: {
+  id: number;
+  supabaseAuthUserId: string | null;
+}) {
+  try {
+    return await issueSupabaseStaffSession(user);
+  } catch (error) {
+    // The signed PumpPOS session remains available during the staged bridge.
+    // Never log Auth responses, passwords, user emails, or returned tokens.
+    console.warn(
+      `Supabase Auth bridge skipped (${staffAuthBridgeFailureCode(error)}).`
+    );
+    return null;
+  }
 }
 
 function accessGroupSummary(
@@ -73,8 +98,19 @@ export const authRouter = createRouter({
         ),
         accessGroup: accessGroupSummary(accessGroup),
         token: issueStaffSession(staff),
+        supabaseSession: await optionalSupabaseSession(user),
       };
     }),
+
+  realtimeSession: authenticatedStaffAction.mutation(async ({ ctx }) => {
+    const session = staffSessionFromHeader(ctx.req);
+    if (!session) return null;
+    const user = await getDb().query.staffUsers.findFirst({
+      where: eq(staffUsers.id, session.id),
+    });
+    if (!user?.active) return null;
+    return optionalSupabaseSession(user);
+  }),
 
   currentStaff: anonymousQuery
     .input(
@@ -117,7 +153,12 @@ export const authRouter = createRouter({
   listStaff: publicQuery.query(async () => {
     const rows = await getDb().query.staffUsers.findMany();
     return rows.map(
-      ({ pin: _pin, menuPermissions: _menuPermissions, ...rest }) => rest
+      ({
+        pin: _pin,
+        menuPermissions: _menuPermissions,
+        supabaseAuthUserId: _supabaseAuthUserId,
+        ...rest
+      }) => rest
     );
   }),
 
@@ -128,20 +169,22 @@ export const authRouter = createRouter({
       db.query.staffAccessGroups.findMany(),
     ]);
     const groupsById = new Map(groups.map(group => [group.id, group]));
-    return rows.map(({ pin: _pin, ...rest }) => {
-      const accessGroup = rest.accessGroupId
-        ? groupsById.get(rest.accessGroupId)
-        : null;
-      return {
-        ...rest,
-        menuPermissions: effectiveMenuPermissions(
-          rest.role,
-          rest.menuPermissions,
-          accessGroup
-        ),
-        accessGroup: accessGroupSummary(accessGroup),
-      };
-    });
+    return rows.map(
+      ({ pin: _pin, supabaseAuthUserId: _supabaseAuthUserId, ...rest }) => {
+        const accessGroup = rest.accessGroupId
+          ? groupsById.get(rest.accessGroupId)
+          : null;
+        return {
+          ...rest,
+          menuPermissions: effectiveMenuPermissions(
+            rest.role,
+            rest.menuPermissions,
+            accessGroup
+          ),
+          accessGroup: accessGroupSummary(accessGroup),
+        };
+      }
+    );
   }),
 
   listAccessGroups: adminQuery.query(async () => {

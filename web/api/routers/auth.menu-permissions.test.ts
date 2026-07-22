@@ -18,6 +18,7 @@ describe("staff menu permissions", () => {
 
     expect(session.menuPermissions).toContain("pos");
     expect(session.menuPermissions).not.toContain("audit");
+    expect(session.supabaseSession).toBeNull();
   });
 
   it("lets an admin persist permissions and refreshes the active session", async () => {
@@ -101,6 +102,10 @@ describe("staff menu permissions", () => {
   it("does not expose access configuration to non-admin users", async () => {
     const publicStaff = await t.caller().auth.listStaff();
     expect(publicStaff.some(user => "menuPermissions" in user)).toBe(false);
+    expect(publicStaff.some(user => "supabaseAuthUserId" in user)).toBe(false);
+
+    const adminStaff = await t.caller("admin").auth.listStaffAccess();
+    expect(adminStaff.some(user => "supabaseAuthUserId" in user)).toBe(false);
 
     await expect(t.caller("cashier").auth.listStaffAccess()).rejects.toThrow(
       "สิทธิ์ไม่เพียงพอ"
@@ -115,7 +120,9 @@ describe("staff menu permissions", () => {
   });
 
   it("uses HTTP-compatible auth error codes for expired or insufficient sessions", async () => {
-    await expect(t.anonymousCaller().auth.listAccessGroups()).rejects.toMatchObject({
+    await expect(
+      t.anonymousCaller().auth.listAccessGroups()
+    ).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
     await expect(
@@ -126,6 +133,15 @@ describe("staff menu permissions", () => {
         startDate: "2026-07-22",
         endDate: "2026-07-28",
       })
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("keeps the staged Realtime bridge optional when Supabase keys are absent", async () => {
+    await expect(
+      t.caller("cashier").auth.realtimeSession()
+    ).resolves.toBeNull();
+    await expect(
+      t.anonymousCaller().auth.realtimeSession()
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });
