@@ -1,5 +1,7 @@
 {
   "imports": {
-    "@supabase/functions-js": "jsr:@supabase/functions-js@2.110.7"
+    "@supabase/functions-js": "jsr:@supabase/functions-js@2.110.7",
+    "postgres": "npm:postgres@3.4.9",
+    "superjson": "npm:superjson@2.2.6"
   }
 }

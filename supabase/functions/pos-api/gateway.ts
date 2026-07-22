@@ -1,3 +1,10 @@
+import {
+  type CatalogReadResult,
+  createCatalogReader,
+  type StaffIdentity,
+} from "./catalog.ts";
+import superjson from "superjson";
+
 type StaffSessionClaims = {
   id: number;
   name: string;
@@ -18,11 +25,15 @@ export type BusinessGatewayConfig = {
   upstreamTimeoutMs?: number;
   maxRequestBytes?: number;
   maxResponseBytes?: number;
+  /** Optional direct Postgres reader used by migrated read-only procedures. */
+  catalogDatabaseUrl?: string;
+  catalogReader?: CatalogReadResult;
 };
 
 const SESSION_HEADER = "x-staff-session";
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_LOCAL_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_LOGIN_IDENTITIES = 5_000;
 const encoder = new TextEncoder();
 
@@ -54,14 +65,21 @@ const EDGE_EXCLUDED_PROCEDURES = new Set([
   "reports.exportRangeExcel",
 ]);
 
+// Read-only stock/catalog queries are the first workload moved into Supabase.
+// Writes and all other procedures continue through the rollback-safe upstream.
+const LOCAL_CATALOG_PROCEDURES = new Set([
+  "catalog.listTanks",
+  "catalog.lowStockAlerts",
+]);
+
 function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized.padEnd(
     normalized.length + ((4 - (normalized.length % 4)) % 4),
-    "="
+    "=",
   );
   const decoded = atob(padded);
-  return Uint8Array.from(decoded, character => character.charCodeAt(0));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
 function base64UrlText(value: string): string {
@@ -71,7 +89,7 @@ function base64UrlText(value: string): string {
 async function verifyStaffSession(
   token: string,
   secret: string,
-  nowSeconds: number
+  nowSeconds: number,
 ): Promise<StaffSessionClaims | null> {
   const [payload, signature, extra] = token.split(".");
   if (!payload || !signature || extra) return null;
@@ -81,17 +99,17 @@ async function verifyStaffSession(
       encoder.encode(secret),
       { name: "HMAC", hash: "SHA-256" },
       false,
-      ["verify"]
+      ["verify"],
     );
     const valid = await crypto.subtle.verify(
       "HMAC",
       key,
       base64UrlBytes(signature),
-      encoder.encode(payload)
+      encoder.encode(payload),
     );
     if (!valid) return null;
     const claims = JSON.parse(
-      base64UrlText(payload)
+      base64UrlText(payload),
     ) as Partial<StaffSessionClaims>;
     if (
       !Number.isInteger(claims.id) ||
@@ -122,7 +140,7 @@ function securityHeaders(origin: string | null, allowed: boolean): Headers {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set(
       "Access-Control-Allow-Headers",
-      "accept,content-type,trpc-accept,x-staff-session"
+      "accept,content-type,trpc-accept,x-staff-session",
     );
     headers.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     headers.set("Access-Control-Max-Age", "600");
@@ -135,7 +153,7 @@ function trpcError(
   status: number,
   code: string,
   message: string,
-  headers: Headers
+  headers: Headers,
 ): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set("Content-Type", "application/json; charset=utf-8");
@@ -149,12 +167,22 @@ function trpcError(
         },
       },
     },
-    { status, headers: responseHeaders }
+    { status, headers: responseHeaders },
+  );
+}
+
+function trpcResult(value: unknown, headers: Headers): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("Content-Type", "application/json; charset=utf-8");
+  responseHeaders.set("X-PumpPOS-Data-Source", "supabase-postgres");
+  return Response.json(
+    { result: { data: superjson.serialize(value) } },
+    { status: 200, headers: responseHeaders },
   );
 }
 
 function procedureFromUrl(url: URL): string | null {
-  const marker = ["/functions/v1/pos-api/", "/pos-api/"].find(candidate =>
+  const marker = ["/functions/v1/pos-api/", "/pos-api/"].find((candidate) =>
     url.pathname.startsWith(candidate)
   );
   if (!marker) return null;
@@ -167,7 +195,7 @@ function procedureFromUrl(url: URL): string | null {
   if (!/^[A-Za-z][A-Za-z0-9_.-]{0,120}$/.test(procedure)) return null;
   if (EDGE_EXCLUDED_PROCEDURES.has(procedure)) return null;
   if (ANONYMOUS_PROCEDURES.has(procedure)) return procedure;
-  return BUSINESS_PREFIXES.some(prefix => procedure.startsWith(prefix))
+  return BUSINESS_PREFIXES.some((prefix) => procedure.startsWith(prefix))
     ? procedure
     : null;
 }
@@ -177,13 +205,13 @@ async function requestIdentity(request: Request): Promise<string> {
   // overwrite these platform headers at the edge; using only the first trusted
   // address prevents a caller from rotating arbitrary values to evade the
   // login limiter. The upstream worker still applies its own account limits.
-  const raw =
-    request.headers.get("cf-connecting-ip")?.trim() ||
+  const raw = request.headers.get("cf-connecting-ip")?.trim() ||
     request.headers.get("x-real-ip")?.trim() ||
     "unknown";
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(raw));
-  return Array.from(new Uint8Array(digest), byte =>
-    byte.toString(16).padStart(2, "0")
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
   ).join("");
 }
 
@@ -197,7 +225,7 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
     !upstreamBase.pathname.endsWith("/api/trpc/")
   ) {
     throw new Error(
-      "BUSINESS_UPSTREAM_BASE_URL must be an HTTPS tRPC base URL"
+      "BUSINESS_UPSTREAM_BASE_URL must be an HTTPS tRPC base URL",
     );
   }
 
@@ -208,6 +236,10 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
   const maxRequestBytes = config.maxRequestBytes ?? MAX_REQUEST_BYTES;
   const maxResponseBytes = config.maxResponseBytes ?? MAX_RESPONSE_BYTES;
   const loginWindows = new Map<string, RateWindow>();
+  const catalogReader = config.catalogReader ??
+    (config.catalogDatabaseUrl
+      ? createCatalogReader(config.catalogDatabaseUrl)
+      : null);
 
   return async function businessGateway(request: Request): Promise<Response> {
     const origin = request.headers.get("origin");
@@ -239,7 +271,7 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
     const claims = await verifyStaffSession(
       token,
       config.appSecret,
-      Math.floor(now() / 1_000)
+      Math.floor(now() / 1_000),
     );
     if (!ANONYMOUS_PROCEDURES.has(procedure) && !claims) {
       return errorResponse(401, "UNAUTHORIZED", "Session expired");
@@ -253,8 +285,9 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
         loginWindows.size >= MAX_LOGIN_IDENTITIES
       ) {
         for (const [key, candidate] of loginWindows) {
-          if (currentTime - candidate.startedAt >= 60_000)
+          if (currentTime - candidate.startedAt >= 60_000) {
             loginWindows.delete(key);
+          }
         }
         if (loginWindows.size >= MAX_LOGIN_IDENTITIES) identity = "overflow";
       }
@@ -267,7 +300,7 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
           return errorResponse(
             429,
             "TOO_MANY_REQUESTS",
-            "Too many login attempts"
+            "Too many login attempts",
           );
         }
       }
@@ -282,6 +315,45 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
       body = new Uint8Array(await request.arrayBuffer());
       if (body.byteLength > maxRequestBytes) {
         return errorResponse(413, "PAYLOAD_TOO_LARGE", "Request is too large");
+      }
+    }
+
+    if (catalogReader && LOCAL_CATALOG_PROCEDURES.has(procedure)) {
+      try {
+        const staff: StaffIdentity | null = claims
+          ? {
+            id: claims.id,
+            username: claims.username,
+            role: claims.role,
+          }
+          : null;
+        if (!staff || !(await catalogReader.isActiveStaff(staff))) {
+          return errorResponse(401, "UNAUTHORIZED", "Session expired");
+        }
+        const result = procedure === "catalog.listTanks"
+          ? await catalogReader.listTanks()
+          : await catalogReader.lowStockAlerts();
+        const response = trpcResult(result, headers);
+        if (
+          (await response.clone().arrayBuffer()).byteLength >
+            MAX_LOCAL_RESPONSE_BYTES
+        ) {
+          return errorResponse(
+            502,
+            "RESPONSE_TOO_LARGE",
+            "Catalog response is too large",
+          );
+        }
+        return response;
+      } catch {
+        // Do not fall back to Railway silently: mixing snapshots from two
+        // databases can give staff a false stock position. Roll back routing
+        // explicitly if this reader is unhealthy.
+        return errorResponse(
+          503,
+          "DATABASE_UNAVAILABLE",
+          "Catalog temporarily unavailable",
+        );
       }
     }
 
@@ -314,7 +386,7 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
       responseHeaders.set(
         "Content-Type",
         response.headers.get("content-type") ??
-          "application/json; charset=utf-8"
+          "application/json; charset=utf-8",
       );
       return new Response(responseBody, {
         status: response.status,

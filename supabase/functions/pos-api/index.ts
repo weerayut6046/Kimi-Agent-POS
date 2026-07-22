@@ -10,14 +10,21 @@ function required(name: string): string {
 const allowedOrigins = new Set(
   required("ALLOWED_ORIGINS")
     .split(",")
-    .map(origin => origin.trim())
-    .filter(Boolean)
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 );
+
+const catalogReadsEnabled = Deno.env.get("CATALOG_READS_ENABLED") === "true";
 
 const handler = createBusinessGateway({
   appSecret: required("APP_SECRET"),
   upstreamBaseUrl: required("BUSINESS_UPSTREAM_BASE_URL"),
   allowedOrigins,
+  // Keep the least-privilege reader behind an explicit rollout switch so a
+  // single secret change can route this workload back to Railway.
+  catalogDatabaseUrl: catalogReadsEnabled
+    ? Deno.env.get("CATALOG_DB_URL")?.trim()
+    : undefined,
 });
 
 export default {

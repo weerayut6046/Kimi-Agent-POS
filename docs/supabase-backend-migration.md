@@ -19,6 +19,20 @@ is deployed and verified.
 6. Replace Railway-only backup/report jobs, run restore drills, then retire
    Railway after an agreed observation window.
 
+### Stage 1: stock visibility reads
+
+`catalog.listTanks` and `catalog.lowStockAlerts` are served directly by the
+`pos-api` Edge Function using the dedicated `pos_catalog_reader` database role.
+The role has `SELECT` access only to the catalog tables/columns needed by these
+two procedures and is not a superuser or RLS bypass role. The Edge function
+rechecks the staff identity (`id`, `username`, `role`, and `active`) against
+`pos.staff_users` before every read. All catalog writes and other catalog reads
+still use Railway until their transaction and audit guarantees are migrated.
+
+The rollout is controlled by `CATALOG_READS_ENABLED=true` and the separate
+`CATALOG_DB_URL` secret. Set the flag to `false` (or remove it) to route these
+procedures back to Railway without changing data.
+
 ### Database bootstrap note
 
 The application tables are owned by Drizzle and their canonical migrations live
@@ -65,6 +79,8 @@ values into tickets, chat, CI output, or shell history.
 | `APP_SECRET`             | The same 32+ character HMAC secret used by the Railway API |
 | `ASSISTANT_UPSTREAM_URL` | Fixed HTTPS URL of the Railway assistant tRPC endpoint     |
 | `ALLOWED_ORIGINS`        | Comma-separated exact production origins                   |
+| `CATALOG_READS_ENABLED`  | Explicit rollout switch for the Stage 1 read-only routes   |
+| `CATALOG_DB_URL`         | URL for the least-privilege `pos_catalog_reader` role      |
 
 The target project ref is read from the operator's local environment. Before
 deployment, authenticate the Supabase CLI with an account that has access to

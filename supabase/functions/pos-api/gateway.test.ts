@@ -129,6 +129,56 @@ describe("Supabase business API gateway", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("serves migrated stock reads from Supabase after a fresh staff check", async () => {
+    const fetchMock = okFetch();
+    const reader = {
+      isActiveStaff: vi.fn(async staff =>
+        staff.id === 7 && staff.username === "admin" && staff.role === "admin"
+      ),
+      listTanks: vi.fn(async () => [{ id: 1, name: "Tank" }]),
+      lowStockAlerts: vi.fn(async () => ({
+        lowTanks: [],
+        lowProducts: [],
+        count: 0,
+      })),
+    };
+    const response = await gateway(fetchMock, { catalogReader: reader })(
+      edgeRequest("catalog.lowStockAlerts")
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      result: { data: { json: { lowTanks: [], lowProducts: [], count: 0 } } },
+    });
+    expect(reader.isActiveStaff).toHaveBeenCalledWith({
+      id: 7,
+      username: "admin",
+      role: "admin",
+    });
+    expect(reader.lowStockAlerts).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the migrated catalog staff check is stale", async () => {
+    const fetchMock = okFetch();
+    const reader = {
+      isActiveStaff: vi.fn(async () => false),
+      listTanks: vi.fn(async () => []),
+      lowStockAlerts: vi.fn(async () => ({
+        lowTanks: [],
+        lowProducts: [],
+        count: 0,
+      })),
+    };
+    const response = await gateway(fetchMock, { catalogReader: reader })(
+      edgeRequest("catalog.listTanks")
+    );
+
+    expect(response.status).toBe(401);
+    expect(reader.listTanks).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", null],
     ["tampered", `${sessionToken()}x`],
