@@ -125,5 +125,10 @@
     "esbuild": "0.28.1",
     "fast-uri": "3.1.4",
     "uuid": "11.1.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.28.1": true
   }
 }

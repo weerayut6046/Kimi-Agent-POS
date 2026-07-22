@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import type { CatalogReadResult } from "./catalog.ts";
 import { createBusinessGateway } from "./gateway.ts";
 
 const APP_SECRET = "0123456789abcdef0123456789abcdef";
@@ -79,6 +80,27 @@ function okFetch(body = '{"result":{"data":{"json":{"ok":true}}}}') {
   ) as unknown as typeof fetch;
 }
 
+function catalogReader(
+  overrides: Partial<CatalogReadResult> = {}
+): CatalogReadResult {
+  return {
+    isActiveStaff: vi.fn(async () => true),
+    listProducts: vi.fn(async () => []),
+    listPumps: vi.fn(async () => []),
+    listTanks: vi.fn(async () => []),
+    listRefills: vi.fn(async () => []),
+    lowStockAlerts: vi.fn(async () => ({
+      lowTanks: [],
+      lowProducts: [],
+      count: 0,
+    })),
+    priceHistory: vi.fn(async () => []),
+    getSettings: vi.fn(async () => ({})),
+    getShopLogo: vi.fn(async () => null),
+    ...overrides,
+  };
+}
+
 describe("Supabase business API gateway", () => {
   it("forwards an authenticated request and only the approved headers", async () => {
     const fetchMock = okFetch();
@@ -131,19 +153,17 @@ describe("Supabase business API gateway", () => {
 
   it("serves migrated stock reads from Supabase after a fresh staff check", async () => {
     const fetchMock = okFetch();
-    const reader = {
-      isActiveStaff: vi.fn(async staff =>
-        staff.id === 7 && staff.username === "admin" && staff.role === "admin"
+    const reader = catalogReader({
+      isActiveStaff: vi.fn(
+        async staff =>
+          staff.id === 7 && staff.username === "admin" && staff.role === "admin"
       ),
-      listProducts: vi.fn(async () => []),
-      listTanks: vi.fn(async () => [{ id: 1, name: "Tank" }]),
       lowStockAlerts: vi.fn(async () => ({
         lowTanks: [],
         lowProducts: [],
         count: 0,
       })),
-      priceHistory: vi.fn(async () => []),
-    };
+    });
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.lowStockAlerts")
     );
@@ -163,17 +183,9 @@ describe("Supabase business API gateway", () => {
 
   it("serves migrated product reads from Supabase", async () => {
     const fetchMock = okFetch();
-    const reader = {
-      isActiveStaff: vi.fn(async () => true),
+    const reader = catalogReader({
       listProducts: vi.fn(async () => [{ id: 1, code: "GSH95" }]),
-      listTanks: vi.fn(async () => []),
-      lowStockAlerts: vi.fn(async () => ({
-        lowTanks: [],
-        lowProducts: [],
-        count: 0,
-      })),
-      priceHistory: vi.fn(async () => []),
-    };
+    });
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.listProducts")
     );
@@ -191,20 +203,14 @@ describe("Supabase business API gateway", () => {
 
   it("validates and serves migrated price history reads", async () => {
     const fetchMock = okFetch();
-    const reader = {
-      isActiveStaff: vi.fn(async () => true),
-      listProducts: vi.fn(async () => []),
-      listTanks: vi.fn(async () => []),
-      lowStockAlerts: vi.fn(async () => ({
-        lowTanks: [],
-        lowProducts: [],
-        count: 0,
-      })),
+    const reader = catalogReader({
       priceHistory: vi.fn(async (productId: number) => [{ productId }]),
-    };
-    const query = `?input=${encodeURIComponent(JSON.stringify({
-      json: { productId: 12 },
-    }))}`;
+    });
+    const query = `?input=${encodeURIComponent(
+      JSON.stringify({
+        json: { productId: 12 },
+      })
+    )}`;
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.priceHistory", { query })
     );
@@ -219,22 +225,14 @@ describe("Supabase business API gateway", () => {
 
   it("rejects malformed migrated price history input", async () => {
     const fetchMock = okFetch();
-    const reader = {
-      isActiveStaff: vi.fn(async () => true),
-      listProducts: vi.fn(async () => []),
-      listTanks: vi.fn(async () => []),
-      lowStockAlerts: vi.fn(async () => ({
-        lowTanks: [],
-        lowProducts: [],
-        count: 0,
-      })),
-      priceHistory: vi.fn(async () => []),
-    };
+    const reader = catalogReader();
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.priceHistory", {
-        query: `?input=${encodeURIComponent(JSON.stringify({
-          json: { productId: -1 },
-        }))}`,
+        query: `?input=${encodeURIComponent(
+          JSON.stringify({
+            json: { productId: -1 },
+          })
+        )}`,
       })
     );
 
@@ -245,23 +243,43 @@ describe("Supabase business API gateway", () => {
 
   it("fails closed when the migrated catalog staff check is stale", async () => {
     const fetchMock = okFetch();
-    const reader = {
+    const reader = catalogReader({
       isActiveStaff: vi.fn(async () => false),
-      listProducts: vi.fn(async () => []),
-      listTanks: vi.fn(async () => []),
-      lowStockAlerts: vi.fn(async () => ({
-        lowTanks: [],
-        lowProducts: [],
-        count: 0,
-      })),
-      priceHistory: vi.fn(async () => []),
-    };
+    });
     const response = await gateway(fetchMock, { catalogReader: reader })(
       edgeRequest("catalog.listTanks")
     );
 
     expect(response.status).toBe(401);
     expect(reader.listTanks).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("serves the next read-only catalog batch from Supabase", async () => {
+    const fetchMock = okFetch();
+    const reader = catalogReader({
+      listPumps: vi.fn(async () => [{ id: 1, nozzles: [] }]),
+      listRefills: vi.fn(async () => [{ id: 2, tankId: 1 }]),
+      getSettings: vi.fn(async () => ({ shop_name: "Station" })),
+      getShopLogo: vi.fn(async () => "data:image/png;base64,abc"),
+    });
+    const cases = [
+      ["catalog.listPumps", "listPumps"],
+      ["catalog.listRefills", "listRefills"],
+      ["catalog.getSettings", "getSettings"],
+      ["catalog.getShopLogo", "getShopLogo"],
+    ] as const;
+
+    for (const [procedure, method] of cases) {
+      const response = await gateway(fetchMock, { catalogReader: reader })(
+        edgeRequest(procedure)
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-pumppos-data-source")).toBe(
+        "supabase-postgres"
+      );
+      expect(reader[method]).toHaveBeenCalledOnce();
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

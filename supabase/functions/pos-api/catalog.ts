@@ -5,9 +5,13 @@ type SqlClient = ReturnType<typeof postgres>;
 export type CatalogReadResult = {
   isActiveStaff: (staff: StaffIdentity) => Promise<boolean>;
   listProducts: () => Promise<unknown>;
+  listPumps: () => Promise<unknown>;
   listTanks: () => Promise<unknown>;
+  listRefills: () => Promise<unknown>;
   lowStockAlerts: () => Promise<unknown>;
   priceHistory: (productId: number) => Promise<unknown>;
+  getSettings: () => Promise<unknown>;
+  getShopLogo: () => Promise<unknown>;
 };
 
 export type StaffIdentity = {
@@ -39,7 +43,31 @@ type ProductRow = {
   active: boolean;
 };
 
-type NozzleRow = { id: number; tankId: number | null };
+type PumpRow = {
+  id: number;
+  name: string;
+  active: boolean;
+};
+
+type NozzleRow = {
+  id: number;
+  pumpId: number;
+  productId: number;
+  tankId: number | null;
+  label: string;
+  currentMeter: number;
+  currentMoney: number;
+  active: boolean;
+};
+
+type RefillRow = {
+  id: number;
+  tankId: number;
+  liters: number;
+  costPerLiter: number;
+  note: string | null;
+  createdAt: Date;
+};
 
 type PriceChangeRow = {
   id: number;
@@ -52,9 +80,56 @@ type PriceChangeRow = {
   createdAt: Date;
 };
 
+// Keep this in lockstep with web/contracts/settings.ts. The parity test fails
+// if either side changes without updating the other deployment surface.
+export const CATALOG_DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
+  shop_name:
+    "\u0e1b\u0e31\u0e4a\u0e21\u0e19\u0e49\u0e33\u0e21\u0e31\u0e19\u0e01\u0e25\u0e32\u0e07\u0e43\u0e2b\u0e0d\u0e48\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23",
+  shop_branch: "\u0e2a\u0e32\u0e02\u0e32\u0e2b\u0e25\u0e31\u0e01",
+  shop_address:
+    "123 \u0e16.\u0e15\u0e31\u0e27\u0e2d\u0e22\u0e48\u0e32\u0e07 \u0e15.\u0e43\u0e19\u0e40\u0e21\u0e37\u0e2d\u0e07 \u0e2d.\u0e40\u0e21\u0e37\u0e2d\u0e07 \u0e08.\u0e02\u0e2d\u0e19\u0e41\u0e01\u0e48\u0e19 40000",
+  tax_id: "0105566001123",
+  shop_phone: "02-123-4567",
+  vat_rate: "7",
+  point_earn_per_baht: "25",
+  point_redeem_value: "1",
+  receipt_prefix: "R",
+  receipt_next_no: "1",
+  tax_invoice_prefix: "T",
+  tax_invoice_next_no: "1",
+  receipt_paper_size: "80",
+  tax_invoice_paper_size: "a4",
+  receipt_silent_print: "0",
+  lan_enabled: "0",
+  backup_auto_enabled: "0",
+  backup_auto_time: "23:30",
+  backup_auto_keep: "7",
+};
+
 function toNumber(value: unknown): number {
   const numberValue = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+const RETRYABLE_CONNECTION_CODES = new Set([
+  "CONNECTION_ENDED",
+  "CONNECTION_DESTROYED",
+  "CONNECTION_CLOSED",
+  "CONNECT_TIMEOUT",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENETUNREACH",
+  "53300",
+  "57P01",
+  "57P02",
+  "57P03",
+]);
+
+function isRetryableConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  const code = String((error as { code?: unknown }).code ?? "");
+  return RETRYABLE_CONNECTION_CODES.has(code) || code.startsWith("08");
 }
 
 function parseTankDisplayOrder(value: string | null | undefined): number[] {
@@ -82,7 +157,9 @@ function createClient(connectionString: string): SqlClient {
     prepare: false,
     ssl: "require",
     max: 1,
-    idle_timeout: 20,
+    // Edge workers scale out quickly. Releasing an idle transaction-pooler
+    // client promptly avoids exhausting the reader role across warm workers.
+    idle_timeout: 2,
     connect_timeout: 8,
   });
 }
@@ -121,7 +198,7 @@ export function createCatalogReader(
         return await operation(getClient());
       } catch (error) {
         lastError = error;
-        if (attempt === 1) break;
+        if (attempt === 1 || !isRetryableConnectionError(error)) break;
         await resetClient();
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
@@ -200,6 +277,98 @@ export function createCatalogReader(
         ...change,
         oldPrice: toNumber(change.oldPrice),
         newPrice: toNumber(change.newPrice),
+      }));
+    });
+  };
+
+  const listPumps = async () => {
+    return read(async (sql) => {
+      const [pumpRows, nozzleRows, productRows, tankRows] = await Promise.all([
+        sql<PumpRow[]>`
+          select id, name, active
+          from pos.pumps
+          order by id asc
+          limit 1000
+        `,
+        sql<NozzleRow[]>`
+          select
+            id,
+            pump_id as "pumpId",
+            product_id as "productId",
+            tank_id as "tankId",
+            label,
+            current_meter::double precision as "currentMeter",
+            current_money::double precision as "currentMoney",
+            active
+          from pos.nozzles
+          order by id asc
+          limit 1000
+        `,
+        sql<ProductRow[]>`
+          select
+            id,
+            code,
+            name,
+            category,
+            unit,
+            price::double precision as price,
+            cost::double precision as cost,
+            stock_qty::double precision as "stockQty",
+            low_stock_at::double precision as "lowStockAt",
+            created_at as "createdAt",
+            active
+          from pos.products
+          limit 1000
+        `,
+        sql<TankRow[]>`
+          select
+            id,
+            product_id as "productId",
+            name,
+            capacity_liters::double precision as "capacityLiters",
+            current_liters::double precision as "currentLiters",
+            low_alert_at::double precision as "lowAlertAt"
+          from pos.fuel_tanks
+          limit 1000
+        `,
+      ]);
+
+      return pumpRows.map((pump) => ({
+        ...pump,
+        nozzles: nozzleRows
+          .filter((nozzle) => nozzle.pumpId === pump.id)
+          .map((nozzle) => ({
+            ...nozzle,
+            currentMeter: toNumber(nozzle.currentMeter),
+            currentMoney: toNumber(nozzle.currentMoney),
+            product: (() => {
+              const product = productRows.find(
+                (candidate) => candidate.id === nozzle.productId,
+              );
+              return product
+                ? {
+                    ...product,
+                    price: toNumber(product.price),
+                    cost: toNumber(product.cost),
+                    stockQty: toNumber(product.stockQty),
+                    lowStockAt: toNumber(product.lowStockAt),
+                  }
+                : null;
+            })(),
+            tank: (() => {
+              const tank = tankRows.find(
+                (candidate) => candidate.id === nozzle.tankId,
+              );
+              return tank
+                ? {
+                    ...tank,
+                    capacityLiters: toNumber(tank.capacityLiters),
+                    currentLiters: toNumber(tank.currentLiters),
+                    lowAlertAt: toNumber(tank.lowAlertAt),
+                  }
+                : null;
+            })(),
+          })),
       }));
     });
   };
@@ -303,6 +472,82 @@ export function createCatalogReader(
     });
   };
 
+  const listRefills = async () => {
+    return read(async (sql) => {
+      const [refillRows, tankRows] = await Promise.all([
+        sql<RefillRow[]>`
+          select
+            id,
+            tank_id as "tankId",
+            liters::double precision as liters,
+            cost_per_liter::double precision as "costPerLiter",
+            note,
+            created_at as "createdAt"
+          from pos.tank_refills
+          order by created_at desc
+          limit 30
+        `,
+        sql<TankRow[]>`
+          select
+            id,
+            product_id as "productId",
+            name,
+            capacity_liters::double precision as "capacityLiters",
+            current_liters::double precision as "currentLiters",
+            low_alert_at::double precision as "lowAlertAt"
+          from pos.fuel_tanks
+          limit 1000
+        `,
+      ]);
+
+      return refillRows.map((refill) => {
+        const tank = tankRows.find(
+          (candidate) => candidate.id === refill.tankId,
+        );
+        return {
+          ...refill,
+          liters: toNumber(refill.liters),
+          costPerLiter: toNumber(refill.costPerLiter),
+          tank: tank
+            ? {
+                ...tank,
+                capacityLiters: toNumber(tank.capacityLiters),
+                currentLiters: toNumber(tank.currentLiters),
+                lowAlertAt: toNumber(tank.lowAlertAt),
+              }
+            : null,
+        };
+      });
+    });
+  };
+
+  const getSettings = async () => {
+    return read(async (sql) => {
+      const rows = await sql<{ key: string; value: string }[]>`
+        select key, value
+        from pos.settings
+        where key <> 'shop_logo'
+        limit 1000
+      `;
+      return {
+        ...CATALOG_DEFAULT_SETTINGS,
+        ...Object.fromEntries(rows.map((row) => [row.key, row.value])),
+      };
+    });
+  };
+
+  const getShopLogo = async () => {
+    return read(async (sql) => {
+      const rows = await sql<{ value: string }[]>`
+        select value
+        from pos.settings
+        where key = 'shop_logo'
+        limit 1
+      `;
+      return rows[0]?.value || null;
+    });
+  };
+
   const lowStockAlerts = async () => {
     return read(async (sql) => {
       const [tankRows, productRows] = await Promise.all([
@@ -389,8 +634,12 @@ export function createCatalogReader(
   return {
     isActiveStaff,
     listProducts,
+    listPumps,
     listTanks,
+    listRefills,
     lowStockAlerts,
     priceHistory,
+    getSettings,
+    getShopLogo,
   };
 }

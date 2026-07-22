@@ -21,16 +21,23 @@ is deployed and verified.
 
 ### Stage 1: stock visibility reads
 
-`catalog.listProducts`, `catalog.listTanks`, `catalog.lowStockAlerts`, and
-`catalog.priceHistory` are served directly by the `pos-api` Edge Function using the dedicated
-`pos_catalog_reader_live` database role. Earlier reader login roles are disabled
-after pooler-safe credential rotations; rotate by creating a new role rather
-than changing a password on a role already used by the pooler.
+`catalog.listProducts`, `catalog.listPumps`, `catalog.listTanks`,
+`catalog.listRefills`, `catalog.lowStockAlerts`, `catalog.priceHistory`,
+`catalog.getSettings`, and `catalog.getShopLogo` are served directly by the
+`pos-api` Edge Function using the dedicated `pos_catalog_reader_live` database
+role. Earlier reader login roles are disabled after pooler-safe credential
+rotations; rotate by creating a new role rather than changing a password on a
+role already used by the pooler.
 The role has `SELECT` access only to the catalog tables/columns needed by these
-two procedures and is not a superuser or RLS bypass role. The Edge function
-rechecks the staff identity (`id`, `username`, `role`, and `active`) against
-`pos.staff_users` before every read. All catalog writes and other catalog reads
-still use Railway until their transaction and audit guarantees are migrated.
+procedures and is not a superuser or RLS bypass role. The Edge function rechecks
+the staff identity (`id`, `username`, `role`, and `active`) against
+`pos.staff_users` before every read. Its Postgres client uses transaction-pooler
+compatible settings, releases idle clients after two seconds, and retries once
+with a fresh client after a failed read. The login role permits at most 12
+database connections; production logs showed that the earlier limit of five
+was too low when several catalog reads arrived concurrently. All catalog writes
+and other catalog reads still use Railway until their transaction and audit
+guarantees are migrated.
 
 The rollout is controlled by `CATALOG_READS_ENABLED=true` and the separate
 `CATALOG_DB_URL` secret. Set the flag to `false` (or remove it) to route these
@@ -108,6 +115,38 @@ After Supabase Auth is live, replace the custom session bridge with Supabase
 JWT verification and authorization based on server-validated app metadata.
 Never authorize from user-editable metadata. Realtime channels must be private,
 and access must be controlled by RLS policies.
+
+### Authenticated UI smoke matrix
+
+Use a production-issued staff session in a real browser. Do not substitute a
+token signed with a local `APP_SECRET`. For an admin session, open each route and
+confirm the page settles without a 5xx tRPC request or console error:
+
+`/`, `/pos`, `/shifts`, `/workforce`, `/stock`, `/members`, `/customers`,
+`/debts`, `/sales`, `/expenses`, `/reports`, `/tax-invoices`, `/documents`,
+`/audit`, and `/settings`.
+
+On `/stock` and `/settings`, verify that migrated catalog responses carry
+`X-PumpPOS-Data-Source: supabase-postgres`. Revisit both pages several times and
+check Edge/Postgres logs for repeated 503 responses or reader connection-limit
+errors. Export and backup actions remain Railway checks until Storage and a
+restore drill are designed and approved.
+
+Production verification on 2026-07-22 passed this gate. A production-issued
+authenticated admin browser session opened all 15 routes above in read-only
+mode; every page rendered after data settled, with no login redirect,
+navigation failure, fatal error, or console error reported. Browser resource
+telemetry reported no 4xx/5xx failure, no mutation control was used, and the
+test did not inspect cookies or tokens. The session finished on `/stock`.
+
+The matching `pos-api` Edge version 23 log sample contained 100 successful
+events with no 4xx/5xx response and no catalog 503. Repeated
+`catalog.listTanks`, `catalog.listRefills`, and `catalog.getSettings` requests
+returned 200; earlier samples also confirmed `catalog.listPumps` and
+`catalog.getShopLogo` at 200 through `supabase-postgres`. Postgres logs contained
+no new `pos_catalog_reader_live` connection-limit error during or after this
+browser run. The last such error remains from before the reader connection and
+idle-client changes.
 
 ## Rollback
 

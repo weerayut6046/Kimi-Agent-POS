@@ -69,9 +69,13 @@ const EDGE_EXCLUDED_PROCEDURES = new Set([
 // Writes and all other procedures continue through the rollback-safe upstream.
 const LOCAL_CATALOG_PROCEDURES = new Set([
   "catalog.listProducts",
+  "catalog.listPumps",
   "catalog.listTanks",
+  "catalog.listRefills",
   "catalog.lowStockAlerts",
   "catalog.priceHistory",
+  "catalog.getSettings",
+  "catalog.getShopLogo",
 ]);
 
 function base64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -364,13 +368,22 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
         if (!staff || !(await catalogReader.isActiveStaff(staff))) {
           return errorResponse(401, "UNAUTHORIZED", "Session expired");
         }
-        const result = procedure === "catalog.listProducts"
-          ? await catalogReader.listProducts()
-          : procedure === "catalog.listTanks"
-          ? await catalogReader.listTanks()
-          : procedure === "catalog.lowStockAlerts"
-          ? await catalogReader.lowStockAlerts()
-          : await catalogReader.priceHistory(priceHistoryProductId!);
+        const result =
+          procedure === "catalog.listProducts"
+            ? await catalogReader.listProducts()
+            : procedure === "catalog.listPumps"
+              ? await catalogReader.listPumps()
+              : procedure === "catalog.listTanks"
+                ? await catalogReader.listTanks()
+                : procedure === "catalog.listRefills"
+                  ? await catalogReader.listRefills()
+                  : procedure === "catalog.lowStockAlerts"
+                    ? await catalogReader.lowStockAlerts()
+                    : procedure === "catalog.priceHistory"
+                      ? await catalogReader.priceHistory(priceHistoryProductId!)
+                      : procedure === "catalog.getSettings"
+                        ? await catalogReader.getSettings()
+                        : await catalogReader.getShopLogo();
         const response = trpcResult(result, headers);
         if (
           (await response.clone().arrayBuffer()).byteLength >
