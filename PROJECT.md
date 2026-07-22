@@ -2,14 +2,14 @@
 
 เอกสารนี้เป็นจุดเริ่มต้นสำหรับผู้พัฒนาและผู้ดูแลระบบ อธิบายสถานะ สถาปัตยกรรม วิธีพัฒนา การสำรองข้อมูล และขั้นตอนปล่อยเวอร์ชันของระบบ POS ปั๊มน้ำมัน
 
-> อัปเดตล่าสุด: 22 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.4`; เว็บออนไลน์ deploy ที่ Vercel + Railway (ดูหัวข้อ 11)
+> อัปเดตล่าสุด: 22 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.5`; เว็บออนไลน์ deploy ที่ Vercel + Railway (ดูหัวข้อ 11)
 
 ## 1. สถานะปัจจุบัน
 
 | รายการ            | สถานะ                                                               |
 | ----------------- | ------------------------------------------------------------------- |
-| เวอร์ชันใน source | `2.0.4`                                                             |
-| รุ่นเผยแพร่ล่าสุด | `2.0.4`                                                             |
+| เวอร์ชันใน source | `2.0.5`                                                             |
+| รุ่นเผยแพร่ล่าสุด | `2.0.5`                                                             |
 | Branch หลัก       | `main`                                                              |
 | รูปแบบใช้งานหลัก  | Windows Desktop (Electron, NSIS installer)                          |
 | รูปแบบเสริม       | Portable `.exe`, Web ผ่าน Docker และ Web ออนไลน์ (Vercel + Railway) |
@@ -20,11 +20,11 @@
 
 ไฟล์ติดตั้งรุ่นล่าสุดที่เผยแพร่:
 
-- [POS-Pump-Setup-2.0.4.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Setup-2.0.4.exe)
-- [POS-Pump-Portable-2.0.4.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Portable-2.0.4.exe)
+- [POS-Pump-Setup-2.0.5.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Setup-2.0.5.exe)
+- [POS-Pump-Portable-2.0.5.exe](https://storage.googleapis.com/kimi-agent-pos-updates/POS-Pump-Portable-2.0.5.exe)
 - [latest.yml](https://storage.googleapis.com/kimi-agent-pos-updates/latest.yml)
 
-รุ่น `1.0.21`–`1.0.24` เพิ่ม Wizard ภาษาไทย, workforce, มิเตอร์ประวัติกะ, แก้ responsive UI และเริ่ม sign executable ด้วย self-signed certificate (`CN=PumpPOS Code Signing`) รุ่น `2.0.0` ย้ายข้อมูลจาก SQLite ขึ้น Supabase PostgreSQL ใน private schema `pos` รุ่น `2.0.1` เพิ่ม Logical Backup ไป Private GCS และลด latency รุ่น `2.0.2` เพิ่ม local desktop runtime, cache และ durable sales outbox ให้เงินสด/QR/บัตรขายต่อได้เมื่ออินเทอร์เน็ตขาด พร้อม idempotent sync ป้องกันข้อมูลซ้ำ รุ่น `2.0.3` ยกเครื่อง UX/UI เป็น Modern Command Center พร้อม Dashboard/POS ใหม่, Quick Menu และ Tank Telemetry แบบเคลื่อนไหว และรุ่น `2.0.4` เพิ่มการลากเรียงถังแบบบันทึกถาวร แก้ความแม่นยำลิตรตอนตัดกะเป็น 3 ตำแหน่ง และรองรับรหัสผ่านตัวอักษรบนมือถือ
+รุ่น `1.0.21`–`1.0.24` เพิ่ม Wizard ภาษาไทย, workforce, มิเตอร์ประวัติกะ, แก้ responsive UI และเริ่ม sign executable ด้วย self-signed certificate (`CN=PumpPOS Code Signing`) รุ่น `2.0.0` ย้ายข้อมูลจาก SQLite ขึ้น Supabase PostgreSQL ใน private schema `pos` รุ่น `2.0.1` เพิ่ม Logical Backup ไป Private GCS และลด latency รุ่น `2.0.2` เพิ่ม local desktop runtime, cache และ durable sales outbox ให้เงินสด/QR/บัตรขายต่อได้เมื่ออินเทอร์เน็ตขาด พร้อม idempotent sync ป้องกันข้อมูลซ้ำ รุ่น `2.0.3` ยกเครื่อง UX/UI เป็น Modern Command Center พร้อม Dashboard/POS ใหม่, Quick Menu และ Tank Telemetry แบบเคลื่อนไหว รุ่น `2.0.4` เพิ่มการลากเรียงถังแบบบันทึกถาวร แก้ความแม่นยำลิตรตอนตัดกะเป็น 3 ตำแหน่ง และรองรับรหัสผ่านตัวอักษรบนมือถือ และรุ่น `2.0.5` เพิ่ม Auto Update progress/error/retry พร้อมสีของเหลวในถังตามชนิดน้ำมัน
 
 ## 2. เป้าหมายและผู้ใช้
 

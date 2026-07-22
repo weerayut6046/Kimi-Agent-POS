@@ -60,30 +60,26 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, categoryLabel } from "@/lib/format";
+import { getFuelLiquidTone } from "@/lib/fuelColors";
 import type { Product } from "@db/schema";
 
 function TankLevelVisual({
   percent,
-  isLow,
+  productName,
+  productCode,
+  tankName,
 }: {
   percent: number;
-  isLow: boolean;
+  productName?: string | null;
+  productCode?: string | null;
+  tankName: string;
 }) {
   const safePercent = Math.max(0, Math.min(100, percent));
-  const tankColor = isLow
-    ? "#ef4444"
-    : safePercent < 50
-      ? "#f59e0b"
-      : "#6d5df4";
-  const tankColorLight = isLow
-    ? "#fb7185"
-    : safePercent < 50
-      ? "#fbbf24"
-      : "#22d3ee";
+  const fuelTone = getFuelLiquidTone(productCode, productName, tankName);
   const style = {
     "--tank-level": `${safePercent}%`,
-    "--tank-color": tankColor,
-    "--tank-color-light": tankColorLight,
+    "--tank-color": fuelTone.color,
+    "--tank-color-light": fuelTone.light,
     "--tank-marker": `${18 + safePercent * 1.42}px`,
   } as CSSProperties;
 
@@ -92,7 +88,7 @@ function TankLevelVisual({
       className="tank-visual"
       style={style}
       role="img"
-      aria-label={`ระดับน้ำมัน ${safePercent}%`}
+      aria-label={`${productName ?? tankName} ระดับน้ำมัน ${safePercent}%`}
     >
       <div className="tank-cap" />
       <div className="tank-body">
@@ -414,7 +410,12 @@ export default function Stock() {
 
                     <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
                       <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
-                        <TankLevelVisual percent={t.percent} isLow={t.isLow} />
+                        <TankLevelVisual
+                          percent={t.percent}
+                          productName={t.product?.name}
+                          productCode={t.product?.code}
+                          tankName={t.name}
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
                             น้ำมันคงเหลือ
