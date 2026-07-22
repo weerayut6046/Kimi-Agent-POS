@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -30,7 +30,7 @@
     "@dnd-kit/sortable": "10.0.0",
     "@dnd-kit/utilities": "3.2.2",
     "@google-cloud/storage": "7.21.0",
-    "@hono/node-server": "^1.14.3",
+    "@hono/node-server": "2.0.11",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
