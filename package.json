@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -103,7 +103,7 @@
     "drizzle-kit": "^0.31.10",
     "electron": "^42.7.0",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.27.2",
+    "esbuild": "0.28.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
@@ -120,6 +120,9 @@
     "vitest": "^4.0.16"
   },
   "overrides": {
+    "@hono/node-server": "2.0.11",
+    "esbuild": "0.28.1",
+    "fast-uri": "3.1.4",
     "uuid": "11.1.1"
   }
 }
