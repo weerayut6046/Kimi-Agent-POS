@@ -1,7 +1,7 @@
 {
   "name": "my-app",
   "private": true,
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "ระบบ POS ปั๊มน้ำมัน (Desktop + Web)",
   "author": "Kimi-Agent-POS",
   "type": "module",
@@ -14,6 +14,9 @@
     "build:desktop": "npm run build && npm run build:electron",
     "dev:desktop": "npm run build:electron && node desktop/scripts/dev-desktop.mjs",
     "dist:exe": "npm run build:desktop && node desktop/scripts/pack-exe.mjs",
+    "dist:exe:self-signed": "npm run build:desktop && node desktop/scripts/pack-exe.mjs --allow-self-signed",
+    "dist:store": "node desktop/scripts/pack-store.mjs --validate-only && npm run build:installer-assets && npm run build:desktop && node desktop/scripts/pack-store.mjs",
+    "dist:store:test": "npm run build:installer-assets && npm run build:desktop && node desktop/scripts/pack-store.mjs --test-identity",
     "publish:gcs": "node desktop/scripts/publish-gcs.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
 import path from "path";
 import { fitWindowToWorkArea } from "../windowBounds";
 import { DesktopOfflineRuntime } from "./offlineRuntime";
+import { shouldStartLegacyUpdater } from "./updatePolicy";
 import type { DesktopSaleRequest } from "../../web/contracts/offline";
 
 declare const __dirname: string;
@@ -128,7 +129,13 @@ if (!gotLock) {
       return;
     }
 
-    if (isPackaged && !process.env.PORTABLE_EXECUTABLE_FILE) {
+    if (
+      shouldStartLegacyUpdater({
+        isPackaged,
+        isPortable: Boolean(process.env.PORTABLE_EXECUTABLE_FILE),
+        isWindowsStore: process.windowsStore === true,
+      })
+    ) {
       const { setupAutoUpdater } = await import("./updater");
       setupAutoUpdater(() => BrowserWindow.getAllWindows()[0]);
     }

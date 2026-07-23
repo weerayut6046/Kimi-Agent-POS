@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 ROOT = Path(__file__).resolve().parents[2]
 BUILD_DIR = ROOT / "desktop" / "build"
 SOURCE_DIR = BUILD_DIR / "source"
+APPX_DIR = BUILD_DIR / "appx"
 LOGO_PATH = SOURCE_DIR / "ky-logo.jpg"
 BACKGROUND_PATH = SOURCE_DIR / "installer-background.png"
 
@@ -88,6 +89,27 @@ def build_icon_source(logo: Image.Image) -> Image.Image:
     return canvas
 
 
+def build_appx_assets(logo: Image.Image) -> None:
+    APPX_DIR.mkdir(parents=True, exist_ok=True)
+    square_assets = {
+        "StoreLogo.png": 50,
+        "Square44x44Logo.png": 44,
+        "Square150x150Logo.png": 150,
+    }
+    for name, size in square_assets.items():
+        logo_tile(logo, size).save(APPX_DIR / name, format="PNG")
+
+    wide = Image.new("RGBA", (310, 150), (255, 255, 255, 255))
+    fitted = ImageOps.contain(
+        logo.convert("RGB"), (136, 136), Image.Resampling.LANCZOS
+    )
+    wide.alpha_composite(
+        fitted.convert("RGBA"),
+        ((wide.width - fitted.width) // 2, (wide.height - fitted.height) // 2),
+    )
+    wide.save(APPX_DIR / "Wide310x150Logo.png", format="PNG")
+
+
 def main() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     logo = Image.open(LOGO_PATH)
@@ -106,6 +128,8 @@ def main() -> None:
     icon_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
     for name in ("app.ico", "installerIcon.ico", "uninstallerIcon.ico"):
         icon.save(BUILD_DIR / name, format="ICO", sizes=icon_sizes)
+
+    build_appx_assets(logo)
 
     print(f"สร้าง installer assets ที่ {BUILD_DIR}")
 

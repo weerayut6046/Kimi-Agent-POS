@@ -29,6 +29,29 @@ for (const file of files) {
   if (!fs.existsSync(file)) throw new Error(`ไม่พบไฟล์ release: ${file}`);
 }
 
+const verifyScript = path.join(
+  root,
+  "desktop",
+  "scripts",
+  "verify-release-signatures.ps1",
+);
+const powershell = process.platform === "win32" ? "powershell.exe" : "pwsh";
+const signatureCheck = spawnSync(
+  powershell,
+  [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    verifyScript,
+  ],
+  { cwd: root, stdio: "inherit", shell: false },
+);
+if ((signatureCheck.status ?? 1) !== 0) {
+  throw new Error("หยุด publish: release signature ไม่ผ่าน public-trust gate");
+}
+
 const candidates = process.platform === "win32"
   ? [
       path.join(process.env.LOCALAPPDATA || os.homedir(), "Google", "Cloud SDK", "google-cloud-sdk", "bin", "gcloud.cmd"),
