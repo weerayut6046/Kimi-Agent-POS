@@ -231,6 +231,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   };
   const switchBranch = async (branchId: number) => {
     if (!effectiveStaff || branchId === effectiveStaff.branch.id) return;
+    if (effectiveStaff.role !== "admin") {
+      throw new Error("เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถเปลี่ยนสาขาได้");
+    }
     const switched = await requestBranchSwitch({ branchId });
     const { supabaseSession, ...staffSession } = switched;
     const normalized: StaffSession = {

@@ -405,7 +405,11 @@ export default function Layout() {
               </span>
               <select
                 value={staff?.branch.id ?? ""}
-                disabled={switchingBranch || !staff?.branches.length}
+                disabled={
+                  staff?.role !== "admin" ||
+                  switchingBranch ||
+                  (staff?.branches.length ?? 0) <= 1
+                }
                 onChange={event =>
                   void handleBranchChange(Number(event.target.value))
                 }
@@ -641,7 +645,11 @@ export default function Layout() {
               </span>
               <select
                 value={staff?.branch.id ?? ""}
-                disabled={switchingBranch || !staff?.branches.length}
+                disabled={
+                  staff?.role !== "admin" ||
+                  switchingBranch ||
+                  (staff?.branches.length ?? 0) <= 1
+                }
                 onChange={event =>
                   void handleBranchChange(Number(event.target.value))
                 }

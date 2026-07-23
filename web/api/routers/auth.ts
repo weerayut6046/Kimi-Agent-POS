@@ -196,6 +196,9 @@ export const authRouter = createRouter({
   switchBranch: authenticatedStaffAction
     .input(z.object({ branchId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
+      if (ctx.staff.role !== "admin") {
+        throw new Error("เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถเปลี่ยนสาขาได้");
+      }
       const user = await getDb().query.staffUsers.findFirst({
         where: eq(staffUsers.id, ctx.staff.id),
       });
@@ -725,6 +728,9 @@ export const authRouter = createRouter({
         throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
       }
       const { branchIds: _branchIds, ...staffInput } = input;
+      const defaultBranchId = branchIds.includes(ctx.staff.branchId)
+        ? ctx.staff.branchId
+        : branchIds[0];
       const id = await db.transaction(async (tx) => {
         const [created] = await tx
           .insert(staffUsers)
@@ -740,7 +746,7 @@ export const authRouter = createRouter({
           branchIds.map((branchId) => ({
             staffId: created.id,
             branchId,
-            isDefault: branchId === ctx.staff.branchId,
+            isDefault: branchId === defaultBranchId,
           })),
         );
         return created.id;

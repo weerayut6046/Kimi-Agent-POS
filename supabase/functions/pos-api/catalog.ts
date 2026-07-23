@@ -240,6 +240,7 @@ export function createCatalogReader(
         left join pos.staff_branches membership
           on membership.staff_id = staff.id
          and membership.branch_id = branch.id
+         and membership.is_default = true
         where staff.id = ${staff.id}
           and (staff.role = 'admin' or membership.staff_id is not null)
         limit 1

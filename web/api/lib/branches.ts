@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { branches, staffBranches } from "@db/schema";
 import { getDb } from "../queries/connection";
 import type { StaffSessionClaims } from "./session";
@@ -30,13 +30,10 @@ export async function accessibleBranchesForStaff(
     .select({ branch: branches })
     .from(staffBranches)
     .innerJoin(branches, eq(staffBranches.branchId, branches.id))
-    .where(
-      and(
-        eq(staffBranches.staffId, staff.id),
-        includeInactive ? undefined : eq(branches.active, true),
-      ),
-    )
-    .orderBy(asc(branches.id));
+    .where(eq(staffBranches.staffId, staff.id))
+    .orderBy(desc(staffBranches.isDefault), asc(branches.id))
+    .limit(1);
+  if (!includeInactive && !rows[0]?.branch.active) return [];
   return rows.map((row) => row.branch);
 }
 
@@ -51,35 +48,12 @@ export async function branchForStaff(
   if (!branch) return null;
   if (staff.role === "admin") return branch;
 
-  const membership = await db.query.staffBranches.findFirst({
-    where: and(
-      eq(staffBranches.staffId, staff.id),
-      eq(staffBranches.branchId, branchId),
-    ),
-    columns: { staffId: true },
-  });
-  return membership ? branch : null;
+  const workingBranch = (await accessibleBranchesForStaff(staff))[0];
+  return workingBranch?.id === branchId ? branch : null;
 }
 
 export async function defaultBranchForStaff(
   staff: Pick<StaffSessionClaims, "id" | "role">,
 ): Promise<AccessibleBranch | null> {
-  const db = getDb();
-  if (staff.role !== "admin") {
-    const preferred = await db
-      .select({ branch: branches })
-      .from(staffBranches)
-      .innerJoin(branches, eq(staffBranches.branchId, branches.id))
-      .where(
-        and(
-          eq(staffBranches.staffId, staff.id),
-          eq(staffBranches.isDefault, true),
-          eq(branches.active, true),
-        ),
-      )
-      .orderBy(asc(branches.id))
-      .limit(1);
-    if (preferred[0]) return preferred[0].branch;
-  }
   return (await accessibleBranchesForStaff(staff))[0] ?? null;
 }

@@ -47,6 +47,39 @@ describe("Supabase catalog reader", () => {
     expect(CATALOG_DEFAULT_SETTINGS).toEqual(DEFAULT_SETTINGS);
   });
 
+  it("accepts non-admin sessions only for their default branch membership", async () => {
+    const queries: string[] = [];
+    const client = vi.fn((strings: TemplateStringsArray) => {
+      const query = strings.join("?").replace(/\s+/g, " ").trim();
+      queries.push(query);
+      return Promise.resolve(
+        query.includes("select set_config")
+          ? [{ set_config: "7" }]
+          : [{ active: true, username: "cashier", role: "cashier" }],
+      );
+    }) as unknown as FakeClient;
+    client.end = vi.fn(async () => undefined);
+    client.begin = vi.fn(async callback =>
+      callback(client as unknown as postgres.TransactionSql),
+    ) as FakeClient["begin"];
+    const reader = createCatalogReader(
+      "postgresql://reader@example.test/pos",
+      () => client,
+    );
+
+    await expect(
+      reader.isActiveStaff({
+        id: 3,
+        username: "cashier",
+        role: "cashier",
+        branchId: 7,
+      }),
+    ).resolves.toBe(true);
+    expect(queries).toContainEqual(
+      expect.stringContaining("and membership.is_default = true"),
+    );
+  });
+
   it("reconnects once after a transient database connection failure", async () => {
     const clients = [
       clientFailing(
