@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { settings } from "@db/schema";
 import type { getDb } from "../queries/connection";
 
@@ -15,19 +15,33 @@ const KEYS = {
  * เพิ่มตัวนับแบบ atomic ใน transaction เดียวกับการสร้างเอกสาร → ไม่ซ้ำ ไม่ข้ามเลข
  * รูปแบบ: {prefix}{เลข 5 หลัก} เช่น R00001, T00123
  */
-export async function nextDocNo(tx: DbTx, kind: keyof typeof KEYS): Promise<string> {
+export async function nextDocNo(
+  tx: DbTx,
+  kind: keyof typeof KEYS,
+  branchId: number,
+): Promise<string> {
   const k = KEYS[kind];
-  const rows = await tx.select().from(settings).where(inArray(settings.key, [k.prefix, k.next]));
+  const rows = await tx
+    .select()
+    .from(settings)
+    .where(
+      and(
+        eq(settings.branchId, branchId),
+        inArray(settings.key, [k.prefix, k.next]),
+      ),
+    );
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const prefix = map[k.prefix] || k.defaultPrefix;
 
   // สร้างแถวตัวนับถ้ายังไม่มี แล้วเพิ่มค่าแบบ atomic
   await tx.insert(settings)
-    .values({ key: k.next, value: "1" })
+    .values({ branchId, key: k.next, value: "1" })
     .onConflictDoNothing();
   const [after] = await tx.update(settings)
     .set({ value: sql`CAST(${settings.value} AS INTEGER) + 1` })
-    .where(eq(settings.key, k.next))
+    .where(
+      and(eq(settings.branchId, branchId), eq(settings.key, k.next)),
+    )
     .returning({ value: settings.value });
 
   const n = Math.max(1, Number(after?.value ?? "2") - 1);

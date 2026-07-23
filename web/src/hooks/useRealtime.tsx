@@ -12,7 +12,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase";
 import { shouldRefreshAfterTransportReady } from "@/lib/realtimeRefresh";
 
 const STAFF_STORAGE_KEY = "pumppos_staff";
-const SUPABASE_TOPIC = "pos-invalidation-v1";
+const SUPABASE_TOPIC_PREFIX = "pos-invalidation-v1";
 const SUPABASE_EVENT = "invalidate";
 
 function currentSessionToken(): string | null {
@@ -45,9 +45,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const { staff } = useStaff();
   const queryClient = useQueryClient();
   const staffId = staff?.id;
+  const branchId = staff?.branch.id;
 
   useEffect(() => {
-    if (!staffId) return;
+    if (!staffId || !branchId) return;
 
     const seen = new Set<string>();
     let supabase: SupabaseClient | null = null;
@@ -86,6 +87,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
     const acceptEvent = (event: unknown) => {
       if (!isRealtimeInvalidationEvent(event)) return;
+      if (event.branchId !== branchId) return;
       if (seen.has(event.eventId)) return;
       seen.add(event.eventId);
       if (seen.size > 256) {
@@ -225,7 +227,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         if (stopped) return;
 
         const nextChannel = supabase
-          .channel(SUPABASE_TOPIC, { config: { private: true } })
+          .channel(`${SUPABASE_TOPIC_PREFIX}:${branchId}`, {
+            config: { private: true },
+          })
           .on("broadcast", { event: SUPABASE_EVENT }, message =>
             acceptEvent(message.payload)
           );
@@ -299,7 +303,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       removeSupabaseChannel();
       if (invalidateTimer !== undefined) window.clearTimeout(invalidateTimer);
     };
-  }, [queryClient, staffId]);
+  }, [branchId, queryClient, staffId]);
 
   return children;
 }

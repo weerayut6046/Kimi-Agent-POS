@@ -15,6 +15,9 @@ function sessionToken(exp = Math.floor(NOW / 1_000) + 300): string {
       name: "Admin",
       role: "admin",
       username: "admin",
+      branchId: 3,
+      branchCode: "BKK",
+      branchName: "กรุงเทพ",
       exp,
     })
   ).toString("base64url");
@@ -176,8 +179,9 @@ describe("Supabase business API gateway", () => {
       id: 7,
       username: "admin",
       role: "admin",
+      branchId: 3,
     });
-    expect(reader.lowStockAlerts).toHaveBeenCalledOnce();
+    expect(reader.lowStockAlerts).toHaveBeenCalledWith(3);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -197,14 +201,16 @@ describe("Supabase business API gateway", () => {
     await expect(response.json()).resolves.toEqual({
       result: { data: { json: [{ id: 1, code: "GSH95" }] } },
     });
-    expect(reader.listProducts).toHaveBeenCalledOnce();
+    expect(reader.listProducts).toHaveBeenCalledWith(3);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("validates and serves migrated price history reads", async () => {
     const fetchMock = okFetch();
     const reader = catalogReader({
-      priceHistory: vi.fn(async (productId: number) => [{ productId }]),
+      priceHistory: vi.fn(async (_branchId: number, productId: number) => [
+        { productId },
+      ]),
     });
     const query = `?input=${encodeURIComponent(
       JSON.stringify({
@@ -219,7 +225,7 @@ describe("Supabase business API gateway", () => {
     await expect(response.json()).resolves.toEqual({
       result: { data: { json: [{ productId: 12 }] } },
     });
-    expect(reader.priceHistory).toHaveBeenCalledWith(12);
+    expect(reader.priceHistory).toHaveBeenCalledWith(3, 12);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -278,7 +284,7 @@ describe("Supabase business API gateway", () => {
       expect(response.headers.get("x-pumppos-data-source")).toBe(
         "supabase-postgres"
       );
-      expect(reader[method]).toHaveBeenCalledOnce();
+      expect(reader[method]).toHaveBeenCalledWith(3);
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });

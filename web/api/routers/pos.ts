@@ -105,8 +105,14 @@ const shiftHistorySearchInput = z.object({
   limit: z.number().int().positive().max(500).default(200),
 });
 
-async function getSettingMap(db: ReturnType<typeof getDb>) {
-  const rows = await db.select().from(settings);
+async function getSettingMap(
+  db: ReturnType<typeof getDb>,
+  branchId: number,
+) {
+  const rows = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.branchId, branchId));
   return Object.fromEntries(rows.map(r => [r.key, r.value])) as Record<
     string,
     string
@@ -127,14 +133,22 @@ async function reverseSaleEffects(
   items: SaleItem[],
   note: string
 ) {
-  const prodRows = await tx.select().from(products);
+  const prodRows = await tx
+    .select()
+    .from(products)
+    .where(eq(products.branchId, sale.branchId));
   for (const it of items) {
     const p = prodRows.find(pr => pr.id === it.productId);
     if (p && p.category !== "fuel") {
       await tx
         .update(products)
         .set({ stockQty: r2(p.stockQty + it.qty) })
-        .where(eq(products.id, p.id));
+        .where(
+          and(
+            eq(products.id, p.id),
+            eq(products.branchId, sale.branchId),
+          ),
+        );
     }
   }
   if (sale.memberId) {
@@ -149,6 +163,7 @@ async function reverseSaleEffects(
         .set({ points: restored })
         .where(eq(members.id, m.id));
       await tx.insert(pointTransactions).values({
+        branchId: sale.branchId,
         memberId: m.id,
         saleId: sale.id,
         type: "adjust",
@@ -161,10 +176,11 @@ async function reverseSaleEffects(
 
 export const posRouter = createRouter({
   // ============ กะการทำงาน ============
-  currentShift: publicQuery.query(async () => {
+  currentShift: publicQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const branchId = ctx.staff.branchId;
     const shift = await db.query.shifts.findFirst({
-      where: eq(shifts.status, "open"),
+      where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
       orderBy: (s, { desc: d }) => [d(s.openedAt)],
     });
     if (!shift) return null;
@@ -173,14 +189,32 @@ export const posRouter = createRouter({
         db
           .select()
           .from(shiftReadings)
-          .where(eq(shiftReadings.shiftId, shift.id)),
-        db.query.nozzles.findMany(),
-        db.query.pumps.findMany(),
-        db.query.products.findMany(),
+          .where(
+            and(
+              eq(shiftReadings.shiftId, shift.id),
+              eq(shiftReadings.branchId, branchId),
+            ),
+          ),
+        db.query.nozzles.findMany({
+          where: (row, operators) =>
+            operators.eq(row.branchId, branchId),
+        }),
+        db.query.pumps.findMany({
+          where: (row, operators) =>
+            operators.eq(row.branchId, branchId),
+        }),
+        db.query.products.findMany({
+          where: eq(products.branchId, branchId),
+        }),
         db
           .select()
           .from(priceChanges)
-          .where(gte(priceChanges.createdAt, shift.openedAt)),
+          .where(
+            and(
+              eq(priceChanges.branchId, branchId),
+              gte(priceChanges.createdAt, shift.openedAt),
+            ),
+          ),
       ]);
     const cash = await shiftCashSummary(db, shift);
     return {
@@ -222,18 +256,35 @@ export const posRouter = createRouter({
           .min(1),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const existing = await db.query.shifts.findFirst({
-        where: eq(shifts.status, "open"),
+        where: and(
+          eq(shifts.branchId, branchId),
+          eq(shifts.status, "open"),
+        ),
       });
       if (existing) throw new Error("มีกะที่เปิดอยู่แล้ว กรุณาปิดกะก่อน");
-      const prodRows = await db.query.products.findMany();
-      const nozzleRows = await db.query.nozzles.findMany();
+      const prodRows = await db.query.products.findMany({
+        where: eq(products.branchId, branchId),
+      });
+      const nozzleRows = await db.query.nozzles.findMany({
+        where: (row, operators) =>
+          operators.eq(row.branchId, branchId),
+      });
+      if (
+        input.readings.some(
+          (reading) => !nozzleRows.some((row) => row.id === reading.nozzleId),
+        )
+      ) {
+        throw new Error("มีหัวจ่ายที่ไม่อยู่ในสาขาปัจจุบัน");
+      }
 
       const [{ id: shiftId }] = await db
         .insert(shifts)
         .values({
+          branchId,
           staffId: input.staffId,
           staffName: input.staffName,
           openingFloat: r2(input.openingFloat),
@@ -243,6 +294,7 @@ export const posRouter = createRouter({
         const nz = nozzleRows.find(n => n.id === rd.nozzleId);
         const prod = prodRows.find(p => p.id === nz?.productId);
         await db.insert(shiftReadings).values({
+          branchId,
           shiftId,
           nozzleId: rd.nozzleId,
           openMeter: rd.openMeter,
@@ -276,8 +328,12 @@ export const posRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const shift = await db.query.shifts.findFirst({
-        where: eq(shifts.id, input.shiftId),
+        where: and(
+          eq(shifts.id, input.shiftId),
+          eq(shifts.branchId, branchId),
+        ),
       });
       if (!shift || shift.status !== "open")
         throw new Error("ไม่พบกะที่เปิดอยู่");
@@ -296,9 +352,19 @@ export const posRouter = createRouter({
       const readings = await db
         .select()
         .from(shiftReadings)
-        .where(eq(shiftReadings.shiftId, shift.id));
-      const nozzleRows = await db.query.nozzles.findMany();
-      const tankRows = await db.query.fuelTanks.findMany();
+        .where(
+          and(
+            eq(shiftReadings.shiftId, shift.id),
+            eq(shiftReadings.branchId, branchId),
+          ),
+        );
+      const nozzleRows = await db.query.nozzles.findMany({
+        where: (row, operators) =>
+          operators.eq(row.branchId, branchId),
+      });
+      const tankRows = await db.query.fuelTanks.findMany({
+        where: eq(fuelTanks.branchId, branchId),
+      });
       // คำนวณเงินสดที่ควรมีก่อนเข้า transaction เพื่อลดเวลาถือ lock
       const cash = await shiftCashSummary(db, shift);
 
@@ -330,12 +396,22 @@ export const posRouter = createRouter({
           await tx
             .update(shiftReadings)
             .set({ closeMeter: rd.closeMeter, closeMoney: rd.closeMoney })
-            .where(eq(shiftReadings.id, open.id));
+            .where(
+              and(
+                eq(shiftReadings.id, open.id),
+                eq(shiftReadings.branchId, branchId),
+              ),
+            );
           // อัปเดตมิเตอร์หัวจ่าย (ทั้งลิตรและเงิน)
           await tx
             .update(nozzles)
             .set({ currentMeter: rd.closeMeter, currentMoney: rd.closeMoney })
-            .where(eq(nozzles.id, rd.nozzleId));
+            .where(
+              and(
+                eq(nozzles.id, rd.nozzleId),
+                eq(nozzles.branchId, branchId),
+              ),
+            );
           // หักถังน้ำมันตามลิตรที่ขาย (มิเตอร์คือแหล่งความจริงของน้ำมันออก)
           const nz = nozzleRows.find(n => n.id === rd.nozzleId);
           if (!nz) throw new Error("ไม่พบหัวจ่าย");
@@ -365,7 +441,12 @@ export const posRouter = createRouter({
             .set({
               currentLiters: r3(Math.max(0, tank.currentLiters - liters)),
             })
-            .where(eq(fuelTanks.id, tank.id));
+            .where(
+              and(
+                eq(fuelTanks.id, tank.id),
+                eq(fuelTanks.branchId, branchId),
+              ),
+            );
         }
         // ยอดขาย POS ในกะ
         const [posRow] = await tx
@@ -376,7 +457,11 @@ export const posRouter = createRouter({
           })
           .from(sales)
           .where(
-            and(eq(sales.shiftId, shift.id), eq(sales.status, "completed"))
+            and(
+              eq(sales.branchId, branchId),
+              eq(sales.shiftId, shift.id),
+              eq(sales.status, "completed"),
+            ),
           );
         await tx
           .update(shifts)
@@ -394,7 +479,9 @@ export const posRouter = createRouter({
             cashCounts: cashCountsJson,
             note: input.note,
           })
-          .where(eq(shifts.id, shift.id));
+          .where(
+            and(eq(shifts.id, shift.id), eq(shifts.branchId, branchId)),
+          );
       });
 
       const cashDiff =
@@ -417,8 +504,9 @@ export const posRouter = createRouter({
       };
     }),
 
-  shiftHistory: publicQuery.query(async () => {
+  shiftHistory: publicQuery.query(async ({ ctx }) => {
     return getDb().query.shifts.findMany({
+      where: eq(shifts.branchId, ctx.staff.branchId),
       orderBy: (s, { desc: d }) => [d(s.openedAt)],
       limit: 50,
     });
@@ -427,8 +515,8 @@ export const posRouter = createRouter({
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
   searchShiftHistory: adminQuery
     .input(shiftHistorySearchInput)
-    .query(async ({ input }) => {
-      const conditions = [];
+    .query(async ({ input, ctx }) => {
+      const conditions = [eq(shifts.branchId, ctx.staff.branchId)];
       const q = input.q?.trim();
       if (q) {
         const pattern = `%${q}%`;
@@ -436,8 +524,8 @@ export const posRouter = createRouter({
           or(
             like(shifts.staffName, pattern),
             like(shifts.note, pattern),
-            sql<boolean>`cast(${shifts.id} as text) like ${pattern}`
-          )
+            sql<boolean>`cast(${shifts.id} as text) like ${pattern}`,
+          )!
         );
       }
       if (input.status) conditions.push(eq(shifts.status, input.status));
@@ -454,7 +542,7 @@ export const posRouter = createRouter({
       return getDb()
         .select()
         .from(shifts)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .where(and(...conditions))
         .orderBy(desc(shifts.openedAt), desc(shifts.id))
         .limit(input.limit);
     }),
@@ -463,6 +551,7 @@ export const posRouter = createRouter({
     .input(shiftHistoryRecordInput)
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const { readings: readingValues, ...values } = input;
       let totalLiters = r3(values.totalLiters);
       let totalAmount = r2(values.totalAmount);
@@ -478,8 +567,13 @@ export const posRouter = createRouter({
 
       if (readingValues) {
         const [nozzleRows, productRows] = await Promise.all([
-          db.query.nozzles.findMany(),
-          db.query.products.findMany(),
+          db.query.nozzles.findMany({
+            where: (row, operators) =>
+              operators.eq(row.branchId, branchId),
+          }),
+          db.query.products.findMany({
+            where: eq(products.branchId, branchId),
+          }),
         ]);
         const activeNozzles = nozzleRows.filter(nozzle => nozzle.active);
         if (
@@ -523,6 +617,7 @@ export const posRouter = createRouter({
         const [created] = await tx
           .insert(shifts)
           .values({
+            branchId,
             ...values,
             staffId: values.staffId ?? null,
             status: "closed",
@@ -543,6 +638,7 @@ export const posRouter = createRouter({
         if (preparedReadings.length > 0) {
           await tx.insert(shiftReadings).values(
             preparedReadings.map(reading => ({
+              branchId,
               shiftId: created.id,
               ...reading,
             }))
@@ -564,8 +660,12 @@ export const posRouter = createRouter({
     .input(shiftHistoryUpdateInput)
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const current = await db.query.shifts.findFirst({
-        where: eq(shifts.id, input.id),
+        where: and(
+          eq(shifts.id, input.id),
+          eq(shifts.branchId, branchId),
+        ),
       });
       if (!current) throw new Error("ไม่พบประวัติการตัดกะ");
       if (current.status === "open") {
@@ -579,7 +679,12 @@ export const posRouter = createRouter({
         ? await db
             .select()
             .from(shiftReadings)
-            .where(eq(shiftReadings.shiftId, id))
+            .where(
+              and(
+                eq(shiftReadings.shiftId, id),
+                eq(shiftReadings.branchId, branchId),
+              ),
+            )
         : [];
 
       if (readingValues) {
@@ -629,7 +734,8 @@ export const posRouter = createRouter({
             .where(
               and(
                 eq(shiftReadings.shiftId, id),
-                eq(shiftReadings.nozzleId, reading.nozzleId)
+                eq(shiftReadings.nozzleId, reading.nozzleId),
+                eq(shiftReadings.branchId, branchId),
               )
             );
         }
@@ -656,7 +762,7 @@ export const posRouter = createRouter({
                 : current.cashCounts,
             note: values.note || null,
           })
-          .where(eq(shifts.id, id));
+          .where(and(eq(shifts.id, id), eq(shifts.branchId, branchId)));
       });
       logAudit({
         action: "update_shift_history",
@@ -672,8 +778,12 @@ export const posRouter = createRouter({
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const current = await db.query.shifts.findFirst({
-        where: eq(shifts.id, input.id),
+        where: and(
+          eq(shifts.id, input.id),
+          eq(shifts.branchId, branchId),
+        ),
       });
       if (!current) throw new Error("ไม่พบประวัติการตัดกะ");
       if (current.status === "open") {
@@ -684,19 +794,43 @@ export const posRouter = createRouter({
         await tx
           .update(sales)
           .set({ shiftId: null })
-          .where(eq(sales.shiftId, current.id));
+          .where(
+            and(
+              eq(sales.shiftId, current.id),
+              eq(sales.branchId, branchId),
+            ),
+          );
         await tx
           .update(debtPayments)
           .set({ shiftId: null })
-          .where(eq(debtPayments.shiftId, current.id));
+          .where(
+            and(
+              eq(debtPayments.shiftId, current.id),
+              eq(debtPayments.branchId, branchId),
+            ),
+          );
         await tx
           .update(expenses)
           .set({ shiftId: null })
-          .where(eq(expenses.shiftId, current.id));
+          .where(
+            and(
+              eq(expenses.shiftId, current.id),
+              eq(expenses.branchId, branchId),
+            ),
+          );
         await tx
           .delete(shiftReadings)
-          .where(eq(shiftReadings.shiftId, current.id));
-        await tx.delete(shifts).where(eq(shifts.id, current.id));
+          .where(
+            and(
+              eq(shiftReadings.shiftId, current.id),
+              eq(shiftReadings.branchId, branchId),
+            ),
+          );
+        await tx
+          .delete(shifts)
+          .where(
+            and(eq(shifts.id, current.id), eq(shifts.branchId, branchId)),
+          );
       });
       logAudit({
         action: "delete_shift_history",
@@ -710,22 +844,35 @@ export const posRouter = createRouter({
 
   shiftDetail: publicQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const shift = await db.query.shifts.findFirst({
-        where: eq(shifts.id, input.id),
+        where: and(eq(shifts.id, input.id), eq(shifts.branchId, branchId)),
       });
       if (!shift) throw new Error("ไม่พบกะ");
       const readings = await db
         .select()
         .from(shiftReadings)
-        .where(eq(shiftReadings.shiftId, shift.id));
-      const nozzleRows = await db.query.nozzles.findMany();
-      const prodRows = await db.query.products.findMany();
+        .where(
+          and(
+            eq(shiftReadings.shiftId, shift.id),
+            eq(shiftReadings.branchId, branchId),
+          ),
+        );
+      const nozzleRows = await db.query.nozzles.findMany({
+        where: (row, operators) =>
+          operators.eq(row.branchId, branchId),
+      });
+      const prodRows = await db.query.products.findMany({
+        where: eq(products.branchId, branchId),
+      });
       const saleRows = await db
         .select()
         .from(sales)
-        .where(eq(sales.shiftId, shift.id))
+        .where(
+          and(eq(sales.shiftId, shift.id), eq(sales.branchId, branchId)),
+        )
         .orderBy(desc(sales.createdAt));
       const cash = await shiftCashSummary(db, shift);
       // parse JSON การนับแบงก์/เหรียญ (กะเก่า/ข้อมูลเสีย → null)
@@ -789,17 +936,37 @@ export const posRouter = createRouter({
         clientCreatedAt: z.coerce.date().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
+      if (input.shiftId != null) {
+        const shift = await db.query.shifts.findFirst({
+          where: and(
+            eq(shifts.id, input.shiftId),
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "open"),
+          ),
+          columns: { id: true },
+        });
+        if (!shift) throw new Error("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
+      }
       if (input.clientReceiptNo) {
         const existing = await db.query.sales.findFirst({
-          where: eq(sales.receiptNo, input.clientReceiptNo),
+          where: and(
+            eq(sales.branchId, branchId),
+            eq(sales.receiptNo, input.clientReceiptNo),
+          ),
         });
         if (existing) {
           const existingItems = await db
             .select()
             .from(saleItems)
-            .where(eq(saleItems.saleId, existing.id));
+            .where(
+              and(
+                eq(saleItems.saleId, existing.id),
+                eq(saleItems.branchId, branchId),
+              ),
+            );
           const existingMember = existing.memberId
             ? await db.query.members.findFirst({
                 where: eq(members.id, existing.memberId),
@@ -820,8 +987,10 @@ export const posRouter = createRouter({
           };
         }
       }
-      const prodRows = await db.query.products.findMany();
-      const settingMap = await getSettingMap(db);
+      const prodRows = await db.query.products.findMany({
+        where: eq(products.branchId, branchId),
+      });
+      const settingMap = await getSettingMap(db, branchId);
       const vatRate = Number(settingMap.vat_rate ?? "7");
       const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
       const pointValue = Number(settingMap.point_redeem_value ?? "1");
@@ -872,7 +1041,11 @@ export const posRouter = createRouter({
         });
         if (!customer) throw new Error("ไม่พบลูกค้า");
         if (customer.creditLimit > 0) {
-          const outstanding = await outstandingOf(db, customer.id);
+          const outstanding = await outstandingOf(
+            db,
+            customer.id,
+            branchId,
+          );
           if (r2(outstanding + total) > customer.creditLimit) {
             throw new Error(
               `เกินวงเงินเครดิตของลูกค้า (ค้างชำระ ${outstanding.toFixed(2)} บาท / วงเงิน ${customer.creditLimit.toFixed(2)} บาท)`
@@ -883,10 +1056,12 @@ export const posRouter = createRouter({
 
       const saleId = await db.transaction(async tx => {
         const receiptNo =
-          input.clientReceiptNo ?? (await nextDocNo(tx, "receipt"));
+          input.clientReceiptNo ??
+          (await nextDocNo(tx, "receipt", branchId));
         const inserted = await tx
           .insert(sales)
           .values({
+            branchId,
             receiptNo,
             shiftId: input.shiftId,
             staffName: input.staffName,
@@ -905,11 +1080,16 @@ export const posRouter = createRouter({
             pointsRedeemed: input.pointsToRedeem,
             createdAt: input.clientCreatedAt,
           })
-          .onConflictDoNothing({ target: sales.receiptNo })
+          .onConflictDoNothing({
+            target: [sales.branchId, sales.receiptNo],
+          })
           .returning({ id: sales.id });
         if (!inserted[0]) {
           const existing = await tx.query.sales.findFirst({
-            where: eq(sales.receiptNo, receiptNo),
+            where: and(
+              eq(sales.branchId, branchId),
+              eq(sales.receiptNo, receiptNo),
+            ),
           });
           if (!existing) {
             throw new Error("ไม่สามารถตรวจสอบบิลออฟไลน์ที่ซ้ำได้");
@@ -920,6 +1100,7 @@ export const posRouter = createRouter({
 
         await tx.insert(saleItems).values(
           lines.map(l => ({
+            branchId,
             saleId: id,
             productId: l.product.id,
             name: l.product.name,
@@ -935,7 +1116,12 @@ export const posRouter = createRouter({
             await tx
               .update(products)
               .set({ stockQty: sql`${products.stockQty} - ${l.qty}` })
-              .where(eq(products.id, l.product.id));
+              .where(
+                and(
+                  eq(products.id, l.product.id),
+                  eq(products.branchId, branchId),
+                ),
+              );
           }
         }
 
@@ -948,6 +1134,7 @@ export const posRouter = createRouter({
             .where(eq(members.id, member.id));
           if (pointsEarned > 0) {
             await tx.insert(pointTransactions).values({
+              branchId,
               memberId: member.id,
               saleId: id,
               type: "earn",
@@ -957,6 +1144,7 @@ export const posRouter = createRouter({
           }
           if (input.pointsToRedeem > 0) {
             await tx.insert(pointTransactions).values({
+              branchId,
               memberId: member.id,
               saleId: id,
               type: "redeem",
@@ -969,12 +1157,17 @@ export const posRouter = createRouter({
       });
 
       const sale = await db.query.sales.findFirst({
-        where: eq(sales.id, saleId),
+        where: and(eq(sales.id, saleId), eq(sales.branchId, branchId)),
       });
       const items = await db
         .select()
         .from(saleItems)
-        .where(eq(saleItems.saleId, saleId));
+        .where(
+          and(
+            eq(saleItems.saleId, saleId),
+            eq(saleItems.branchId, branchId),
+          ),
+        );
       return {
         sale: {
           ...sale!,
@@ -995,10 +1188,10 @@ export const posRouter = createRouter({
         })
         .optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const q = input?.q?.trim();
-      const conds = [];
+      const conds = [eq(sales.branchId, ctx.staff.branchId)];
       if (input?.status) conds.push(eq(sales.status, input.status));
       if (q) {
         const pattern = `%${q}%`;
@@ -1013,12 +1206,12 @@ export const posRouter = createRouter({
         ];
         if (memberIds.length > 0)
           qConds.push(inArray(sales.memberId, memberIds));
-        conds.push(or(...qConds));
+        conds.push(or(...qConds)!);
       }
       const rows = await db
         .select()
         .from(sales)
-        .where(conds.length > 0 ? and(...conds) : undefined)
+        .where(and(...conds))
         .orderBy(desc(sales.createdAt))
         .limit(input?.limit ?? 200);
       const memberRows = await db.query.members.findMany();
@@ -1030,16 +1223,22 @@ export const posRouter = createRouter({
 
   saleDetail: publicQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const sale = await db.query.sales.findFirst({
-        where: eq(sales.id, input.id),
+        where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale) throw new Error("ไม่พบบิล");
       const items = await db
         .select()
         .from(saleItems)
-        .where(eq(saleItems.saleId, sale.id));
+        .where(
+          and(
+            eq(saleItems.saleId, sale.id),
+            eq(saleItems.branchId, branchId),
+          ),
+        );
       const member = sale.memberId
         ? await db.query.members.findFirst({
             where: eq(members.id, sale.memberId),
@@ -1062,19 +1261,27 @@ export const posRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const sale = await db.query.sales.findFirst({
-        where: eq(sales.id, input.id),
+        where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale || sale.status === "voided") throw new Error("ยกเลิกบิลไม่ได้");
       const items = await db
         .select()
         .from(saleItems)
-        .where(eq(saleItems.saleId, sale.id));
+        .where(
+          and(
+            eq(saleItems.saleId, sale.id),
+            eq(saleItems.branchId, branchId),
+          ),
+        );
       await db.transaction(async tx => {
         await tx
           .update(sales)
           .set({ status: "voided" })
-          .where(eq(sales.id, sale.id));
+          .where(
+            and(eq(sales.id, sale.id), eq(sales.branchId, branchId)),
+          );
         // คืนสต๊อกและแต้มอัตโนมัติ
         await reverseSaleEffects(
           tx,
@@ -1105,8 +1312,9 @@ export const posRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const sale = await db.query.sales.findFirst({
-        where: eq(sales.id, input.id),
+        where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale) throw new Error("ไม่พบบิล");
       if (sale.status === "voided")
@@ -1121,7 +1329,7 @@ export const posRouter = createRouter({
       const changeAmt =
         paymentMethod === "cash" ? r2(Math.max(0, received - total)) : 0;
 
-      const settingMap = await getSettingMap(db);
+      const settingMap = await getSettingMap(db, branchId);
       const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
       const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
 
@@ -1138,7 +1346,9 @@ export const posRouter = createRouter({
             changeAmt,
             pointsEarned,
           })
-          .where(eq(sales.id, sale.id));
+          .where(
+            and(eq(sales.id, sale.id), eq(sales.branchId, branchId)),
+          );
         // ปรับแต้มสมาชิกตามยอดใหม่ (เฉพาะส่วนต่าง)
         if (sale.memberId && pointsEarned !== sale.pointsEarned) {
           const diff = pointsEarned - sale.pointsEarned;
@@ -1153,6 +1363,7 @@ export const posRouter = createRouter({
               .set({ points: m.points + diff })
               .where(eq(members.id, m.id));
             await tx.insert(pointTransactions).values({
+              branchId,
               memberId: m.id,
               saleId: sale.id,
               type: "adjust",
@@ -1182,7 +1393,9 @@ export const posRouter = createRouter({
         refType: "sale",
         refId: sale.id,
       });
-      return db.query.sales.findFirst({ where: eq(sales.id, sale.id) });
+      return db.query.sales.findFirst({
+        where: and(eq(sales.id, sale.id), eq(sales.branchId, branchId)),
+      });
     }),
 
   // ลบบิลถาวร (admin/manager) — คืนสต๊อกและแต้มก่อนลบ
@@ -1190,21 +1403,45 @@ export const posRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const sale = await db.query.sales.findFirst({
-        where: eq(sales.id, input.id),
+        where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale) throw new Error("ไม่พบบิล");
       const items = await db
         .select()
         .from(saleItems)
-        .where(eq(saleItems.saleId, sale.id));
+        .where(
+          and(
+            eq(saleItems.saleId, sale.id),
+            eq(saleItems.branchId, branchId),
+          ),
+        );
       await db.transaction(async tx => {
         if (sale.status === "completed") {
           await reverseSaleEffects(tx, sale, items, `ลบบิล ${sale.receiptNo}`);
         }
-        await tx.delete(taxInvoices).where(eq(taxInvoices.saleId, sale.id));
-        await tx.delete(saleItems).where(eq(saleItems.saleId, sale.id));
-        await tx.delete(sales).where(eq(sales.id, sale.id));
+        await tx
+          .delete(taxInvoices)
+          .where(
+            and(
+              eq(taxInvoices.saleId, sale.id),
+              eq(taxInvoices.branchId, branchId),
+            ),
+          );
+        await tx
+          .delete(saleItems)
+          .where(
+            and(
+              eq(saleItems.saleId, sale.id),
+              eq(saleItems.branchId, branchId),
+            ),
+          );
+        await tx
+          .delete(sales)
+          .where(
+            and(eq(sales.id, sale.id), eq(sales.branchId, branchId)),
+          );
       });
       logAudit({
         action: "delete_sale",
@@ -1217,8 +1454,9 @@ export const posRouter = createRouter({
     }),
 
   // ============ Dashboard ============
-  dashboard: publicQuery.query(async () => {
+  dashboard: publicQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const branchId = ctx.staff.branchId;
     const now = new Date();
     const bangkokOffsetMs = 7 * 60 * 60 * 1000;
     const bangkokNow = new Date(now.getTime() + bangkokOffsetMs);
@@ -1248,6 +1486,7 @@ export const posRouter = createRouter({
           .from(sales)
           .where(
             and(
+              eq(sales.branchId, branchId),
               gte(sales.createdAt, chartStart),
               lt(sales.createdAt, endOfToday),
               eq(sales.status, "completed")
@@ -1267,6 +1506,8 @@ export const posRouter = createRouter({
           .leftJoin(products, eq(saleItems.productId, products.id))
           .where(
             and(
+              eq(sales.branchId, branchId),
+              eq(saleItems.branchId, branchId),
               gte(sales.createdAt, startOfDay),
               lt(sales.createdAt, endOfToday),
               eq(sales.status, "completed"),
@@ -1275,12 +1516,24 @@ export const posRouter = createRouter({
           )
           .groupBy(products.code, saleItems.name),
         db.query.shifts.findFirst({
-          where: eq(shifts.status, "open"),
+          where: and(
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "open"),
+          ),
           orderBy: (s, { desc: d }) => [d(s.openedAt)],
         }),
-        db.query.fuelTanks.findMany(),
-        db.query.products.findMany(),
-        db.select().from(sales).orderBy(desc(sales.createdAt)).limit(8),
+        db.query.fuelTanks.findMany({
+          where: eq(fuelTanks.branchId, branchId),
+        }),
+        db.query.products.findMany({
+          where: eq(products.branchId, branchId),
+        }),
+        db
+          .select()
+          .from(sales)
+          .where(eq(sales.branchId, branchId))
+          .orderBy(desc(sales.createdAt))
+          .limit(8),
       ]);
 
     const dailyByDate = new Map(dailyRows.map(row => [row.date, row]));

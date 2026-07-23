@@ -17,25 +17,31 @@ export const auditRouter = createRouter({
         })
         .optional(),
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
-      const conds = [];
+      const conds = [eq(auditLogs.branchId, ctx.staff.branchId)];
       if (input?.action) conds.push(eq(auditLogs.action, input.action));
       const q = input?.q?.trim();
       if (q) {
         const pattern = `%${q}%`;
-        conds.push(or(like(auditLogs.actorName, pattern), like(auditLogs.detail, pattern)));
+        conds.push(
+          or(
+            like(auditLogs.actorName, pattern),
+            like(auditLogs.detail, pattern),
+          )!,
+        );
       }
       const rows = await db
         .select()
         .from(auditLogs)
-        .where(conds.length > 0 ? and(...conds) : undefined)
+        .where(and(...conds))
         .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
         .limit(input?.limit ?? 200);
       // distinct action ทั้งหมด — ใช้เติม dropdown ตัวกรองฝั่ง UI
       const actionRows = await db
         .selectDistinct({ action: auditLogs.action })
         .from(auditLogs)
+        .where(eq(auditLogs.branchId, ctx.staff.branchId))
         .orderBy(sql`${auditLogs.action}`);
       return { rows, actions: actionRows.map((r) => r.action) };
     }),

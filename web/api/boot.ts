@@ -63,7 +63,7 @@ app.get("/api/realtime", async c => {
   let deliver: (data: string) => void = () => undefined;
   let unsubscribe: () => void;
   try {
-    unsubscribe = subscribeRealtime(session.id, event => {
+    unsubscribe = subscribeRealtime(session.id, session.branchId, event => {
       deliver(JSON.stringify(event));
     });
   } catch (error) {

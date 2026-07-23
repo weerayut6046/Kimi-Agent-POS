@@ -126,6 +126,56 @@ type AccessGroupForm = {
   menuPermissions: MenuPermissionKey[];
 };
 
+type BranchOption = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+function StaffBranchSelector({
+  branches,
+  value,
+  onChange,
+}: {
+  branches: readonly BranchOption[];
+  value: readonly number[];
+  onChange: (branchIds: number[]) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border bg-slate-50/70 p-3">
+      <Label>สาขาที่เข้าใช้งานได้</Label>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {branches.map(branch => {
+          const checked = value.includes(branch.id);
+          return (
+            <label
+              key={branch.id}
+              className="flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm"
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  onChange(
+                    checked
+                      ? value.filter(id => id !== branch.id)
+                      : [...value, branch.id]
+                  )
+                }
+                className="size-4 accent-violet-600"
+              />
+              <span className="font-medium">{branch.code}</span>
+              <span className="truncate text-muted-foreground">
+                {branch.name}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MenuPermissionEditor({
   role,
   value,
@@ -369,6 +419,9 @@ export default function Settings() {
       enabled: isAdmin,
     }
   );
+  const { data: allBranches } = trpc.auth.listAllBranches.useQuery(undefined, {
+    enabled: isAdmin,
+  });
   const { data: accessGroups } = trpc.auth.listAccessGroups.useQuery(
     undefined,
     {
@@ -397,6 +450,15 @@ export default function Settings() {
     { enabled: histP != null }
   );
   const [showStaff, setShowStaff] = useState(false);
+  const [showBranch, setShowBranch] = useState(false);
+  const [newBranch, setNewBranch] = useState({
+    code: "",
+    name: "",
+    address: "",
+    phone: "",
+    taxId: "",
+    cloneCurrentSetup: true,
+  });
   const [editAccessGroup, setEditAccessGroup] =
     useState<AccessGroupForm | null>(null);
   const [newStaff, setNewStaff] = useState({
@@ -406,6 +468,7 @@ export default function Settings() {
     role: "cashier" as "admin" | "manager" | "cashier",
     accessGroupId: null as number | null,
     menuPermissions: getRoleMenuPermissions("cashier"),
+    branchIds: staff?.branch.id ? [staff.branch.id] : ([] as number[]),
   });
   const [editS, setEditS] = useState<{
     id: number;
@@ -415,6 +478,7 @@ export default function Settings() {
     accessGroupId: number | null;
     pin: string;
     menuPermissions: MenuPermissionKey[];
+    branchIds: number[];
   } | null>(null);
   const [editN, setEditN] = useState<{
     id: number;
@@ -526,8 +590,34 @@ export default function Settings() {
         role: "cashier",
         accessGroupId: null,
         menuPermissions: getRoleMenuPermissions("cashier"),
+        branchIds: staff?.branch.id ? [staff.branch.id] : [],
       });
       ok("เพิ่มพนักงานแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const createBranch = trpc.auth.createBranch.useMutation({
+    onSuccess: () => {
+      void utils.auth.listAllBranches.invalidate();
+      void utils.auth.listBranches.invalidate();
+      setShowBranch(false);
+      setNewBranch({
+        code: "",
+        name: "",
+        address: "",
+        phone: "",
+        taxId: "",
+        cloneCurrentSetup: true,
+      });
+      ok("เพิ่มสาขาแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const updateBranch = trpc.auth.updateBranch.useMutation({
+    onSuccess: () => {
+      void utils.auth.listAllBranches.invalidate();
+      void utils.auth.listBranches.invalidate();
+      ok("อัปเดตสถานะสาขาแล้ว");
     },
     onError: e => fail(e.message),
   });
@@ -1326,6 +1416,62 @@ export default function Settings() {
         </Card>
       )}
 
+      {isAdmin && (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between pb-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 font-heading text-base">
+                <Store className="size-4" /> สาขา
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                สินค้า สต็อก ยอดขาย กะ เอกสาร และการตั้งค่าจะแยกจากกันตามสาขา
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setShowBranch(true)}>
+              <Plus className="mr-1 size-4" /> เพิ่มสาขา
+            </Button>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {(allBranches ?? []).map(branch => (
+              <div
+                key={branch.id}
+                className="rounded-xl border bg-white px-4 py-3 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={branch.active ? "default" : "secondary"}>
+                        {branch.code}
+                      </Badge>
+                      {branch.id === staff?.branch.id && (
+                        <span className="text-xs font-medium text-violet-600">
+                          กำลังใช้งาน
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 truncate font-medium">{branch.name}</div>
+                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                      {branch.address || "ยังไม่ได้ระบุที่อยู่"}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={branch.active}
+                    disabled={
+                      updateBranch.isPending ||
+                      (branch.active && branch.id === staff?.branch.id)
+                    }
+                    onCheckedChange={active =>
+                      updateBranch.mutate({ id: branch.id, active })
+                    }
+                    aria-label={`สถานะสาขา ${branch.name}`}
+                  />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* พนักงาน */}
         <Card>
@@ -1412,6 +1558,10 @@ export default function Settings() {
                                 ? s.menuPermissions
                                 : undefined
                             ),
+                            branchIds:
+                              "branchIds" in s && Array.isArray(s.branchIds)
+                                ? s.branchIds
+                                : [],
                           });
                         }}
                       >
@@ -2252,6 +2402,99 @@ export default function Settings() {
       </Dialog>
 
       {/* Dialog พนักงาน */}
+      <Dialog open={showBranch} onOpenChange={setShowBranch}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-heading">เพิ่มสาขา</DialogTitle>
+            <DialogDescription>
+              ระบบจะสร้างพื้นที่ข้อมูลแยก และเริ่มเลขเอกสารของสาขาใหม่จาก 1
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>รหัสสาขา</Label>
+              <Input
+                value={newBranch.code}
+                onChange={event =>
+                  setNewBranch({
+                    ...newBranch,
+                    code: event.target.value.toUpperCase(),
+                  })
+                }
+                placeholder="เช่น BKK01"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>ชื่อสาขา</Label>
+              <Input
+                value={newBranch.name}
+                onChange={event =>
+                  setNewBranch({ ...newBranch, name: event.target.value })
+                }
+                placeholder="เช่น สาขากรุงเทพ"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>ที่อยู่</Label>
+              <Textarea
+                value={newBranch.address}
+                onChange={event =>
+                  setNewBranch({ ...newBranch, address: event.target.value })
+                }
+                rows={2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>โทรศัพท์</Label>
+              <Input
+                value={newBranch.phone}
+                onChange={event =>
+                  setNewBranch({ ...newBranch, phone: event.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>เลขประจำตัวผู้เสียภาษี</Label>
+              <Input
+                value={newBranch.taxId}
+                onChange={event =>
+                  setNewBranch({ ...newBranch, taxId: event.target.value })
+                }
+              />
+            </div>
+            <label className="flex items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
+              <div>
+                <div className="text-sm font-medium">
+                  คัดลอกโครงสร้างจากสาขาปัจจุบัน
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  คัดลอกสินค้า หัวจ่าย ถัง รางวัล และกะงาน แต่เริ่มสต็อก/มิเตอร์ที่ศูนย์
+                </div>
+              </div>
+              <Switch
+                checked={newBranch.cloneCurrentSetup}
+                onCheckedChange={cloneCurrentSetup =>
+                  setNewBranch({ ...newBranch, cloneCurrentSetup })
+                }
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              className="w-full"
+              disabled={
+                newBranch.code.trim().length < 2 ||
+                !newBranch.name.trim() ||
+                createBranch.isPending
+              }
+              onClick={() => createBranch.mutate(newBranch)}
+            >
+              {createBranch.isPending ? "กำลังสร้างสาขา..." : "สร้างสาขา"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showStaff} onOpenChange={setShowStaff}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
@@ -2312,6 +2555,13 @@ export default function Settings() {
                 </SelectContent>
               </Select>
             </div>
+            <StaffBranchSelector
+              branches={(allBranches ?? []).filter(branch => branch.active)}
+              value={newStaff.branchIds}
+              onChange={branchIds =>
+                setNewStaff({ ...newStaff, branchIds })
+              }
+            />
             <StaffAccessSelector
               role={newStaff.role}
               accessGroupId={newStaff.accessGroupId}
@@ -2332,6 +2582,7 @@ export default function Settings() {
                 !newStaff.name ||
                 newStaff.username.length < 3 ||
                 newStaff.pin.length < 4 ||
+                newStaff.branchIds.length === 0 ||
                 (newStaff.role !== "admin" &&
                   newStaff.accessGroupId === null &&
                   newStaff.menuPermissions.length === 0) ||
@@ -2402,8 +2653,13 @@ export default function Settings() {
                     <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
                     <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
                   </SelectContent>
-                </Select>
-              </div>
+              </Select>
+            </div>
+              <StaffBranchSelector
+                branches={(allBranches ?? []).filter(branch => branch.active)}
+                value={editS.branchIds}
+                onChange={branchIds => setEditS({ ...editS, branchIds })}
+              />
               <StaffAccessSelector
                 role={editS.role}
                 accessGroupId={editS.accessGroupId}
@@ -2423,6 +2679,7 @@ export default function Settings() {
               className="w-full"
               disabled={
                 !editS?.name ||
+                editS.branchIds.length === 0 ||
                 (editS.role !== "admin" &&
                   editS.accessGroupId === null &&
                   editS.menuPermissions.length === 0) ||
@@ -2437,6 +2694,7 @@ export default function Settings() {
                   role: editS.role,
                   accessGroupId: editS.accessGroupId,
                   menuPermissions: editS.menuPermissions,
+                  branchIds: editS.branchIds,
                   ...(editS.pin ? { pin: editS.pin } : {}),
                 })
               }

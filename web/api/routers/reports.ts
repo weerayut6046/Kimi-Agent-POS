@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, asc, desc, gte, inArray, lt, or, type SQLWrapper } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, or, type SQLWrapper } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -32,7 +32,11 @@ function toDateStr(d: Date) {
  * รายงานปิดวัน (Z-report) ของวันที่ระบุ — ใช้ร่วมกันทั้งหน้าเว็บและส่งออก Excel
  * คืน bills + fuelProfit ด้วย (ข้อมูลต้นทุน) — procedure สาธารณะต้อง strip ออกก่อนส่ง
  */
-export async function queryDailyReport(db: ReturnType<typeof getDb>, date: string): Promise<DailyReportData> {
+export async function queryDailyReport(
+  db: ReturnType<typeof getDb>,
+  date: string,
+  branchId: number,
+): Promise<DailyReportData> {
   const { start, end } = dayRange(date);
   const inDay = (col: SQLWrapper) => and(gte(col, start), lt(col, end));
 
@@ -40,7 +44,7 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
   const saleRows = await db
     .select()
     .from(sales)
-    .where(inDay(sales.createdAt))
+    .where(and(eq(sales.branchId, branchId), inDay(sales.createdAt)))
     .orderBy(asc(sales.createdAt));
   const completed = saleRows.filter((s) => s.status === "completed");
   const voided = saleRows.filter((s) => s.status === "voided");
@@ -59,8 +63,18 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
     const itemRows = await db
       .select()
       .from(saleItems)
-      .where(inArray(saleItems.saleId, completed.map((s) => s.id)));
-    const prodRows = await db.query.products.findMany();
+      .where(
+        and(
+          eq(saleItems.branchId, branchId),
+          inArray(
+            saleItems.saleId,
+            completed.map((s) => s.id),
+          ),
+        ),
+      );
+    const prodRows = await db.query.products.findMany({
+      where: (row, operators) => operators.eq(row.branchId, branchId),
+    });
     for (const it of itemRows) {
       const p = prodRows.find((pr) => pr.id === it.productId);
       if (p?.category !== "fuel") continue;
@@ -86,7 +100,15 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
   const shiftRows = await db
     .select()
     .from(shifts)
-    .where(or(inDay(shifts.openedAt), and(gte(shifts.closedAt, start), lt(shifts.closedAt, end))))
+    .where(
+      and(
+        eq(shifts.branchId, branchId),
+        or(
+          inDay(shifts.openedAt),
+          and(gte(shifts.closedAt, start), lt(shifts.closedAt, end)),
+        ),
+      ),
+    )
     .orderBy(asc(shifts.openedAt));
   const shiftsWithCash = await Promise.all(
     shiftRows.map(async (s) => {
@@ -101,13 +123,18 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
   );
 
   // ---- ค่าใช้จ่ายของวัน (logic เดียวกับ expenses.list) ----
-  const expenseResult = await queryExpenses(db, { start, end });
+  const expenseResult = await queryExpenses(db, { branchId, start, end });
 
   // ---- รับชำระหนี้ของวัน (แนบชื่อลูกค้า) ----
   const payRows = await db
     .select()
     .from(debtPayments)
-    .where(inDay(debtPayments.createdAt))
+    .where(
+      and(
+        eq(debtPayments.branchId, branchId),
+        inDay(debtPayments.createdAt),
+      ),
+    )
     .orderBy(desc(debtPayments.createdAt));
   const custRows = await db.query.customers.findMany();
   const debtItems = payRows.map((p) => ({
@@ -142,20 +169,25 @@ export async function queryDailyReport(db: ReturnType<typeof getDb>, date: strin
 
 export const reportsRouter = createRouter({
   // Z-report หน้าเว็บ — strip bills + fuelProfit (ข้อมูลต้นทุน) ออก เหลือเฉพาะยอดขาย
-  daily: publicQuery.input(z.object({ date: dateSchema })).query(async ({ input }) => {
-    const { bills: _bills, fuelProfit: _profit, ...pub } = await queryDailyReport(getDb(), input.date);
+  daily: publicQuery.input(z.object({ date: dateSchema })).query(async ({ input, ctx }) => {
+    const { bills: _bills, fuelProfit: _profit, ...pub } =
+      await queryDailyReport(getDb(), input.date, ctx.staff.branchId);
     return pub;
   }),
 
   // กำไรโดยประมาณต่อลิตรของวัน (มีข้อมูลต้นทุน — เฉพาะ admin/manager)
-  fuelProfit: managerQuery.input(z.object({ date: dateSchema })).query(async ({ input }) => {
-    const r = await queryDailyReport(getDb(), input.date);
+  fuelProfit: managerQuery.input(z.object({ date: dateSchema })).query(async ({ input, ctx }) => {
+    const r = await queryDailyReport(getDb(), input.date, ctx.staff.branchId);
     return { date: r.date, items: r.fuelProfit };
   }),
 
   // ส่งออก Z-report ของวันเป็น Excel (base64 — หน้าเว็บแปลงเป็นไฟล์ดาวน์โหลด)
-  exportDailyExcel: managerQuery.input(z.object({ date: dateSchema })).query(async ({ input }) => {
-    const daily = await queryDailyReport(getDb(), input.date);
+  exportDailyExcel: managerQuery.input(z.object({ date: dateSchema })).query(async ({ input, ctx }) => {
+    const daily = await queryDailyReport(
+      getDb(),
+      input.date,
+      ctx.staff.branchId,
+    );
     const buf = await buildDailyWorkbook(daily);
     return { fileName: `zreport-${input.date}.xlsx`, contentBase64: buf.toString("base64") };
   }),
@@ -163,7 +195,7 @@ export const reportsRouter = createRouter({
   // ส่งออกยอดขายช่วงเวลาเป็น Excel (สูงสุด 92 วัน)
   exportRangeExcel: managerQuery
     .input(z.object({ from: dateSchema, to: dateSchema }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { start } = dayRange(input.from);
       const { end } = dayRange(input.to); // end = ต้นวันถัดจาก to
       const nDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
@@ -173,7 +205,9 @@ export const reportsRouter = createRouter({
       const db = getDb();
       const days: DailyReportData[] = [];
       for (let d = start; d < end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
-        days.push(await queryDailyReport(db, toDateStr(d)));
+        days.push(
+          await queryDailyReport(db, toDateStr(d), ctx.staff.branchId),
+        );
       }
 
       // รวมกำไรน้ำมันทั้งช่วง (ต่อชนิดน้ำมัน)

@@ -8,7 +8,8 @@ export const REALTIME_EVENT_VERSION = 1 as const;
 export type RealtimeInvalidationEvent = {
   version: typeof REALTIME_EVENT_VERSION;
   eventId: string;
-  scope: "all";
+  scope: "branch";
+  branchId: number;
 };
 
 export function isRealtimeInvalidationEvent(
@@ -21,9 +22,11 @@ export function isRealtimeInvalidationEvent(
     typeof event.eventId === "string" &&
     event.eventId.length >= 16 &&
     event.eventId.length <= 128 &&
-    event.scope === "all" &&
+    event.scope === "branch" &&
+    Number.isInteger(event.branchId) &&
+    Number(event.branchId) > 0 &&
     Object.keys(event).every(key =>
-      ["version", "eventId", "scope"].includes(key)
+      ["version", "eventId", "scope", "branchId"].includes(key)
     )
   );
 }

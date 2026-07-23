@@ -22,22 +22,23 @@ export const anonymousQuery = t.procedure;
  */
 export const authenticatedStaffAction = t.procedure.use(
   async ({ ctx, next }) => {
-    if (!(await activeStaffSessionFromRequest(ctx.req))) {
+    const staff = await activeStaffSessionFromRequest(ctx.req);
+    if (!staff) {
       throw new TRPCError({
         code: "UNAUTHORIZED",
         message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
       });
     }
-    return next({ ctx });
+    return next({ ctx: { ...ctx, staff } });
   }
 );
 
 export const publicQuery = authenticatedStaffAction.use(
-  async ({ path, type, next }) => {
+  async ({ ctx, path, type, next }) => {
     const result = await next();
     if (type === "mutation" && result.ok) {
       if (path.startsWith("auth.")) clearActiveStaffCache();
-      publishRealtimeInvalidation();
+      publishRealtimeInvalidation(ctx.staff.branchId);
     }
     return result;
   }

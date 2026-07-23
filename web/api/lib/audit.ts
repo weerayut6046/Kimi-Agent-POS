@@ -6,9 +6,17 @@ import { publishRealtimeInvalidation } from "./realtime";
 /**
  * อ่านตัวตนผู้ทำรายการจาก session ที่ตรวจลายเซ็นแล้ว
  */
-export function actorFromReq(req: Request): { actorId: number | null; actorName: string } {
+export function actorFromReq(req: Request): {
+  actorId: number | null;
+  actorName: string;
+  branchId: number;
+} {
   const session = staffSessionFromHeader(req);
-  return { actorId: session?.id ?? null, actorName: session?.name ?? "" };
+  return {
+    actorId: session?.id ?? null,
+    actorName: session?.name ?? "",
+    branchId: session?.branchId ?? 1,
+  };
 }
 
 /**
@@ -19,6 +27,7 @@ export function logAudit(entry: {
   action: string;
   actorId: number | null;
   actorName: string;
+  branchId?: number;
   detail: string;
   refType?: string;
   refId?: number;
@@ -26,6 +35,7 @@ export function logAudit(entry: {
   void (async () => {
     try {
       await getDb().insert(auditLogs).values({
+        branchId: entry.branchId ?? 1,
         action: entry.action,
         actorId: entry.actorId,
         actorName: entry.actorName,
@@ -33,7 +43,7 @@ export function logAudit(entry: {
         refType: entry.refType ?? null,
         refId: entry.refId ?? null,
       });
-      publishRealtimeInvalidation();
+      publishRealtimeInvalidation(entry.branchId ?? 1);
     } catch (err) {
       console.error("บันทึก audit log ไม่สำเร็จ:", err);
     }

@@ -196,7 +196,7 @@ const groupLabels: Record<MenuItem["group"], string> = {
 const mobileMenuPaths = ["/", "/pos", "/shifts", "/stock"];
 
 export default function Layout() {
-  const { staff, logout } = useStaff();
+  const { staff, logout, switchBranch } = useStaff();
   const navigate = useNavigate();
   const location = useLocation();
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
@@ -206,6 +206,7 @@ export default function Layout() {
   const [now, setNow] = useState(() => new Date());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [switchingBranch, setSwitchingBranch] = useState(false);
   const shopName = settingMap?.shop_name ?? "PumpPOS";
   const visibleMenus = useMemo(() => {
     if (!staff) return [];
@@ -229,6 +230,20 @@ export default function Layout() {
       : location.pathname.startsWith(path)
   );
   const CurrentMenuIcon = currentMenu?.icon ?? Droplet;
+
+  const handleBranchChange = async (branchId: number) => {
+    if (!staff || branchId === staff.branch.id || switchingBranch) return;
+    setSwitchingBranch(true);
+    try {
+      await switchBranch(branchId);
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "ไม่สามารถเปลี่ยนสาขาได้"
+      );
+    } finally {
+      setSwitchingBranch(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -384,6 +399,25 @@ export default function Layout() {
           </nav>
 
           <div className="relative shrink-0 border-t border-white/10 bg-black/10 p-4 backdrop-blur-sm">
+            <label className="mb-3 block">
+              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+                <Building2 className="size-3" /> สาขาที่ใช้งาน
+              </span>
+              <select
+                value={staff?.branch.id ?? ""}
+                disabled={switchingBranch || !staff?.branches.length}
+                onChange={event =>
+                  void handleBranchChange(Number(event.target.value))
+                }
+                className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 text-sm font-medium text-white outline-none transition focus:border-cyan-300/60 disabled:opacity-60 [&>option]:text-slate-900"
+              >
+                {staff?.branches.map(branch => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.code} · {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="flex items-center gap-3">
               <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-400/30 to-cyan-300/10 font-heading text-sm font-semibold text-white ring-1 ring-white/10">
                 {staff?.name?.trim().charAt(0) || "P"}
@@ -601,6 +635,25 @@ export default function Layout() {
             )}
           </nav>
           <div className="shrink-0 border-t border-white/10 p-4">
+            <label className="mb-4 block">
+              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+                <Building2 className="size-3" /> สาขาที่ใช้งาน
+              </span>
+              <select
+                value={staff?.branch.id ?? ""}
+                disabled={switchingBranch || !staff?.branches.length}
+                onChange={event =>
+                  void handleBranchChange(Number(event.target.value))
+                }
+                className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 text-sm font-medium text-white outline-none focus:border-cyan-300/60 disabled:opacity-60 [&>option]:text-slate-900"
+              >
+                {staff?.branches.map(branch => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.code} · {branch.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="mb-3 flex items-center gap-3">
               <div className="grid size-10 place-items-center rounded-xl bg-white/10 font-semibold">
                 {staff?.name?.trim().charAt(0) || "P"}

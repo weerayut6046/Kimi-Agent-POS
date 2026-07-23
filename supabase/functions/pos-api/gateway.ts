@@ -10,6 +10,9 @@ type StaffSessionClaims = {
   name: string;
   role: "admin" | "manager" | "cashier";
   username: string;
+  branchId: number;
+  branchCode: string;
+  branchName: string;
   exp: number;
 };
 
@@ -128,7 +131,20 @@ async function verifyStaffSession(
     ) {
       return null;
     }
-    return claims as StaffSessionClaims;
+    const branchId = Number(claims.branchId ?? 1);
+    if (!Number.isSafeInteger(branchId) || branchId <= 0) return null;
+    return {
+      id: Number(claims.id),
+      name: claims.name,
+      role: claims.role as StaffSessionClaims["role"],
+      username: claims.username,
+      branchId,
+      branchCode:
+        typeof claims.branchCode === "string" ? claims.branchCode : "MAIN",
+      branchName:
+        typeof claims.branchName === "string" ? claims.branchName : "สาขาหลัก",
+      exp: Number(claims.exp),
+    };
   } catch {
     return null;
   }
@@ -363,6 +379,7 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
             id: claims.id,
             username: claims.username,
             role: claims.role,
+            branchId: claims.branchId,
           }
           : null;
         if (!staff || !(await catalogReader.isActiveStaff(staff))) {
@@ -370,20 +387,23 @@ export function createBusinessGateway(config: BusinessGatewayConfig) {
         }
         const result =
           procedure === "catalog.listProducts"
-            ? await catalogReader.listProducts()
+            ? await catalogReader.listProducts(claims!.branchId)
             : procedure === "catalog.listPumps"
-              ? await catalogReader.listPumps()
+              ? await catalogReader.listPumps(claims!.branchId)
               : procedure === "catalog.listTanks"
-                ? await catalogReader.listTanks()
+                ? await catalogReader.listTanks(claims!.branchId)
                 : procedure === "catalog.listRefills"
-                  ? await catalogReader.listRefills()
+                  ? await catalogReader.listRefills(claims!.branchId)
                   : procedure === "catalog.lowStockAlerts"
-                    ? await catalogReader.lowStockAlerts()
+                    ? await catalogReader.lowStockAlerts(claims!.branchId)
                     : procedure === "catalog.priceHistory"
-                      ? await catalogReader.priceHistory(priceHistoryProductId!)
+                      ? await catalogReader.priceHistory(
+                        claims!.branchId,
+                        priceHistoryProductId!,
+                      )
                       : procedure === "catalog.getSettings"
-                        ? await catalogReader.getSettings()
-                        : await catalogReader.getShopLogo();
+                        ? await catalogReader.getSettings(claims!.branchId)
+                        : await catalogReader.getShopLogo(claims!.branchId);
         const response = trpcResult(result, headers);
         if (
           (await response.clone().arrayBuffer()).byteLength >

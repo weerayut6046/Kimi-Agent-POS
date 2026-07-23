@@ -214,7 +214,8 @@ function formatNumber(value: number, maximumFractionDigits = 2) {
 
 function buildTools(
   role: StaffRole,
-  permissions: readonly MenuPermissionKey[]
+  permissions: readonly MenuPermissionKey[],
+  branchId: number,
 ): DeepSeekAssistantTool[] {
   const tools: DeepSeekAssistantTool[] = [];
   const db = getDb();
@@ -246,6 +247,7 @@ function buildTools(
           .from(sales)
           .where(
             and(
+              eq(sales.branchId, branchId),
               gte(sales.createdAt, range.start),
               lt(sales.createdAt, range.end),
               eq(sales.status, "completed")
@@ -313,7 +315,10 @@ function buildTools(
         noArgumentsSchema.parse(argumentsValue);
         const openShift = await db.query.shifts.findFirst({
           columns: { openedAt: true },
-          where: eq(shifts.status, "open"),
+          where: and(
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "open"),
+          ),
           orderBy: (table, { desc }) => [desc(table.openedAt)],
         });
         return {
@@ -357,6 +362,8 @@ function buildTools(
       execute: async argumentsValue => {
         noArgumentsSchema.parse(argumentsValue);
         const tankRows = await db.query.fuelTanks.findMany({
+          where: (row, operators) =>
+            operators.eq(row.branchId, branchId),
           columns: {
             name: true,
             capacityLiters: true,
@@ -438,7 +445,7 @@ function buildTools(
           .object({ section: z.enum(ADMIN_BUSINESS_SECTIONS) })
           .strict()
           .parse(argumentsValue);
-        return queryAdminBusinessSummary(input.section);
+        return queryAdminBusinessSummary(input.section, branchId);
       },
       renderPrivateResult: value =>
         renderAdminBusinessSummary(
@@ -523,6 +530,8 @@ function buildTools(
         noArgumentsSchema.parse(argumentsValue);
         const [tankRows, productRows] = await Promise.all([
           db.query.fuelTanks.findMany({
+            where: (row, operators) =>
+              operators.eq(row.branchId, branchId),
             columns: {
               name: true,
               currentLiters: true,
@@ -530,6 +539,8 @@ function buildTools(
             },
           }),
           db.query.products.findMany({
+            where: (row, operators) =>
+              operators.eq(row.branchId, branchId),
             columns: {
               name: true,
               category: true,
@@ -641,7 +652,11 @@ export const assistantRouter = createRouter({
           content: redactSensitiveText(message.content),
         })
       );
-      const tools = buildTools(access.role, access.permissions);
+      const tools = buildTools(
+        access.role,
+        access.permissions,
+        session.branchId,
+      );
       const forcedToolName = selectForcedAssistantTool(
         conversation.at(-1)?.content ?? "",
         tools

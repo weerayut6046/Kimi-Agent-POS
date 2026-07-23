@@ -14,6 +14,7 @@ import {
   rewards,
   sales,
   settings,
+  staffBranches,
   staffUsers,
   taxInvoices,
   workSchedules,
@@ -128,7 +129,7 @@ function countTotal(
   return { count: Number(row?.count ?? 0), total: Number(row?.total ?? 0) };
 }
 
-async function queryFinance(): Promise<FinanceSummary> {
+async function queryFinance(branchId: number): Promise<FinanceSummary> {
   const db = getDb();
   const range = bangkokRanges();
   const salesAggregate = (start: Date, end: Date) =>
@@ -140,6 +141,7 @@ async function queryFinance(): Promise<FinanceSummary> {
       .from(sales)
       .where(
         and(
+          eq(sales.branchId, branchId),
           gte(sales.createdAt, start),
           lt(sales.createdAt, end),
           eq(sales.status, "completed")
@@ -152,7 +154,13 @@ async function queryFinance(): Promise<FinanceSummary> {
         total: sql<number>`coalesce(sum(${expenses.amount}), 0)`,
       })
       .from(expenses)
-      .where(and(gte(expenses.createdAt, start), lt(expenses.createdAt, end)));
+      .where(
+        and(
+          eq(expenses.branchId, branchId),
+          gte(expenses.createdAt, start),
+          lt(expenses.createdAt, end),
+        ),
+      );
 
   const [salesToday, expensesToday, salesMonth, expensesMonth, categories] =
     await Promise.all([
@@ -169,6 +177,7 @@ async function queryFinance(): Promise<FinanceSummary> {
         .from(expenses)
         .where(
           and(
+            eq(expenses.branchId, branchId),
             gte(expenses.createdAt, range.monthStart),
             lt(expenses.createdAt, range.nextMonthStart)
           )
@@ -194,7 +203,7 @@ async function queryFinance(): Promise<FinanceSummary> {
   };
 }
 
-async function queryCustomers(): Promise<CustomerSummary> {
+async function queryCustomers(branchId: number): Promise<CustomerSummary> {
   const db = getDb();
   const range = bangkokRanges();
   const [memberTiers, customerCount, creditRows, paymentRows, monthPayments] =
@@ -211,7 +220,11 @@ async function queryCustomers(): Promise<CustomerSummary> {
         })
         .from(sales)
         .where(
-          and(eq(sales.status, "completed"), eq(sales.paymentMethod, "credit"))
+          and(
+            eq(sales.branchId, branchId),
+            eq(sales.status, "completed"),
+            eq(sales.paymentMethod, "credit"),
+          ),
         )
         .groupBy(sales.customerId),
       db
@@ -220,6 +233,7 @@ async function queryCustomers(): Promise<CustomerSummary> {
           total: sql<number>`coalesce(sum(${debtPayments.amount}), 0)`,
         })
         .from(debtPayments)
+        .where(eq(debtPayments.branchId, branchId))
         .groupBy(debtPayments.customerId),
       db
         .select({
@@ -229,6 +243,7 @@ async function queryCustomers(): Promise<CustomerSummary> {
         .from(debtPayments)
         .where(
           and(
+            eq(debtPayments.branchId, branchId),
             gte(debtPayments.createdAt, range.monthStart),
             lt(debtPayments.createdAt, range.nextMonthStart)
           )
@@ -265,7 +280,7 @@ async function queryCustomers(): Promise<CustomerSummary> {
   };
 }
 
-async function queryWorkforce(): Promise<WorkforceSummary> {
+async function queryWorkforce(branchId: number): Promise<WorkforceSummary> {
   const db = getDb();
   const range = bangkokRanges();
   const [staffByRole, templateCount, schedulesToday, payrollMonth] =
@@ -273,16 +288,32 @@ async function queryWorkforce(): Promise<WorkforceSummary> {
       db
         .select({ key: staffUsers.role, count: sql<number>`count(*)` })
         .from(staffUsers)
-        .where(eq(staffUsers.active, true))
+        .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+        .where(
+          and(
+            eq(staffBranches.branchId, branchId),
+            eq(staffUsers.active, true),
+          ),
+        )
         .groupBy(staffUsers.role),
       db
         .select({ count: sql<number>`count(*)` })
         .from(workShiftTemplates)
-        .where(eq(workShiftTemplates.active, true)),
+        .where(
+          and(
+            eq(workShiftTemplates.branchId, branchId),
+            eq(workShiftTemplates.active, true),
+          ),
+        ),
       db
         .select({ key: workSchedules.status, count: sql<number>`count(*)` })
         .from(workSchedules)
-        .where(eq(workSchedules.workDate, range.dateKey))
+        .where(
+          and(
+            eq(workSchedules.branchId, branchId),
+            eq(workSchedules.workDate, range.dateKey),
+          ),
+        )
         .groupBy(workSchedules.status),
       db
         .select({
@@ -291,7 +322,12 @@ async function queryWorkforce(): Promise<WorkforceSummary> {
           total: sql<number>`coalesce(sum(${payrollRecords.netAmount}), 0)`,
         })
         .from(payrollRecords)
-        .where(eq(payrollRecords.payrollMonth, range.monthKey))
+        .where(
+          and(
+            eq(payrollRecords.branchId, branchId),
+            eq(payrollRecords.payrollMonth, range.monthKey),
+          ),
+        )
         .groupBy(payrollRecords.status),
     ]);
   return {
@@ -313,7 +349,7 @@ async function queryWorkforce(): Promise<WorkforceSummary> {
   };
 }
 
-async function queryDocuments(): Promise<DocumentSummary> {
+async function queryDocuments(branchId: number): Promise<DocumentSummary> {
   const db = getDb();
   const range = bangkokRanges();
   const taxAggregate = (start: Date, end: Date) =>
@@ -325,7 +361,12 @@ async function queryDocuments(): Promise<DocumentSummary> {
       .from(taxInvoices)
       .innerJoin(sales, eq(taxInvoices.saleId, sales.id))
       .where(
-        and(gte(taxInvoices.createdAt, start), lt(taxInvoices.createdAt, end))
+        and(
+          eq(taxInvoices.branchId, branchId),
+          eq(sales.branchId, branchId),
+          gte(taxInvoices.createdAt, start),
+          lt(taxInvoices.createdAt, end),
+        ),
       );
   const [taxToday, taxMonth, salesStatuses, priceChangeCount] =
     await Promise.all([
@@ -340,6 +381,7 @@ async function queryDocuments(): Promise<DocumentSummary> {
         .from(sales)
         .where(
           and(
+            eq(sales.branchId, branchId),
             gte(sales.createdAt, range.monthStart),
             lt(sales.createdAt, range.nextMonthStart)
           )
@@ -350,6 +392,7 @@ async function queryDocuments(): Promise<DocumentSummary> {
         .from(priceChanges)
         .where(
           and(
+            eq(priceChanges.branchId, branchId),
             gte(priceChanges.createdAt, range.monthStart),
             lt(priceChanges.createdAt, range.nextMonthStart)
           )
@@ -368,7 +411,7 @@ async function queryDocuments(): Promise<DocumentSummary> {
   };
 }
 
-async function querySystem(): Promise<SystemSummary> {
+async function querySystem(branchId: number): Promise<SystemSummary> {
   const db = getDb();
   const [
     productGroups,
@@ -381,22 +424,30 @@ async function querySystem(): Promise<SystemSummary> {
     db
       .select({ key: products.category, count: sql<number>`count(*)` })
       .from(products)
-      .where(eq(products.active, true))
+      .where(
+        and(eq(products.branchId, branchId), eq(products.active, true)),
+      )
       .groupBy(products.category),
     db
       .select({ count: sql<number>`count(*)` })
       .from(pumps)
-      .where(eq(pumps.active, true)),
+      .where(and(eq(pumps.branchId, branchId), eq(pumps.active, true))),
     db
       .select({ count: sql<number>`count(*)` })
       .from(nozzles)
-      .where(eq(nozzles.active, true)),
-    db.select({ count: sql<number>`count(*)` }).from(fuelTanks),
+      .where(and(eq(nozzles.branchId, branchId), eq(nozzles.active, true))),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(fuelTanks)
+      .where(eq(fuelTanks.branchId, branchId)),
     db
       .select({ count: sql<number>`count(*)` })
       .from(rewards)
-      .where(eq(rewards.active, true)),
-    db.select({ count: sql<number>`count(*)` }).from(settings),
+      .where(and(eq(rewards.branchId, branchId), eq(rewards.active, true))),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(settings)
+      .where(eq(settings.branchId, branchId)),
   ]);
   return {
     section: "system",
@@ -412,7 +463,7 @@ async function querySystem(): Promise<SystemSummary> {
   };
 }
 
-async function queryAudit(): Promise<AuditSummary> {
+async function queryAudit(branchId: number): Promise<AuditSummary> {
   const db = getDb();
   const range = bangkokRanges();
   const rows = await db
@@ -420,6 +471,7 @@ async function queryAudit(): Promise<AuditSummary> {
     .from(auditLogs)
     .where(
       and(
+        eq(auditLogs.branchId, branchId),
         gte(auditLogs.createdAt, range.todayStart),
         lt(auditLogs.createdAt, range.tomorrowStart)
       )
@@ -435,34 +487,38 @@ async function queryAudit(): Promise<AuditSummary> {
 }
 
 async function querySingleSection(
-  section: Exclude<AdminBusinessSection, "all">
+  section: Exclude<AdminBusinessSection, "all">,
+  branchId: number,
 ): Promise<SingleAdminBusinessSummary> {
   switch (section) {
     case "finance":
-      return queryFinance();
+      return queryFinance(branchId);
     case "customers":
-      return queryCustomers();
+      return queryCustomers(branchId);
     case "workforce":
-      return queryWorkforce();
+      return queryWorkforce(branchId);
     case "documents":
-      return queryDocuments();
+      return queryDocuments(branchId);
     case "system":
-      return querySystem();
+      return querySystem(branchId);
     case "audit":
-      return queryAudit();
+      return queryAudit(branchId);
   }
 }
 
 export async function queryAdminBusinessSummary(
-  section: AdminBusinessSection
+  section: AdminBusinessSection,
+  branchId: number,
 ): Promise<AdminBusinessSummary> {
-  if (section !== "all") return querySingleSection(section);
+  if (section !== "all") return querySingleSection(section, branchId);
   const sections = ADMIN_BUSINESS_SECTIONS.filter(
     (item): item is Exclude<AdminBusinessSection, "all"> => item !== "all"
   );
   return {
     section: "all",
-    summaries: await Promise.all(sections.map(querySingleSection)),
+    summaries: await Promise.all(
+      sections.map((candidate) => querySingleSection(candidate, branchId)),
+    ),
   };
 }
 

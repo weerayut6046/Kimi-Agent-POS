@@ -26,7 +26,22 @@ export type StaffSession = {
   username: string;
   menuPermissions: MenuPermissionKey[];
   accessGroup: { id: number; name: string } | null;
+  branchId: number;
+  branchCode: string;
+  branchName: string;
+  branch: BranchSummary;
+  branches: BranchSummary[];
   token: string;
+};
+
+export type BranchSummary = {
+  id: number;
+  code: string;
+  name: string;
+  address: string;
+  phone: string;
+  taxId: string;
+  active: boolean;
 };
 
 export type StaffLoginResult = StaffSession & {
@@ -39,11 +54,13 @@ const StaffContext = createContext<{
   staff: StaffSession | null;
   isCheckingSession: boolean;
   login: (s: StaffLoginResult) => Promise<void>;
+  switchBranch: (branchId: number) => Promise<void>;
   logout: () => void;
 }>({
   staff: null,
   isCheckingSession: false,
   login: async () => {},
+  switchBranch: async () => {},
   logout: () => {},
 });
 
@@ -72,8 +89,24 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (!raw) return null;
       const saved = JSON.parse(raw) as StaffSession;
       if (!hasUsableToken(saved.token)) return null;
+      const fallbackBranch: BranchSummary = saved.branch ?? {
+        id: saved.branchId ?? 1,
+        code: saved.branchCode ?? "MAIN",
+        name: saved.branchName ?? "สาขาหลัก",
+        address: "",
+        phone: "",
+        taxId: "",
+        active: true,
+      };
       return {
         ...saved,
+        branchId: fallbackBranch.id,
+        branchCode: fallbackBranch.code,
+        branchName: fallbackBranch.name,
+        branch: fallbackBranch,
+        branches: saved.branches?.length
+          ? saved.branches
+          : [fallbackBranch],
         accessGroup: saved.accessGroup ?? null,
         menuPermissions: normalizeMenuPermissions(
           saved.role,
@@ -98,6 +131,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   );
   const { mutateAsync: issueRealtimeSession } =
     trpc.auth.realtimeSession.useMutation();
+  const { mutateAsync: requestBranchSwitch } =
+    trpc.auth.switchBranch.useMutation();
+  const utils = trpc.useUtils();
 
   const fresh = currentStaff.data;
   const hasSessionToken = Boolean(staff?.token);
@@ -131,6 +167,11 @@ export function StaffProvider({ children }: { children: ReactNode }) {
               name: fresh.name,
               role: fresh.role,
               username: fresh.username,
+              branchId: fresh.branchId,
+              branchCode: fresh.branchCode,
+              branchName: fresh.branchName,
+              branch: fresh.branch,
+              branches: fresh.branches,
               menuPermissions: fresh.menuPermissions,
               accessGroup: fresh.accessGroup,
               token: fresh.token,
@@ -188,6 +229,25 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     setSessionNonce(previous => previous + 1);
     setStaff(normalized);
   };
+  const switchBranch = async (branchId: number) => {
+    if (!effectiveStaff || branchId === effectiveStaff.branch.id) return;
+    const switched = await requestBranchSwitch({ branchId });
+    const { supabaseSession, ...staffSession } = switched;
+    const normalized: StaffSession = {
+      ...staffSession,
+      menuPermissions: normalizeMenuPermissions(
+        staffSession.role,
+        staffSession.menuPermissions,
+      ),
+    };
+    const installed = await installSupabaseSession(supabaseSession);
+    if (!installed) await clearSupabaseSession();
+    localStorage.setItem(KEY, JSON.stringify(normalized));
+    bootstrappedSupabaseStaffId.current = normalized.id;
+    setStaff(normalized);
+    setSessionNonce((previous) => previous + 1);
+    await utils.invalidate();
+  };
   const logout = () => {
     localStorage.removeItem(KEY);
     bootstrappedSupabaseStaffId.current = null;
@@ -197,7 +257,13 @@ export function StaffProvider({ children }: { children: ReactNode }) {
 
   return (
     <StaffContext.Provider
-      value={{ staff: effectiveStaff, isCheckingSession, login, logout }}
+      value={{
+        staff: effectiveStaff,
+        isCheckingSession,
+        login,
+        switchBranch,
+        logout,
+      }}
     >
       {children}
     </StaffContext.Provider>

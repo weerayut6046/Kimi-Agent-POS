@@ -8,7 +8,7 @@ import { env } from "./env";
 import { getPostgresClient } from "../queries/connection";
 
 const CHANNEL = "pos_app_invalidation_v1";
-const SUPABASE_TOPIC = "pos-invalidation-v1";
+const SUPABASE_TOPIC_PREFIX = "pos-invalidation-v1";
 const SUPABASE_EVENT = "invalidate";
 const MAX_CLIENTS = 250;
 const MAX_CLIENTS_PER_STAFF = 20;
@@ -16,6 +16,7 @@ const MAX_RECENT_EVENT_IDS = 512;
 
 type Subscriber = {
   staffId: number;
+  branchId: number;
   listener: (event: RealtimeInvalidationEvent) => void;
 };
 
@@ -41,7 +42,8 @@ function rememberEventId(eventId: string): boolean {
 
 function dispatch(event: RealtimeInvalidationEvent): void {
   if (!rememberEventId(event.eventId)) return;
-  for (const { listener } of subscribers.values()) {
+  for (const { branchId, listener } of subscribers.values()) {
+    if (branchId !== event.branchId) continue;
     try {
       listener(event);
     } catch {
@@ -85,7 +87,7 @@ async function publishSupabaseBroadcast(
   if (!env.supabaseUrl || !env.supabaseSecretKey) return;
   const endpoint =
     `${env.supabaseUrl}/realtime/v1/api/broadcast/` +
-    `${encodeURIComponent(SUPABASE_TOPIC)}/events/` +
+    `${encodeURIComponent(`${SUPABASE_TOPIC_PREFIX}:${event.branchId}`)}/events/` +
     `${encodeURIComponent(SUPABASE_EVENT)}?private=true`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -104,11 +106,14 @@ async function publishSupabaseBroadcast(
  * Publish only an opaque invalidation signal. Business data remains behind the
  * authenticated tRPC API and is never placed on PostgreSQL NOTIFY or SSE.
  */
-export function publishRealtimeInvalidation(): RealtimeInvalidationEvent {
+export function publishRealtimeInvalidation(
+  branchId = 1
+): RealtimeInvalidationEvent {
   const event: RealtimeInvalidationEvent = {
     version: REALTIME_EVENT_VERSION,
     eventId: randomUUID(),
-    scope: "all",
+    scope: "branch",
+    branchId,
   };
 
   // Deliver immediately to clients attached to this backend instance.
@@ -143,6 +148,7 @@ export function publishRealtimeInvalidation(): RealtimeInvalidationEvent {
 
 export function subscribeRealtime(
   staffId: number,
+  branchId: number,
   listener: (event: RealtimeInvalidationEvent) => void
 ): () => void {
   const staffConnections = [...subscribers.values()].filter(
@@ -156,7 +162,7 @@ export function subscribeRealtime(
   }
 
   const subscriptionId = randomUUID();
-  subscribers.set(subscriptionId, { staffId, listener });
+  subscribers.set(subscriptionId, { staffId, branchId, listener });
   ensureDatabaseListener();
 
   return () => {

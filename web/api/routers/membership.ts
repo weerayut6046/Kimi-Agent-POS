@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { desc, eq, like, or } from "drizzle-orm";
+import { and, desc, eq, like, or } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -78,6 +78,7 @@ export const membershipRouter = createRouter({
         if (nextPoints < 0) throw new Error("แต้มติดลบไม่ได้");
         await tx.update(members).set({ points: nextPoints }).where(eq(members.id, member.id));
         await tx.insert(pointTransactions).values({
+          branchId: ctx.staff.branchId,
           memberId: member.id,
           type: "adjust",
           points: input.points,
@@ -95,18 +96,25 @@ export const membershipRouter = createRouter({
       return { ok: true, points: next };
     }),
 
-  memberTransactions: publicQuery.input(z.object({ memberId: z.number() })).query(async ({ input }) => {
+  memberTransactions: publicQuery.input(z.object({ memberId: z.number() })).query(async ({ input, ctx }) => {
     return getDb()
       .select()
       .from(pointTransactions)
-      .where(eq(pointTransactions.memberId, input.memberId))
+      .where(
+        and(
+          eq(pointTransactions.branchId, ctx.staff.branchId),
+          eq(pointTransactions.memberId, input.memberId),
+        ),
+      )
       .orderBy(desc(pointTransactions.createdAt))
       .limit(50);
   }),
 
   // ---------- ของรางวัล ----------
-  listRewards: publicQuery.query(async () => {
-    return getDb().query.rewards.findMany();
+  listRewards: publicQuery.query(async ({ ctx }) => {
+    return getDb().query.rewards.findMany({
+      where: eq(rewards.branchId, ctx.staff.branchId),
+    });
   }),
 
   upsertReward: adminQuery
@@ -119,32 +127,53 @@ export const membershipRouter = createRouter({
         active: z.boolean().default(true),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const { id, ...data } = input;
       if (id) {
-        await db.update(rewards).set(data).where(eq(rewards.id, id));
+        await db
+          .update(rewards)
+          .set(data)
+          .where(and(eq(rewards.id, id), eq(rewards.branchId, branchId)));
       } else {
-        await db.insert(rewards).values(data);
+        await db.insert(rewards).values({ ...data, branchId });
       }
       return { ok: true };
     }),
 
   deleteReward: adminQuery
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await getDb().delete(rewards).where(eq(rewards.id, input.id));
+    .mutation(async ({ input, ctx }) => {
+      await getDb()
+        .delete(rewards)
+        .where(
+          and(
+            eq(rewards.id, input.id),
+            eq(rewards.branchId, ctx.staff.branchId),
+          ),
+        );
       return { ok: true };
     }),
 
   redeemReward: publicQuery
     .input(z.object({ memberId: z.number(), rewardId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       return db.transaction(async tx => {
         const [memberRows, rewardRows] = await Promise.all([
           tx.select().from(members).where(eq(members.id, input.memberId)).for("update"),
-          tx.select().from(rewards).where(eq(rewards.id, input.rewardId)).for("update"),
+          tx
+            .select()
+            .from(rewards)
+            .where(
+              and(
+                eq(rewards.id, input.rewardId),
+                eq(rewards.branchId, branchId),
+              ),
+            )
+            .for("update"),
         ]);
         const m = memberRows[0];
         const rw = rewardRows[0];
@@ -153,13 +182,20 @@ export const membershipRouter = createRouter({
         if (rw.stock <= 0) throw new Error("ของรางวัลหมด");
         if (m.points < rw.pointsRequired) throw new Error("แต้มไม่พอ");
         await tx.update(members).set({ points: m.points - rw.pointsRequired }).where(eq(members.id, m.id));
-        await tx.update(rewards).set({ stock: rw.stock - 1 }).where(eq(rewards.id, rw.id));
+        await tx
+          .update(rewards)
+          .set({ stock: rw.stock - 1 })
+          .where(
+            and(eq(rewards.id, rw.id), eq(rewards.branchId, branchId)),
+          );
         await tx.insert(rewardRedemptions).values({
+          branchId,
           memberId: m.id,
           rewardId: rw.id,
           pointsUsed: rw.pointsRequired,
         });
         await tx.insert(pointTransactions).values({
+          branchId,
           memberId: m.id,
           type: "redeem",
           points: -rw.pointsRequired,
@@ -169,12 +205,20 @@ export const membershipRouter = createRouter({
       });
     }),
 
-  redemptionHistory: publicQuery.query(async () => {
+  redemptionHistory: publicQuery.query(async ({ ctx }) => {
     const db = getDb();
+    const branchId = ctx.staff.branchId;
     const [rows, memberRows, rewardRows] = await Promise.all([
-      db.select().from(rewardRedemptions).orderBy(desc(rewardRedemptions.createdAt)).limit(50),
+      db
+        .select()
+        .from(rewardRedemptions)
+        .where(eq(rewardRedemptions.branchId, branchId))
+        .orderBy(desc(rewardRedemptions.createdAt))
+        .limit(50),
       db.query.members.findMany(),
-      db.query.rewards.findMany(),
+      db.query.rewards.findMany({
+        where: eq(rewards.branchId, branchId),
+      }),
     ]);
     return rows.map((r) => ({
       ...r,

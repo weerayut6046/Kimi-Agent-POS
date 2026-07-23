@@ -5,11 +5,18 @@ import {
   staffSessionFromHeader,
   type StaffSessionClaims,
 } from "./session";
+import { branchForStaff } from "./branches";
 
 const ACTIVE_STAFF_CACHE_MS = 5_000;
 const activeStaffCache = new Map<
-  number,
-  { role: StaffSessionClaims["role"]; username: string; validUntil: number }
+  string,
+  {
+    role: StaffSessionClaims["role"];
+    username: string;
+    branchCode: string;
+    branchName: string;
+    validUntil: number;
+  }
 >();
 
 /**
@@ -23,18 +30,23 @@ export async function activeStaffSessionFromRequest(
   const session = staffSessionFromHeader(request);
   if (!session) return null;
 
-  const cached = activeStaffCache.get(session.id);
+  const cacheKey = `${session.id}:${session.branchId}`;
+  const cached = activeStaffCache.get(cacheKey);
   if (
     cached &&
     cached.validUntil > Date.now() &&
     cached.role === session.role &&
     cached.username === session.username
   ) {
-    return session;
+    return {
+      ...session,
+      branchCode: cached.branchCode,
+      branchName: cached.branchName,
+    };
   }
 
   const staff = await getDb().query.staffUsers.findFirst({
-    columns: { active: true, role: true, username: true },
+    columns: { id: true, active: true, role: true, username: true },
     where: eq(staffUsers.id, session.id),
   });
   if (
@@ -42,16 +54,29 @@ export async function activeStaffSessionFromRequest(
     staff.role !== session.role ||
     staff.username !== session.username
   ) {
-    activeStaffCache.delete(session.id);
+    activeStaffCache.delete(cacheKey);
     return null;
   }
 
-  activeStaffCache.set(session.id, {
+  const branch = await branchForStaff(staff, session.branchId);
+  if (!branch) {
+    activeStaffCache.delete(cacheKey);
+    return null;
+  }
+
+  const activeSession = {
+    ...session,
+    branchCode: branch.code,
+    branchName: branch.name,
+  };
+  activeStaffCache.set(cacheKey, {
     role: staff.role,
     username: staff.username,
+    branchCode: branch.code,
+    branchName: branch.name,
     validUntil: Date.now() + ACTIVE_STAFF_CACHE_MS,
   });
-  return session;
+  return activeSession;
 }
 
 export function clearActiveStaffCache(): void {

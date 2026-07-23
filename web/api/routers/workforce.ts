@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import {
   employeeProfiles,
   payrollRecords,
+  staffBranches,
   staffUsers,
   workSchedules,
   workShiftTemplates,
@@ -47,27 +48,41 @@ function shiftHours(startTime: string, endTime: string, breakMinutes: number) {
   return round2(Math.max(0, end - start - breakMinutes) / 60);
 }
 
-async function requireStaff(staffId: number) {
-  const staff = await getDb().query.staffUsers.findFirst({
+async function requireStaff(staffId: number, branchId?: number) {
+  const db = getDb();
+  const staff = await db.query.staffUsers.findFirst({
     where: eq(staffUsers.id, staffId),
   });
   if (!staff) throw new Error("ไม่พบพนักงาน");
+  if (branchId != null) {
+    const membership = await db.query.staffBranches.findFirst({
+      where: and(
+        eq(staffBranches.staffId, staffId),
+        eq(staffBranches.branchId, branchId),
+      ),
+    });
+    if (!membership) throw new Error("พนักงานไม่ได้อยู่ในสาขาปัจจุบัน");
+  }
   return staff;
 }
 
-async function requireTemplate(templateId: number) {
+async function requireTemplate(templateId: number, branchId: number) {
   const template = await getDb().query.workShiftTemplates.findFirst({
-    where: eq(workShiftTemplates.id, templateId),
+    where: and(
+      eq(workShiftTemplates.id, templateId),
+      eq(workShiftTemplates.branchId, branchId),
+    ),
   });
   if (!template) throw new Error("ไม่พบรูปแบบกะงาน");
   return template;
 }
 
 export const workforceRouter = createRouter({
-  listTemplates: publicQuery.query(async () =>
+  listTemplates: publicQuery.query(async ({ ctx }) =>
     getDb()
       .select()
       .from(workShiftTemplates)
+      .where(eq(workShiftTemplates.branchId, ctx.staff.branchId))
       .orderBy(asc(workShiftTemplates.startTime))
   ),
 
@@ -93,15 +108,20 @@ export const workforceRouter = createRouter({
       };
       let id = input.id;
       if (id) {
-        await requireTemplate(id);
+        await requireTemplate(id, ctx.staff.branchId);
         await db
           .update(workShiftTemplates)
           .set(values)
-          .where(eq(workShiftTemplates.id, id));
+          .where(
+            and(
+              eq(workShiftTemplates.id, id),
+              eq(workShiftTemplates.branchId, ctx.staff.branchId),
+            ),
+          );
       } else {
         [{ id }] = await db
           .insert(workShiftTemplates)
-          .values(values)
+          .values({ ...values, branchId: ctx.staff.branchId })
           .returning({ id: workShiftTemplates.id });
       }
       logAudit({
@@ -119,16 +139,25 @@ export const workforceRouter = createRouter({
   deleteTemplate: adminQuery
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
-      const template = await requireTemplate(input.id);
+      const branchId = ctx.staff.branchId;
+      const template = await requireTemplate(input.id, branchId);
       const linked = await getDb().query.workSchedules.findFirst({
-        where: eq(workSchedules.shiftTemplateId, input.id),
+        where: and(
+          eq(workSchedules.branchId, branchId),
+          eq(workSchedules.shiftTemplateId, input.id),
+        ),
       });
       if (linked) {
         throw new Error("กะนี้ถูกใช้ในตารางงานแล้ว กรุณาปิดใช้งานแทนการลบ");
       }
       await getDb()
         .delete(workShiftTemplates)
-        .where(eq(workShiftTemplates.id, input.id));
+        .where(
+          and(
+            eq(workShiftTemplates.id, input.id),
+            eq(workShiftTemplates.branchId, branchId),
+          ),
+        );
       logAudit({
         action: "delete_work_shift_template",
         ...actorFromReq(ctx.req),
@@ -139,7 +168,7 @@ export const workforceRouter = createRouter({
       return { ok: true };
     }),
 
-  directory: publicQuery.query(async () => {
+  directory: publicQuery.query(async ({ ctx }) => {
     const rows = await getDb()
       .select({
         id: staffUsers.id,
@@ -149,8 +178,14 @@ export const workforceRouter = createRouter({
         position: employeeProfiles.position,
       })
       .from(staffUsers)
+      .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
       .leftJoin(employeeProfiles, eq(employeeProfiles.staffId, staffUsers.id))
-      .where(eq(staffUsers.active, true))
+      .where(
+        and(
+          eq(staffBranches.branchId, ctx.staff.branchId),
+          eq(staffUsers.active, true),
+        ),
+      )
       .orderBy(asc(staffUsers.name));
     return rows;
   }),
@@ -169,6 +204,7 @@ export const workforceRouter = createRouter({
         });
       }
       const filters = [
+        eq(workSchedules.branchId, ctx.staff.branchId),
         gte(workSchedules.workDate, input.startDate),
         lte(workSchedules.workDate, input.endDate),
       ];
@@ -215,13 +251,14 @@ export const workforceRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const [staff, template] = await Promise.all([
-        requireStaff(input.staffId),
-        requireTemplate(input.shiftTemplateId),
+        requireStaff(input.staffId, ctx.staff.branchId),
+        requireTemplate(input.shiftTemplateId, ctx.staff.branchId),
       ]);
       if (!staff.active) throw new Error("พนักงานคนนี้ถูกปิดใช้งาน");
       if (!template.active) throw new Error("รูปแบบกะนี้ถูกปิดใช้งาน");
       const duplicate = await getDb().query.workSchedules.findFirst({
         where: and(
+          eq(workSchedules.branchId, ctx.staff.branchId),
           eq(workSchedules.workDate, input.workDate),
           eq(workSchedules.shiftTemplateId, input.shiftTemplateId),
           eq(workSchedules.staffId, input.staffId)
@@ -231,7 +268,7 @@ export const workforceRouter = createRouter({
         throw new Error("พนักงานคนนี้มีกะดังกล่าวในวันที่เลือกแล้ว");
       const [{ id }] = await getDb()
         .insert(workSchedules)
-        .values(input)
+        .values({ ...input, branchId: ctx.staff.branchId })
         .returning({ id: workSchedules.id });
       logAudit({
         action: "create_work_schedule",
@@ -256,16 +293,21 @@ export const workforceRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const existing = await db.query.workSchedules.findFirst({
-        where: eq(workSchedules.id, input.id),
+        where: and(
+          eq(workSchedules.id, input.id),
+          eq(workSchedules.branchId, branchId),
+        ),
       });
       if (!existing) throw new Error("ไม่พบรายการตารางงาน");
       const [staff, template] = await Promise.all([
-        requireStaff(input.staffId),
-        requireTemplate(input.shiftTemplateId),
+        requireStaff(input.staffId, branchId),
+        requireTemplate(input.shiftTemplateId, branchId),
       ]);
       const duplicate = await db.query.workSchedules.findFirst({
         where: and(
+          eq(workSchedules.branchId, branchId),
           eq(workSchedules.workDate, input.workDate),
           eq(workSchedules.shiftTemplateId, input.shiftTemplateId),
           eq(workSchedules.staffId, input.staffId),
@@ -278,7 +320,9 @@ export const workforceRouter = createRouter({
       await db
         .update(workSchedules)
         .set(values)
-        .where(eq(workSchedules.id, id));
+        .where(
+          and(eq(workSchedules.id, id), eq(workSchedules.branchId, branchId)),
+        );
       logAudit({
         action: "update_work_schedule",
         ...actorFromReq(ctx.req),
@@ -292,11 +336,22 @@ export const workforceRouter = createRouter({
   deleteSchedule: adminQuery
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
+      const branchId = ctx.staff.branchId;
       const schedule = await getDb().query.workSchedules.findFirst({
-        where: eq(workSchedules.id, input.id),
+        where: and(
+          eq(workSchedules.id, input.id),
+          eq(workSchedules.branchId, branchId),
+        ),
       });
       if (!schedule) throw new Error("ไม่พบรายการตารางงาน");
-      await getDb().delete(workSchedules).where(eq(workSchedules.id, input.id));
+      await getDb()
+        .delete(workSchedules)
+        .where(
+          and(
+            eq(workSchedules.id, input.id),
+            eq(workSchedules.branchId, branchId),
+          ),
+        );
       logAudit({
         action: "delete_work_schedule",
         ...actorFromReq(ctx.req),
@@ -318,12 +373,19 @@ export const workforceRouter = createRouter({
       if (input.firstId === input.secondId)
         throw new Error("กรุณาเลือกกะงาน 2 รายการ");
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const [first, second] = await Promise.all([
         db.query.workSchedules.findFirst({
-          where: eq(workSchedules.id, input.firstId),
+          where: and(
+            eq(workSchedules.id, input.firstId),
+            eq(workSchedules.branchId, branchId),
+          ),
         }),
         db.query.workSchedules.findFirst({
-          where: eq(workSchedules.id, input.secondId),
+          where: and(
+            eq(workSchedules.id, input.secondId),
+            eq(workSchedules.branchId, branchId),
+          ),
         }),
       ]);
       if (!first || !second) throw new Error("ไม่พบรายการกะงานที่ต้องการสลับ");
@@ -333,6 +395,7 @@ export const workforceRouter = createRouter({
       const [firstCollision, secondCollision] = await Promise.all([
         db.query.workSchedules.findFirst({
           where: and(
+            eq(workSchedules.branchId, branchId),
             eq(workSchedules.workDate, first.workDate),
             eq(workSchedules.shiftTemplateId, first.shiftTemplateId),
             eq(workSchedules.staffId, second.staffId),
@@ -341,6 +404,7 @@ export const workforceRouter = createRouter({
         }),
         db.query.workSchedules.findFirst({
           where: and(
+            eq(workSchedules.branchId, branchId),
             eq(workSchedules.workDate, second.workDate),
             eq(workSchedules.shiftTemplateId, second.shiftTemplateId),
             eq(workSchedules.staffId, first.staffId),
@@ -357,10 +421,15 @@ export const workforceRouter = createRouter({
         .set({
           staffId: sql<number>`case when ${workSchedules.id} = ${first.id} then cast(${second.staffId} as integer) else cast(${first.staffId} as integer) end`,
         })
-        .where(inArray(workSchedules.id, [first.id, second.id]));
+        .where(
+          and(
+            eq(workSchedules.branchId, branchId),
+            inArray(workSchedules.id, [first.id, second.id]),
+          ),
+        );
       const [firstStaff, secondStaff] = await Promise.all([
-        requireStaff(first.staffId),
-        requireStaff(second.staffId),
+        requireStaff(first.staffId, branchId),
+        requireStaff(second.staffId, branchId),
       ]);
       logAudit({
         action: "swap_work_schedules",
@@ -372,7 +441,7 @@ export const workforceRouter = createRouter({
       return { ok: true };
     }),
 
-  employeeProfiles: adminQuery.query(async () => {
+  employeeProfiles: adminQuery.query(async ({ ctx }) => {
     const rows = await getDb()
       .select({
         staffId: staffUsers.id,
@@ -389,7 +458,9 @@ export const workforceRouter = createRouter({
         note: employeeProfiles.note,
       })
       .from(staffUsers)
+      .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
       .leftJoin(employeeProfiles, eq(employeeProfiles.staffId, staffUsers.id))
+      .where(eq(staffBranches.branchId, ctx.staff.branchId))
       .orderBy(asc(staffUsers.name));
     return rows;
   }),
@@ -431,7 +502,7 @@ export const workforceRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const staff = await requireStaff(input.staffId);
+      const staff = await requireStaff(input.staffId, ctx.staff.branchId);
       await getDb()
         .insert(employeeProfiles)
         .values(input)
@@ -458,7 +529,7 @@ export const workforceRouter = createRouter({
 
   payrollList: adminQuery
     .input(z.object({ month: monthText }))
-    .query(async ({ input }) =>
+    .query(async ({ input, ctx }) =>
       getDb()
         .select({
           id: payrollRecords.id,
@@ -485,7 +556,12 @@ export const workforceRouter = createRouter({
           employeeProfiles,
           eq(employeeProfiles.staffId, payrollRecords.staffId)
         )
-        .where(eq(payrollRecords.payrollMonth, input.month))
+        .where(
+          and(
+            eq(payrollRecords.branchId, ctx.staff.branchId),
+            eq(payrollRecords.payrollMonth, input.month),
+          ),
+        )
         .orderBy(asc(staffUsers.name))
     ),
 
@@ -496,6 +572,7 @@ export const workforceRouter = createRouter({
       if (!staffId) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
       return getDb().query.payrollRecords.findFirst({
         where: and(
+          eq(payrollRecords.branchId, ctx.staff.branchId),
           eq(payrollRecords.payrollMonth, input.month),
           eq(payrollRecords.staffId, staffId)
         ),
@@ -506,6 +583,7 @@ export const workforceRouter = createRouter({
     .input(z.object({ month: monthText }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const monthStart = `${input.month}-01`;
       const monthEnd = nextMonth(input.month);
       const [profiles, schedules, existingRecords] = await Promise.all([
@@ -519,7 +597,13 @@ export const workforceRouter = createRouter({
           })
           .from(employeeProfiles)
           .innerJoin(staffUsers, eq(staffUsers.id, employeeProfiles.staffId))
-          .where(eq(staffUsers.active, true)),
+          .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+          .where(
+            and(
+              eq(staffBranches.branchId, branchId),
+              eq(staffUsers.active, true),
+            ),
+          ),
         db
           .select({
             staffId: workSchedules.staffId,
@@ -536,12 +620,16 @@ export const workforceRouter = createRouter({
           )
           .where(
             and(
+              eq(workSchedules.branchId, branchId),
               gte(workSchedules.workDate, monthStart),
               lt(workSchedules.workDate, monthEnd)
             )
           ),
         db.query.payrollRecords.findMany({
-          where: eq(payrollRecords.payrollMonth, input.month),
+          where: and(
+            eq(payrollRecords.branchId, branchId),
+            eq(payrollRecords.payrollMonth, input.month),
+          ),
         }),
       ]);
 
@@ -591,6 +679,7 @@ export const workforceRouter = createRouter({
             baseAmount + overtimeAmount + bonus - deduction
           );
           const values = {
+            branchId,
             payrollMonth: input.month,
             staffId: profile.staffId,
             workDays,
@@ -606,7 +695,12 @@ export const workforceRouter = createRouter({
           if (current) {
             await tx.update(payrollRecords)
               .set(values)
-              .where(eq(payrollRecords.id, current.id));
+              .where(
+                and(
+                  eq(payrollRecords.id, current.id),
+                  eq(payrollRecords.branchId, branchId),
+                ),
+              );
           } else {
             await tx.insert(payrollRecords).values(values);
           }
@@ -634,8 +728,12 @@ export const workforceRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const record = await db.query.payrollRecords.findFirst({
-        where: eq(payrollRecords.id, input.id),
+        where: and(
+          eq(payrollRecords.id, input.id),
+          eq(payrollRecords.branchId, branchId),
+        ),
       });
       if (!record) throw new Error("ไม่พบรายการเงินเดือน");
       if (record.status === "paid")
@@ -658,7 +756,12 @@ export const workforceRouter = createRouter({
           netAmount,
           note: input.note ?? null,
         })
-        .where(eq(payrollRecords.id, input.id));
+        .where(
+          and(
+            eq(payrollRecords.id, input.id),
+            eq(payrollRecords.branchId, branchId),
+          ),
+        );
       logAudit({
         action: "update_payroll",
         ...actorFromReq(ctx.req),
@@ -677,8 +780,12 @@ export const workforceRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const branchId = ctx.staff.branchId;
       const record = await getDb().query.payrollRecords.findFirst({
-        where: eq(payrollRecords.id, input.id),
+        where: and(
+          eq(payrollRecords.id, input.id),
+          eq(payrollRecords.branchId, branchId),
+        ),
       });
       if (!record) throw new Error("ไม่พบรายการเงินเดือน");
       await getDb()
@@ -687,7 +794,12 @@ export const workforceRouter = createRouter({
           status: input.status,
           paidAt: input.status === "paid" ? new Date() : null,
         })
-        .where(eq(payrollRecords.id, input.id));
+        .where(
+          and(
+            eq(payrollRecords.id, input.id),
+            eq(payrollRecords.branchId, branchId),
+          ),
+        );
       logAudit({
         action: input.status === "paid" ? "payroll_paid" : "payroll_reopen",
         ...actorFromReq(ctx.req),

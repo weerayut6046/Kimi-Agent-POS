@@ -49,7 +49,8 @@ export async function setupTestDb() {
   /** สร้าง tRPC caller พร้อม session ที่เซ็นลายเซ็นเหมือน production */
   const caller = (
     role: "admin" | "manager" | "cashier" = "cashier",
-    staffId?: number
+    staffId?: number,
+    branchId = 1
   ) =>
     appRouter.createCaller({
       req: new Request("http://test.local/api", {
@@ -66,6 +67,9 @@ export async function setupTestDb() {
                   : "สมชาย (พนักงาน)",
             role,
             username: role === "cashier" ? "somchai" : role,
+            branchId,
+            branchCode: branchId === 1 ? "MAIN" : `BRANCH-${branchId}`,
+            branchName: branchId === 1 ? "สาขาหลัก" : `สาขา ${branchId}`,
           }),
         },
       }),

@@ -15,22 +15,26 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  */
 export async function queryExpenses(
   db: ReturnType<typeof getDb>,
-  opts: { start?: Date; end?: Date; q?: string },
+  opts: { branchId: number; start?: Date; end?: Date; q?: string },
 ) {
-  const conds = [];
+  const conds = [eq(expenses.branchId, opts.branchId)];
   if (opts.start) conds.push(gte(expenses.createdAt, opts.start));
   if (opts.end) conds.push(lt(expenses.createdAt, opts.end));
   const q = opts.q?.trim();
   if (q) {
     const pattern = `%${q}%`;
     conds.push(
-      or(like(expenses.title, pattern), like(expenses.category, pattern), like(expenses.note, pattern)),
+      or(
+        like(expenses.title, pattern),
+        like(expenses.category, pattern),
+        like(expenses.note, pattern),
+      )!,
     );
   }
   const items = await db
     .select()
     .from(expenses)
-    .where(conds.length > 0 ? and(...conds) : undefined)
+    .where(and(...conds))
     .orderBy(desc(expenses.createdAt));
   return { items, total: r2(items.reduce((s, e) => s + e.amount, 0)) };
 }
@@ -39,9 +43,13 @@ export const expensesRouter = createRouter({
   // รายการค่าใช้จ่าย — ถ้าส่ง date ("YYYY-MM-DD") จะเฉพาะวันนั้น (local day)
   list: publicQuery
     .input(z.object({ date: z.string().optional(), q: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const range = input?.date ? dayRange(input.date) : {};
-      return queryExpenses(getDb(), { ...range, q: input?.q });
+      return queryExpenses(getDb(), {
+        branchId: ctx.staff.branchId,
+        ...range,
+        q: input?.q,
+      });
     }),
 
   // บันทึกค่าใช้จ่าย — ถ้ามีกะเปิดอยู่จะผูก shiftId อัตโนมัติ (ทุกสิทธิ์บันทึกได้)
@@ -57,10 +65,17 @@ export const expensesRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const openShift = await db.query.shifts.findFirst({ where: eq(shifts.status, "open") });
+      const branchId = ctx.staff.branchId;
+      const openShift = await db.query.shifts.findFirst({
+        where: and(
+          eq(shifts.branchId, branchId),
+          eq(shifts.status, "open"),
+        ),
+      });
       const [{ id }] = await db
         .insert(expenses)
         .values({
+          branchId,
           title: input.title,
           category: input.category,
           amount: r2(input.amount),
@@ -76,7 +91,9 @@ export const expensesRouter = createRouter({
         refType: "expense",
         refId: id,
       });
-      return db.query.expenses.findFirst({ where: eq(expenses.id, id) });
+      return db.query.expenses.findFirst({
+        where: and(eq(expenses.id, id), eq(expenses.branchId, branchId)),
+      });
     }),
 
   // แก้ไขค่าใช้จ่าย (admin/manager) — อัปเดตเฉพาะ field ที่ส่งมา
@@ -93,11 +110,19 @@ export const expensesRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const { id, ...patch } = input;
       const db = getDb();
-      const existing = await db.query.expenses.findFirst({ where: eq(expenses.id, id) });
+      const branchId = ctx.staff.branchId;
+      const existing = await db.query.expenses.findFirst({
+        where: and(eq(expenses.id, id), eq(expenses.branchId, branchId)),
+      });
       if (!existing) throw new Error("ไม่พบรายการค่าใช้จ่าย");
       if (patch.amount !== undefined) patch.amount = r2(patch.amount);
-      await db.update(expenses).set(patch).where(eq(expenses.id, id));
-      const updated = await db.query.expenses.findFirst({ where: eq(expenses.id, id) });
+      await db
+        .update(expenses)
+        .set(patch)
+        .where(and(eq(expenses.id, id), eq(expenses.branchId, branchId)));
+      const updated = await db.query.expenses.findFirst({
+        where: and(eq(expenses.id, id), eq(expenses.branchId, branchId)),
+      });
       logAudit({
         action: "update_expense",
         ...actorFromReq(ctx.req),
@@ -111,9 +136,22 @@ export const expensesRouter = createRouter({
   // ลบค่าใช้จ่าย (admin/manager)
   remove: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     const db = getDb();
-    const existing = await db.query.expenses.findFirst({ where: eq(expenses.id, input.id) });
+    const branchId = ctx.staff.branchId;
+    const existing = await db.query.expenses.findFirst({
+      where: and(
+        eq(expenses.id, input.id),
+        eq(expenses.branchId, branchId),
+      ),
+    });
     if (!existing) throw new Error("ไม่พบรายการค่าใช้จ่าย");
-    await db.delete(expenses).where(eq(expenses.id, input.id));
+    await db
+      .delete(expenses)
+      .where(
+        and(
+          eq(expenses.id, input.id),
+          eq(expenses.branchId, branchId),
+        ),
+      );
     logAudit({
       action: "remove_expense",
       ...actorFromReq(ctx.req),

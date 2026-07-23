@@ -8,12 +8,18 @@ type FakeClient = ReturnType<typeof postgres>;
 function clientReturning(value: unknown): FakeClient {
   const client = vi.fn(() => Promise.resolve(value)) as unknown as FakeClient;
   client.end = vi.fn(async () => undefined);
+  client.begin = vi.fn(async callback =>
+    callback(client as unknown as postgres.TransactionSql)
+  ) as FakeClient["begin"];
   return client;
 }
 
 function clientFailing(error: Error): FakeClient {
   const client = vi.fn(() => Promise.reject(error)) as unknown as FakeClient;
   client.end = vi.fn(async () => undefined);
+  client.begin = vi.fn(async callback =>
+    callback(client as unknown as postgres.TransactionSql)
+  ) as FakeClient["begin"];
   return client;
 }
 
@@ -22,11 +28,17 @@ function clientMatching(
 ): FakeClient {
   const client = vi.fn((strings: TemplateStringsArray) => {
     const query = strings.join("?").replace(/\s+/g, " ").trim();
+    if (query.includes("select set_config('app.branch_id'")) {
+      return Promise.resolve([{ set_config: "7" }]);
+    }
     const match = matches.find(([pattern]) => query.includes(pattern));
     if (!match) return Promise.reject(new Error(`Unexpected query: ${query}`));
     return Promise.resolve(match[1]);
   }) as unknown as FakeClient;
   client.end = vi.fn(async () => undefined);
+  client.begin = vi.fn(async callback =>
+    callback(client as unknown as postgres.TransactionSql)
+  ) as FakeClient["begin"];
   return client;
 }
 
@@ -50,7 +62,12 @@ describe("Supabase catalog reader", () => {
     );
 
     await expect(
-      reader.isActiveStaff({ id: 7, username: "admin", role: "admin" })
+      reader.isActiveStaff({
+        id: 7,
+        username: "admin",
+        role: "admin",
+        branchId: 7,
+      })
     ).resolves.toBe(true);
     expect(clients).toHaveLength(0);
   });
@@ -70,7 +87,12 @@ describe("Supabase catalog reader", () => {
     );
 
     await expect(
-      reader.isActiveStaff({ id: 7, username: "admin", role: "admin" })
+      reader.isActiveStaff({
+        id: 7,
+        username: "admin",
+        role: "admin",
+        branchId: 7,
+      })
     ).rejects.toThrow("permission denied");
     expect(clients).toHaveLength(1);
   });
@@ -142,14 +164,14 @@ describe("Supabase catalog reader", () => {
             ],
           ],
           [
-            "where key <> 'shop_logo'",
+            "and key <> 'shop_logo'",
             [{ key: "shop_name", value: "Production Station" }],
           ],
-          ["where key = 'shop_logo'", [{ value: "data:image/png;base64,abc" }]],
+          ["and key = 'shop_logo'", [{ value: "data:image/png;base64,abc" }]],
         ])
     );
 
-    await expect(reader.listPumps()).resolves.toEqual([
+    await expect(reader.listPumps(7)).resolves.toEqual([
       {
         id: 1,
         name: "Pump 1",
@@ -165,7 +187,7 @@ describe("Supabase catalog reader", () => {
         ],
       },
     ]);
-    await expect(reader.listRefills()).resolves.toEqual([
+    await expect(reader.listRefills(7)).resolves.toEqual([
       expect.objectContaining({
         id: 5,
         liters: 250.5,
@@ -173,13 +195,13 @@ describe("Supabase catalog reader", () => {
         tank: expect.objectContaining({ id: 4, capacityLiters: 10000 }),
       }),
     ]);
-    await expect(reader.getSettings()).resolves.toEqual(
+    await expect(reader.getSettings(7)).resolves.toEqual(
       expect.objectContaining({
         shop_name: "Production Station",
         backup_auto_time: DEFAULT_SETTINGS.backup_auto_time,
       })
     );
-    await expect(reader.getShopLogo()).resolves.toBe(
+    await expect(reader.getShopLogo(7)).resolves.toBe(
       "data:image/png;base64,abc"
     );
   });

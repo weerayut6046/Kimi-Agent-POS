@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import { getDb } from "../api/queries/connection";
 import { DEFAULT_SETTINGS } from "@contracts/settings";
 import {
+  branches,
+  staffBranches,
   staffUsers,
   products,
   pumps,
@@ -27,12 +29,31 @@ export async function seedIfEmpty(): Promise<boolean> {
 
   console.log("Seeding database...");
 
+  await db
+    .insert(branches)
+    .values({ code: "MAIN", name: "สาขาหลัก" })
+    .onConflictDoNothing();
+  const mainBranch = await db.query.branches.findFirst({
+    where: (branch, { eq }) => eq(branch.code, "MAIN"),
+  });
+  if (!mainBranch) throw new Error("MAIN branch is missing");
+
   // พนักงาน
   await db.insert(staffUsers).values([
     { username: "admin", pin: sha256("1234"), name: "เจ้าของปั๊ม", role: "admin" },
     { username: "manager", pin: sha256("2222"), name: "สมหญิง (ผู้จัดการสาขา)", role: "manager" },
     { username: "somchai", pin: sha256("0000"), name: "สมชาย (พนักงาน)", role: "cashier" },
   ]);
+  const seededStaff = await db.query.staffUsers.findMany({
+    columns: { id: true },
+  });
+  await db.insert(staffBranches).values(
+    seededStaff.map(staff => ({
+      staffId: staff.id,
+      branchId: mainBranch.id,
+      isDefault: true,
+    }))
+  );
 
   await db.insert(workShiftTemplates).values([
     { name: "กะเช้า", startTime: "06:00", endTime: "14:00", breakMinutes: 60 },

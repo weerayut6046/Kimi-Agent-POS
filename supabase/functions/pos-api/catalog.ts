@@ -4,20 +4,21 @@ type SqlClient = ReturnType<typeof postgres>;
 
 export type CatalogReadResult = {
   isActiveStaff: (staff: StaffIdentity) => Promise<boolean>;
-  listProducts: () => Promise<unknown>;
-  listPumps: () => Promise<unknown>;
-  listTanks: () => Promise<unknown>;
-  listRefills: () => Promise<unknown>;
-  lowStockAlerts: () => Promise<unknown>;
-  priceHistory: (productId: number) => Promise<unknown>;
-  getSettings: () => Promise<unknown>;
-  getShopLogo: () => Promise<unknown>;
+  listProducts: (branchId: number) => Promise<unknown>;
+  listPumps: (branchId: number) => Promise<unknown>;
+  listTanks: (branchId: number) => Promise<unknown>;
+  listRefills: (branchId: number) => Promise<unknown>;
+  lowStockAlerts: (branchId: number) => Promise<unknown>;
+  priceHistory: (branchId: number, productId: number) => Promise<unknown>;
+  getSettings: (branchId: number) => Promise<unknown>;
+  getShopLogo: (branchId: number) => Promise<unknown>;
 };
 
 export type StaffIdentity = {
   id: number;
   username: string;
   role: "admin" | "manager" | "cashier";
+  branchId: number;
 };
 
 type TankRow = {
@@ -208,16 +209,39 @@ export function createCatalogReader(
       : new Error("Catalog database read failed");
   };
 
+  const readBranch = async <T>(
+    branchId: number,
+    operation: (sql: postgres.TransactionSql) => Promise<T>,
+  ) => {
+    if (!Number.isSafeInteger(branchId) || branchId <= 0) {
+      throw new Error("Invalid branch");
+    }
+    return read((sql) =>
+      sql.begin(async (transaction) => {
+        await transaction`
+          select set_config('app.branch_id', ${String(branchId)}, true)
+        `;
+        return operation(transaction);
+      })
+    );
+  };
+
   const isActiveStaff = async (staff: StaffIdentity) => {
-    const rows = await read((sql) =>
+    const rows = await readBranch(staff.branchId, (sql) =>
       sql<{
         active: boolean;
         username: string;
         role: StaffIdentity["role"];
       }[]>`
-        select active, username, role
-        from pos.staff_users
-        where id = ${staff.id}
+        select staff.active, staff.username, staff.role
+        from pos.staff_users staff
+        join pos.branches branch
+          on branch.id = ${staff.branchId} and branch.active
+        left join pos.staff_branches membership
+          on membership.staff_id = staff.id
+         and membership.branch_id = branch.id
+        where staff.id = ${staff.id}
+          and (staff.role = 'admin' or membership.staff_id is not null)
         limit 1
       `
     );
@@ -227,8 +251,8 @@ export function createCatalogReader(
     );
   };
 
-  const listProducts = async () => {
-    return read(async (sql) => {
+  const listProducts = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const rows = await sql<ProductRow[]>`
         select
           id,
@@ -243,6 +267,7 @@ export function createCatalogReader(
           created_at as "createdAt",
           active
         from pos.products
+        where branch_id = ${branchId}
         order by category asc, id asc
         limit 1000
       `;
@@ -256,8 +281,8 @@ export function createCatalogReader(
     });
   };
 
-  const priceHistory = async (productId: number) => {
-    return read(async (sql) => {
+  const priceHistory = async (branchId: number, productId: number) => {
+    return readBranch(branchId, async (sql) => {
       const rows = await sql<PriceChangeRow[]>`
         select
           id,
@@ -269,7 +294,8 @@ export function createCatalogReader(
           changed_by as "changedBy",
           created_at as "createdAt"
         from pos.price_changes
-        where product_id = ${productId}
+        where branch_id = ${branchId}
+          and product_id = ${productId}
         order by created_at desc, id desc
         limit 50
       `;
@@ -281,12 +307,13 @@ export function createCatalogReader(
     });
   };
 
-  const listPumps = async () => {
-    return read(async (sql) => {
+  const listPumps = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const [pumpRows, nozzleRows, productRows, tankRows] = await Promise.all([
         sql<PumpRow[]>`
           select id, name, active
           from pos.pumps
+          where branch_id = ${branchId}
           order by id asc
           limit 1000
         `,
@@ -301,6 +328,7 @@ export function createCatalogReader(
             current_money::double precision as "currentMoney",
             active
           from pos.nozzles
+          where branch_id = ${branchId}
           order by id asc
           limit 1000
         `,
@@ -318,6 +346,7 @@ export function createCatalogReader(
             created_at as "createdAt",
             active
           from pos.products
+          where branch_id = ${branchId}
           limit 1000
         `,
         sql<TankRow[]>`
@@ -329,6 +358,7 @@ export function createCatalogReader(
             current_liters::double precision as "currentLiters",
             low_alert_at::double precision as "lowAlertAt"
           from pos.fuel_tanks
+          where branch_id = ${branchId}
           limit 1000
         `,
       ]);
@@ -373,8 +403,8 @@ export function createCatalogReader(
     });
   };
 
-  const listTanks = async () => {
-    return read(async (sql) => {
+  const listTanks = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const [tankRows, productRows, nozzleRows, settingRows] = await Promise
         .all([
           sql<TankRow[]>`
@@ -386,6 +416,7 @@ export function createCatalogReader(
           current_liters::double precision as "currentLiters",
           low_alert_at::double precision as "lowAlertAt"
         from pos.fuel_tanks
+        where branch_id = ${branchId}
         limit 1000
       `,
           sql<ProductRow[]>`
@@ -402,17 +433,20 @@ export function createCatalogReader(
           created_at as "createdAt",
           active
         from pos.products
+        where branch_id = ${branchId}
         limit 1000
       `,
           sql<NozzleRow[]>`
         select id, tank_id as "tankId"
         from pos.nozzles
+        where branch_id = ${branchId}
         limit 1000
       `,
           sql<{ value: string }[]>`
         select value
         from pos.settings
-        where key = 'tank_display_order'
+        where branch_id = ${branchId}
+          and key = 'tank_display_order'
         limit 1
       `,
         ]);
@@ -472,8 +506,8 @@ export function createCatalogReader(
     });
   };
 
-  const listRefills = async () => {
-    return read(async (sql) => {
+  const listRefills = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const [refillRows, tankRows] = await Promise.all([
         sql<RefillRow[]>`
           select
@@ -484,6 +518,7 @@ export function createCatalogReader(
             note,
             created_at as "createdAt"
           from pos.tank_refills
+          where branch_id = ${branchId}
           order by created_at desc
           limit 30
         `,
@@ -496,6 +531,7 @@ export function createCatalogReader(
             current_liters::double precision as "currentLiters",
             low_alert_at::double precision as "lowAlertAt"
           from pos.fuel_tanks
+          where branch_id = ${branchId}
           limit 1000
         `,
       ]);
@@ -521,12 +557,13 @@ export function createCatalogReader(
     });
   };
 
-  const getSettings = async () => {
-    return read(async (sql) => {
+  const getSettings = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const rows = await sql<{ key: string; value: string }[]>`
         select key, value
         from pos.settings
-        where key <> 'shop_logo'
+        where branch_id = ${branchId}
+          and key <> 'shop_logo'
         limit 1000
       `;
       return {
@@ -536,20 +573,21 @@ export function createCatalogReader(
     });
   };
 
-  const getShopLogo = async () => {
-    return read(async (sql) => {
+  const getShopLogo = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const rows = await sql<{ value: string }[]>`
         select value
         from pos.settings
-        where key = 'shop_logo'
+        where branch_id = ${branchId}
+          and key = 'shop_logo'
         limit 1
       `;
       return rows[0]?.value || null;
     });
   };
 
-  const lowStockAlerts = async () => {
-    return read(async (sql) => {
+  const lowStockAlerts = async (branchId: number) => {
+    return readBranch(branchId, async (sql) => {
       const [tankRows, productRows] = await Promise.all([
         sql<TankRow[]>`
         select
@@ -560,6 +598,7 @@ export function createCatalogReader(
           current_liters::double precision as "currentLiters",
           low_alert_at::double precision as "lowAlertAt"
         from pos.fuel_tanks
+        where branch_id = ${branchId}
         limit 1000
       `,
         sql<
@@ -583,6 +622,7 @@ export function createCatalogReader(
           active,
           category
         from pos.products
+        where branch_id = ${branchId}
         limit 1000
       `,
       ]);

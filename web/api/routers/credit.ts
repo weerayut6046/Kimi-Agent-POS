@@ -14,7 +14,7 @@ export const creditRouter = createRouter({
   // สรุปยอดค้างชำระของลูกค้าทุกคน (เรียงยอดค้างมาก → น้อย)
   summary: publicQuery
     .input(z.object({ q: z.string().optional() }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const q = input?.q?.trim();
       const pattern = q ? `%${q}%` : null;
@@ -32,7 +32,10 @@ export const creditRouter = createRouter({
         );
       const rows = [];
       for (const c of custRows) {
-        rows.push({ ...c, outstanding: await outstandingOf(db, c.id) });
+        rows.push({
+          ...c,
+          outstanding: await outstandingOf(db, c.id, ctx.staff.branchId),
+        });
       }
       return rows.sort((a, b) => b.outstanding - a.outstanding);
     }),
@@ -40,8 +43,9 @@ export const creditRouter = createRouter({
   // รายละเอียดลูกค้าเครดิต: บิลเครดิตค้าง + ประวัติชำระ
   detail: publicQuery
     .input(z.object({ customerId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const customer = await db.query.customers.findFirst({
         where: eq(customers.id, input.customerId),
       });
@@ -57,6 +61,7 @@ export const creditRouter = createRouter({
         .from(sales)
         .where(
           and(
+            eq(sales.branchId, branchId),
             eq(sales.customerId, customer.id),
             eq(sales.paymentMethod, "credit"),
             eq(sales.status, "completed")
@@ -66,11 +71,16 @@ export const creditRouter = createRouter({
       const payments = await db
         .select()
         .from(debtPayments)
-        .where(eq(debtPayments.customerId, customer.id))
+        .where(
+          and(
+            eq(debtPayments.branchId, branchId),
+            eq(debtPayments.customerId, customer.id),
+          ),
+        )
         .orderBy(desc(debtPayments.createdAt));
       return {
         customer,
-        outstanding: await outstandingOf(db, customer.id),
+        outstanding: await outstandingOf(db, customer.id, branchId),
         creditSales,
         payments,
       };
@@ -89,25 +99,34 @@ export const creditRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const customer = await db.query.customers.findFirst({
         where: eq(customers.id, input.customerId),
       });
       if (!customer) throw new Error("ไม่พบลูกค้า");
       const amount = r2(input.amount);
       if (amount <= 0) throw new Error("จำนวนเงินต้องมากกว่า 0");
-      const outstanding = await outstandingOf(db, customer.id);
+      const outstanding = await outstandingOf(db, customer.id, branchId);
       if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
 
       // ถ้ามีกะเปิดอยู่ให้ผูก shiftId อัตโนมัติ (เหมือนค่าใช้จ่าย) — ต้องหาก่อนเข้า tx
       const openShift = await db.query.shifts.findFirst({
-        where: eq(shifts.status, "open"),
+        where: and(
+          eq(shifts.branchId, branchId),
+          eq(shifts.status, "open"),
+        ),
       });
 
       const paymentId = await db.transaction(async tx => {
-        const paymentNo = await nextDocNo(tx, "debt_payment");
+        const paymentNo = await nextDocNo(
+          tx,
+          "debt_payment",
+          branchId,
+        );
         const [{ id }] = await tx
           .insert(debtPayments)
           .values({
+            branchId,
             paymentNo,
             customerId: customer.id,
             amount,
@@ -120,7 +139,10 @@ export const creditRouter = createRouter({
         return id;
       });
       const payment = await db.query.debtPayments.findFirst({
-        where: eq(debtPayments.id, paymentId),
+        where: and(
+          eq(debtPayments.id, paymentId),
+          eq(debtPayments.branchId, branchId),
+        ),
       });
       logAudit({
         action: "receive_debt_payment",
@@ -137,11 +159,22 @@ export const creditRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branchId = ctx.staff.branchId;
       const existing = await db.query.debtPayments.findFirst({
-        where: eq(debtPayments.id, input.id),
+        where: and(
+          eq(debtPayments.id, input.id),
+          eq(debtPayments.branchId, branchId),
+        ),
       });
       if (!existing) throw new Error("ไม่พบรายการชำระ");
-      await db.delete(debtPayments).where(eq(debtPayments.id, input.id));
+      await db
+        .delete(debtPayments)
+        .where(
+          and(
+            eq(debtPayments.id, input.id),
+            eq(debtPayments.branchId, branchId),
+          ),
+        );
       logAudit({
         action: "remove_debt_payment",
         ...actorFromReq(ctx.req),
