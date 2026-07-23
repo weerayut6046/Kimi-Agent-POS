@@ -4,10 +4,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
+import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: shouldRetryQuery,
+      retryDelay: queryRetryDelay,
+    },
+  },
+});
 const trpcClient = trpc.createClient({
   links: [
     httpLink({
@@ -18,9 +26,7 @@ const trpcClient = trpc.createClient({
         try {
           const raw = localStorage.getItem("pumppos_staff");
           const s = raw ? (JSON.parse(raw) as { token?: string }) : null;
-          return s?.token
-            ? { "x-staff-session": s.token }
-            : {};
+          return s?.token ? { "x-staff-session": s.token } : {};
         } catch {
           return {};
         }
@@ -38,9 +44,7 @@ const trpcClient = trpc.createClient({
 export function TRPCProvider({ children }: { children: ReactNode }) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </trpc.Provider>
   );
 }

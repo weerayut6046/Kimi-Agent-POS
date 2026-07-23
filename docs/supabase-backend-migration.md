@@ -33,11 +33,13 @@ procedures and is not a superuser or RLS bypass role. The Edge function rechecks
 the staff identity (`id`, `username`, `role`, and `active`) against
 `pos.staff_users` before every read. Its Postgres client uses transaction-pooler
 compatible settings, releases idle clients after two seconds, and retries once
-with a fresh client after a failed read. The login role permits at most 12
-database connections; production logs showed that the earlier limit of five
-was too low when several catalog reads arrived concurrently. All catalog writes
-and other catalog reads still use Railway until their transaction and audit
-guarantees are migrated.
+with a fresh client after a failed read. The login role permits at most 20
+database connections. Production logs showed that the earlier limits of five
+and twelve were too low when several catalog reads and realtime-startup
+refreshes arrived concurrently. The web client now coalesces transport-ready
+refreshes, preserves in-flight queries, and jitters transient retries to avoid
+recreating that burst. All catalog writes and other catalog reads still use
+Railway until their transaction and audit guarantees are migrated.
 
 The rollout is controlled by `CATALOG_READS_ENABLED=true` and the separate
 `CATALOG_DB_URL` secret. Set the flag to `false` (or remove it) to route these
@@ -145,8 +147,9 @@ events with no 4xx/5xx response and no catalog 503. Repeated
 returned 200; earlier samples also confirmed `catalog.listPumps` and
 `catalog.getShopLogo` at 200 through `supabase-postgres`. Postgres logs contained
 no new `pos_catalog_reader_live` connection-limit error during or after this
-browser run. The last such error remains from before the reader connection and
-idle-client changes.
+browser run. A later multi-request burst on 2026-07-23 exhausted the limit of
+12; the follow-up raised the bounded role limit to 20 and reduced duplicated
+realtime-startup refetches in the web client.
 
 ## Rollback
 

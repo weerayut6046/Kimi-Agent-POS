@@ -9,6 +9,7 @@ import { isRealtimeInvalidationEvent } from "@contracts/realtime";
 import { useStaff } from "./useStaff";
 import { createSseParser } from "@/lib/realtimeSse";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { shouldRefreshAfterTransportReady } from "@/lib/realtimeRefresh";
 
 const STAFF_STORAGE_KEY = "pumppos_staff";
 const SUPABASE_TOPIC = "pos-invalidation-v1";
@@ -58,13 +59,29 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let supabaseSubscribed = false;
     let channelRetryTimer: number | undefined;
     let channelRetryMs = 1_000;
+    let lastTransportRefreshAt = Number.NEGATIVE_INFINITY;
 
     const invalidateActiveQueries = () => {
       if (invalidateTimer !== undefined) return;
       invalidateTimer = window.setTimeout(() => {
         invalidateTimer = undefined;
-        void queryClient.invalidateQueries({ refetchType: "active" });
+        void queryClient.invalidateQueries(
+          { refetchType: "active" },
+          // Keep an in-flight request alive. Cancelling and immediately
+          // replacing every active query creates a connection burst on page
+          // load while the realtime transports are still settling.
+          { cancelRefetch: false }
+        );
       }, 75);
+    };
+
+    const refreshAfterTransportReady = () => {
+      const now = Date.now();
+      if (!shouldRefreshAfterTransportReady(lastTransportRefreshAt, now)) {
+        return;
+      }
+      lastTransportRefreshAt = now;
+      invalidateActiveQueries();
     };
 
     const acceptEvent = (event: unknown) => {
@@ -103,7 +120,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           const parse = createSseParser(message => {
             if (message.event === "ready") {
               // Re-fetch after every reconnect to close any event-loss window.
-              invalidateActiveQueries();
+              refreshAfterTransportReady();
               return;
             }
             if (message.event !== "invalidate") return;
@@ -221,7 +238,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             clearChannelRetry();
             stopSseFallback();
             // Re-fetch after switching transports to close the handover window.
-            invalidateActiveQueries();
+            refreshAfterTransportReady();
             return;
           }
           if (
