@@ -69,12 +69,40 @@ describe("openShift / closeShift", () => {
     });
     await expect(
       t.caller("admin").catalog.updateProduct({ id: fuel!.id, price: 39.74 })
-    ).rejects.toThrow("กรุณาปิดกะก่อนเปลี่ยนราคาน้ำมัน");
+    ).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: expect.stringContaining("กรุณาปิดกะก่อนเปลี่ยนราคาน้ำมัน"),
+    });
 
     const unchanged = await t.db.query.products.findFirst({
       where: eq(products.id, fuel!.id),
     });
     expect(unchanged!.price).toBe(40.74);
+  });
+
+  it("เปลี่ยนราคาน้ำมันที่ไม่ได้อยู่ในกะเปิดได้", async () => {
+    await t.caller("admin").catalog.createProduct({
+      code: "FUEL-NO-NOZZLE",
+      name: "น้ำมันทดสอบที่ไม่มีหัวจ่าย",
+      category: "fuel",
+      unit: "ลิตร",
+      price: 30,
+      cost: 25,
+      stockQty: 0,
+      lowStockAt: 0,
+    });
+    const unusedFuel = await t.db.query.products.findFirst({
+      where: eq(products.code, "FUEL-NO-NOZZLE"),
+    });
+
+    await t
+      .caller("admin")
+      .catalog.updateProduct({ id: unusedFuel!.id, price: 31 });
+
+    const updated = await t.db.query.products.findFirst({
+      where: eq(products.id, unusedFuel!.id),
+    });
+    expect(updated!.price).toBe(31);
   });
 
   it("เปิดกะซ้ำตอนมีกะเปิดอยู่ → error", async () => {

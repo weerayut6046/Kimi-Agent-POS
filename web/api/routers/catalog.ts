@@ -1,6 +1,7 @@
 import { z } from "zod";
 import os from "os";
-import { desc, eq, ne, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -14,6 +15,7 @@ import {
   priceChanges,
   settings,
   shifts,
+  shiftReadings,
 } from "@db/schema";
 
 const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
@@ -88,13 +90,24 @@ export const catalogRouter = createRouter({
         patch.price !== undefined && patch.price !== before.price;
       const nextCategory = patch.category ?? before.category;
       if (priceChanged && nextCategory === "fuel") {
-        const openShift = await db.query.shifts.findFirst({
-          where: eq(shifts.status, "open"),
-        });
-        if (openShift) {
-          throw new Error(
-            "ยังมีกะเปิดอยู่ กรุณาปิดกะก่อนเปลี่ยนราคาน้ำมัน แล้วเปิดกะใหม่เพื่อให้ยอดมิเตอร์ L และ P ตรงกัน"
-          );
+        // A shift snapshots the price for each nozzle that was actually opened.
+        // Only those products must stay price-locked; an unrelated/unused fuel
+        // product can be edited safely while another shift is open.
+        const [openShiftReading] = await db
+          .select({ shiftId: shifts.id })
+          .from(shiftReadings)
+          .innerJoin(shifts, eq(shifts.id, shiftReadings.shiftId))
+          .innerJoin(nozzles, eq(nozzles.id, shiftReadings.nozzleId))
+          .where(
+            and(eq(shifts.status, "open"), eq(nozzles.productId, before.id))
+          )
+          .limit(1);
+        if (openShiftReading) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "ยังมีกะเปิดอยู่ กรุณาปิดกะก่อนเปลี่ยนราคาน้ำมัน แล้วเปิดกะใหม่เพื่อให้ยอดมิเตอร์ L และ P ตรงกัน",
+          });
         }
       }
       await db.update(products).set(patch).where(eq(products.id, id));
