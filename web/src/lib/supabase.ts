@@ -11,8 +11,47 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 const SUPABASE_AUTH_STORAGE_KEY = "pumppos_supabase_auth";
+const ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS = 30;
 
 let browserClient: Promise<SupabaseClient | null> | undefined;
+
+type StoredSupabaseSession = {
+  access_token?: unknown;
+  expires_at?: unknown;
+};
+
+export function accessTokenFromStoredSupabaseSession(
+  raw: string | null,
+  nowMs = Date.now()
+): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as StoredSupabaseSession;
+    if (
+      typeof parsed.access_token !== "string" ||
+      parsed.access_token.length === 0 ||
+      typeof parsed.expires_at !== "number" ||
+      parsed.expires_at <=
+        Math.floor(nowMs / 1000) + ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS
+    ) {
+      return null;
+    }
+    return parsed.access_token;
+  } catch {
+    return null;
+  }
+}
+
+function persistedSupabaseAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return accessTokenFromStoredSupabaseSession(
+      window.localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY)
+    );
+  } catch {
+    return null;
+  }
+}
 
 export function hasPersistedSupabaseSession(): boolean {
   if (typeof window === "undefined") return false;
@@ -65,7 +104,7 @@ export async function clearSupabaseSession(): Promise<void> {
 
 export async function signInStaffWithPassword(
   username: string,
-  password: string,
+  password: string
 ): Promise<void> {
   const client = await getSupabaseBrowserClient();
   if (!client) throw new Error("Supabase Auth is not configured");
@@ -77,6 +116,13 @@ export async function signInStaffWithPassword(
 }
 
 export async function currentSupabaseAccessToken(): Promise<string | null> {
+  // Supabase persists the current session as JSON. Reading a still-valid
+  // access token directly lets the first authenticated request start without
+  // downloading and initializing the full Auth SDK. Expired sessions still
+  // fall through to the SDK so its normal refresh flow remains intact.
+  const persistedToken = persistedSupabaseAccessToken();
+  if (persistedToken) return persistedToken;
+
   const client = await getSupabaseBrowserClient();
   if (!client) return null;
   const { data } = await client.auth.getSession();

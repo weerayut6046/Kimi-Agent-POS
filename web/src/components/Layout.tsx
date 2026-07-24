@@ -232,9 +232,13 @@ export default function Layout() {
   const { staff, logout, switchBranch } = useStaff();
   const navigate = useNavigate();
   const location = useLocation();
-  const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const [loadSecondaryData, setLoadSecondaryData] = useState(false);
+  const { data: settingMap } = trpc.catalog.getSettings.useQuery(undefined, {
+    enabled: loadSecondaryData,
+  });
   const { data: currentShift } = trpc.pos.currentShift.useQuery(undefined, {
     refetchInterval: 30000,
+    trpc: { context: { skipBatch: true } },
   });
   const [now, setNow] = useState(() => new Date());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -281,6 +285,11 @@ export default function Layout() {
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoadSecondaryData(true), 1_500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -407,7 +416,7 @@ export default function Layout() {
                   </div>
                 </div>
               </div>
-              <LowStockAlert />
+              {loadSecondaryData && <LowStockAlert />}
             </div>
           </div>
 
@@ -529,7 +538,7 @@ export default function Layout() {
                 </div>
                 <div className="text-[11px] text-slate-500">{dateLabel}</div>
               </div>
-              <LowStockAlert />
+              {loadSecondaryData && <LowStockAlert />}
             </div>
           </header>
 
@@ -571,7 +580,7 @@ export default function Layout() {
             >
               <Search className="size-[18px]" />
             </button>
-            <LowStockAlert />
+            {loadSecondaryData && <LowStockAlert />}
           </header>
 
           <DesktopSyncBanner />

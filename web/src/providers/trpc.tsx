@@ -1,5 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
@@ -32,33 +32,47 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+async function requestHeaders() {
+  const token = await currentSupabaseAccessToken();
+  const branchId = localStorage.getItem("pumppos_branch_id");
+  return {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    "x-region": supabaseFunctionRegion,
+    ...(branchId && /^[1-9][0-9]*$/.test(branchId)
+      ? { "x-branch-id": branchId }
+      : {}),
+  };
+}
+
+function trpcFetch(input: RequestInfo | URL, init?: RequestInit) {
+  return globalThis.fetch(input, {
+    ...(init ?? {}),
+    // Supabase Auth uses the explicit Bearer token above, not cookies.
+    // Omitting credentials keeps cross-origin CORS simple and strict.
+    credentials: "omit",
+  });
+}
+
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      // Web production calls Supabase directly. Desktop stays same-origin so
-      // its local offline runtime can proxy/cache requests without CORS.
-      url: trpcUrl,
-      transformer: superjson,
-      maxURLLength: 2_048,
-      async headers() {
-        const token = await currentSupabaseAccessToken();
-        const branchId = localStorage.getItem("pumppos_branch_id");
-        return {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          "x-region": supabaseFunctionRegion,
-          ...(branchId && /^[1-9][0-9]*$/.test(branchId)
-            ? { "x-branch-id": branchId }
-            : {}),
-        };
-      },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          // Supabase Auth uses the explicit Bearer token above, not cookies.
-          // Omitting credentials keeps cross-origin CORS simple and strict.
-          credentials: "omit",
-        });
-      },
+    splitLink({
+      condition: operation => operation.context.skipBatch === true,
+      true: httpLink({
+        url: trpcUrl,
+        transformer: superjson,
+        headers: requestHeaders,
+        fetch: trpcFetch,
+      }),
+      false: httpBatchLink({
+        // Web production calls Supabase directly. Desktop stays same-origin so
+        // its local offline runtime can proxy/cache requests without CORS.
+        url: trpcUrl,
+        transformer: superjson,
+        maxURLLength: 2_048,
+        headers: requestHeaders,
+        fetch: trpcFetch,
+      }),
     }),
   ],
 });

@@ -18,38 +18,40 @@ export interface ShiftCashSummary {
  */
 export async function shiftCashSummary(
   db: ReturnType<typeof getDb>,
-  shift: Pick<Shift, "id" | "branchId" | "openingFloat">,
+  shift: Pick<Shift, "id" | "branchId" | "openingFloat">
 ): Promise<ShiftCashSummary> {
-  const [saleRow] = await db
-    .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
-    .from(sales)
-    .where(
-      and(
-        eq(sales.branchId, shift.branchId),
-        eq(sales.shiftId, shift.id),
-        eq(sales.status, "completed"),
-        eq(sales.paymentMethod, "cash"),
+  const [[saleRow], [debtRow], [expenseRow]] = await Promise.all([
+    db
+      .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
+      .from(sales)
+      .where(
+        and(
+          eq(sales.branchId, shift.branchId),
+          eq(sales.shiftId, shift.id),
+          eq(sales.status, "completed"),
+          eq(sales.paymentMethod, "cash")
+        )
       ),
-    );
-  const [debtRow] = await db
-    .select({ sum: sql<number>`coalesce(sum(${debtPayments.amount}),0)` })
-    .from(debtPayments)
-    .where(
-      and(
-        eq(debtPayments.branchId, shift.branchId),
-        eq(debtPayments.shiftId, shift.id),
-        eq(debtPayments.method, "cash"),
+    db
+      .select({ sum: sql<number>`coalesce(sum(${debtPayments.amount}),0)` })
+      .from(debtPayments)
+      .where(
+        and(
+          eq(debtPayments.branchId, shift.branchId),
+          eq(debtPayments.shiftId, shift.id),
+          eq(debtPayments.method, "cash")
+        )
       ),
-    );
-  const [expenseRow] = await db
-    .select({ sum: sql<number>`coalesce(sum(${expenses.amount}),0)` })
-    .from(expenses)
-    .where(
-      and(
-        eq(expenses.branchId, shift.branchId),
-        eq(expenses.shiftId, shift.id),
+    db
+      .select({ sum: sql<number>`coalesce(sum(${expenses.amount}),0)` })
+      .from(expenses)
+      .where(
+        and(
+          eq(expenses.branchId, shift.branchId),
+          eq(expenses.shiftId, shift.id)
+        )
       ),
-    );
+  ]);
 
   const cashSales = r2(saleRow?.sum ?? 0);
   const cashDebtPayments = r2(debtRow?.sum ?? 0);
@@ -59,6 +61,8 @@ export async function shiftCashSummary(
     cashSales,
     cashDebtPayments,
     expensesTotal,
-    expectedCash: r2(shift.openingFloat + cashSales + cashDebtPayments - expensesTotal),
+    expectedCash: r2(
+      shift.openingFloat + cashSales + cashDebtPayments - expensesTotal
+    ),
   };
 }

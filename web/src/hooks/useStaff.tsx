@@ -47,6 +47,7 @@ export type StaffLoginResult = StaffSession;
 const BRANCH_KEY = "pumppos_branch_id";
 const STAFF_CACHE_KEY = "pumppos_staff_profile_v1";
 const STAFF_CACHE_TTL_MS = 12 * 60 * 60_000;
+const CACHED_SESSION_VALIDATION_DELAY_MS = 3_000;
 
 const StaffContext = createContext<{
   staff: StaffSession | null;
@@ -67,7 +68,7 @@ function normalizeStaff<T extends StaffSession>(staff: T): StaffSession {
     ...staff,
     menuPermissions: normalizeMenuPermissions(
       staff.role,
-      staff.menuPermissions,
+      staff.menuPermissions
     ),
   };
 }
@@ -109,7 +110,9 @@ function readCachedStaff(): StaffSession | null {
       typeof staff.username !== "string" ||
       !["admin", "manager", "cashier"].includes(String(staff.role)) ||
       !Array.isArray(staff.menuPermissions) ||
-      !staff.menuPermissions.every(permission => typeof permission === "string") ||
+      !staff.menuPermissions.every(
+        permission => typeof permission === "string"
+      ) ||
       typeof staff.branchId !== "number" ||
       !Number.isInteger(staff.branchId) ||
       typeof staff.branchCode !== "string" ||
@@ -142,65 +145,83 @@ function writeCachedStaff(staff: StaffSession | null): void {
   }
   window.sessionStorage.setItem(
     STAFF_CACHE_KEY,
-    JSON.stringify({ savedAt: Date.now(), staff }),
+    JSON.stringify({ savedAt: Date.now(), staff })
   );
 }
 
 export function StaffProvider({ children }: { children: ReactNode }) {
   const [cachedStaff, setCachedStaff] = useState<StaffSession | null>(
-    readCachedStaff,
+    readCachedStaff
   );
   const [authReady, setAuthReady] = useState(
-    () => !hasPersistedSupabaseSession() && readCachedStaff() === null,
+    () => !hasPersistedSupabaseSession() && cachedStaff === null
   );
   const [hasAuthSession, setHasAuthSession] = useState(
-    () => readCachedStaff() !== null || hasPersistedSupabaseSession(),
+    () => cachedStaff !== null || hasPersistedSupabaseSession()
   );
   const utils = trpc.useUtils();
 
   useEffect(() => {
-    if (authReady && !hasAuthSession) return;
+    if (!hasAuthSession) return;
 
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
+    let validationTimer: number | undefined;
 
-    void getSupabaseBrowserClient().then(async client => {
-      if (!client || stopped) {
-        if (!stopped) setAuthReady(true);
-        return;
-      }
-      const { data } = await client.auth.getSession();
-      if (stopped) return;
-      const sessionAvailable = Boolean(data.session);
-      setHasAuthSession(sessionAvailable);
-      if (!sessionAvailable) {
-        setCachedStaff(null);
-        writeCachedStaff(null);
-        localStorage.removeItem(BRANCH_KEY);
-      }
-      setAuthReady(true);
+    const validateSession = () => {
+      void getSupabaseBrowserClient().then(async client => {
+        if (!client || stopped) {
+          if (!stopped) setAuthReady(true);
+          return;
+        }
+        const { data } = await client.auth.getSession();
+        if (stopped) return;
+        const sessionAvailable = Boolean(data.session);
+        setHasAuthSession(sessionAvailable);
+        if (!sessionAvailable) {
+          setCachedStaff(null);
+          writeCachedStaff(null);
+          localStorage.removeItem(BRANCH_KEY);
+        }
+        setAuthReady(true);
 
-      const subscription = client.auth.onAuthStateChange((event, session) => {
-        window.setTimeout(() => {
-          if (stopped) return;
-          const nextSessionAvailable = Boolean(session);
-          setHasAuthSession(nextSessionAvailable);
-          if (!nextSessionAvailable || event === "SIGNED_OUT") {
-            setCachedStaff(null);
-            writeCachedStaff(null);
-            localStorage.removeItem(BRANCH_KEY);
-            void utils.invalidate();
-          }
-        }, 0);
+        const subscription = client.auth.onAuthStateChange((event, session) => {
+          window.setTimeout(() => {
+            if (stopped) return;
+            const nextSessionAvailable = Boolean(session);
+            setHasAuthSession(nextSessionAvailable);
+            if (!nextSessionAvailable || event === "SIGNED_OUT") {
+              setCachedStaff(null);
+              writeCachedStaff(null);
+              localStorage.removeItem(BRANCH_KEY);
+              void utils.invalidate();
+            }
+          }, 0);
+        });
+        unsubscribe = () => subscription.data.subscription.unsubscribe();
       });
-      unsubscribe = () => subscription.data.subscription.unsubscribe();
-    });
+    };
+
+    // A cached staff profile can paint the authenticated shell immediately,
+    // while every API request still validates the persisted Supabase JWT.
+    // Delay loading the Auth SDK so it cannot compete with the route's LCP.
+    if (cachedStaff) {
+      validationTimer = window.setTimeout(
+        validateSession,
+        CACHED_SESSION_VALIDATION_DELAY_MS
+      );
+    } else {
+      validateSession();
+    }
 
     return () => {
       stopped = true;
+      if (validationTimer !== undefined) {
+        window.clearTimeout(validationTimer);
+      }
       unsubscribe?.();
     };
-  }, [authReady, hasAuthSession, utils]);
+  }, [cachedStaff, hasAuthSession, utils]);
 
   const currentStaff = trpc.auth.currentStaff.useQuery(undefined, {
     enabled: authReady && hasAuthSession,
@@ -218,7 +239,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         : currentStaff.data?.authenticated
           ? normalizeStaff(currentStaff.data)
           : cachedStaff,
-    [cachedStaff, currentStaff.data, currentStaff.isError, hasAuthSession],
+    [cachedStaff, currentStaff.data, currentStaff.isError, hasAuthSession]
   );
 
   useEffect(() => {
@@ -276,7 +297,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
 
   const isCheckingSession =
     (!authReady && !cachedStaff) ||
-    (hasAuthSession && !staff && (currentStaff.isPending || currentStaff.isFetching));
+    (hasAuthSession &&
+      !staff &&
+      (currentStaff.isPending || currentStaff.isFetching));
 
   return (
     <StaffContext.Provider

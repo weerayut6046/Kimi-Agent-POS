@@ -28,10 +28,7 @@ import {
   deleteSupabaseStaffIdentity,
   updateSupabaseStaffIdentity,
 } from "../lib/supabaseAuth";
-import {
-  isValidStaffUsername,
-  normalizeStaffUsername,
-} from "@contracts/auth";
+import { isValidStaffUsername, normalizeStaffUsername } from "@contracts/auth";
 import {
   MENU_PERMISSION_KEYS,
   normalizeMenuPermissions,
@@ -40,8 +37,6 @@ import {
 import { DEFAULT_SETTINGS } from "@contracts/settings";
 import {
   accessibleBranchesForStaff,
-  branchForStaff,
-  defaultBranchForStaff,
   type AccessibleBranch,
 } from "../lib/branches";
 
@@ -53,7 +48,7 @@ const staffPasswordInput = z
   .max(128, "รหัสผ่านต้องไม่เกิน 128 ตัวอักษร")
   .refine(
     value => /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value),
-    "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข",
+    "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข"
   );
 
 function effectiveMenuPermissions(
@@ -100,18 +95,20 @@ function branchSummary(branch: AccessibleBranch) {
 
 async function staffSessionResponse(
   user: typeof staffUsers.$inferSelect,
-  requestedBranchId?: number,
+  requestedBranchId?: number
 ) {
-  const availableBranches = await accessibleBranchesForStaff(user);
+  const [availableBranches, accessGroup] = await Promise.all([
+    accessibleBranchesForStaff(user),
+    accessGroupForUser(user.accessGroupId),
+  ]);
   const branch = requestedBranchId
     ? (availableBranches.find(
-        (candidate) => candidate.id === requestedBranchId,
+        candidate => candidate.id === requestedBranchId
       ) ?? null)
-    : await defaultBranchForStaff(user);
+    : (availableBranches[0] ?? null);
   if (!branch) {
     throw new Error("บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าใช้งานสาขา");
   }
-  const accessGroup = await accessGroupForUser(user.accessGroupId);
   const staff = {
     id: user.id,
     name: user.name,
@@ -128,7 +125,7 @@ async function staffSessionResponse(
     menuPermissions: effectiveMenuPermissions(
       user.role,
       user.menuPermissions,
-      accessGroup,
+      accessGroup
     ),
     accessGroup: accessGroupSummary(accessGroup),
   };
@@ -140,7 +137,7 @@ export const authRouter = createRouter({
     .mutation(async ({ input }) => {
       if (process.env.NODE_ENV !== "test") {
         throw new Error(
-          "This login endpoint is disabled. Sign in with Supabase Auth.",
+          "This login endpoint is disabled. Sign in with Supabase Auth."
         );
       }
       const db = getDb();
@@ -159,9 +156,11 @@ export const authRouter = createRouter({
 
   currentStaff: authenticatedStaffAction
     .input(
-      z.object({
-        sessionNonce: z.number().int().nonnegative().optional(),
-      }).optional(),
+      z
+        .object({
+          sessionNonce: z.number().int().nonnegative().optional(),
+        })
+        .optional()
     )
     .query(async ({ ctx }) => {
       const session = ctx.staff;
@@ -169,9 +168,7 @@ export const authRouter = createRouter({
         where: eq(staffUsers.id, session.id),
       });
       if (!user?.active) throw new Error("Staff account is disabled");
-      const branch = await branchForStaff(user, session.branchId);
-      if (!branch) throw new Error("Branch access is not available");
-      const staff = await staffSessionResponse(user, branch.id);
+      const staff = await staffSessionResponse(user, session.branchId);
       return {
         authenticated: true as const,
         ...staff,
@@ -188,19 +185,17 @@ export const authRouter = createRouter({
         where: eq(staffUsers.id, ctx.staff.id),
       });
       if (!user?.active) throw new Error("ไม่พบบัญชีพนักงาน");
-      const branch = await branchForStaff(user, input.branchId);
-      if (!branch) throw new Error("ไม่มีสิทธิ์เข้าใช้งานสาขานี้");
       return {
-        ...(await staffSessionResponse(user, branch.id)),
+        ...(await staffSessionResponse(user, input.branchId)),
       };
     }),
 
   listBranches: publicQuery.query(async ({ ctx }) =>
-    (await accessibleBranchesForStaff(ctx.staff)).map(branchSummary),
+    (await accessibleBranchesForStaff(ctx.staff)).map(branchSummary)
   ),
 
   listAllBranches: adminQuery.query(async ({ ctx }) =>
-    (await accessibleBranchesForStaff(ctx.staff, true)).map(branchSummary),
+    (await accessibleBranchesForStaff(ctx.staff, true)).map(branchSummary)
   ),
 
   createBranch: adminQuery
@@ -212,13 +207,13 @@ export const authRouter = createRouter({
           .min(2)
           .max(20)
           .regex(/^[A-Za-z0-9_-]+$/)
-          .transform((value) => value.toUpperCase()),
+          .transform(value => value.toUpperCase()),
         name: z.string().trim().min(1).max(120),
         address: z.string().trim().max(500).default(""),
         phone: z.string().trim().max(40).default(""),
         taxId: z.string().trim().max(30).default(""),
         cloneCurrentSetup: z.boolean().default(true),
-      }),
+      })
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -227,7 +222,7 @@ export const authRouter = createRouter({
       });
       if (duplicate) throw new Error("รหัสสาขานี้ถูกใช้แล้ว");
 
-      const created = await db.transaction(async (tx) => {
+      const created = await db.transaction(async tx => {
         const [branch] = await tx
           .insert(branches)
           .values({
@@ -249,7 +244,7 @@ export const authRouter = createRouter({
         const settingMap = {
           ...DEFAULT_SETTINGS,
           ...Object.fromEntries(
-            sourceSettings.map((row) => [row.key, row.value]),
+            sourceSettings.map(row => [row.key, row.value])
           ),
           shop_branch: input.name,
           shop_address: input.address || DEFAULT_SETTINGS.shop_address,
@@ -264,7 +259,7 @@ export const authRouter = createRouter({
             branchId: branch.id,
             key,
             value,
-          })),
+          }))
         );
 
         if (input.cloneCurrentSetup) {
@@ -274,8 +269,12 @@ export const authRouter = createRouter({
             .from(products)
             .where(eq(products.branchId, sourceBranchId));
           for (const source of sourceProducts) {
-            const { id: sourceId, branchId: _branchId, createdAt: _createdAt, ...copy } =
-              source;
+            const {
+              id: sourceId,
+              branchId: _branchId,
+              createdAt: _createdAt,
+              ...copy
+            } = source;
             const [target] = await tx
               .insert(products)
               .values({
@@ -355,13 +354,13 @@ export const authRouter = createRouter({
             .where(eq(rewards.branchId, sourceBranchId));
           if (sourceRewards.length > 0) {
             await tx.insert(rewards).values(
-              sourceRewards.map((source) => ({
+              sourceRewards.map(source => ({
                 branchId: branch.id,
                 name: source.name,
                 pointsRequired: source.pointsRequired,
                 stock: 0,
                 active: source.active,
-              })),
+              }))
             );
           }
 
@@ -371,14 +370,14 @@ export const authRouter = createRouter({
             .where(eq(workShiftTemplates.branchId, sourceBranchId));
           if (sourceTemplates.length > 0) {
             await tx.insert(workShiftTemplates).values(
-              sourceTemplates.map((source) => ({
+              sourceTemplates.map(source => ({
                 branchId: branch.id,
                 name: source.name,
                 startTime: source.startTime,
                 endTime: source.endTime,
                 breakMinutes: source.breakMinutes,
                 active: source.active,
-              })),
+              }))
             );
           }
         }
@@ -391,11 +390,11 @@ export const authRouter = createRouter({
           await tx
             .insert(staffBranches)
             .values(
-              admins.map((admin) => ({
+              admins.map(admin => ({
                 staffId: admin.id,
                 branchId: branch.id,
                 isDefault: false,
-              })),
+              }))
             )
             .onConflictDoNothing();
         }
@@ -421,7 +420,7 @@ export const authRouter = createRouter({
         phone: z.string().trim().max(40).optional(),
         taxId: z.string().trim().max(30).optional(),
         active: z.boolean().optional(),
-      }),
+      })
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -433,7 +432,7 @@ export const authRouter = createRouter({
         throw new Error("ปิดสาขาที่กำลังใช้งานอยู่ไม่ได้");
       }
       const { id, ...patch } = input;
-      await db.transaction(async (tx) => {
+      await db.transaction(async tx => {
         await tx
           .update(branches)
           .set({ ...patch, updatedAt: new Date() })
@@ -451,10 +450,10 @@ export const authRouter = createRouter({
           await tx
             .insert(settings)
             .values(
-              settingUpdates.map((setting) => ({
+              settingUpdates.map(setting => ({
                 branchId: id,
                 ...setting,
-              })),
+              }))
             )
             .onConflictDoUpdate({
               target: [settings.branchId, settings.key],
@@ -467,10 +466,7 @@ export const authRouter = createRouter({
               .update(settings)
               .set({ value: setting.value })
               .where(
-                and(
-                  eq(settings.branchId, id),
-                  eq(settings.key, setting.key),
-                ),
+                and(eq(settings.branchId, id), eq(settings.key, setting.key))
               );
           }
         }
@@ -491,7 +487,7 @@ export const authRouter = createRouter({
       .select({ staffId: staffBranches.staffId })
       .from(staffBranches)
       .where(eq(staffBranches.branchId, ctx.staff.branchId));
-    const staffIds = memberships.map((membership) => membership.staffId);
+    const staffIds = memberships.map(membership => membership.staffId);
     if (staffIds.length === 0) return [];
     const rows = await db.query.staffUsers.findMany({
       where: inArray(staffUsers.id, staffIds),
@@ -528,8 +524,8 @@ export const authRouter = createRouter({
           ),
           accessGroup: accessGroupSummary(accessGroup),
           branchIds: memberships
-            .filter((membership) => membership.staffId === rest.id)
-            .map((membership) => membership.branchId),
+            .filter(membership => membership.staffId === rest.id)
+            .map(membership => membership.branchId),
         };
       }
     );
@@ -669,7 +665,7 @@ export const authRouter = createRouter({
           .min(3)
           .refine(
             isValidStaffUsername,
-            "Username must use English letters and numbers",
+            "Username must use English letters and numbers"
           ),
         password: staffPasswordInput,
         name: z.string().min(1),
@@ -705,16 +701,14 @@ export const authRouter = createRouter({
           throw new Error("ต้องเปิดสิทธิ์อย่างน้อย 1 เมนู");
         }
       }
-      const branchIds = [
-        ...new Set(input.branchIds ?? [ctx.staff.branchId]),
-      ];
+      const branchIds = [...new Set(input.branchIds ?? [ctx.staff.branchId])];
       const validBranches = await db.query.branches.findMany({
         where: inArray(branches.id, branchIds),
         columns: { id: true, active: true },
       });
       if (
         validBranches.length !== branchIds.length ||
-        validBranches.some((branch) => !branch.active)
+        validBranches.some(branch => !branch.active)
       ) {
         throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
       }
@@ -735,7 +729,7 @@ export const authRouter = createRouter({
       });
       let id: number;
       try {
-        id = await db.transaction(async (tx) => {
+        id = await db.transaction(async tx => {
           const [created] = await tx
             .insert(staffUsers)
             .values({
@@ -749,11 +743,11 @@ export const authRouter = createRouter({
             })
             .returning({ id: staffUsers.id });
           await tx.insert(staffBranches).values(
-            branchIds.map((branchId) => ({
+            branchIds.map(branchId => ({
               staffId: created.id,
               branchId,
               isDefault: branchId === defaultBranchId,
-            })),
+            }))
           );
           return created.id;
         });
@@ -781,7 +775,7 @@ export const authRouter = createRouter({
           .min(3)
           .refine(
             isValidStaffUsername,
-            "Username must use English letters and numbers",
+            "Username must use English letters and numbers"
           )
           .optional(),
         password: staffPasswordInput.optional(),
@@ -793,12 +787,7 @@ export const authRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const {
-        id,
-        password,
-        branchIds: requestedBranchIds,
-        ...rawRest
-      } = input;
+      const { id, password, branchIds: requestedBranchIds, ...rawRest } = input;
       const rest = {
         ...rawRest,
         ...(rawRest.username !== undefined
@@ -859,35 +848,32 @@ export const authRouter = createRouter({
         });
         if (
           validBranches.length !== branchIds.length ||
-          validBranches.some((branch) => !branch.active)
+          validBranches.some(branch => !branch.active)
         ) {
           throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
         }
       }
-      await db.transaction(async (tx) => {
+      await db.transaction(async tx => {
         await tx.update(staffUsers).set(patch).where(eq(staffUsers.id, id));
         if (branchIds) {
           const previousDefault = await tx.query.staffBranches.findFirst({
             where: and(
               eq(staffBranches.staffId, id),
-              eq(staffBranches.isDefault, true),
+              eq(staffBranches.isDefault, true)
             ),
             columns: { branchId: true },
           });
-          await tx
-            .delete(staffBranches)
-            .where(eq(staffBranches.staffId, id));
+          await tx.delete(staffBranches).where(eq(staffBranches.staffId, id));
           const defaultBranchId =
-            previousDefault &&
-            branchIds.includes(previousDefault.branchId)
+            previousDefault && branchIds.includes(previousDefault.branchId)
               ? previousDefault.branchId
               : branchIds[0];
           await tx.insert(staffBranches).values(
-            branchIds.map((branchId) => ({
+            branchIds.map(branchId => ({
               staffId: id,
               branchId,
               isDefault: branchId === defaultBranchId,
-            })),
+            }))
           );
         }
       });

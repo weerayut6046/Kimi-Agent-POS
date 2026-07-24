@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Banknote,
   CalendarClock,
@@ -621,14 +621,32 @@ function MeterDiffBadge({
   return <DiffBadge diff={diff} />;
 }
 
+function ShiftPageHeader() {
+  return (
+    <header>
+      <h1 className="page-heading">จัดการกะ</h1>
+      <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+        ตรวจสอบกะปัจจุบัน บันทึกมิเตอร์ต้นกะและปลายกะ
+        พร้อมสรุปยอดเงินสดและประวัติการทำงานในหน้าจอเดียว
+      </p>
+    </header>
+  );
+}
+
 export default function Shifts() {
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const utils = trpc.useUtils();
-  const { data: currentShift, isLoading } = trpc.pos.currentShift.useQuery();
-  const { data: pumps } = trpc.catalog.listPumps.useQuery();
+  const [loadSecondaryData, setLoadSecondaryData] = useState(false);
+  const { data: currentShift, isLoading } = trpc.pos.currentShift.useQuery(
+    undefined,
+    { trpc: { context: { skipBatch: true } } }
+  );
+  const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
+    enabled: currentShift === null,
+  });
   const { data: publicHistory } = trpc.pos.shiftHistory.useQuery(undefined, {
-    enabled: !isAdmin,
+    enabled: loadSecondaryData && !isAdmin,
   });
 
   const [openVals, setOpenVals] = useState<
@@ -664,10 +682,10 @@ export default function Shifts() {
   );
   const { data: adminHistory } = trpc.pos.searchShiftHistory.useQuery(
     adminHistoryInput,
-    { enabled: isAdmin }
+    { enabled: loadSecondaryData && isAdmin }
   );
   const { data: staffUsers = [] } = trpc.auth.listStaff.useQuery(undefined, {
-    enabled: isAdmin,
+    enabled: loadSecondaryData && isAdmin,
   });
   const history = isAdmin ? adminHistory : publicHistory;
 
@@ -871,16 +889,32 @@ export default function Shifts() {
   const detailHasPriceChange =
     detail?.readings.some(r => r.priceChangedDuringShift) ?? false;
 
+  useEffect(() => {
+    if (isLoading) return;
+    const timer = window.setTimeout(() => setLoadSecondaryData(true), 500);
+    return () => window.clearTimeout(timer);
+  }, [isLoading]);
+
   if (isLoading)
     return (
-      <div className="py-20 text-center text-muted-foreground">
-        กำลังโหลด...
+      <div className="space-y-5">
+        <ShiftPageHeader />
+        <Card aria-busy="true">
+          <CardContent className="space-y-4 p-5">
+            <div className="h-5 w-48 animate-pulse rounded-full bg-slate-200" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
+              <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
+            </div>
+            <span className="sr-only">กำลังโหลดข้อมูลกะปัจจุบัน</span>
+          </CardContent>
+        </Card>
       </div>
     );
 
   return (
     <div className="space-y-5">
-      <h1 className="page-heading">ตัดกะ</h1>
+      <ShiftPageHeader />
 
       {err && (
         <Card className="border-destructive bg-red-50">
@@ -1433,9 +1467,7 @@ export default function Shifts() {
                         (s.status === "closed" && s.totalMoneyMeter > 0)) && (
                         <MeterDiffBadge
                           diff={r2(s.totalMoneyMeter - s.totalAmount)}
-                          priceChangedDuringShift={
-                            s.priceChangedDuringShift
-                          }
+                          priceChangedDuringShift={s.priceChangedDuringShift}
                         />
                       )}
                     </TableCell>
@@ -2096,9 +2128,7 @@ export default function Shifts() {
                         <TableCell>
                           <MeterDiffBadge
                             diff={r.diff}
-                            priceChangedDuringShift={
-                              r.priceChangedDuringShift
-                            }
+                            priceChangedDuringShift={r.priceChangedDuringShift}
                           />
                         </TableCell>
                       </TableRow>
