@@ -2,12 +2,9 @@ import { publicQuery } from "./middleware";
 import { staffSessionFromHeader } from "./lib/session";
 import { TRPCError } from "@trpc/server";
 
-/**
- * adminQuery — procedure สำหรับงานเพิ่ม/แก้ไข/ลบข้อมูล
- * อนุญาตเฉพาะผู้ใช้ที่ส่ง role = "admin" มาทาง header (ออกแบบสำหรับระบบ PIN ภายในปั๊ม)
- */
+/** งานที่อนุญาตเฉพาะ Supabase-authenticated admin */
 export const adminQuery = publicQuery.use(({ ctx, next }) => {
-  const session = staffSessionFromHeader(ctx.req);
+  const session = ctx.staff;
   if (!session) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
@@ -28,7 +25,7 @@ export const adminQuery = publicQuery.use(({ ctx, next }) => {
  * อนุญาตเฉพาะผู้ดูแลระบบ (admin) หรือผู้จัดการสาขา (manager)
  */
 export const managerQuery = publicQuery.use(({ ctx, next }) => {
-  const session = staffSessionFromHeader(ctx.req);
+  const session = ctx.staff;
   if (!session) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
@@ -45,7 +42,7 @@ export const managerQuery = publicQuery.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
-/** ดึง staff id จาก session ที่ตรวจลายเซ็นแล้ว */
+/** ดึง staff id จาก request context ที่ผ่านการตรวจ Supabase Auth แล้ว */
 export function staffIdFromHeader(req: Request): number | null {
   return staffSessionFromHeader(req)?.id ?? null;
 }

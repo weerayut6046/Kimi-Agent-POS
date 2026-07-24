@@ -23,11 +23,15 @@ import {
   workShiftTemplates,
 } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
-import { issueStaffSession, staffSessionFromHeader } from "../lib/session";
 import {
-  issueSupabaseStaffSession,
-  staffAuthBridgeFailureCode,
+  createSupabaseStaffIdentity,
+  deleteSupabaseStaffIdentity,
+  updateSupabaseStaffIdentity,
 } from "../lib/supabaseAuth";
+import {
+  isValidStaffUsername,
+  normalizeStaffUsername,
+} from "@contracts/auth";
 import {
   MENU_PERMISSION_KEYS,
   normalizeMenuPermissions,
@@ -43,6 +47,14 @@ import {
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const menuPermissionsInput = z.array(z.enum(MENU_PERMISSION_KEYS)).min(1);
+const staffPasswordInput = z
+  .string()
+  .min(10)
+  .max(128)
+  .refine(
+    value => /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value),
+    "Password must include uppercase, lowercase, and a number",
+  );
 
 function effectiveMenuPermissions(
   role: StaffRole,
@@ -66,22 +78,6 @@ async function accessGroupForUser(accessGroupId: number | null) {
       where: eq(staffAccessGroups.id, accessGroupId),
     })) ?? null
   );
-}
-
-async function optionalSupabaseSession(user: {
-  id: number;
-  supabaseAuthUserId: string | null;
-}) {
-  try {
-    return await issueSupabaseStaffSession(user);
-  } catch (error) {
-    // The signed PumpPOS session remains available during the staged bridge.
-    // Never log Auth responses, passwords, user emails, or returned tokens.
-    console.warn(
-      `Supabase Auth bridge skipped (${staffAuthBridgeFailureCode(error)}).`
-    );
-    return null;
-  }
 }
 
 function accessGroupSummary(
@@ -135,7 +131,6 @@ async function staffSessionResponse(
       accessGroup,
     ),
     accessGroup: accessGroupSummary(accessGroup),
-    token: issueStaffSession(staff),
   };
 }
 
@@ -143,6 +138,11 @@ export const authRouter = createRouter({
   login: anonymousQuery
     .input(z.object({ username: z.string().min(1), pin: z.string().min(1) }))
     .mutation(async ({ input }) => {
+      if (process.env.NODE_ENV !== "test") {
+        throw new Error(
+          "This login endpoint is disabled. Sign in with Supabase Auth.",
+        );
+      }
       const db = getDb();
       const user = await db.query.staffUsers.findFirst({
         where: eq(staffUsers.username, input.username),
@@ -150,42 +150,27 @@ export const authRouter = createRouter({
       if (!user || user.pin !== sha256(input.pin) || !user.active) {
         throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
       }
-      const staff = await staffSessionResponse(user);
-      return {
-        ...staff,
-        supabaseSession: await optionalSupabaseSession(user),
-      };
+      return staffSessionResponse(user);
     }),
 
-  realtimeSession: authenticatedStaffAction.mutation(async ({ ctx }) => {
-    const session = ctx.staff;
-    if (!session) return null;
-    const user = await getDb().query.staffUsers.findFirst({
-      where: eq(staffUsers.id, session.id),
-    });
-    if (!user?.active) return null;
-    return optionalSupabaseSession(user);
-  }),
+  // Compatibility no-op for older clients. Supabase Auth now owns the only
+  // browser session and no secondary credentials are issued here.
+  realtimeSession: authenticatedStaffAction.mutation(() => null),
 
-  currentStaff: anonymousQuery
+  currentStaff: authenticatedStaffAction
     .input(
       z.object({
-        staffId: z.number().int().positive(),
         sessionNonce: z.number().int().nonnegative().optional(),
-      })
+      }).optional(),
     )
-    .query(async ({ input, ctx }) => {
-      const session = staffSessionFromHeader(ctx.req);
-      if (!session || session.id !== input.staffId) {
-        return { authenticated: false as const };
-      }
-
+    .query(async ({ ctx }) => {
+      const session = ctx.staff;
       const user = await getDb().query.staffUsers.findFirst({
         where: eq(staffUsers.id, session.id),
       });
-      if (!user?.active) return { authenticated: false as const };
+      if (!user?.active) throw new Error("Staff account is disabled");
       const branch = await branchForStaff(user, session.branchId);
-      if (!branch) return { authenticated: false as const };
+      if (!branch) throw new Error("Branch access is not available");
       const staff = await staffSessionResponse(user, branch.id);
       return {
         authenticated: true as const,
@@ -207,7 +192,6 @@ export const authRouter = createRouter({
       if (!branch) throw new Error("ไม่มีสิทธิ์เข้าใช้งานสาขานี้");
       return {
         ...(await staffSessionResponse(user, branch.id)),
-        supabaseSession: await optionalSupabaseSession(user),
       };
     }),
 
@@ -680,8 +664,14 @@ export const authRouter = createRouter({
   createStaff: adminQuery
     .input(
       z.object({
-        username: z.string().min(3),
-        pin: z.string().min(4),
+        username: z
+          .string()
+          .min(3)
+          .refine(
+            isValidStaffUsername,
+            "Username must use English letters and numbers",
+          ),
+        password: staffPasswordInput,
         name: z.string().min(1),
         role: z.enum(["admin", "manager", "cashier"]).default("cashier"),
         accessGroupId: z.number().int().positive().nullable().optional(),
@@ -691,8 +681,9 @@ export const authRouter = createRouter({
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const username = normalizeStaffUsername(input.username);
       const dup = await db.query.staffUsers.findFirst({
-        where: eq(staffUsers.username, input.username),
+        where: eq(staffUsers.username, username),
       });
       if (dup) throw new Error("ชื่อผู้ใช้นี้ถูกใช้แล้ว");
       const accessGroup = input.accessGroupId
@@ -727,30 +718,49 @@ export const authRouter = createRouter({
       ) {
         throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
       }
-      const { branchIds: _branchIds, ...staffInput } = input;
+      const {
+        branchIds: _branchIds,
+        password,
+        username: _username,
+        ...staffInput
+      } = input;
       const defaultBranchId = branchIds.includes(ctx.staff.branchId)
         ? ctx.staff.branchId
         : branchIds[0];
-      const id = await db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(staffUsers)
-          .values({
-            ...staffInput,
-            accessGroupId:
-              input.role === "admin" ? null : input.accessGroupId,
-            menuPermissions,
-            pin: sha256(input.pin),
-          })
-          .returning({ id: staffUsers.id });
-        await tx.insert(staffBranches).values(
-          branchIds.map((branchId) => ({
-            staffId: created.id,
-            branchId,
-            isDefault: branchId === defaultBranchId,
-          })),
-        );
-        return created.id;
+      const identity = await createSupabaseStaffIdentity({
+        username,
+        password,
+        name: input.name,
+        role: input.role,
       });
+      let id: number;
+      try {
+        id = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(staffUsers)
+            .values({
+              ...staffInput,
+              username,
+              accessGroupId:
+                input.role === "admin" ? null : input.accessGroupId,
+              menuPermissions,
+              pin: `supabase-auth:${identity.id}`,
+              supabaseAuthUserId: identity.id,
+            })
+            .returning({ id: staffUsers.id });
+          await tx.insert(staffBranches).values(
+            branchIds.map((branchId) => ({
+              staffId: created.id,
+              branchId,
+              isDefault: branchId === defaultBranchId,
+            })),
+          );
+          return created.id;
+        });
+      } catch (error) {
+        await deleteSupabaseStaffIdentity(identity.id).catch(() => undefined);
+        throw error;
+      }
       logAudit({
         action: "create_staff",
         ...actorFromReq(ctx.req),
@@ -766,8 +776,15 @@ export const authRouter = createRouter({
       z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
-        username: z.string().min(3).optional(),
-        pin: z.string().min(4).optional(),
+        username: z
+          .string()
+          .min(3)
+          .refine(
+            isValidStaffUsername,
+            "Username must use English letters and numbers",
+          )
+          .optional(),
+        password: staffPasswordInput.optional(),
         role: z.enum(["admin", "manager", "cashier"]).optional(),
         active: z.boolean().optional(),
         accessGroupId: z.number().int().positive().nullable().optional(),
@@ -776,7 +793,18 @@ export const authRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, pin, branchIds: requestedBranchIds, ...rest } = input;
+      const {
+        id,
+        password,
+        branchIds: requestedBranchIds,
+        ...rawRest
+      } = input;
+      const rest = {
+        ...rawRest,
+        ...(rawRest.username !== undefined
+          ? { username: normalizeStaffUsername(rawRest.username) }
+          : {}),
+      };
       const db = getDb();
       const target = await db.query.staffUsers.findFirst({
         where: eq(staffUsers.id, id),
@@ -814,7 +842,6 @@ export const authRouter = createRouter({
       } else if (rest.role === "admin") {
         patch.menuPermissions = null;
       }
-      if (pin) patch.pin = sha256(pin);
       if (
         requestedBranchIds &&
         id === ctx.staff.id &&
@@ -864,6 +891,31 @@ export const authRouter = createRouter({
           );
         }
       });
+      let authUserId = target.supabaseAuthUserId;
+      if (!authUserId && password) {
+        const identity = await createSupabaseStaffIdentity({
+          username: rest.username ?? target.username,
+          password,
+          name: rest.name ?? target.name,
+          role: rest.role ?? target.role,
+        });
+        authUserId = identity.id;
+        await db
+          .update(staffUsers)
+          .set({
+            supabaseAuthUserId: identity.id,
+            pin: `supabase-auth:${identity.id}`,
+          })
+          .where(eq(staffUsers.id, id));
+      } else if (authUserId) {
+        await updateSupabaseStaffIdentity(authUserId, {
+          username: rest.username,
+          password,
+          name: rest.name,
+          role: rest.role,
+          active: rest.active,
+        });
+      }
       // อธิบายสิ่งที่แก้ — ห้ามใส่ PIN ลง log
       const changes: string[] = [];
       if (rest.name !== undefined && rest.name !== target.name)
@@ -887,7 +939,7 @@ export const authRouter = createRouter({
         );
       }
       if (branchIds) changes.push(`สิทธิ์สาขา ${branchIds.length} สาขา`);
-      if (pin) changes.push("รีเซ็ต PIN");
+      if (password) changes.push("รีเซ็ตรหัสผ่าน Supabase Auth");
       logAudit({
         action: "update_staff",
         ...actorFromReq(ctx.req),
@@ -913,6 +965,9 @@ export const authRouter = createRouter({
       if (!target) throw new Error("ไม่พบพนักงาน");
       if (target.role === "admin" && admins.length <= 1) {
         throw new Error("ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน");
+      }
+      if (target.supabaseAuthUserId) {
+        await deleteSupabaseStaffIdentity(target.supabaseAuthUserId);
       }
       await db.delete(staffUsers).where(eq(staffUsers.id, input.id));
       logAudit({

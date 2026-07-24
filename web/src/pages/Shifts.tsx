@@ -868,6 +868,8 @@ export default function Shifts() {
   const hasCounts = Object.values(cashCounts).some(v => Number(v) > 0);
   const hasPriceChangeDuringShift =
     currentShift?.readings.some(r => r.priceChangedDuringShift) ?? false;
+  const detailHasPriceChange =
+    detail?.readings.some(r => r.priceChangedDuringShift) ?? false;
 
   if (isLoading)
     return (
@@ -1012,8 +1014,8 @@ export default function Shifts() {
                   <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
                   ราคาเปิดกะ”
                   จึงเป็นเพียงค่าประมาณและไม่ควรตีความส่วนต่างเป็นเงินขาดทันที
-                  ให้ตรวจเลขมิเตอร์ P/L ที่หน้าตู้เป็นหลัก
-                  หลังการแก้ไขนี้ระบบจะให้ปิดกะก่อนเปลี่ยนราคาน้ำมันทุกครั้ง
+                  ให้ตรวจเลขมิเตอร์ P/L ที่หน้าตู้เป็นหลัก โดยใช้มิเตอร์ P
+                  เป็นยอดเงินจริงและมิเตอร์ L เป็นจำนวนลิตรที่ขาย
                 </div>
               </div>
             )}
@@ -1427,9 +1429,13 @@ export default function Shifts() {
                       {fmtNum(s.totalLiters)}
                     </TableCell>
                     <TableCell>
-                      {s.status === "closed" && s.totalMoneyMeter > 0 && (
-                        <DiffBadge
+                      {(s.priceChangedDuringShift ||
+                        (s.status === "closed" && s.totalMoneyMeter > 0)) && (
+                        <MeterDiffBadge
                           diff={r2(s.totalMoneyMeter - s.totalAmount)}
+                          priceChangedDuringShift={
+                            s.priceChangedDuringShift
+                          }
                         />
                       )}
                     </TableCell>
@@ -2088,7 +2094,12 @@ export default function Shifts() {
                           {r.money != null ? `฿${fmtMoney(r.money)}` : "-"}
                         </TableCell>
                         <TableCell>
-                          <DiffBadge diff={r.diff} />
+                          <MeterDiffBadge
+                            diff={r.diff}
+                            priceChangedDuringShift={
+                              r.priceChangedDuringShift
+                            }
+                          />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2109,8 +2120,9 @@ export default function Shifts() {
                   ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
                 </div>
                 {detail.status === "closed" && (
-                  <DiffBadge
+                  <MeterDiffBadge
                     diff={r2(detail.totalMoneyMeter - detail.totalAmount)}
+                    priceChangedDuringShift={detailHasPriceChange}
                   />
                 )}
               </div>

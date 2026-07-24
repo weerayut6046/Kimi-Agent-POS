@@ -8,7 +8,12 @@ import {
   vi,
 } from "vitest";
 import { eq } from "drizzle-orm";
-import { staffUsers } from "@db/schema";
+import {
+  assistantActionProposals,
+  expenses,
+  members,
+  staffUsers,
+} from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 let t: TestDb;
@@ -211,6 +216,132 @@ describe("AI assistant security", () => {
     expect(externalRequest).not.toContain("0812345678");
   });
 
+  it("creates a standard proposal and executes it only once after confirmation", async () => {
+    const requestId = "f71e7a8d-7638-4a7c-86ea-79c1c6ad68b4";
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        toolCompletion(
+          "propose_pos_action",
+          "call-create-member",
+          JSON.stringify({
+            action: "create_member",
+            name: "สมาชิกทดสอบ AI",
+            phone: "0899999991",
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const proposal = await t.caller("cashier").assistant.chat({
+      requestId,
+      messages: [
+        {
+          role: "user",
+          content: "ช่วยสมัครสมาชิกชื่อ สมาชิกทดสอบ AI เบอร์ 0899999991",
+        },
+      ],
+    });
+    const repeatedRequest = await t.caller("cashier").assistant.chat({
+      requestId,
+      messages: [
+        {
+          role: "user",
+          content: "ช่วยสมัครสมาชิกชื่อ สมาชิกทดสอบ AI เบอร์ 0899999991",
+        },
+      ],
+    });
+    const action = proposal.actions.find(
+      item => item.kind === "confirm_agent_action"
+    );
+    const repeatedAction = repeatedRequest.actions.find(
+      item => item.kind === "confirm_agent_action"
+    );
+    expect(action).toMatchObject({
+      kind: "confirm_agent_action",
+      requiresPin: false,
+      risk: "standard",
+    });
+    if (!action || action.kind !== "confirm_agent_action") {
+      throw new Error("ไม่มีรายการรอยืนยัน");
+    }
+    expect(repeatedAction).toMatchObject({
+      kind: "confirm_agent_action",
+      proposalId: action.proposalId,
+    });
+    const persistedProposals = await t.db
+      .select()
+      .from(assistantActionProposals)
+      .where(eq(assistantActionProposals.id, action.proposalId));
+    expect(persistedProposals).toHaveLength(1);
+
+    const first = await t.caller("cashier").assistant.executeAction({
+      proposalId: action.proposalId,
+    });
+    const repeated = await t.caller("cashier").assistant.executeAction({
+      proposalId: action.proposalId,
+    });
+    expect(first.alreadyExecuted).toBe(false);
+    expect(repeated.alreadyExecuted).toBe(true);
+
+    const created = await t.db
+      .select()
+      .from(members)
+      .where(eq(members.phone, "0899999991"));
+    expect(created).toHaveLength(1);
+  });
+
+  it("requires the current account PIN for sensitive proposals", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        toolCompletion(
+          "propose_pos_action",
+          "call-create-expense",
+          JSON.stringify({
+            action: "create_expense",
+            title: "ค่าทดสอบ Controlled Agent",
+            category: "ทดสอบ",
+            amount: 125.5,
+          })
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const proposal = await t.caller("admin").assistant.chat({
+      messages: [
+        {
+          role: "user",
+          content: "บันทึกค่าใช้จ่ายทดสอบ 125.50 บาท",
+        },
+      ],
+    });
+    const action = proposal.actions.find(
+      item => item.kind === "confirm_agent_action"
+    );
+    if (!action || action.kind !== "confirm_agent_action") {
+      throw new Error("ไม่มีรายการรอยืนยัน");
+    }
+    expect(action.requiresPin).toBe(true);
+
+    await expect(
+      t.caller("admin").assistant.executeAction({
+        proposalId: action.proposalId,
+        pin: "9999",
+      })
+    ).rejects.toThrow("PIN ไม่ถูกต้อง");
+
+    await t.caller("admin").assistant.executeAction({
+      proposalId: action.proposalId,
+      pin: "1234",
+    });
+    const created = await t.db
+      .select()
+      .from(expenses)
+      .where(eq(expenses.title, "ค่าทดสอบ Controlled Agent"));
+    expect(created).toHaveLength(1);
+  });
+
   it("does not expose operational tools when the staff menu permission does not allow them", async () => {
     await t.db
       .update(staffUsers)
@@ -226,12 +357,10 @@ describe("AI assistant security", () => {
     });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body.tools).toBeUndefined();
-    expect(JSON.stringify(body)).not.toContain("get_low_stock");
-    expect(JSON.stringify(body)).not.toContain("get_today_sales_overview");
-    expect(JSON.stringify(body)).not.toContain("get_open_shift_status");
-    expect(JSON.stringify(body)).not.toContain("get_all_fuel_tank_levels");
-    expect(JSON.stringify(body)).not.toContain("get_admin_business_summary");
-    expect(JSON.stringify(body)).not.toContain("get_admin_documents");
+    expect(body.tools).toHaveLength(1);
+    const toolNames = body.tools.map(
+      (tool: { function: { name: string } }) => tool.function.name
+    );
+    expect(toolNames).toEqual(["open_pumppos_screen"]);
   });
 });

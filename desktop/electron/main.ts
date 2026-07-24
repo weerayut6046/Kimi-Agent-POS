@@ -10,7 +10,7 @@ declare const __dirname: string;
 const isPackaged = app.isPackaged;
 const DEV_URL = process.env.ELECTRON_START_URL || "http://localhost:3000";
 const PROD_API_ORIGIN =
-  process.env.POS_API_ORIGIN || "https://api-production-dc37.up.railway.app";
+  process.env.POS_API_ORIGIN || "https://kimi-agent-pos.vercel.app";
 
 app.setName("pos-app");
 

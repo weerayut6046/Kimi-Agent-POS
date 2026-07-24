@@ -1,7 +1,24 @@
 {
   "imports": {
     "@supabase/functions-js": "jsr:@supabase/functions-js@2.110.7",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.110.7",
+    "@trpc/server": "npm:@trpc/server@11.8.1",
+    "@trpc/server/adapters/fetch": "npm:@trpc/server@11.8.1/adapters/fetch",
+    "@contracts/": "../../../web/contracts/",
+    "@db/": "../../../web/db/",
+    "drizzle-orm": "npm:drizzle-orm@0.45.1",
+    "drizzle-orm/pg-core": "npm:drizzle-orm@0.45.1/pg-core",
+    "drizzle-orm/postgres-js": "npm:drizzle-orm@0.45.1/postgres-js",
+    "exceljs": "npm:exceljs@4.4.0",
+    "crypto": "node:crypto",
+    "fs": "node:fs",
+    "net": "node:net",
+    "os": "node:os",
+    "perf_hooks": "node:perf_hooks",
+    "stream": "node:stream",
+    "tls": "node:tls",
     "postgres": "npm:postgres@3.4.9",
-    "superjson": "npm:superjson@2.2.6"
+    "superjson": "npm:superjson@2.2.6",
+    "zod": "npm:zod@4.3.5"
   }
 }

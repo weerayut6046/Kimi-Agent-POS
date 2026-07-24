@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { timingSafeEqual } from "crypto";

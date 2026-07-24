@@ -18,7 +18,6 @@ describe("staff menu permissions", () => {
 
     expect(session.menuPermissions).toContain("pos");
     expect(session.menuPermissions).not.toContain("audit");
-    expect(session.supabaseSession).toBeNull();
   });
 
   it("lets an admin persist permissions and refreshes the active session", async () => {
@@ -35,7 +34,7 @@ describe("staff menu permissions", () => {
 
     const current = await t
       .caller("cashier", 3)
-      .auth.currentStaff({ staffId: 3 });
+      .auth.currentStaff();
     expect(current.authenticated).toBe(true);
     if (current.authenticated) {
       expect(current.menuPermissions).toEqual(["pos", "shifts"]);
@@ -73,7 +72,7 @@ describe("staff menu permissions", () => {
     });
     const refreshed = await t
       .caller("cashier", 3)
-      .auth.currentStaff({ staffId: 3 });
+      .auth.currentStaff();
     expect(refreshed.authenticated).toBe(true);
     if (refreshed.authenticated) {
       expect(refreshed.menuPermissions).toEqual(["reports"]);
@@ -91,7 +90,7 @@ describe("staff menu permissions", () => {
     await t.caller("admin").auth.deleteAccessGroup({ id: created.id });
     const fallback = await t
       .caller("cashier", 3)
-      .auth.currentStaff({ staffId: 3 });
+      .auth.currentStaff();
     expect(fallback.authenticated).toBe(true);
     if (fallback.authenticated) {
       expect(fallback.accessGroup).toBeNull();
@@ -114,9 +113,10 @@ describe("staff menu permissions", () => {
       "สิทธิ์ไม่เพียงพอ"
     );
 
-    await expect(
-      t.caller("cashier", 3).auth.currentStaff({ staffId: 2 })
-    ).resolves.toEqual({ authenticated: false });
+    await expect(t.caller("cashier", 3).auth.currentStaff()).resolves.toMatchObject({
+      authenticated: true,
+      id: 3,
+    });
   });
 
   it("uses HTTP-compatible auth error codes for expired or insufficient sessions", async () => {

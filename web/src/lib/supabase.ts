@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { staffAuthEmail } from "@contracts/auth";
 
 export type SupabaseRealtimeSession = {
   accessToken: string;
@@ -50,4 +51,24 @@ export async function clearSupabaseSession(): Promise<void> {
   const client = await getSupabaseBrowserClient();
   if (!client) return;
   await client.auth.signOut({ scope: "local" });
+}
+
+export async function signInStaffWithPassword(
+  username: string,
+  password: string,
+): Promise<void> {
+  const client = await getSupabaseBrowserClient();
+  if (!client) throw new Error("Supabase Auth is not configured");
+  const { error } = await client.auth.signInWithPassword({
+    email: staffAuthEmail(username),
+    password,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function currentSupabaseAccessToken(): Promise<string | null> {
+  const client = await getSupabaseBrowserClient();
+  if (!client) return null;
+  const { data } = await client.auth.getSession();
+  return data.session?.access_token ?? null;
 }

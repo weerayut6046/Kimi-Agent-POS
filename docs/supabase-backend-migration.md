@@ -1,160 +1,91 @@
-# Supabase backend migration
+# Supabase backend and Auth cutover
 
-PumpPOS uses a staged strangler migration so the current Railway API remains
-available until each Supabase workload has passed production smoke tests. Do
-not change the catch-all Vercel rewrite before the matching Supabase workload
-is deployed and verified.
+PumpPOS production ย้าย backend cloud จาก Railway ไป Supabase Edge Functions
+และใช้ Supabase Auth เป็นระบบ identity/session หลักแล้วเมื่อ 24 กรกฎาคม 2026
 
-## Migration order
+## สถานะ Production
 
-1. Keep the current Railway API healthy and take a tested database backup.
-2. Deploy `pos-assistant` as a Supabase Edge gateway, test it directly, and
-   route only `/api/trpc/assistant.chat` to it.
-3. Bridge PumpPOS staff identities to Supabase Auth. Use private Realtime
-   channels with RLS policies on `realtime.messages` before moving clients.
-4. Move read-heavy business domains one at a time, with a rollback route for
-   each domain.
-5. Move write domains only after idempotency, transaction, authorization, and
-   audit-log tests pass against the Supabase database.
-6. Replace Railway-only backup/report jobs, run restore drills, then retire
-   Railway after an agreed observation window.
+- Frontend: `https://kimi-agent-pos.vercel.app`
+- Backend: Supabase Edge Functions `pos-api` และ `pos-assistant`
+- Auth: Supabase Auth email/password; หน้า Login ไม่มีโหมด PIN เดิม
+- Database: Supabase PostgreSQL ใน private schema `pos`
+- Railway: ไม่มี active deployment และ URL เดิมตอบ 404; service record กับ detached
+  volume เก็บไว้ชั่วคราวสำหรับ rollback แบบควบคุม
+- `pos-auth-bootstrap`: เปลี่ยนเป็น tombstone ที่ตอบ `410 MIGRATION_CLOSED`
+  เท่านั้น ไม่โหลดฐานข้อมูลหรือ service role
+- `pos-api-v2`: staging record ลบไม่ได้ด้วยสิทธิ์ deploy จึงถูกแทนด้วย tombstone
+  ที่ต้องมี JWT และตอบ `410 STAGING_CLOSED`; ไม่มี business API หรือ DB access
+- PIN เริ่มต้นเดิมของ manager/cashier ถูกยกเลิกทั้งหมด
+- บัญชีที่เชื่อม Supabase Auth แล้ว 4 บัญชีล็อกอินสำเร็จครบทุกบทบาทที่มี
+- พนักงานเดิมอีก 2 บัญชียังรอ admin กำหนดรหัสผ่านใหม่จากหน้า Workforce/Settings
 
-### Stage 1: stock visibility reads
+## สถาปัตยกรรม
 
-`catalog.listProducts`, `catalog.listPumps`, `catalog.listTanks`,
-`catalog.listRefills`, `catalog.lowStockAlerts`, `catalog.priceHistory`,
-`catalog.getSettings`, and `catalog.getShopLogo` are served directly by the
-`pos-api` Edge Function using the dedicated `pos_catalog_reader_live` database
-role. Earlier reader login roles are disabled after pooler-safe credential
-rotations; rotate by creating a new role rather than changing a password on a
-role already used by the pooler.
-The role has `SELECT` access only to the catalog tables/columns needed by these
-procedures and is not a superuser or RLS bypass role. The Edge function rechecks
-the staff identity (`id`, `username`, `role`, and `active`) against
-`pos.staff_users` before every read. Its Postgres client uses transaction-pooler
-compatible settings, releases idle clients after two seconds, and retries once
-with a fresh client after a failed read. The login role permits at most 20
-database connections. Production logs showed that the earlier limits of five
-and twelve were too low when several catalog reads and realtime-startup
-refreshes arrived concurrently. The web client now coalesces transport-ready
-refreshes, preserves in-flight queries, and jitters transient retries to avoid
-recreating that burst. All catalog writes and other catalog reads still use
-Railway until their transaction and audit guarantees are migrated.
+- Vercel ให้บริการ static frontend และ rewrite `/api/*` ไป Supabase
+- `pos-api` ให้บริการ tRPC business API ทั้งหมดบน Supabase Edge Functions
+- `pos-assistant` ส่งต่อภายในไป `pos-api` โดยไม่เรียก Railway
+- Supabase Auth ออก access/refresh tokens; API ตรวจ JWT และโหลดพนักงานจาก
+  `pos.staff_users` ทุก request
+- API ตรวจ active staff, role, menu permission และ branch ฝั่ง server
+- ตารางธุรกิจเปิด RLS แบบ deny-all ต่อ `anon`/`authenticated`; browser และ
+  Desktop เข้าข้อมูลผ่าน Edge API เท่านั้น
+- Realtime ใช้ private channel และส่งเฉพาะ opaque invalidation ไม่มี row payload
+  หรือ PII
 
-The rollout is controlled by `CATALOG_READS_ENABLED=true` and the separate
-`CATALOG_DB_URL` secret. Set the flag to `false` (or remove it) to route these
-procedures back to Railway without changing data.
+## Edge secrets
 
-### Database bootstrap note
+ตั้งค่าผ่าน Supabase secret manager เท่านั้น ห้าม commit หรือฝังใน frontend:
 
-The application tables are owned by Drizzle and their canonical migrations live
-under `web/db/migrations-postgres/`. The Supabase migrations in this directory
-only contain changes that reference Supabase-managed schemas (Auth and
-Realtime) plus security hardening. A new project must therefore be bootstrapped
-with the Drizzle migrations first (`DIRECT_URL` pointed at the project), then
-the Supabase migrations can be pushed. Do not run the bridge migrations against
-a blank database or copy the remote migration history blindly.
+| Name | Purpose |
+| --- | --- |
+| `APP_ID` | application namespace |
+| `APP_SECRET` | เข้ารหัส secret ของ AI settings; ใช้ random อย่างน้อย 32 bytes |
+| `ALLOWED_ORIGINS` | รายการ origin ที่อนุญาตแบบ exact match |
+| `SUPABASE_PROJECT_REF` | project ref สำหรับลิงก์และ metadata |
 
-## Transitional assistant gateway
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` และ
+`SUPABASE_DB_URL` เป็น runtime secrets ที่ Supabase จัดให้ ห้ามคัดลอกไป
+`VITE_*` ฝั่ง Vercel มีเฉพาะ URL และ publishable key ซึ่งออกแบบให้เปิดเผยต่อ
+browser ได้
 
-`supabase/functions/pos-assistant` preserves the existing tRPC request and
-response contract while the assistant implementation still runs on Railway.
-The function is deliberately configured with `verify_jwt = false` only during
-this bridge because the web app does not have Supabase Auth sessions yet. It
-does not mean the route is public: the gateway verifies the existing PumpPOS
-HMAC staff session itself before forwarding a request.
+## Security gates
 
-Security controls:
+- ห้ามเปิด public signup; พนักงานต้องถูก provision/reset โดย admin เท่านั้น
+- เปิด Leaked Password Protection ใน Supabase Auth
+- กำหนดรหัสผ่านอย่างน้อย 10 ตัว มีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข
+- เปิด refresh-token rotation และกำหนด session timebox/inactivity timeout
+- ห้ามใช้ `user_metadata` เป็นแหล่งตัดสินสิทธิ์
+- ทุก business request ต้องตรวจ Supabase JWT, active staff, role, menu
+  permission และ branch ฝั่ง server
+- ห้าม log password, PIN, token, AI key, service role หรือ database URL
+- ตรวจ Security/Performance Advisors และ dependency audit ก่อน deploy
 
-- accepts only `POST` and approved-origin `OPTIONS` requests;
-- verifies the `x-staff-session` signature, claims, role, and expiry;
-- permits only the configured production web origin;
-- enforces the same message limits as the Railway assistant API;
-- limits requests per staff account and retains the Railway-side rate limit;
-- forwards only the JSON body and signed staff-session header to one fixed
-  HTTPS upstream; cookies and browser authorization headers are stripped;
-- applies an upstream timeout and response-size limit;
-- returns `Cache-Control: no-store` and browser hardening headers;
-- never logs chat text, session tokens, API keys, or database credentials.
+ข้อมูล ณ วัน cutover ยังมีงานที่เจ้าของ Supabase project ต้องยืนยันใน Dashboard:
 
-The DeepSeek key and business-data tools remain inside the trusted Railway
-backend in this phase. The Edge gateway must not receive a DeepSeek key or a
-database service-role key.
+1. **Authentication > Sign In / Providers** — ปิดการสมัครผู้ใช้ใหม่จากสาธารณะ
+2. **Authentication > Password Security** — เปิด Leaked Password Protection
+3. ตั้ง password policy และ session policy ตามรายการ Security gates
 
-## Required Edge Function secrets
+แม้ public signup ยังเปิดอยู่ ผู้สมัครเองไม่สามารถอ่านตารางธุรกิจโดยตรงและ API
+จะปฏิเสธบัญชีที่ไม่เชื่อมกับ active staff แต่ต้องปิดเพื่อกำจัดช่องทางสร้าง identity
+ที่ไม่จำเป็น
 
-Set these through the Supabase secret manager. Never commit them or paste their
-values into tickets, chat, CI output, or shell history.
+## Deploy และตรวจรับรอบใหม่
 
-| Name                     | Purpose                                                    |
-| ------------------------ | ---------------------------------------------------------- |
-| `APP_SECRET`             | The same 32+ character HMAC secret used by the Railway API |
-| `ASSISTANT_UPSTREAM_URL` | Fixed HTTPS URL of the Railway assistant tRPC endpoint     |
-| `ALLOWED_ORIGINS`        | Comma-separated exact production origins                   |
-| `CATALOG_READS_ENABLED`  | Explicit rollout switch for the Stage 1 read-only routes   |
-| `CATALOG_DB_URL`         | URL for the least-privilege `pos_catalog_reader_live` role |
-
-The target project ref is read from the operator's local environment. Before
-deployment, authenticate the Supabase CLI with an account that has access to
-that project. Prefer an ignored temporary env file with `supabase secrets set
---env-file ...` so values are not placed directly in command history.
-
-## Deployment gate
-
-Before routing traffic, all of the following must pass:
-
-- repository typecheck, lint, unit tests, production build, and dependency
-  audit;
-- direct Edge smoke tests for no session, expired/tampered session, non-admin
-  and admin staff, and an allowed production origin;
-- an authenticated admin chat smoke test that exercises a read-only business
-  tool without exposing its private result to DeepSeek;
-- Railway health and assistant smoke tests remain green;
-- a Vercel deployment containing only the assistant-specific rewrite is
-  verified before promotion.
-
-After Supabase Auth is live, replace the custom session bridge with Supabase
-JWT verification and authorization based on server-validated app metadata.
-Never authorize from user-editable metadata. Realtime channels must be private,
-and access must be controlled by RLS policies.
-
-### Authenticated UI smoke matrix
-
-Use a production-issued staff session in a real browser. Do not substitute a
-token signed with a local `APP_SECRET`. For an admin session, open each route and
-confirm the page settles without a 5xx tRPC request or console error:
-
-`/`, `/pos`, `/shifts`, `/workforce`, `/stock`, `/members`, `/customers`,
-`/debts`, `/sales`, `/expenses`, `/reports`, `/tax-invoices`, `/documents`,
-`/audit`, and `/settings`.
-
-On `/stock` and `/settings`, verify that migrated catalog responses carry
-`X-PumpPOS-Data-Source: supabase-postgres`. Revisit both pages several times and
-check Edge/Postgres logs for repeated 503 responses or reader connection-limit
-errors. Export and backup actions remain Railway checks until Storage and a
-restore drill are designed and approved.
-
-Production verification on 2026-07-22 passed this gate. A production-issued
-authenticated admin browser session opened all 15 routes above in read-only
-mode; every page rendered after data settled, with no login redirect,
-navigation failure, fatal error, or console error reported. Browser resource
-telemetry reported no 4xx/5xx failure, no mutation control was used, and the
-test did not inspect cookies or tokens. The session finished on `/stock`.
-
-The matching `pos-api` Edge version 23 log sample contained 100 successful
-events with no 4xx/5xx response and no catalog 503. Repeated
-`catalog.listTanks`, `catalog.listRefills`, and `catalog.getSettings` requests
-returned 200; earlier samples also confirmed `catalog.listPumps` and
-`catalog.getShopLogo` at 200 through `supabase-postgres`. Postgres logs contained
-no new `pos_catalog_reader_live` connection-limit error during or after this
-browser run. A later multi-request burst on 2026-07-23 exhausted the limit of
-12; the follow-up raised the bounded role limit to 20 and reduced duplicated
-realtime-startup refetches in the web client.
+1. รัน `npm run check`, `npm run lint`, `npm test`, `npm run build` และ
+   `npm run build:edge`
+2. Apply migration ด้วย `npx supabase db push`
+3. Deploy `pos-api` และ `pos-assistant`; `pos-auth-bootstrap` ต้องคงเป็น tombstone
+4. Deploy frontend ด้วย `npx vercel deploy --prod --yes`
+5. Smoke test หน้าเว็บ, `/api/trpc/ping`, unauthorized request และยืนยันว่า
+   `/api/auth/bootstrap` ตอบ 410
+6. ทดสอบด้วยบัญชีแต่ละบทบาท: login, menu/branch permission, Realtime, เปิดกะ,
+   ขาย, เปลี่ยนราคาในกะ, ปิดกะ, รายงาน และ logout
+7. ตรวจ Edge/Auth/Postgres logs โดยไม่บันทึก credential หรือข้อมูลอ่อนไหว
 
 ## Rollback
 
-Rollback is a routing change, not a data migration, in this phase. Restore the
-previous Vercel deployment (or remove the assistant-specific rewrite) so
-`/api/trpc/assistant.chat` again follows the Railway catch-all. Do not delete
-the Railway service, DeepSeek secret, or its database access until the final
-retirement phase and observation window are complete.
+เก็บ Vercel deployment ก่อนหน้าและ Railway detached volume ไว้ชั่วคราว หากต้อง
+rollback ให้หยุด mutation ใหม่ก่อน ตรวจความสอดคล้องของฐานข้อมูล แล้วจึง promote
+frontend เดิมและ redeploy Railway แบบควบคุม ห้ามเปิดระบบเดิมกับระบบใหม่ให้เขียน
+รายการขายพร้อมกันเด็ดขาด

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
-import { ClipboardList, FileSpreadsheet, Printer } from "lucide-react";
+import { Link, useSearchParams } from "react-router";
+import { ClipboardList, FileSpreadsheet, Fuel, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -110,6 +110,13 @@ export default function Reports() {
           (Z-Report)
         </h1>
         <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
+          {canManage && (
+            <Button asChild className="flex-1 sm:flex-none" variant="outline">
+              <Link to="/reports/fuel-stock">
+                <Fuel className="mr-1 size-4" /> สรุปสต๊อกน้ำมัน
+              </Link>
+            </Button>
+          )}
           <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
             <Label htmlFor="z-date" className="text-xs text-muted-foreground">
               วันที่

@@ -14,6 +14,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: {
+      APP_ID: "pos-test",
+      APP_SECRET: "test-only-session-secret-at-least-32-bytes",
+      DATABASE_URL: "postgresql://test:test@localhost/test",
+    },
     hookTimeout: 30_000,
     include: [
       "web/api/**/*.test.ts",

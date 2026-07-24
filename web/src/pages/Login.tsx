@@ -3,7 +3,6 @@ import { useNavigate } from "react-router";
 import {
   Droplet,
   LogIn,
-  Network,
   ShieldCheck,
   Gauge,
   Wifi,
@@ -28,15 +27,18 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { getFirstAllowedMenuPath } from "@contracts/menuPermissions";
+import { signInStaffWithPassword } from "@/lib/supabase";
 
 export default function Login() {
   const [username, setUsername] = useState("");
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPin, setShowPin] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const { login } = useStaff();
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
   useEffect(() => {
@@ -44,18 +46,39 @@ export default function Login() {
       ?.getAppVersion()
       .then(setAppVersion)
       .catch(() => {});
+
+    // Vite serves every imported source module separately in development, so
+    // eager route loading there creates a large request storm in DevTools.
+    // Production uses bundled chunks and can safely warm the landing screen
+    // while the user is entering credentials.
+    if (import.meta.env.PROD) {
+      void import("@/components/Layout");
+      void import("@/pages/Dashboard");
+    }
   }, []);
 
-  const loginMut = trpc.auth.login.useMutation({
-    onSuccess: async s => {
-      await login(s);
-      navigate(getFirstAllowedMenuPath(s.role, s.menuPermissions) ?? "/");
-    },
-    onError: e => setError(e.message || "เข้าสู่ระบบไม่สำเร็จ"),
-  });
+  const finishLogin = async (activePassword: string) => {
+    await signInStaffWithPassword(username, activePassword);
+    const staff = await utils.auth.currentStaff.fetch();
+    await login(staff);
+    navigate(getFirstAllowedMenuPath(staff.role, staff.menuPermissions) ?? "/");
+  };
 
-  // URL สำหรับเครื่องอื่นใน LAN (แสดงเฉพาะตอนเปิด lan_enabled ใน Settings)
-  const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
+  const submitLogin = async () => {
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await finishLogin(password);
+    } catch (loginError) {
+      setError(
+        loginError instanceof Error
+          ? loginError.message
+          : "เข้าสู่ระบบไม่สำเร็จ",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="grid min-h-screen bg-[#f6f5fb] lg:grid-cols-[minmax(440px,1.04fr)_minmax(520px,0.96fr)]">
@@ -178,7 +201,7 @@ export default function Login() {
               เข้าสู่ระบบพนักงาน
             </CardTitle>
             <CardDescription className="mt-1">
-              กรอกชื่อผู้ใช้และ PIN เพื่อเริ่มกะการทำงาน
+              เข้าสู่ระบบด้วย Supabase Auth
             </CardDescription>
           </CardHeader>
           <CardContent className="px-6 py-6 sm:px-8">
@@ -186,8 +209,7 @@ export default function Login() {
               className="space-y-5"
               onSubmit={e => {
                 e.preventDefault();
-                setError("");
-                loginMut.mutate({ username, pin });
+                void submitLogin();
               }}
             >
               <div className="space-y-2">
@@ -215,7 +237,7 @@ export default function Login() {
                   htmlFor="login-pin"
                   className="font-semibold text-slate-700"
                 >
-                  รหัส PIN
+                  รหัสผ่าน
                 </Label>
                 <div className="relative">
                   <KeyRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" />
@@ -223,9 +245,9 @@ export default function Login() {
                     id="login-pin"
                     type={showPin ? "text" : "password"}
                     inputMode="text"
-                    value={pin}
-                    onChange={e => setPin(e.target.value)}
-                    placeholder="••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="อย่างน้อย 10 ตัวอักษร"
                     autoComplete="current-password"
                     autoCapitalize="none"
                     autoCorrect="off"
@@ -258,36 +280,16 @@ export default function Login() {
               <Button
                 type="submit"
                 className="shine-button h-12 w-full rounded-2xl text-base shadow-lg shadow-violet-600/25"
-                disabled={loginMut.isPending || !username || !pin}
+                disabled={
+                  isSubmitting ||
+                  !username ||
+                  !password
+                }
               >
                 <LogIn className="w-4 h-4 mr-2" />
-                {loginMut.isPending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+                {isSubmitting ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
               </Button>
-              <div className="rounded-xl bg-gradient-to-r from-violet-50/80 to-cyan-50/80 px-3 py-2.5 text-center text-[11px] text-slate-400 ring-1 ring-violet-100/60">
-                ทดลองใช้{" "}
-                <span className="font-mono font-semibold text-slate-600">
-                  admin / 1234
-                </span>{" "}
-                หรือ{" "}
-                <span className="font-mono font-semibold text-slate-600">
-                  somchai / 0000
-                </span>
-              </div>
             </form>
-
-            {/* URL สำหรับเครื่องอื่นใน LAN — แสดงเมื่อเปิดใช้ multi-station ใน Settings */}
-            {lanInfo?.enabled && lanInfo.urls.length > 0 && (
-              <div className="mt-4 border-t pt-3 space-y-1">
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Network className="w-3.5 h-3.5" /> เครื่องอื่นในร้านเปิดที่:
-                </p>
-                {lanInfo.urls.map(u => (
-                  <p key={u} className="text-xs font-mono text-primary">
-                    {u}
-                  </p>
-                ))}
-              </div>
-            )}
 
             {isDesktop && appVersion && (
               <p className="mt-4 border-t pt-3 text-right text-xs text-muted-foreground/70">

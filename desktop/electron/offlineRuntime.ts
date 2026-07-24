@@ -354,7 +354,9 @@ export class DesktopOfflineRuntime {
         httpLink({
           url: `${this.options.remoteOrigin}/api/trpc`,
           transformer: superjson,
-          headers: staffToken ? { "x-staff-session": staffToken } : undefined,
+          headers: staffToken
+            ? { authorization: `Bearer ${staffToken}` }
+            : undefined,
           fetch: async (input, init) => {
             const controller = new AbortController();
             const timeout = setTimeout(
@@ -481,7 +483,7 @@ export class DesktopOfflineRuntime {
       method,
       requestUrl,
       body,
-      req.headers["x-staff-session"]
+      req.headers.authorization
     );
     const remoteUrl = `${this.options.remoteOrigin}${requestUrl.pathname}${requestUrl.search}`;
     const headers = new Headers();
@@ -508,7 +510,7 @@ export class DesktopOfflineRuntime {
       });
       const responseBody = Buffer.from(await response.arrayBuffer());
       this.setOnline(true);
-      if (response.ok && this.isCacheable(method, requestUrl.pathname)) {
+      if (response.ok && this.isCacheable(method)) {
         this.state.cache[key] = {
           status: response.status,
           contentType:
@@ -576,9 +578,9 @@ export class DesktopOfflineRuntime {
     }
 
     const headers = new Headers({ Accept: "text/event-stream" });
-    const staffSession = req.headers["x-staff-session"];
-    if (typeof staffSession === "string") {
-      headers.set("x-staff-session", staffSession);
+    const authorization = req.headers.authorization;
+    if (typeof authorization === "string") {
+      headers.set("authorization", authorization);
     }
 
     const controller = new AbortController();
@@ -671,8 +673,8 @@ export class DesktopOfflineRuntime {
       .digest("hex");
   }
 
-  private isCacheable(method: string, pathname: string): boolean {
-    return method === "GET" || pathname.endsWith("/auth.login");
+  private isCacheable(method: string): boolean {
+    return method === "GET";
   }
 
   private pruneCache(): void {

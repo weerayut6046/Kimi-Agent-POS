@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { seedIfEmpty } from "./seedCore";
 
 // CLI: node dist/seed.js (ใช้ใน docker-entrypoint และ npm script)

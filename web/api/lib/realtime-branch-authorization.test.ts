@@ -74,7 +74,7 @@ beforeAll(async () => {
 
   const migrationPath = fileURLToPath(
     new URL(
-      "../../../supabase/migrations/20260723092024_restrict_non_admin_realtime_to_default_branch.sql",
+      "../../../supabase/migrations/20260723093151_restrict_non_admin_realtime_to_default_branch.sql",
       import.meta.url,
     ),
   );

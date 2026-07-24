@@ -42,6 +42,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { trpc } from "@/providers/trpc";
+import { currentSupabaseAccessToken } from "@/lib/supabase";
 import { useStaff } from "@/hooks/useStaff";
 import { useDesktopSync } from "@/hooks/useDesktopSync";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -314,7 +315,7 @@ export default function Pos() {
           memberName: member?.name ?? null,
           customerName: creditCustomer?.name ?? null,
         },
-        staffToken: staff?.token,
+        staffToken: (await currentSupabaseAccessToken()) ?? undefined,
       });
       finishSale(result);
     } catch (error) {

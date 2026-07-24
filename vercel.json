@@ -8,50 +8,41 @@
       "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
     }
   },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://lexjxdrypkwqnlpjkttd.supabase.co wss://lexjxdrypkwqnlpjkttd.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
-      "source": "/api/trpc/assistant.chat",
-      "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-assistant"
-    },
-    {
-      "source": "/api/trpc/dbadmin.dbInfo",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.dbInfo"
-    },
-    {
-      "source": "/api/trpc/dbadmin.backup",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.backup"
-    },
-    {
-      "source": "/api/trpc/dbadmin.readBackup",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.readBackup"
-    },
-    {
-      "source": "/api/trpc/dbadmin.restore",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.restore"
-    },
-    {
-      "source": "/api/trpc/dbadmin.deleteBackup",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.deleteBackup"
-    },
-    {
-      "source": "/api/trpc/dbadmin.restoreUpload",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/dbadmin.restoreUpload"
-    },
-    {
-      "source": "/api/trpc/reports.exportDailyExcel",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/reports.exportDailyExcel"
-    },
-    {
-      "source": "/api/trpc/reports.exportRangeExcel",
-      "destination": "https://api-production-dc37.up.railway.app/api/trpc/reports.exportRangeExcel"
+      "source": "/api/auth/bootstrap",
+      "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-auth-bootstrap"
     },
     {
       "source": "/api/trpc/:procedure",
       "destination": "https://lexjxdrypkwqnlpjkttd.supabase.co/functions/v1/pos-api/:procedure"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://api-production-dc37.up.railway.app/api/:path*"
     },
     {
       "source": "/((?!api/).*)",

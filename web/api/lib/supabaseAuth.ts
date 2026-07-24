@@ -1,52 +1,6 @@
-import { randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { eq } from "drizzle-orm";
-import { staffUsers } from "@db/schema";
-import { getDb } from "../queries/connection";
 import { env } from "./env";
-
-export type SupabaseStaffSession = {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-};
-
-type StaffAuthRecord = {
-  id: number;
-  supabaseAuthUserId: string | null;
-};
-
-type AuthIdentity = {
-  id: string;
-  email: string | null;
-};
-
-export type StaffAuthBridgeAdapter = {
-  getUserById: (userId: string) => Promise<AuthIdentity | null>;
-  findUserByEmail: (email: string) => Promise<AuthIdentity | null>;
-  createUser: (email: string, password: string) => Promise<AuthIdentity | null>;
-  updatePassword: (userId: string, password: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<SupabaseStaffSession>;
-  linkStaff: (staffId: number, userId: string) => Promise<void>;
-};
-
-type StaffAuthBridgeFailureCode =
-  | "admin_lookup_failed"
-  | "create_failed"
-  | "identity_mismatch"
-  | "link_failed"
-  | "password_update_failed"
-  | "signin_failed"
-  | "unknown";
-
-class StaffAuthBridgeError extends Error {
-  readonly code: StaffAuthBridgeFailureCode;
-
-  constructor(code: StaffAuthBridgeFailureCode) {
-    super(code);
-    this.code = code;
-  }
-}
+import { staffAuthEmail } from "@contracts/auth";
 
 const authOptions = {
   auth: {
@@ -56,174 +10,99 @@ const authOptions = {
   },
 } as const;
 
-function internalEmail(staffId: number): string {
-  return `staff-${env.supabaseProjectRef}-${staffId}@auth.pumppos.invalid`;
-}
-
-function strongTemporaryPassword(): string {
-  return `Aa1!${randomBytes(32).toString("hex")}`;
-}
-
 function authErrorCode(error: unknown): string {
   if (!error || typeof error !== "object" || !("code" in error)) return "";
   return typeof error.code === "string" ? error.code : "";
 }
 
-function defaultAdapter(): StaffAuthBridgeAdapter | null {
-  if (
-    !env.supabaseUrl ||
-    !env.supabaseProjectRef ||
-    !env.supabasePublishableKey ||
-    !env.supabaseSecretKey
-  ) {
-    return null;
+function requireAdminClient() {
+  if (!env.supabaseUrl || !env.supabaseSecretKey) {
+    throw new Error("Supabase Auth admin client is not configured");
   }
-
-  const adminClient = createClient(
-    env.supabaseUrl,
-    env.supabaseSecretKey,
-    authOptions
-  );
-  const publicClient = createClient(
-    env.supabaseUrl,
-    env.supabasePublishableKey,
-    authOptions
-  );
-
-  const findUserByEmail = async (
-    email: string
-  ): Promise<AuthIdentity | null> => {
-    const pageSize = 200;
-    for (let page = 1; page <= 100; page += 1) {
-      const { data, error } = await adminClient.auth.admin.listUsers({
-        page,
-        perPage: pageSize,
-      });
-      if (error) throw new StaffAuthBridgeError("admin_lookup_failed");
-      const match = data.users.find(
-        user => user.email?.toLowerCase() === email.toLowerCase()
-      );
-      if (match) return { id: match.id, email: match.email ?? null };
-      if (data.users.length < pageSize) return null;
-    }
-    throw new StaffAuthBridgeError("admin_lookup_failed");
-  };
-
-  return {
-    async getUserById(userId) {
-      const { data, error } = await adminClient.auth.admin.getUserById(userId);
-      if (error) {
-        if (authErrorCode(error) === "user_not_found") return null;
-        throw new StaffAuthBridgeError("admin_lookup_failed");
-      }
-      return data.user
-        ? { id: data.user.id, email: data.user.email ?? null }
-        : null;
-    },
-    findUserByEmail,
-    async createUser(email, password) {
-      const { data, error } = await adminClient.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
-      if (error) {
-        // A concurrent request may have created the deterministic identity.
-        return findUserByEmail(email);
-      }
-      return data.user
-        ? { id: data.user.id, email: data.user.email ?? null }
-        : null;
-    },
-    async updatePassword(userId, password) {
-      const { error } = await adminClient.auth.admin.updateUserById(userId, {
-        password,
-      });
-      if (error) throw new StaffAuthBridgeError("password_update_failed");
-    },
-    async signIn(email, password) {
-      const { data, error } = await publicClient.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error || !data.session) {
-        throw new StaffAuthBridgeError("signin_failed");
-      }
-      return {
-        accessToken: data.session.access_token,
-        refreshToken: data.session.refresh_token,
-        expiresAt:
-          data.session.expires_at ??
-          Math.floor(Date.now() / 1000) + data.session.expires_in,
-      };
-    },
-    async linkStaff(staffId, userId) {
-      try {
-        await getDb()
-          .update(staffUsers)
-          .set({ supabaseAuthUserId: userId })
-          .where(eq(staffUsers.id, staffId));
-      } catch {
-        throw new StaffAuthBridgeError("link_failed");
-      }
-    },
-  };
+  return createClient(env.supabaseUrl, env.supabaseSecretKey, authOptions);
 }
 
-export async function issueSupabaseStaffSessionWithAdapter(
-  staff: StaffAuthRecord,
-  adapter: StaffAuthBridgeAdapter,
-  passwordFactory: () => string = strongTemporaryPassword
-): Promise<SupabaseStaffSession> {
-  const expectedEmail = internalEmail(staff.id);
-  let identity = staff.supabaseAuthUserId
-    ? await adapter.getUserById(staff.supabaseAuthUserId)
-    : null;
+export type ProvisionedStaffIdentity = {
+  id: string;
+  email: string;
+};
 
-  if (
-    identity &&
-    identity.email?.toLowerCase() !== expectedEmail.toLowerCase()
-  ) {
-    throw new StaffAuthBridgeError("identity_mismatch");
+/**
+ * Create the canonical Supabase Auth identity for a staff account. Passwords
+ * are sent only to Supabase Auth and are never written to the POS database.
+ */
+export async function createSupabaseStaffIdentity(input: {
+  username: string;
+  password: string;
+  name: string;
+  role: "admin" | "manager" | "cashier";
+}): Promise<ProvisionedStaffIdentity> {
+  const email = staffAuthEmail(input.username);
+  const admin = requireAdminClient();
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: input.password,
+    email_confirm: true,
+    app_metadata: {
+      pos_staff: true,
+      pos_role: input.role,
+    },
+    user_metadata: {
+      display_name: input.name,
+    },
+  });
+  if (error || !data.user) {
+    throw new Error(error?.message || "Unable to create Supabase Auth user");
   }
-
-  identity ??= await adapter.findUserByEmail(expectedEmail);
-  if (!identity) {
-    identity = await adapter.createUser(expectedEmail, passwordFactory());
-  }
-  if (
-    !identity ||
-    identity.email?.toLowerCase() !== expectedEmail.toLowerCase()
-  ) {
-    throw new StaffAuthBridgeError("create_failed");
-  }
-
-  if (identity.id !== staff.supabaseAuthUserId) {
-    await adapter.linkStaff(staff.id, identity.id);
-  }
-
-  // Rotate the internal password whenever a Realtime session is issued. It is
-  // never returned to the browser and cannot be used as a staff login secret.
-  let password = passwordFactory();
-  await adapter.updatePassword(identity.id, password);
-  try {
-    return await adapter.signIn(expectedEmail, password);
-  } catch {
-    // A concurrent login may have rotated the password between update/sign-in.
-    password = passwordFactory();
-    await adapter.updatePassword(identity.id, password);
-    return adapter.signIn(expectedEmail, password);
-  }
+  return { id: data.user.id, email };
 }
 
-export async function issueSupabaseStaffSession(
-  staff: StaffAuthRecord
-): Promise<SupabaseStaffSession | null> {
-  const adapter = defaultAdapter();
-  if (!adapter) return null;
-  return issueSupabaseStaffSessionWithAdapter(staff, adapter);
+export async function updateSupabaseStaffIdentity(
+  userId: string,
+  input: {
+    username?: string;
+    password?: string;
+    name?: string;
+    role?: "admin" | "manager" | "cashier";
+    active?: boolean;
+  },
+): Promise<void> {
+  const admin = requireAdminClient();
+  const attributes: {
+    email?: string;
+    password?: string;
+    email_confirm?: boolean;
+    ban_duration?: string;
+    app_metadata?: Record<string, unknown>;
+    user_metadata?: Record<string, unknown>;
+  } = {};
+  if (input.username !== undefined) {
+    attributes.email = staffAuthEmail(input.username);
+    attributes.email_confirm = true;
+  }
+  if (input.password !== undefined) attributes.password = input.password;
+  if (input.active !== undefined) {
+    attributes.ban_duration = input.active ? "none" : "876000h";
+  }
+  if (input.role !== undefined) {
+    attributes.app_metadata = {
+      pos_staff: true,
+      pos_role: input.role,
+    };
+  }
+  if (input.name !== undefined) {
+    attributes.user_metadata = { display_name: input.name };
+  }
+  const { error } = await admin.auth.admin.updateUserById(userId, attributes);
+  if (error) throw new Error(error.message);
 }
 
-export function staffAuthBridgeFailureCode(error: unknown): string {
-  return error instanceof StaffAuthBridgeError ? error.code : "unknown";
+export async function deleteSupabaseStaffIdentity(
+  userId: string,
+): Promise<void> {
+  const admin = requireAdminClient();
+  const { error } = await admin.auth.admin.deleteUser(userId, false);
+  if (error && authErrorCode(error) !== "user_not_found") {
+    throw new Error(error.message);
+  }
 }

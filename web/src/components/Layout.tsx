@@ -142,7 +142,7 @@ const menus: MenuItem[] = [
   {
     permission: "reports",
     to: "/reports",
-    label: "รายงานปิดวัน",
+    label: "รายงาน",
     icon: ClipboardList,
     group: "document",
   },
@@ -194,6 +194,39 @@ const groupLabels: Record<MenuItem["group"], string> = {
 };
 
 const mobileMenuPaths = ["/", "/pos", "/shifts", "/stock"];
+const routePreloaders: Record<string, () => Promise<unknown>> = {
+  "/": () => import("@/pages/Dashboard"),
+  "/pos": () => import("@/pages/Pos"),
+  "/shifts": () => import("@/pages/Shifts"),
+  "/workforce": () => import("@/pages/Workforce"),
+  "/stock": () => import("@/pages/Stock"),
+  "/members": () => import("@/pages/Members"),
+  "/customers": () => import("@/pages/Customers"),
+  "/debts": () => import("@/pages/Debts"),
+  "/sales": () => import("@/pages/Sales"),
+  "/expenses": () => import("@/pages/Expenses"),
+  "/reports": () => import("@/pages/Reports"),
+  "/tax-invoices": () => import("@/pages/TaxInvoices"),
+  "/documents": () => import("@/pages/Documents"),
+  "/audit": () => import("@/pages/Audit"),
+  "/settings": () => import("@/pages/Settings"),
+};
+const preloadedRoutes = new Set<string>();
+
+async function preloadRoute(path: string): Promise<void> {
+  // In development Vite serves the full source-module graph, so even a mouse
+  // pass over the sidebar can create dozens of requests. Production uses
+  // compact chunks, where intent-based preloading is beneficial.
+  if (import.meta.env.DEV) return;
+  const loader = routePreloaders[path];
+  if (!loader || preloadedRoutes.has(path)) return;
+  preloadedRoutes.add(path);
+  try {
+    await loader();
+  } catch {
+    preloadedRoutes.delete(path);
+  }
+}
 
 export default function Layout() {
   const { staff, logout, switchBranch } = useStaff();
@@ -288,6 +321,9 @@ export default function Layout() {
       <NavLink
         to={menu.to}
         end={menu.end}
+        onMouseEnter={() => void preloadRoute(menu.to)}
+        onFocus={() => void preloadRoute(menu.to)}
+        onTouchStart={() => void preloadRoute(menu.to)}
         onClick={closeOnClick ? () => setMobileMenuOpen(false) : undefined}
         className={({ isActive }) =>
           cn(

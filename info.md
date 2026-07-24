@@ -1,6 +1,6 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 22 กรกฎาคม 2026 — source/build และรุ่นเผยแพร่ `2.0.5`; เว็บออนไลน์ https://kimi-agent-pos.vercel.app (Vercel + Railway + Supabase)
+> อัปเดตล่าสุด: 24 กรกฎาคม 2026 — source `2.1.5`; เว็บออนไลน์ใช้ Vercel + Supabase Edge Functions/Auth/PostgreSQL
 
 ## Technology stack
 
@@ -22,7 +22,7 @@
 - `desktop/scripts/` — dev launcher, packager และ GCS publisher
 - `desktop/build/` — NSIS Wizard ภาษาไทย, EULA, ไอคอน และภาพแบรนด์ของตัวติดตั้ง
 - `desktop/certs/` — code-signing certificate (commit เฉพาะ `.cer` สาธารณะ; `.pfx` และ password ไม่ commit)
-- `vercel.json` / `railway.toml` — config deploy เว็บออนไลน์ (frontend บน Vercel, backend บน Railway)
+- `vercel.json` / `supabase/functions/` — config frontend และ Supabase Edge Functions
 - `release/` — ผลลัพธ์ installer/Portable ไม่ commit เข้า Git
 
 ## เอกสารหลัก
@@ -40,5 +40,5 @@
 - Build Desktop ด้วย `npm run dist:exe`
 - NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator
 - รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
-- ฐานข้อมูลสำรองด้วย Supabase Pro รายวันและ Private GCS ทุก 6 ชั่วโมง; ห้าม Restore ทับ production จากหน้าแอป
+- Production ใช้ Supabase Managed Backups; ห้าม Restore ทับ production จากหน้าแอป
 - อย่า commit ไฟล์ฐานข้อมูล, secrets, `dist/` หรือ `release/`

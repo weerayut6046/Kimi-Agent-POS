@@ -58,7 +58,7 @@ export const staffUsers = posSchema.table(
   {
     id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
     username: text("username").notNull().unique(),
-    pin: text("pin").notNull(), // SHA-256 hash
+    pin: text("pin").notNull(), // legacy hash or non-login Supabase Auth marker
     name: text("name").notNull(),
     role: text("role", { enum: ["admin", "manager", "cashier"] }).notNull().default("cashier"),
     accessGroupId: integer("access_group_id").references(
@@ -208,6 +208,7 @@ export const payrollRecords = posSchema.table(
   (t) => ({
     monthIdx: index("payroll_month_idx").on(t.payrollMonth),
     branchIdx: index("payroll_branch_idx").on(t.branchId),
+    staffIdx: index("payroll_staff_idx").on(t.staffId),
     staffMonthUnique: uniqueIndex("payroll_staff_month_unique").on(
       t.branchId,
       t.staffId,
@@ -777,6 +778,79 @@ export const settings = posSchema.table(
   }),
 ).enableRLS();
 
+// ============ การตั้งค่า AI (เก็บแยกจาก settings ที่ client อ่านได้) ============
+export const assistantSettings = posSchema.table(
+  "assistant_settings",
+  {
+    branchId: integer("branch_id")
+      .primaryKey()
+      .references(() => branches.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["ollama", "deepseek"] })
+      .notNull()
+      .default("ollama"),
+    ollamaModel: text("ollama_model")
+      .notNull()
+      .default("qwen3:4b-instruct"),
+    deepseekModel: text("deepseek_model")
+      .notNull()
+      .default("deepseek-v4-flash"),
+    // AES-256-GCM ciphertext เท่านั้น; key สำหรับถอดรหัสอยู่ใน APP_SECRET ฝั่ง server
+    deepseekApiKeyEncrypted: text("deepseek_api_key_encrypted"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    providerIdx: index("assistant_settings_provider_idx").on(t.provider),
+  }),
+).enableRLS();
+
+// ============ คำสั่ง AI ที่รอผู้ใช้ยืนยัน ============
+export const assistantActionProposals = posSchema.table(
+  "assistant_action_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    branchId: integer("branch_id")
+      .notNull()
+      .references(() => branches.id, { onDelete: "restrict" }),
+    staffId: integer("staff_id")
+      .notNull()
+      .references(() => staffUsers.id, { onDelete: "restrict" }),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    action: text("action").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    title: text("title").notNull(),
+    summary: text("summary").notNull(),
+    risk: text("risk", { enum: ["standard", "sensitive"] }).notNull(),
+    status: text("status", {
+      enum: [
+        "pending",
+        "processing",
+        "succeeded",
+        "failed",
+        "expired",
+        "cancelled",
+      ],
+    })
+      .notNull()
+      .default("pending"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    executedAt: timestamp("executed_at", { withTimezone: true }),
+    resultSummary: text("result_summary"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    branchIdx: index("assistant_action_proposal_branch_idx").on(t.branchId),
+    staffStatusIdx: index("assistant_action_proposal_staff_status_idx").on(
+      t.staffId,
+      t.status,
+    ),
+    expiresIdx: index("assistant_action_proposal_expires_idx").on(t.expiresAt),
+  }),
+).enableRLS();
+
 // ============ Types ============
 export type Branch = typeof branches.$inferSelect;
 export type StaffBranch = typeof staffBranches.$inferSelect;
@@ -804,3 +878,6 @@ export type DebtPayment = typeof debtPayments.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
 export type PriceChange = typeof priceChanges.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type AssistantSetting = typeof assistantSettings.$inferSelect;
+export type AssistantActionProposal =
+  typeof assistantActionProposals.$inferSelect;

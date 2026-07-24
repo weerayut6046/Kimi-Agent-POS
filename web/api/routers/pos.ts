@@ -1,5 +1,18 @@
 import { z } from "zod";
-import { and, desc, eq, gte, inArray, like, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  like,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
@@ -104,6 +117,25 @@ const shiftHistorySearchInput = z.object({
     .optional(),
   limit: z.number().int().positive().max(500).default(200),
 });
+
+const historyShifts = alias(shifts, "history_shifts");
+
+const shiftHistorySelection = {
+  ...getTableColumns(historyShifts),
+  priceChangedDuringShift: sql<boolean>`exists (
+    select 1
+    from ${priceChanges} as "history_price_changes"
+    inner join ${nozzles} as "history_nozzles"
+      on "history_nozzles"."product_id" = "history_price_changes"."product_id"
+    inner join ${shiftReadings} as "history_shift_readings"
+      on "history_shift_readings"."nozzle_id" = "history_nozzles"."id"
+      and "history_shift_readings"."branch_id" = "history_shifts"."branch_id"
+    where "history_shift_readings"."shift_id" = "history_shifts"."id"
+      and "history_price_changes"."branch_id" = "history_shifts"."branch_id"
+      and "history_price_changes"."created_at" >= "history_shifts"."opened_at"
+      and "history_price_changes"."created_at" <= coalesce("history_shifts"."closed_at", current_timestamp)
+  )`,
+};
 
 async function getSettingMap(
   db: ReturnType<typeof getDb>,
@@ -505,45 +537,47 @@ export const posRouter = createRouter({
     }),
 
   shiftHistory: publicQuery.query(async ({ ctx }) => {
-    return getDb().query.shifts.findMany({
-      where: eq(shifts.branchId, ctx.staff.branchId),
-      orderBy: (s, { desc: d }) => [d(s.openedAt)],
-      limit: 50,
-    });
+    return getDb()
+      .select(shiftHistorySelection)
+      .from(historyShifts)
+      .where(eq(historyShifts.branchId, ctx.staff.branchId))
+      .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
+      .limit(50);
   }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
   searchShiftHistory: adminQuery
     .input(shiftHistorySearchInput)
     .query(async ({ input, ctx }) => {
-      const conditions = [eq(shifts.branchId, ctx.staff.branchId)];
+      const conditions = [eq(historyShifts.branchId, ctx.staff.branchId)];
       const q = input.q?.trim();
       if (q) {
         const pattern = `%${q}%`;
         conditions.push(
           or(
-            like(shifts.staffName, pattern),
-            like(shifts.note, pattern),
-            sql<boolean>`cast(${shifts.id} as text) like ${pattern}`,
+            like(historyShifts.staffName, pattern),
+            like(historyShifts.note, pattern),
+            sql<boolean>`cast(${historyShifts.id} as text) like ${pattern}`,
           )!
         );
       }
-      if (input.status) conditions.push(eq(shifts.status, input.status));
+      if (input.status)
+        conditions.push(eq(historyShifts.status, input.status));
       if (input.from) {
         conditions.push(
-          gte(shifts.openedAt, new Date(`${input.from}T00:00:00`))
+          gte(historyShifts.openedAt, new Date(`${input.from}T00:00:00`))
         );
       }
       if (input.to) {
         const exclusiveEnd = new Date(`${input.to}T00:00:00`);
         exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
-        conditions.push(lt(shifts.openedAt, exclusiveEnd));
+        conditions.push(lt(historyShifts.openedAt, exclusiveEnd));
       }
       return getDb()
-        .select()
-        .from(shifts)
+        .select(shiftHistorySelection)
+        .from(historyShifts)
         .where(and(...conditions))
-        .orderBy(desc(shifts.openedAt), desc(shifts.id))
+        .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input.limit);
     }),
 
@@ -874,6 +908,16 @@ export const posRouter = createRouter({
           and(eq(sales.shiftId, shift.id), eq(sales.branchId, branchId)),
         )
         .orderBy(desc(sales.createdAt));
+      const priceChangeRows = await db
+        .select({ productId: priceChanges.productId })
+        .from(priceChanges)
+        .where(
+          and(
+            eq(priceChanges.branchId, branchId),
+            gte(priceChanges.createdAt, shift.openedAt),
+            lte(priceChanges.createdAt, shift.closedAt ?? new Date()),
+          ),
+        );
       const cash = await shiftCashSummary(db, shift);
       // parse JSON การนับแบงก์/เหรียญ (กะเก่า/ข้อมูลเสีย → null)
       let cashCounts: CashCounts | null = null;
@@ -884,31 +928,40 @@ export const posRouter = createRouter({
           cashCounts = null;
         }
       }
+      const changedProductIds = new Set(
+        priceChangeRows.map(change => change.productId),
+      );
+      const detailReadings = readings.map(r => {
+        const nz = nozzleRows.find(n => n.id === r.nozzleId);
+        const prod = prodRows.find(p => p.id === nz?.productId);
+        const liters =
+          r.closeMeter != null ? r3(r.closeMeter - r.openMeter) : null;
+        const money =
+          r.closeMoney != null && r.openMoney > 0
+            ? r2(r.closeMoney - r.openMoney)
+            : null;
+        const amountL = liters != null ? r2(liters * r.pricePerLiter) : null;
+        return {
+          ...r,
+          nozzle: nz ?? null,
+          product: prod ?? null,
+          liters,
+          money, // ยอดจากมิเตอร์เงิน P
+          amount: amountL, // ยอดจากลิตร × ราคา
+          diff: money != null && amountL != null ? r2(money - amountL) : null, // ผลต่าง P − (L×ราคา)
+          priceChangedDuringShift:
+            nz?.productId != null && changedProductIds.has(nz.productId),
+        };
+      });
       return {
         ...shift,
         cashCounts,
         cash, // สรุปเงินสด (กะเก่าที่ expectedCash เป็น null ใช้ยอดคำนวณย้อนหลังจากตัวนี้)
         sales: saleRows,
-        readings: readings.map(r => {
-          const nz = nozzleRows.find(n => n.id === r.nozzleId);
-          const prod = prodRows.find(p => p.id === nz?.productId);
-          const liters =
-            r.closeMeter != null ? r3(r.closeMeter - r.openMeter) : null;
-          const money =
-            r.closeMoney != null && r.openMoney > 0
-              ? r2(r.closeMoney - r.openMoney)
-              : null;
-          const amountL = liters != null ? r2(liters * r.pricePerLiter) : null;
-          return {
-            ...r,
-            nozzle: nz ?? null,
-            product: prod ?? null,
-            liters,
-            money, // ยอดจากมิเตอร์เงิน P
-            amount: amountL, // ยอดจากลิตร × ราคา
-            diff: money != null && amountL != null ? r2(money - amountL) : null, // ผลต่าง P − (L×ราคา)
-          };
-        }),
+        priceChangedDuringShift: detailReadings.some(
+          reading => reading.priceChangedDuringShift,
+        ),
+        readings: detailReadings,
       };
     }),
 

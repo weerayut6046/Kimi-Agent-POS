@@ -10,6 +10,9 @@ let client: ReturnType<typeof postgres> | undefined;
 let instance: ReturnType<typeof drizzle<typeof fullSchema>> | undefined;
 let testCleanup: (() => Promise<void>) | undefined;
 
+const isEdgeRuntime =
+  typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !== "undefined";
+
 function requiresSsl(connectionString: string): boolean {
   const hostname = new URL(connectionString).hostname;
   return hostname !== "localhost" && hostname !== "127.0.0.1";
@@ -21,10 +24,14 @@ export function getDb() {
     client = postgres(env.databaseUrl, {
       prepare: false,
       ssl: requiresSsl(env.databaseUrl) ? "require" : false,
-      max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
+      max: isEdgeRuntime
+        ? 1
+        : Number(process.env.DATABASE_POOL_SIZE ?? 5),
       // Keep the pool warm between POS actions. Reconnecting through a remote
       // pooler costs far more than the queries themselves.
-      idle_timeout: Number(process.env.DATABASE_IDLE_TIMEOUT_SECONDS ?? 300),
+      idle_timeout: isEdgeRuntime
+        ? 20
+        : Number(process.env.DATABASE_IDLE_TIMEOUT_SECONDS ?? 300),
       connect_timeout: 10,
     });
     instance = drizzle(client, { schema: fullSchema });

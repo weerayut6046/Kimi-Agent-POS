@@ -55,7 +55,7 @@ export const MENU_PERMISSION_DEFINITIONS: readonly MenuPermissionDefinition[] =
     {
       key: "reports",
       path: "/reports",
-      label: "รายงานปิดวัน",
+      label: "รายงาน",
       group: "document",
     },
     {

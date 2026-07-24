@@ -13,6 +13,8 @@ const SUPABASE_EVENT = "invalidate";
 const MAX_CLIENTS = 250;
 const MAX_CLIENTS_PER_STAFF = 20;
 const MAX_RECENT_EVENT_IDS = 512;
+const isEdgeRuntime =
+  typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !== "undefined";
 
 type Subscriber = {
   staffId: number;
@@ -121,7 +123,11 @@ export function publishRealtimeInvalidation(
 
   // PostgreSQL NOTIFY fans the same opaque event out to other backend replicas.
   // Failure must not turn an already-committed business mutation into an error.
-  if (process.env.NODE_ENV !== "test" && env.databaseUrl) {
+  if (
+    process.env.NODE_ENV !== "test" &&
+    !isEdgeRuntime &&
+    env.databaseUrl
+  ) {
     void getPostgresClient()
       .notify(CHANNEL, JSON.stringify(event))
       .catch(error => {

@@ -96,7 +96,7 @@ type PayrollForm = {
 
 type StaffForm = {
   username: string;
-  pin: string;
+  password: string;
   name: string;
   role: "admin" | "manager" | "cashier";
 };
@@ -609,7 +609,7 @@ export default function Workforce() {
                   onClick={() =>
                     setStaffForm({
                       username: "",
-                      pin: "",
+                      password: "",
                       name: "",
                       role: "cashier",
                     })
@@ -1316,9 +1316,12 @@ export default function Workforce() {
                   <Input
                     type="password"
                     inputMode="numeric"
-                    value={staffForm.pin}
+                    value={staffForm.password}
                     onChange={event =>
-                      setStaffForm({ ...staffForm, pin: event.target.value })
+                      setStaffForm({
+                        ...staffForm,
+                        password: event.target.value,
+                      })
                     }
                     placeholder="อย่างน้อย 4 หลัก"
                   />
@@ -1352,7 +1355,7 @@ export default function Workforce() {
               disabled={
                 !staffForm?.name.trim() ||
                 (staffForm?.username.length ?? 0) < 3 ||
-                (staffForm?.pin.length ?? 0) < 4 ||
+                (staffForm?.password.length ?? 0) < 10 ||
                 createStaff.isPending
               }
               onClick={() => staffForm && createStaff.mutate(staffForm)}

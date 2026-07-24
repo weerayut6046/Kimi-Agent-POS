@@ -14,6 +14,22 @@ export type StaffSessionClaims = {
 
 const SESSION_HEADER = "x-staff-session";
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
+const requestSessions = new WeakMap<Request, StaffSessionClaims>();
+
+/** Attach a Supabase-authenticated staff profile to this request. */
+export function bindStaffSessionToRequest(
+  req: Request,
+  session: StaffSessionClaims,
+): void {
+  requestSessions.set(req, session);
+}
+
+/** Return only a profile already verified and bound during this HTTP request. */
+export function boundStaffSessionFromRequest(
+  req: Request,
+): StaffSessionClaims | null {
+  return requestSessions.get(req) ?? null;
+}
 
 function sign(payload: string): string {
   return createHmac("sha256", env.appSecret).update(payload).digest("base64url");
@@ -43,6 +59,13 @@ export function issueStaffSession(
 }
 
 export function staffSessionFromHeader(req: Request): StaffSessionClaims | null {
+  const bound = requestSessions.get(req);
+  if (bound) return bound;
+
+  // The custom HMAC session remains available only to isolated unit tests and
+  // the legacy desktop-offline test harness. Production cloud requests must
+  // authenticate with a Supabase JWT in the Authorization header.
+  if (process.env.NODE_ENV !== "test") return null;
   const token = req.headers.get(SESSION_HEADER);
   if (!token) return null;
   const [payload, suppliedSignature, extra] = token.split(".");

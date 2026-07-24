@@ -57,42 +57,64 @@ docker compose up --build
 - Container แบบ long-lived เชื่อม Supabase PostgreSQL ผ่าน session pooler; migration schema ทำแบบส่วนกลางก่อน deploy
 - ปรับค่าได้ผ่าน `.env` เช่น `DATABASE_URL`, `DATABASE_POOL_SIZE`, `APP_SECRET`, `APP_PORT`
 
-## Deploy เว็บขึ้นคลาวด์ (Vercel + Railway)
+## Deploy เว็บขึ้นคลาวด์ (Vercel + Supabase)
 
 ระบบ deploy ออนไลน์ไว้ที่ https://kimi-agent-pos.vercel.app
 
-- **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` กำหนด build เฉพาะ frontend (`npx vite build` → `dist/public`), rewrite `/api/*` ไป backend และ SPA fallback ทุก route กลับ `index.html`
-- **Backend** — Docker container บน Railway (project `pos-pump-api`, service `api`) ที่ `https://api-production-dc37.up.railway.app`; เชื่อม Supabase PostgreSQL ผ่าน session pooler
-- **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos` (RLS เปิดทุกตารางและไม่เปิดให้ Data API)
-- ตัวแปรบน Railway: `APP_ID`, `APP_SECRET`, `DATABASE_URL`, `DATABASE_POOL_SIZE=5`, `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL=deepseek-v4-flash`, `SEED_ON_START=false`
-- บัญชีเริ่มต้นเหมือนชุด seed ของ Docker — **เปลี่ยน PIN ทันทีหลังเข้าใช้ครั้งแรก**
+- **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` rewrite `/api/*` ไป Supabase และทำ SPA fallback
+- **Backend** — Supabase Edge Functions `pos-api` และ `pos-assistant`; `pos-auth-bootstrap` ปิดถาวรและตอบ 410; ไม่มี Railway proxy
+- **Auth** — Supabase Auth เป็นเจ้าของรหัสผ่านและ session; API ตรวจ JWT แล้วผูกกับพนักงานที่ active และสาขาที่เลือกทุก request
+- **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos`; RLS เปิดทุกตารางและ revoke สิทธิ์ Data API จาก `anon`/`authenticated`
+- Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; admin ต้อง provision identity ใน Supabase Auth และเชื่อมกับ `pos.staff_users` ก่อนเปิดใช้งาน
 
-deploy รอบใหม่ (ต้องมี token ของแต่ละบริการ):
+deploy รอบใหม่ (ต้องเชื่อม Supabase CLI กับ project ที่ถูกต้องและมี Vercel token):
 
 ```bash
-npx vercel deploy --prod   # frontend — อัปโหลดเวอร์ชันไฟล์ local ตาม .vercel/ ที่ link ไว้
-npx @railway/cli up        # backend — build จาก web/Dockerfile บน Railway
+npm run check
+npm test
+npm run build:edge
+npx supabase db push
+npx supabase functions deploy pos-auth-bootstrap
+npx supabase functions deploy pos-api
+npx supabase functions deploy pos-assistant
+npx vercel deploy --prod
 ```
 
 ### Real-time และความปลอดภัย
 
-- Web และ Desktop รับการเปลี่ยนแปลงผ่าน authenticated SSE ที่ `/api/realtime`; backend ใช้ PostgreSQL `LISTEN/NOTIFY` กระจายสัญญาณข้าม instance แล้วให้ React Query ดึงข้อมูลใหม่ผ่าน API เดิม
-- Event ส่งเฉพาะ `version`, `eventId` และ `scope` ไม่มีข้อมูลลูกค้า พนักงาน ยอดขาย หรือ row payload และ browser ไม่ได้รับ Supabase URL/key หรือ database secret
-- API ธุรกิจต้องมี signed staff session, stream ตรวจสถานะบัญชีซ้ำ จำกัด connection และปิดตามอายุ token โดยไม่ส่ง token ผ่าน query string
-- Railway ต้องใช้ Supabase/Supavisor session pooler พอร์ต `5432` เพื่อให้ persistent listener ทำงาน ส่วน polling เดิมยังคงเป็น fallback เมื่อ stream reconnect
+- Web และ Desktop ใช้ Supabase Auth access token กับ API และรับ opaque invalidation ผ่าน Supabase Realtime private channel
+- Event ไม่มีข้อมูลลูกค้า พนักงาน ยอดขาย หรือ row payload; client ได้เฉพาะ Supabase URL และ publishable key ที่ออกแบบให้เปิดเผยได้
+- API ธุรกิจตรวจ Supabase JWT, สถานะพนักงาน, บทบาท, สิทธิ์รายเมนู และสาขาฝั่ง server ทุก request
+- Secret key, service role, database URL และ AI key อยู่ใน Supabase Edge secrets เท่านั้น ห้ามใช้ตัวแปรที่ขึ้นต้นด้วย `VITE_`
 
-### ผู้ช่วย AI (DeepSeek)
+### ผู้ช่วย AI (Ollama/Qwen Local หรือ DeepSeek)
 
 - พนักงานที่ล็อกอินแล้วเปิด “ผู้ช่วย AI” จากปุ่มลอยด้านขวาล่าง เพื่อถามยอดขายรวมวันนี้ สถานะกะ สต๊อกต่ำ และวิธีใช้ PumpPOS; บัญชี `admin` สามารถถามปริมาณคงเหลือ ความจุ เปอร์เซ็นต์ และสถานะของถังน้ำมันทุกถังได้
 - `admin` ถามภาพรวมธุรกิจแบบ read-only ได้ทุกโมดูล ได้แก่ การเงิน/ค่าใช้จ่าย สมาชิก/ลูกค้าธุรกิจ/ลูกหนี้ บุคลากร/ตารางงาน/เงินเดือนรวม เอกสารภาษี/สถานะบิล โครงสร้างสถานี และ Audit แบบรวม โดยไม่คืนชื่อบุคคล รายละเอียดบิล หรือค่าตั้งค่าระบบ
 - `admin` ขอเอกสารจากแชตได้ผ่าน action ที่ระบบกำหนดไว้เท่านั้น: ดาวน์โหลด Z-Report รายวันและรายงานยอดขายช่วงเวลาเป็น Excel หรือเปิดหน้าใบเสร็จ ใบกำกับภาษี แบบฟอร์มเครดิต รายการรถ ใบรับชำระหนี้ และเงินเดือนเพื่อเลือกข้อมูล/พิมพ์ภายใน PumpPOS; AI ไม่สามารถสร้าง URL หรืออ่านเนื้อหาเอกสารเอง
-- DeepSeek ใช้ตีความคำถามและเลือกชื่อเครื่องมือ read-only ตามสิทธิ์เมนูเท่านั้น ผล query จริง เช่น ยอดขาย สถานะกะ และชื่อ/จำนวนสต๊อก จะถูกจัดรูปเป็นคำตอบภายใน backend และ **ไม่ส่งผลลัพธ์กลับไปให้ DeepSeek**
-- DeepSeek ไม่มี API สำหรับเพิ่ม แก้ไข หรือลบข้อมูล และไม่ได้รับ PIN/session token, ชื่อลูกค้า, เบอร์โทร, เลขภาษี, ที่อยู่, ชื่อพนักงาน, เลขใบเสร็จ หรือต้นทุนสินค้า ระบบกรองรูปแบบข้อมูลลับที่พิมพ์ในแชตก่อนส่งด้วย
+- AI provider ใช้ตีความคำถามและเลือกชื่อเครื่องมือ read-only ตามสิทธิ์เมนูเท่านั้น ผล query จริง เช่น ยอดขาย สถานะกะ และชื่อ/จำนวนสต๊อก จะถูกจัดรูปเป็นคำตอบภายใน backend
+- AI ไม่มี API สำหรับเพิ่ม แก้ไข หรือลบข้อมูล และไม่ได้รับ PIN/session token, ชื่อลูกค้า, เบอร์โทร, เลขภาษี, ที่อยู่, ชื่อพนักงาน, เลขใบเสร็จ หรือต้นทุนสินค้า ระบบกรองรูปแบบข้อมูลลับที่พิมพ์ในแชตก่อนประมวลผลด้วย
 - ประวัติแชตอยู่ในหน่วยความจำของหน้าเว็บเท่านั้น ไม่บันทึกลง Supabase และหายเมื่อ logout/โหลดหน้าใหม่
-- ข้อความคำถามที่ผ่านการกรองยังถูกส่งไปประมวลผลที่ DeepSeek ซึ่งเป็นผู้ให้บริการภายนอก จึงต้องแจ้งพนักงานไม่ให้พิมพ์ข้อมูลส่วนบุคคล ความลับ หรือข้อมูลระบบลงในคำถาม
-- ตั้ง `DEEPSEEK_API_KEY` เฉพาะที่ Railway/backend และห้ามตั้งชื่อแปรเป็น `VITE_DEEPSEEK_API_KEY`; ถ้าไม่มี key ปุ่มแชตยังเปิดได้แต่ backend จะปฏิเสธคำขออย่างปลอดภัย
+- ผู้ดูแลเลือก Ollama/DeepSeek และชื่อโมเดลได้ที่ **ตั้งค่าระบบ > AI** โดยค่าจะผูกกับสาขาปัจจุบันและมีลำดับความสำคัญเหนือ environment fallback
+- เมื่อใช้ DeepSeek ข้อความคำถามที่ผ่านการกรองยังถูกส่งไปผู้ให้บริการภายนอก จึงต้องแจ้งพนักงานไม่ให้พิมพ์ข้อมูลส่วนบุคคล ความลับ หรือข้อมูลระบบลงในคำถาม
+- DeepSeek API Key เป็นช่องแบบเขียนอย่างเดียว เข้ารหัส AES-256-GCM ด้วย `APP_SECRET` แล้วเก็บในตาราง private แยกจาก settings ทั่วไป; client เห็นเพียงสถานะว่าตั้งค่าแล้ว
+- ตัวแปร `AI_ASSISTANT_PROVIDER`, `OLLAMA_MODEL`, `DEEPSEEK_API_KEY` และ `DEEPSEEK_MODEL` ยังใช้เป็น emergency fallback ฝั่ง backend ได้ แต่ไม่ใช่วิธีตั้งค่าปกติ และห้ามใช้ชื่อขึ้นต้น `VITE_`
 - สำหรับ Supabase Realtime ให้ตั้ง `VITE_SUPABASE_URL` และ `VITE_SUPABASE_PUBLISHABLE_KEY` ใน Environment ของ Vercel (Production/Preview ตามที่ใช้งาน) หรือใน `.env` สำหรับ local development ใช้เฉพาะ URL และ publishable key เท่านั้น ห้ามใส่ `service_role`/secret key หรือ `DEEPSEEK_API_KEY` ในตัวแปรที่ขึ้นต้นด้วย `VITE_`
-- จำกัดข้อความ 8 ครั้งต่อนาทีต่อพนักงาน, จำกัดขนาดข้อความ/ผลลัพธ์, timeout 25 วินาที และไม่แสดง upstream error หรือ API key กลับไปที่ client
+- จำกัดข้อความ 8 ครั้งต่อนาทีต่อพนักงาน จำกัดขนาดข้อความ/ผลลัพธ์ และไม่แสดง upstream error หรือ API key กลับไปที่ client
+
+#### เริ่ม Local AI ด้วย Ollama + Qwen
+
+1. ติดตั้งและเปิด Ollama บนเครื่องที่รัน backend
+2. ดาวน์โหลดโมเดล:
+
+```bash
+ollama pull qwen3:4b-instruct
+```
+
+3. รัน `npm run dev` แล้วล็อกอินด้วยบัญชี admin จากนั้นเปิด **ตั้งค่าระบบ > AI**, เลือก `Ollama` และโมเดล `qwen3:4b-instruct` (รุ่น non-thinking สำหรับงานแชต)
+4. เปิดปุ่ม “ผู้ช่วย AI” มุมขวาล่างเพื่อเริ่มใช้งาน
+
+ถ้ารันแอปผ่าน Docker Compose ให้ใช้ `OLLAMA_BASE_URL=http://host.docker.internal:11434` (ไฟล์ compose ตั้งเป็นค่าเริ่มต้นไว้แล้ว) Qwen3 รุ่น 4B ใช้พื้นที่ดาวน์โหลดประมาณ 2.5 GB; เครื่อง RAM 16 GB สามารถขยับเป็น `qwen3:8b` เพื่อคุณภาพคำตอบที่ดีขึ้นได้
 
 ## Development (ไม่ใช้ Docker)
 

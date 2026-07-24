@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
+  CheckCircle2,
   Download,
   ExternalLink,
   LoaderCircle,
+  LockKeyhole,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
@@ -20,6 +24,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { useStaff } from "@/hooks/useStaff";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/providers/trpc";
@@ -34,6 +49,11 @@ type LocalMessage = {
   actions?: AssistantAction[];
 };
 
+type ConfirmAgentAction = Extract<
+  AssistantAction,
+  { kind: "confirm_agent_action" }
+>;
+
 function localId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -43,7 +63,7 @@ function welcomeMessage(): LocalMessage {
     id: "welcome",
     role: "assistant",
     content:
-      "สวัสดีครับ ผมช่วยสรุปยอดขาย ตรวจสถานะกะ เช็กสต๊อก และเตรียมเอกสารตามสิทธิ์ของคุณได้ โดยจะไม่แก้ไขข้อมูลในระบบ",
+      "สวัสดีครับ ผมช่วยอ่านข้อมูล เปิดหน้าจอ และเตรียมรายการใน PumpPOS ตามสิทธิ์ของคุณได้ ก่อนเปลี่ยนข้อมูลผมจะแสดงรายละเอียดให้ตรวจและยืนยันทุกครั้ง",
     includeInContext: false,
   };
 }
@@ -56,8 +76,13 @@ export default function AssistantChat() {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<LocalMessage[]>([welcomeMessage()]);
   const [runningAction, setRunningAction] = useState("");
+  const [confirmation, setConfirmation] =
+    useState<ConfirmAgentAction | null>(null);
+  const [confirmationPin, setConfirmationPin] = useState("");
+  const [confirmationError, setConfirmationError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const chat = trpc.assistant.chat.useMutation();
+  const executeAction = trpc.assistant.executeAction.useMutation();
 
   const quickPrompts = useMemo(() => {
     if (!staff) return [];
@@ -96,6 +121,7 @@ export default function AssistantChat() {
   const sendMessage = async (preset?: string) => {
     const content = (preset ?? draft).trim();
     if (!content || chat.isPending) return;
+    const requestId = crypto.randomUUID();
 
     const userMessage: LocalMessage = {
       id: localId(),
@@ -116,7 +142,10 @@ export default function AssistantChat() {
       }));
 
     try {
-      const result = await chat.mutateAsync({ messages: contextMessages });
+      const result = await chat.mutateAsync({
+        requestId,
+        messages: contextMessages,
+      });
       setMessages(current => [
         ...current,
         {
@@ -151,11 +180,20 @@ export default function AssistantChat() {
   };
 
   const handleAction = async (action: AssistantAction) => {
-    const actionId = `${action.kind}:${action.label}`;
+    const actionId =
+      action.kind === "confirm_agent_action"
+        ? `${action.kind}:${action.proposalId}`
+        : `${action.kind}:${action.label}`;
     if (runningAction) return;
     if (action.kind === "navigate") {
       setOpen(false);
       navigate(action.path);
+      return;
+    }
+    if (action.kind === "confirm_agent_action") {
+      setConfirmation(action);
+      setConfirmationPin("");
+      setConfirmationError("");
       return;
     }
 
@@ -187,10 +225,62 @@ export default function AssistantChat() {
     }
   };
 
+  const confirmAgentAction = async () => {
+    if (!confirmation || executeAction.isPending) return;
+    if (confirmation.requiresPin && !confirmationPin.trim()) {
+      setConfirmationError("กรุณากรอก PIN ของบัญชีที่กำลังใช้งาน");
+      return;
+    }
+
+    setConfirmationError("");
+    try {
+      const result = await executeAction.mutateAsync({
+        proposalId: confirmation.proposalId,
+        pin: confirmation.requiresPin ? confirmationPin : undefined,
+      });
+      const completedProposalId = confirmation.proposalId;
+      setMessages(current => [
+        ...current.map(message => ({
+          ...message,
+          actions: message.actions?.filter(
+            action =>
+              action.kind !== "confirm_agent_action" ||
+              action.proposalId !== completedProposalId
+          ),
+        })),
+        {
+          id: localId(),
+          role: "assistant",
+          content: result.alreadyExecuted
+            ? `รายการนี้ดำเนินการไปแล้ว\n${result.summary}`
+            : result.summary,
+          includeInContext: false,
+        },
+      ]);
+      setConfirmation(null);
+      setConfirmationPin("");
+    } catch (error) {
+      setConfirmationError(
+        error instanceof Error
+          ? error.message
+          : "ดำเนินการไม่สำเร็จ กรุณาลองใหม่"
+      );
+    }
+  };
+
   if (!staff) return null;
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={nextOpen => {
+          // Radix may propagate the nested confirmation dialog's close event
+          // to this parent. Keep the chat open while a proposal is active.
+          if (!nextOpen && confirmation) return;
+          setOpen(nextOpen);
+        }}
+      >
       <DialogTrigger asChild>
         <button
           type="button"
@@ -215,11 +305,11 @@ export default function AssistantChat() {
               <DialogTitle className="flex items-center gap-2 text-base text-slate-900">
                 ผู้ช่วย PumpPOS
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                  อ่านอย่างเดียว
+                  Controlled Agent
                 </span>
               </DialogTitle>
               <DialogDescription className="mt-1 text-xs">
-                DeepSeek ช่วยตีความคำถาม · ข้อมูลระบบตอบจาก backend เท่านั้น
+                อ่านข้อมูล · เปิดหน้าจอ · เตรียมรายการให้ยืนยัน
               </DialogDescription>
             </div>
           </div>
@@ -228,7 +318,9 @@ export default function AssistantChat() {
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
             <ShieldCheck className="size-3.5 shrink-0 text-emerald-600" />
-            <span className="truncate">ผลข้อมูลระบบไม่ถูกส่งให้ DeepSeek</span>
+            <span className="truncate">
+              จำกัดตามสิทธิ์ · การเปลี่ยนข้อมูลต้องยืนยันทุกครั้ง
+            </span>
           </div>
           <Button
             type="button"
@@ -270,7 +362,10 @@ export default function AssistantChat() {
                     message.actions.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                         {message.actions.map(action => {
-                          const actionId = `${action.kind}:${action.label}`;
+                          const actionId =
+                            action.kind === "confirm_agent_action"
+                              ? `${action.kind}:${action.proposalId}`
+                              : `${action.kind}:${action.label}`;
                           const downloading = runningAction === actionId;
                           return (
                             <button
@@ -284,6 +379,9 @@ export default function AssistantChat() {
                                 <LoaderCircle className="size-3.5 animate-spin" />
                               ) : action.kind === "navigate" ? (
                                 <ExternalLink className="size-3.5" />
+                              ) : action.kind ===
+                                "confirm_agent_action" ? (
+                                <WandSparkles className="size-3.5" />
                               ) : (
                                 <Download className="size-3.5" />
                               )}
@@ -364,11 +462,127 @@ export default function AssistantChat() {
             </Button>
           </div>
           <p className="mt-2 text-center text-[10px] text-slate-400">
-            AI อาจตอบผิดได้ · ห้ามพิมพ์ข้อมูลส่วนบุคคลหรือรหัสลับ ·
-            ตรวจสอบก่อนใช้งาน
+            AI อาจตีความผิดได้ · ห้ามพิมพ์ PIN หรือรหัสลับในแชต ·
+            ตรวจรายละเอียดก่อนยืนยัน
           </p>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(confirmation)}
+        onOpenChange={nextOpen => {
+          if (!nextOpen && !executeAction.isPending) {
+            setConfirmation(null);
+            setConfirmationPin("");
+            setConfirmationError("");
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <div className="mb-1 flex items-center gap-2">
+              <span
+                className={cn(
+                  "grid size-9 place-items-center rounded-xl",
+                  confirmation?.risk === "sensitive"
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-violet-100 text-violet-700"
+                )}
+              >
+                {confirmation?.risk === "sensitive" ? (
+                  <ShieldAlert className="size-4.5" />
+                ) : (
+                  <ShieldCheck className="size-4.5" />
+                )}
+              </span>
+              <AlertDialogTitle>
+                {confirmation?.title ?? "ยืนยันรายการ"}
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-left">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+                  {confirmation?.summary}
+                </div>
+                <p>
+                  รายการยังไม่ถูกบันทึก ระบบจะตรวจบัญชี สาขา และสิทธิ์ของคุณซ้ำเมื่อกดยืนยัน
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {confirmation?.requiresPin && (
+            <div className="space-y-2">
+              <label
+                htmlFor="assistant-confirm-pin"
+                className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"
+              >
+                <LockKeyhole className="size-4 text-amber-600" />
+                PIN ของบัญชีที่กำลังใช้งาน
+              </label>
+              <Input
+                id="assistant-confirm-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={confirmationPin}
+                onChange={event => {
+                  setConfirmationPin(event.target.value.slice(0, 64));
+                  setConfirmationError("");
+                }}
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void confirmAgentAction();
+                  }
+                }}
+                placeholder="กรอก PIN เพื่อยืนยัน"
+                disabled={executeAction.isPending}
+                autoFocus
+              />
+            </div>
+          )}
+
+          {confirmationError && (
+            <div
+              role="alert"
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            >
+              {confirmationError}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={executeAction.isPending}>
+              ยกเลิก
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={event => {
+                event.preventDefault();
+                void confirmAgentAction();
+              }}
+              disabled={
+                executeAction.isPending ||
+                Boolean(
+                  confirmation?.requiresPin && !confirmationPin.trim()
+                )
+              }
+              className={cn(
+                confirmation?.risk === "sensitive" &&
+                  "bg-amber-600 text-white hover:bg-amber-700"
+              )}
+            >
+              {executeAction.isPending ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="size-4" />
+              )}
+              ยืนยันดำเนินการ
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

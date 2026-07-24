@@ -3,7 +3,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,8 +14,7 @@ import {
 } from "@contracts/menuPermissions";
 import {
   clearSupabaseSession,
-  installSupabaseSession,
-  type SupabaseRealtimeSession,
+  getSupabaseBrowserClient,
 } from "@/lib/supabase";
 
 export type StaffSession = {
@@ -31,7 +29,6 @@ export type StaffSession = {
   branchName: string;
   branch: BranchSummary;
   branches: BranchSummary[];
-  token: string;
 };
 
 export type BranchSummary = {
@@ -44,229 +41,241 @@ export type BranchSummary = {
   active: boolean;
 };
 
-export type StaffLoginResult = StaffSession & {
-  supabaseSession: SupabaseRealtimeSession | null;
-};
+export type StaffLoginResult = StaffSession;
 
-const KEY = "pumppos_staff";
+const BRANCH_KEY = "pumppos_branch_id";
+const STAFF_CACHE_KEY = "pumppos_staff_profile_v1";
+const STAFF_CACHE_TTL_MS = 12 * 60 * 60_000;
 
 const StaffContext = createContext<{
   staff: StaffSession | null;
   isCheckingSession: boolean;
-  login: (s: StaffLoginResult) => Promise<void>;
+  login: (staff: StaffLoginResult) => Promise<void>;
   switchBranch: (branchId: number) => Promise<void>;
   logout: () => void;
 }>({
   staff: null,
-  isCheckingSession: false,
+  isCheckingSession: true,
   login: async () => {},
   switchBranch: async () => {},
   logout: () => {},
 });
 
-function hasUsableToken(token: unknown): token is string {
-  if (typeof token !== "string") return false;
+function normalizeStaff<T extends StaffSession>(staff: T): StaffSession {
+  return {
+    ...staff,
+    menuPermissions: normalizeMenuPermissions(
+      staff.role,
+      staff.menuPermissions,
+    ),
+  };
+}
+
+function isBranchSummary(value: unknown): value is BranchSummary {
+  if (!value || typeof value !== "object") return false;
+  const branch = value as Partial<BranchSummary>;
+  return (
+    typeof branch.id === "number" &&
+    Number.isInteger(branch.id) &&
+    branch.id > 0 &&
+    typeof branch.code === "string" &&
+    typeof branch.name === "string" &&
+    typeof branch.address === "string" &&
+    typeof branch.phone === "string" &&
+    typeof branch.taxId === "string" &&
+    typeof branch.active === "boolean"
+  );
+}
+
+function readCachedStaff(): StaffSession | null {
+  if (typeof window === "undefined") return null;
   try {
-    const [payload, signature, extra] = token.split(".");
-    if (!payload || !signature || extra) return false;
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const claims = JSON.parse(
-      atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="))
-    ) as { exp?: unknown };
-    return (
-      typeof claims.exp === "number" &&
-      claims.exp > Math.floor(Date.now() / 1000)
-    );
+    const raw = window.sessionStorage.getItem(STAFF_CACHE_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(raw) as {
+      savedAt?: unknown;
+      staff?: Partial<StaffSession>;
+    };
+    const staff = payload.staff;
+    if (
+      typeof payload.savedAt !== "number" ||
+      Date.now() - payload.savedAt > STAFF_CACHE_TTL_MS ||
+      !staff ||
+      typeof staff.id !== "number" ||
+      !Number.isInteger(staff.id) ||
+      staff.id <= 0 ||
+      typeof staff.name !== "string" ||
+      typeof staff.username !== "string" ||
+      !["admin", "manager", "cashier"].includes(String(staff.role)) ||
+      !Array.isArray(staff.menuPermissions) ||
+      !staff.menuPermissions.every(permission => typeof permission === "string") ||
+      typeof staff.branchId !== "number" ||
+      !Number.isInteger(staff.branchId) ||
+      typeof staff.branchCode !== "string" ||
+      typeof staff.branchName !== "string" ||
+      !isBranchSummary(staff.branch) ||
+      !Array.isArray(staff.branches) ||
+      !staff.branches.every(isBranchSummary) ||
+      !(
+        staff.accessGroup === null ||
+        (typeof staff.accessGroup === "object" &&
+          typeof staff.accessGroup.id === "number" &&
+          typeof staff.accessGroup.name === "string")
+      )
+    ) {
+      window.sessionStorage.removeItem(STAFF_CACHE_KEY);
+      return null;
+    }
+    return normalizeStaff(staff as StaffSession);
   } catch {
-    return false;
+    window.sessionStorage.removeItem(STAFF_CACHE_KEY);
+    return null;
   }
 }
 
-export function StaffProvider({ children }: { children: ReactNode }) {
-  const [staff, setStaff] = useState<StaffSession | null>(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return null;
-      const saved = JSON.parse(raw) as StaffSession;
-      if (!hasUsableToken(saved.token)) return null;
-      const fallbackBranch: BranchSummary = saved.branch ?? {
-        id: saved.branchId ?? 1,
-        code: saved.branchCode ?? "MAIN",
-        name: saved.branchName ?? "สาขาหลัก",
-        address: "",
-        phone: "",
-        taxId: "",
-        active: true,
-      };
-      return {
-        ...saved,
-        branchId: fallbackBranch.id,
-        branchCode: fallbackBranch.code,
-        branchName: fallbackBranch.name,
-        branch: fallbackBranch,
-        branches: saved.branches?.length
-          ? saved.branches
-          : [fallbackBranch],
-        accessGroup: saved.accessGroup ?? null,
-        menuPermissions: normalizeMenuPermissions(
-          saved.role,
-          saved.menuPermissions
-        ),
-      };
-    } catch {
-      return null;
-    }
-  });
-  const [sessionNonce, setSessionNonce] = useState(() => Date.now());
-  const bootstrappedSupabaseStaffId = useRef<number | null>(null);
-
-  const currentStaff = trpc.auth.currentStaff.useQuery(
-    { staffId: staff?.id ?? 1, sessionNonce },
-    {
-      enabled: Boolean(staff?.token),
-      refetchInterval: 30_000,
-      retry: false,
-      refetchOnMount: "always",
-    }
+function writeCachedStaff(staff: StaffSession | null): void {
+  if (typeof window === "undefined") return;
+  if (!staff) {
+    window.sessionStorage.removeItem(STAFF_CACHE_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(
+    STAFF_CACHE_KEY,
+    JSON.stringify({ savedAt: Date.now(), staff }),
   );
-  const { mutateAsync: issueRealtimeSession } =
-    trpc.auth.realtimeSession.useMutation();
-  const { mutateAsync: requestBranchSwitch } =
-    trpc.auth.switchBranch.useMutation();
+}
+
+export function StaffProvider({ children }: { children: ReactNode }) {
+  const [cachedStaff, setCachedStaff] = useState<StaffSession | null>(
+    readCachedStaff,
+  );
+  const [authReady, setAuthReady] = useState(false);
+  const [hasAuthSession, setHasAuthSession] = useState(
+    () => readCachedStaff() !== null,
+  );
   const utils = trpc.useUtils();
 
-  const fresh = currentStaff.data;
-  const hasSessionToken = Boolean(staff?.token);
-  const sessionAccepted = Boolean(
-    staff &&
-    hasSessionToken &&
-    currentStaff.isSuccess &&
-    fresh?.authenticated &&
-    fresh.id === staff.id
-  );
-  const sessionRejected = Boolean(
-    staff &&
-    (!hasSessionToken ||
-      (currentStaff.isSuccess &&
-        (!fresh?.authenticated || fresh.id !== staff.id)))
-  );
-  const isCheckingSession = Boolean(
-    staff &&
-    hasSessionToken &&
-    !sessionAccepted &&
-    !sessionRejected &&
-    !currentStaff.isError
-  );
-  const effectiveStaff = useMemo<StaffSession | null>(
-    () =>
-      !staff || !sessionAccepted
-        ? null
-        : fresh?.authenticated
-          ? {
-              id: fresh.id,
-              name: fresh.name,
-              role: fresh.role,
-              username: fresh.username,
-              branchId: fresh.branchId,
-              branchCode: fresh.branchCode,
-              branchName: fresh.branchName,
-              branch: fresh.branch,
-              branches: fresh.branches,
-              menuPermissions: fresh.menuPermissions,
-              accessGroup: fresh.accessGroup,
-              token: fresh.token,
-            }
-          : null,
-    [fresh, sessionAccepted, staff]
-  );
-
   useEffect(() => {
-    if (effectiveStaff) {
-      localStorage.setItem(KEY, JSON.stringify(effectiveStaff));
-    } else if (!staff || sessionRejected) {
-      localStorage.removeItem(KEY);
-      if (sessionRejected) void clearSupabaseSession();
-    }
-  }, [effectiveStaff, sessionRejected, staff]);
+    let stopped = false;
+    let unsubscribe: (() => void) | undefined;
 
-  useEffect(() => {
-    const staffId = effectiveStaff?.id;
-    if (!staffId) {
-      bootstrappedSupabaseStaffId.current = null;
-      return;
-    }
-    if (bootstrappedSupabaseStaffId.current === staffId) return;
-    bootstrappedSupabaseStaffId.current = staffId;
+    void getSupabaseBrowserClient().then(async client => {
+      if (!client || stopped) {
+        if (!stopped) setAuthReady(true);
+        return;
+      }
+      const { data } = await client.auth.getSession();
+      if (stopped) return;
+      const sessionAvailable = Boolean(data.session);
+      setHasAuthSession(sessionAvailable);
+      if (!sessionAvailable) {
+        setCachedStaff(null);
+        writeCachedStaff(null);
+        localStorage.removeItem(BRANCH_KEY);
+      }
+      setAuthReady(true);
 
-    let cancelled = false;
-    void issueRealtimeSession()
-      .then(async session => {
-        if (cancelled) return;
-        const installed = await installSupabaseSession(session);
-        if (!installed && !cancelled) await clearSupabaseSession();
-      })
-      .catch(async () => {
-        if (!cancelled) await clearSupabaseSession();
+      const subscription = client.auth.onAuthStateChange((event, session) => {
+        window.setTimeout(() => {
+          if (stopped) return;
+          const nextSessionAvailable = Boolean(session);
+          setHasAuthSession(nextSessionAvailable);
+          if (!nextSessionAvailable || event === "SIGNED_OUT") {
+            setCachedStaff(null);
+            writeCachedStaff(null);
+            localStorage.removeItem(BRANCH_KEY);
+            void utils.invalidate();
+          }
+        }, 0);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [effectiveStaff?.id, issueRealtimeSession]);
+      unsubscribe = () => subscription.data.subscription.unsubscribe();
+    });
 
-  const login = async (s: StaffLoginResult) => {
-    const { supabaseSession, ...staffSession } = s;
-    const normalized = {
-      ...staffSession,
-      menuPermissions: normalizeMenuPermissions(
-        staffSession.role,
-        staffSession.menuPermissions
-      ),
+    return () => {
+      stopped = true;
+      unsubscribe?.();
     };
-    bootstrappedSupabaseStaffId.current = normalized.id;
-    const installed = await installSupabaseSession(supabaseSession);
-    if (!installed) await clearSupabaseSession();
-    localStorage.setItem(KEY, JSON.stringify(normalized));
-    setSessionNonce(previous => previous + 1);
-    setStaff(normalized);
-  };
-  const switchBranch = async (branchId: number) => {
-    if (!effectiveStaff || branchId === effectiveStaff.branch.id) return;
-    if (effectiveStaff.role !== "admin") {
-      throw new Error("เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถเปลี่ยนสาขาได้");
+  }, [utils]);
+
+  const currentStaff = trpc.auth.currentStaff.useQuery(undefined, {
+    enabled: authReady && hasAuthSession,
+    retry: false,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const staff = useMemo(
+    () =>
+      !hasAuthSession || currentStaff.isError
+        ? null
+        : currentStaff.data?.authenticated
+          ? normalizeStaff(currentStaff.data)
+          : cachedStaff,
+    [cachedStaff, currentStaff.data, currentStaff.isError, hasAuthSession],
+  );
+
+  useEffect(() => {
+    if (staff) {
+      localStorage.setItem(BRANCH_KEY, String(staff.branch.id));
+      writeCachedStaff(staff);
     }
-    const switched = await requestBranchSwitch({ branchId });
-    const { supabaseSession, ...staffSession } = switched;
-    const normalized: StaffSession = {
-      ...staffSession,
-      menuPermissions: normalizeMenuPermissions(
-        staffSession.role,
-        staffSession.menuPermissions,
-      ),
-    };
-    const installed = await installSupabaseSession(supabaseSession);
-    if (!installed) await clearSupabaseSession();
-    localStorage.setItem(KEY, JSON.stringify(normalized));
-    bootstrappedSupabaseStaffId.current = normalized.id;
-    setStaff(normalized);
-    setSessionNonce((previous) => previous + 1);
+  }, [staff]);
+
+  useEffect(() => {
+    if (currentStaff.isError) {
+      writeCachedStaff(null);
+      localStorage.removeItem(BRANCH_KEY);
+      void clearSupabaseSession();
+    }
+  }, [currentStaff.isError]);
+
+  const login = async (nextStaff: StaffLoginResult) => {
+    const normalized = normalizeStaff(nextStaff);
+    localStorage.setItem(BRANCH_KEY, String(normalized.branch.id));
+    setCachedStaff(normalized);
+    writeCachedStaff(normalized);
+    setHasAuthSession(true);
+    utils.auth.currentStaff.setData(undefined, {
+      authenticated: true,
+      ...normalized,
+    });
+  };
+
+  const switchBranch = async (branchId: number) => {
+    if (!staff || branchId === staff.branch.id) return;
+    if (staff.role !== "admin") {
+      throw new Error("เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนสาขาได้");
+    }
+    const switched = await utils.client.auth.switchBranch.mutate({ branchId });
+    const normalized = normalizeStaff(switched);
+    localStorage.setItem(BRANCH_KEY, String(normalized.branch.id));
+    setCachedStaff(normalized);
+    writeCachedStaff(normalized);
     await utils.invalidate();
+    utils.auth.currentStaff.setData(undefined, {
+      authenticated: true,
+      ...normalized,
+    });
   };
+
   const logout = () => {
-    localStorage.removeItem(KEY);
-    bootstrappedSupabaseStaffId.current = null;
-    setStaff(null);
+    localStorage.removeItem(BRANCH_KEY);
+    setCachedStaff(null);
+    writeCachedStaff(null);
+    setHasAuthSession(false);
     void clearSupabaseSession();
+    void utils.invalidate();
   };
+
+  const isCheckingSession =
+    (!authReady && !cachedStaff) ||
+    (hasAuthSession && !staff && (currentStaff.isPending || currentStaff.isFetching));
 
   return (
     <StaffContext.Provider
-      value={{
-        staff: effectiveStaff,
-        isCheckingSession,
-        login,
-        switchBranch,
-        logout,
-      }}
+      value={{ staff, isCheckingSession, login, switchBranch, logout }}
     >
       {children}
     </StaffContext.Provider>

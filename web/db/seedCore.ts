@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { getDb } from "../api/queries/connection";
 import { DEFAULT_SETTINGS } from "@contracts/settings";
 import {
@@ -38,12 +38,38 @@ export async function seedIfEmpty(): Promise<boolean> {
   });
   if (!mainBranch) throw new Error("MAIN branch is missing");
 
-  // พนักงาน
-  await db.insert(staffUsers).values([
-    { username: "admin", pin: sha256("1234"), name: "เจ้าของปั๊ม", role: "admin" },
-    { username: "manager", pin: sha256("2222"), name: "สมหญิง (ผู้จัดการสาขา)", role: "manager" },
-    { username: "somchai", pin: sha256("0000"), name: "สมชาย (พนักงาน)", role: "cashier" },
-  ]);
+  const isTest = process.env.NODE_ENV === "test";
+  await db.insert(staffUsers).values(
+    isTest
+      ? [
+          {
+            username: "admin",
+            pin: sha256("1234"),
+            name: "เจ้าของปั๊ม",
+            role: "admin" as const,
+          },
+          {
+            username: "manager",
+            pin: sha256("2222"),
+            name: "สมหญิง (ผู้จัดการสาขา)",
+            role: "manager" as const,
+          },
+          {
+            username: "somchai",
+            pin: sha256("0000"),
+            name: "สมชาย (พนักงาน)",
+            role: "cashier" as const,
+          },
+        ]
+      : [
+          {
+            username: "admin",
+            pin: `supabase-auth-pending:${randomUUID()}`,
+            name: "ผู้ดูแลระบบ",
+            role: "admin" as const,
+          },
+        ],
+  );
   const seededStaff = await db.query.staffUsers.findMany({
     columns: { id: true },
   });

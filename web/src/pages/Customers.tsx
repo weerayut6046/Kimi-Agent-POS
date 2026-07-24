@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { Building2, Pencil, Plus, Printer, Search, Trash2 } from "lucide-react";
+import {
+  Building2,
+  Contact,
+  CreditCard,
+  MapPin,
+  Pencil,
+  Plus,
+  Printer,
+  Save,
+  Search,
+  Trash2,
+  Truck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -146,7 +158,7 @@ export default function Customers() {
           </Button>
         )}
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && !edit && <p className="text-sm text-destructive">{err}</p>}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -249,123 +261,311 @@ export default function Customers() {
 
       {/* Dialog เพิ่ม/แก้ไขลูกค้า */}
       <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {edit?.id ? "แก้ไขลูกค้า" : "เพิ่มลูกค้า"}
-            </DialogTitle>
-          </DialogHeader>
-          {edit && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>
-                  ชื่อลูกค้า / บริษัท{" "}
-                  <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  autoFocus
-                  value={edit.name}
-                  onChange={e => setEdit({ ...edit, name: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>เลขประจำตัวผู้เสียภาษี</Label>
-                  <Input
-                    inputMode="numeric"
-                    maxLength={13}
-                    value={edit.taxId}
-                    onChange={e => setEdit({ ...edit, taxId: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>โทรศัพท์</Label>
-                  <Input
-                    inputMode="tel"
-                    value={edit.phone}
-                    onChange={e => setEdit({ ...edit, phone: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>สาขา</Label>
-                <div className="flex items-center gap-4">
-                  <RadioGroup
-                    className="flex gap-4"
-                    value={edit.branchType}
-                    onValueChange={v =>
-                      setEdit({ ...edit, branchType: v as "hq" | "branch" })
-                    }
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <RadioGroupItem value="hq" id="c-hq" />
-                      <Label htmlFor="c-hq" className="font-normal">
-                        สำนักงานใหญ่
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <RadioGroupItem value="branch" id="c-branch" />
-                      <Label htmlFor="c-branch" className="font-normal">
-                        สาขาที่
-                      </Label>
-                    </div>
-                  </RadioGroup>
-                  {edit.branchType === "branch" && (
-                    <Input
-                      className="w-28"
-                      placeholder="เช่น 00078"
-                      value={edit.branchNo}
-                      onChange={e =>
-                        setEdit({ ...edit, branchNo: e.target.value })
-                      }
-                    />
+        <DialogContent className="flex max-h-[94vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl sm:p-0">
+          <div className="shrink-0 border-b border-violet-100 bg-gradient-to-br from-violet-50 via-white to-indigo-50 px-5 py-5 sm:px-7 sm:py-6">
+            <DialogHeader className="pr-8 text-left">
+              <div className="flex items-center gap-3">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-[0_8px_20px_rgba(109,79,246,0.28)]">
+                  {edit?.id ? (
+                    <Pencil className="size-5" />
+                  ) : (
+                    <Plus className="size-5" />
                   )}
                 </div>
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-violet-600">
+                    ข้อมูลลูกค้าธุรกิจ
+                  </p>
+                  <DialogTitle className="font-heading text-xl leading-tight text-slate-900 sm:text-2xl">
+                    {edit?.id ? "แก้ไขลูกค้า" : "เพิ่มลูกค้า"}
+                  </DialogTitle>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {edit?.id
+                      ? "ปรับปรุงข้อมูลสำหรับการออกเอกสารและขายเชื่อ"
+                      : "บันทึกข้อมูลสำหรับการออกเอกสารและขายเชื่อ"}
+                  </p>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label>ที่อยู่</Label>
-                <Textarea
-                  rows={2}
-                  value={edit.address}
-                  onChange={e => setEdit({ ...edit, address: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ทะเบียนรถ (ถ้ามี)</Label>
-                <Input
-                  placeholder="เช่น 3กข1955 กรุงเทพมหานคร"
-                  value={edit.vehiclePlate}
-                  onChange={e =>
-                    setEdit({ ...edit, vehiclePlate: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>วงเงินเครดิต (0 = ไม่จำกัด)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  placeholder="0"
-                  value={edit.creditLimit}
-                  onChange={e =>
-                    setEdit({ ...edit, creditLimit: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              className="w-full"
-              disabled={
-                !edit?.name.trim() || create.isPending || update.isPending
-              }
-              onClick={submit}
+            </DialogHeader>
+          </div>
+
+          {edit && (
+            <form
+              className="min-h-0 flex flex-1 flex-col"
+              onSubmit={e => {
+                e.preventDefault();
+                submit();
+              }}
             >
-              บันทึก
-            </Button>
-          </DialogFooter>
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4 sm:p-6">
+                <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-3.5 sm:px-5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+                      <Contact className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        ข้อมูลลูกค้า
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        ชื่อและช่องทางติดต่อ
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 p-4 sm:p-5">
+                    <div className="space-y-2">
+                      <Label htmlFor="customer-name">
+                        ชื่อลูกค้า / บริษัท{" "}
+                        <span className="text-destructive">*</span>
+                      </Label>
+                      <Input
+                        id="customer-name"
+                        className="h-11 rounded-xl bg-white shadow-sm"
+                        autoFocus
+                        required
+                        placeholder="ระบุชื่อลูกค้าหรือชื่อบริษัท"
+                        value={edit.name}
+                        onChange={e =>
+                          setEdit({ ...edit, name: e.target.value })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="customer-tax-id">
+                          เลขประจำตัวผู้เสียภาษี
+                        </Label>
+                        <Input
+                          id="customer-tax-id"
+                          className="h-11 rounded-xl bg-white font-mono shadow-sm"
+                          inputMode="numeric"
+                          maxLength={13}
+                          placeholder="เลข 13 หลัก"
+                          value={edit.taxId}
+                          onChange={e =>
+                            setEdit({ ...edit, taxId: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="customer-phone">โทรศัพท์</Label>
+                        <Input
+                          id="customer-phone"
+                          className="h-11 rounded-xl bg-white shadow-sm"
+                          inputMode="tel"
+                          placeholder="เช่น 081-234-5678"
+                          value={edit.phone}
+                          onChange={e =>
+                            setEdit({ ...edit, phone: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 px-4 py-3.5 sm:px-5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                      <MapPin className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        ที่อยู่และสาขา
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        ใช้สำหรับใบเสร็จและใบกำกับภาษี
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 p-4 sm:p-5">
+                    <div className="space-y-2">
+                      <Label>ประเภทสาขา</Label>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_150px]">
+                        <RadioGroup
+                          className="grid grid-cols-2 gap-2"
+                          value={edit.branchType}
+                          onValueChange={v =>
+                            setEdit({
+                              ...edit,
+                              branchType: v as "hq" | "branch",
+                            })
+                          }
+                        >
+                          <div
+                            className={`flex h-11 items-center gap-2 rounded-xl border px-3 transition-colors ${
+                              edit.branchType === "hq"
+                                ? "border-violet-400 bg-violet-50 text-violet-800"
+                                : "border-slate-200 bg-white text-slate-600"
+                            }`}
+                          >
+                            <RadioGroupItem value="hq" id="c-hq" />
+                            <Label
+                              htmlFor="c-hq"
+                              className="flex-1 cursor-pointer font-medium"
+                            >
+                              สำนักงานใหญ่
+                            </Label>
+                          </div>
+                          <div
+                            className={`flex h-11 items-center gap-2 rounded-xl border px-3 transition-colors ${
+                              edit.branchType === "branch"
+                                ? "border-violet-400 bg-violet-50 text-violet-800"
+                                : "border-slate-200 bg-white text-slate-600"
+                            }`}
+                          >
+                            <RadioGroupItem value="branch" id="c-branch" />
+                            <Label
+                              htmlFor="c-branch"
+                              className="flex-1 cursor-pointer font-medium"
+                            >
+                              สาขา
+                            </Label>
+                          </div>
+                        </RadioGroup>
+
+                        {edit.branchType === "branch" && (
+                          <Input
+                            aria-label="เลขที่สาขา"
+                            className="h-11 rounded-xl bg-white shadow-sm"
+                            placeholder="เช่น 00078"
+                            value={edit.branchNo}
+                            onChange={e =>
+                              setEdit({
+                                ...edit,
+                                branchNo: e.target.value,
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="customer-address">ที่อยู่</Label>
+                      <Textarea
+                        id="customer-address"
+                        className="min-h-24 resize-y rounded-xl bg-white shadow-sm"
+                        placeholder="บ้านเลขที่ ถนน ตำบล/แขวง อำเภอ/เขต จังหวัด รหัสไปรษณีย์"
+                        value={edit.address}
+                        onChange={e =>
+                          setEdit({ ...edit, address: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-2xl border border-violet-200/80 bg-gradient-to-br from-white via-white to-violet-50 shadow-[0_12px_34px_rgba(109,79,246,0.1)]">
+                  <div className="flex items-center gap-2.5 border-b border-violet-100 px-4 py-3.5 sm:px-5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                      <CreditCard className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        ข้อมูลการขายเชื่อ
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        รถที่ใช้และวงเงินของลูกค้า
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 p-4 sm:gap-4 sm:p-5">
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="customer-vehicle"
+                        className="flex items-center gap-1.5"
+                      >
+                        <Truck className="size-3.5 text-slate-400" />
+                        ทะเบียนรถ{" "}
+                        <span className="font-normal text-slate-400">
+                          (ถ้ามี)
+                        </span>
+                      </Label>
+                      <Input
+                        id="customer-vehicle"
+                        className="h-11 rounded-xl bg-white shadow-sm"
+                        placeholder="เช่น 3กข 1955 กรุงเทพมหานคร"
+                        value={edit.vehiclePlate}
+                        onChange={e =>
+                          setEdit({
+                            ...edit,
+                            vehiclePlate: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="customer-credit-limit">
+                        วงเงินเครดิต
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="customer-credit-limit"
+                          className="h-11 rounded-xl bg-white pr-12 font-semibold tabular-nums shadow-sm"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="0"
+                          value={edit.creditLimit}
+                          onChange={e =>
+                            setEdit({
+                              ...edit,
+                              creditLimit: e.target.value,
+                            })
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
+                          บาท
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        เว้นว่างหรือใส่ 0 = ไม่จำกัด
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                {err && (
+                  <p
+                    className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
+                    role="alert"
+                  >
+                    {err}
+                  </p>
+                )}
+              </div>
+
+              <DialogFooter className="flex-row items-center justify-end shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 sm:flex-none"
+                  disabled={create.isPending || update.isPending}
+                  onClick={() => setEdit(null)}
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-[1.5] sm:min-w-36 sm:flex-none"
+                  disabled={
+                    !edit.name.trim() || create.isPending || update.isPending
+                  }
+                >
+                  <Save className="size-4" />
+                  {create.isPending || update.isPending
+                    ? "กำลังบันทึก..."
+                    : "บันทึกข้อมูล"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 

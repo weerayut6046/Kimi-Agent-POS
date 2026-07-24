@@ -1,4 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { Link } from "react-router";
 import {
   closestCenter,
   DndContext,
@@ -27,6 +28,7 @@ import {
   Trash2,
   Gauge,
   BellRing,
+  ChartNoAxesCombined,
   ShieldCheck,
   GripVertical,
 } from "lucide-react";
@@ -164,6 +166,7 @@ export default function Stock() {
   const utils = trpc.useUtils();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
+  const canManage = isAdmin || staff?.role === "manager";
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: refills } = trpc.catalog.listRefills.useQuery();
@@ -294,7 +297,17 @@ export default function Stock() {
 
   return (
     <div className="space-y-5">
-      <h1 className="page-heading">สต๊อก & ถังน้ำมัน</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="page-heading">สต๊อก & ถังน้ำมัน</h1>
+        {canManage && (
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link to="/reports/fuel-stock">
+              <ChartNoAxesCombined className="mr-1 size-4" />
+              สรุปรายเดือน / รายปี
+            </Link>
+          </Button>
+        )}
+      </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
 
       {/* ถังน้ำมัน */}

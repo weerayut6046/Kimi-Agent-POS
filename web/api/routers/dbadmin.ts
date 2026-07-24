@@ -13,7 +13,7 @@ import {
 } from "../lib/databaseBackup";
 
 const managedRestoreMessage =
-  "เพื่อป้องกันข้อมูลสูญหาย การกู้คืนต้องทำลง Supabase project ทดสอบก่อน แล้วตรวจสอบข้อมูลก่อนสลับ DATABASE_URL ของ Railway";
+  "เพื่อป้องกันข้อมูลสูญหาย การกู้คืนต้องทำลง Supabase project ทดสอบก่อน แล้วตรวจสอบข้อมูลก่อนสลับ project ที่ใช้งาน";
 
 function managedRestoreOnly(): never {
   throw new Error(managedRestoreMessage);

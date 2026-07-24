@@ -22,7 +22,7 @@
 | Database    | Supabase PostgreSQL + Drizzle ORM (private schema `pos`, migrations ใน `web/db/migrations-postgres/`) |
 | Validation  | Zod                                                                                                   |
 | Desktop     | Electron 42 + electron-builder (NSIS installer และ Portable)                                          |
-| Deploy      | Windows `.exe`/Portable โหลดเว็บกลาง; Vercel (frontend) + Railway (backend) + Supabase (database)     |
+| Deploy      | Windows `.exe`/Portable; Vercel frontend + Supabase Edge/Auth/PostgreSQL                            |
 | Auto Update | electron-updater + Google Cloud Storage (generic provider)                                            |
 | เครื่องมือ  | ESLint, Prettier, Vitest, drizzle-kit                                                                 |
 
@@ -135,7 +135,7 @@
 - [x] แจ้งเตือนน้ำมันใกล้หมดถังหน้าแดชบอร์ดแบบเรียลไทม์ — `catalog.lowStockAlerts` (ถังต่ำกว่า `low_alert_at` + สินค้าต่ำกว่า `low_stock_at`), กระดิ่ง `LowStockAlert.tsx` ใน Layout ทุกหน้า โพล 15 วิ แสดง badge + popover รายการ, เด้ง toast (sonner) ทันทีเมื่อมีรายการใหม่ต่ำกว่าเกณฑ์, การ์ดเตือนเดิมบนหน้าแดชบอร์ดคงไว้
 - [x] นับเงินลิ้นชักครบวงจร — เงินทอนเริ่มกะ (`shifts.opening_float`), นับเงินสดแยกแบงก์/เหรียญตอนปิดกะ (`shifts.cash_counts` JSON — เซิร์ฟเวอร์รวมยอดเองจาก `web/contracts/cash.ts`), snapshot เงินสดควรมีลงกะ (`shifts.expected_cash` = เงินทอน+ขายสด+ชำระหนี้สด−ค่าใช้จ่าย คำนวณโดย `web/api/lib/cash.ts`), `debt_payments.shift_id` ผูกกะอัตโนมัติแบบค่าใช้จ่าย, แสดงส่วนต่างเงินสด (ขาด/เกิน) ในหน้าปิดกะแบบเรียลไทม์ + ประวัติกะ + Z-report + Excel, audit log `close_shift` ตอนปิดกะ
 - [x] ใช้ migration ส่วนกลางผ่าน `DIRECT_URL` (session pooler) และห้าม `db:push` กับ production
-- [x] เปลี่ยน multi-station จาก LAN เป็นระบบกลางใน `2.0.0` — ทุกเครื่องใช้ Vercel/Railway/Supabase ชุดเดียวกันและยืนยันสิทธิ์ด้วย signed staff session
+- [x] เปลี่ยน multi-station จาก LAN เป็นระบบกลาง — ทุกเครื่องใช้ Vercel/Supabase ชุดเดียวกันและยืนยันสิทธิ์ด้วย Supabase Auth
 - [x] แก้หน้า Settings โหลดข้อมูลครั้งแรก/หลังสลับเมนู และ refresh ค่าล่าสุดหลังบันทึก เพื่อไม่แสดงฟอร์มว่างหรือค่าค้าง
 - [x] เพิ่มการตั้งค่ากระดาษใบกำกับภาษี A4/A5 พร้อมปรับ preview และ print layout
 - [x] ปรับ Desktop ให้ responsive บนจอขนาดเล็ก ปรับขนาดหน้าต่างเริ่มต้นตาม work area และให้หน้า/dialog เลื่อนด้วยล้อเมาส์ได้
@@ -156,7 +156,7 @@
 
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.18` ไป `gs://kimi-agent-pos-updates`
 - [x] Build และเผยแพร่ installer/Portable ของ `1.0.20` ไป GCS พร้อมตรวจ HTTP 200, Content-Length, cache policy และ HTTP range
-- [x] Deploy เว็บออนไลน์ — frontend บน Vercel (`kimi-agent-pos.vercel.app`) rewrite `/api/*` ไป backend Docker บน Railway ซึ่งเชื่อม Supabase PostgreSQL
+- [x] เตรียม deploy เว็บออนไลน์ — frontend บน Vercel rewrite `/api/*` ไป Supabase Edge Functions ซึ่งเชื่อม Supabase PostgreSQL
 - [x] สร้าง NSIS Wizard ภาษาไทยพร้อม EULA/โลโก้ KY และติดตั้งสำหรับผู้ใช้ทุกคนใน `Program Files` (`1.0.21`, build ในเครื่อง)
 - [x] ตรวจ public URL, ขนาดไฟล์, SHA metadata และการรองรับ HTTP range
 - [x] ย้าย updater configuration จาก GitHub Releases ไป GCS generic provider
@@ -175,10 +175,10 @@
 
 ## 6. การติดตั้งและส่งมอบ
 
-- ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build` หรือ Web ออนไลน์ Vercel + Railway (PROJECT.md หัวข้อ 11)
+- ช่องทางหลัก: NSIS installer; ช่องทางพกพา: Portable `.exe`; ช่องทาง Web: `docker compose up --build` หรือ Web ออนไลน์ Vercel + Supabase (PROJECT.md หัวข้อ 11)
 - ไฟล์อัปเดต Desktop รุ่น `1.0.18` เป็นต้นไปเผยแพร่ที่ `gs://kimi-agent-pos-updates`
-- บัญชีเริ่มต้นจาก seed: `admin`/`1234`, `manager`/`2222`, `somchai`/`0000` (เปลี่ยนหลังติดตั้ง)
-- ข้อมูลอยู่ใน Supabase private schema `pos`; backend เก็บ connection secret ใน Railway และปรับค่าผ่าน environment variables
+- Production ไม่สร้างบัญชีตัวอย่าง; seed ต้องรับ `INITIAL_ADMIN_PIN` แบบสุ่มและย้าย admin ไป Supabase Auth ก่อนเปิดใช้งาน
+- ข้อมูลอยู่ใน Supabase private schema `pos`; server secrets อยู่ใน Supabase Edge runtime เท่านั้น
 
 ## 7. ความเสี่ยงและแนวทางรับมือ
 
@@ -187,7 +187,7 @@
 | การเปลี่ยน schema ทำข้อมูลเดิมเสีย | ใช้ migrations เท่านั้น (ห้าม `db:push`), commit ไฟล์ migration เข้า git                                                               |
 | มิเตอร์จดผิด                       | ตรวจยอดส่วนต่างตอนปิดกะ + ช่อง note อธิบาย                                                                                             |
 | ข้อมูลหาย                          | Supabase Daily Backup, Private GCS 6 ชั่วโมง, restore drill รายเดือน, migration history และเก็บ SQLite ต้นทางไว้ตรวจสอบช่วงเปลี่ยนผ่าน |
-| PIN รั่วไหล                        | เก็บ hash เท่านั้น, บังคับเปลี่ยน PIN เริ่มต้น, ตั้ง `APP_SECRET` เอง                                                                  |
+| รหัสผ่านรั่วไหล                    | Supabase Auth จัดเก็บ password verifier, ปิด public signup, บังคับรหัสแข็งแรง, session timeout และ MFA สำหรับผู้ดูแล cloud              |
 | เน็ต/ไฟดับที่ปั๊ม                  | รุ่น `2.0.0` ต้องใช้อินเทอร์เน็ต; เตรียมลิงก์สำรอง/UPS และขั้นตอนหยุดขายชั่วคราว                                                       |
 | รุ่นเก่ายังชี้ GitHub updater      | ติดตั้ง `1.0.18` ด้วยมือหรือทำ GitHub bridge release หนึ่งครั้ง                                                                        |
 | GCS ใช้ไม่ได้                      | updater บันทึก error และลองใหม่เมื่อเปิดแอปครั้งถัดไป; เว็บหลักยังทำงานได้                                                             |
@@ -195,4 +195,4 @@
 
 ---
 
-_สถานะ ณ 22 กรกฎาคม 2026: รุ่น 2.0.5 ใช้ฐานข้อมูลกลาง Supabase PostgreSQL, deploy Vercel/Railway Singapore, มี Private GCS Backup และ Offline-first Desktop Sales พร้อม durable outbox/idempotent sync, Modern Command Center, การลากเรียงถังแบบบันทึกถาวร, การคำนวณลิตร 3 ตำแหน่ง, สีถังตามชนิดน้ำมัน และ Auto Update ที่แสดง progress/error/retry แล้ว ส่วนงานคงเหลือคือการตรวจรับบนเครื่องหน้างานและทดสอบ auto-update แบบ end-to-end_
+_สถานะ ณ 24 กรกฎาคม 2026: production cutover ไป Vercel + Supabase Edge Functions/Auth/PostgreSQL เสร็จแล้วและ Railway ไม่มี active deployment; งานคงเหลือคือให้ admin กำหนดรหัสผ่าน Supabase Auth แก่พนักงานเดิม 2 บัญชี, ปิด public signup/เปิด Leaked Password Protection ใน Supabase Dashboard, ตรวจรับหน้างาน และทดสอบ auto-update แบบ end-to-end_

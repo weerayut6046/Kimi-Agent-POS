@@ -14,4 +14,13 @@ export type AssistantAction =
       label: string;
       from: string;
       to: string;
+    }
+  | {
+      kind: "confirm_agent_action";
+      label: string;
+      proposalId: string;
+      title: string;
+      summary: string;
+      risk: "standard" | "sensitive";
+      requiresPin: boolean;
     };

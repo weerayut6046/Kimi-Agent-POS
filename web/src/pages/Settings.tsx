@@ -23,6 +23,8 @@ import {
   RefreshCw,
   ShieldCheck,
   AlertTriangle,
+  BrainCircuit,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,6 +56,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import {
@@ -63,7 +66,11 @@ import {
   categoryLabel,
   roleLabel,
 } from "@/lib/format";
-import { createInitialSettingsForm } from "./settingsForm";
+import {
+  createInitialSettingsForm,
+  createProductUpdatePatch,
+  type EditableProductValues,
+} from "./settingsForm";
 import type { Product } from "@db/schema";
 import {
   MENU_PERMISSION_DEFINITIONS,
@@ -117,6 +124,8 @@ type BackupSelection = {
   sha256: string;
   trigger: "manual" | "scheduled" | "monthly";
 };
+
+type AiProvider = "ollama" | "deepseek";
 
 type AccessGroupForm = {
   id?: number;
@@ -397,19 +406,16 @@ export default function Settings() {
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
-  const settingsSaveInFlight = useRef(false);
-
-  // โพลทุก 5 วิ — ค่าที่แสดงสดใกล้ realtime: แก้จากเครื่องอื่น (multi-station) หรือที่อื่นแล้วหน้านี้อัปเดตเอง
-  // หยุดโพลระหว่างบันทึก ป้องกัน request เก่าตอบกลับมาทับค่าที่เพิ่งบันทึก
+  // RealtimeProvider refreshes active queries when another station changes
+  // data. A five-second poll made this large settings screen reload even while
+  // idle, so keep one cached query and refresh explicitly after writes.
   const {
     data: settingMap,
     isPending: settingsPending,
     isError: settingsError,
     error: settingsQueryError,
     refetch: refetchSettings,
-  } = trpc.catalog.getSettings.useQuery(undefined, {
-    refetchInterval: () => (settingsSaveInFlight.current ? false : 5000),
-  });
+  } = trpc.catalog.getSettings.useQuery();
   const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: publicStaffList } = trpc.auth.listStaff.useQuery();
@@ -433,6 +439,16 @@ export default function Settings() {
   const { data: pumps } = trpc.catalog.listPumps.useQuery();
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: lanInfo } = trpc.catalog.lanInfo.useQuery();
+  const { data: currentShift } = trpc.pos.currentShift.useQuery();
+  const {
+    data: aiConfig,
+    isPending: aiConfigPending,
+    isError: aiConfigError,
+    error: aiConfigQueryError,
+    refetch: refetchAiConfig,
+  } = trpc.assistant.config.useQuery(undefined, {
+    enabled: isAdmin,
+  });
 
   // Layout เรียก getSettings ไว้ก่อนแล้วบ่อยครั้ง query จึงมีข้อมูลใน cache ตั้งแต่ render แรก
   // ต้องนำ cache มาเป็นค่าเริ่มต้นทันที ไม่เช่นนั้น prevSettingMap จะเท่ากันและฟอร์มจะค้างเป็น {}
@@ -444,6 +460,8 @@ export default function Settings() {
   const [editP, setEditP] = useState<
     (Partial<Product> & typeof emptyProduct) | null
   >(null);
+  const [initialEditP, setInitialEditP] =
+    useState<EditableProductValues | null>(null);
   const [histP, setHistP] = useState<Product | null>(null); // สินค้าที่กำลังดูประวัติเปลี่ยนราคา
   const { data: priceHist } = trpc.catalog.priceHistory.useQuery(
     { productId: histP?.id ?? 0 },
@@ -463,7 +481,7 @@ export default function Settings() {
     useState<AccessGroupForm | null>(null);
   const [newStaff, setNewStaff] = useState({
     username: "",
-    pin: "",
+    password: "",
     name: "",
     role: "cashier" as "admin" | "manager" | "cashier",
     accessGroupId: null as number | null,
@@ -476,7 +494,7 @@ export default function Settings() {
     name: string;
     role: "admin" | "manager" | "cashier";
     accessGroupId: number | null;
-    pin: string;
+    password: string;
     menuPermissions: MenuPermissionKey[];
     branchIds: number[];
   } | null>(null);
@@ -502,6 +520,16 @@ export default function Settings() {
   const [deleteBackupTarget, setDeleteBackupTarget] =
     useState<BackupSelection | null>(null);
   const [deleteBackupConfirmation, setDeleteBackupConfirmation] = useState("");
+  const [aiProvider, setAiProvider] = useState<AiProvider>(
+    () => aiConfig?.provider ?? "ollama"
+  );
+  const [aiOllamaModel, setAiOllamaModel] = useState(
+    () => aiConfig?.ollamaModel ?? "qwen3:4b-instruct"
+  );
+  const [aiDeepseekModel, setAiDeepseekModel] = useState(
+    () => aiConfig?.deepseekModel ?? "deepseek-v4-flash"
+  );
+  const [aiDeepseekApiKey, setAiDeepseekApiKey] = useState("");
 
   // sync ฟอร์มจาก settingMap ด้วย pattern adjust-state-during-render (แทน useEffect เพื่อเลี่ยง cascading render)
   // merge แบบเก็บ keys ที่แก้ค้างไว้ (ค่าต่างจาก snapshot รอบก่อนและยังไม่ตรง server รอบใหม่)
@@ -529,6 +557,17 @@ export default function Settings() {
     }
   }
 
+  const [prevAiConfig, setPrevAiConfig] = useState(aiConfig);
+  if (aiConfig !== prevAiConfig) {
+    setPrevAiConfig(aiConfig);
+    if (aiConfig) {
+      setAiProvider(aiConfig.provider);
+      setAiOllamaModel(aiConfig.ollamaModel);
+      setAiDeepseekModel(aiConfig.deepseekModel);
+      setAiDeepseekApiKey("");
+    }
+  }
+
   const ok = (m: string) => {
     setMsg(m);
     setErr("");
@@ -541,8 +580,8 @@ export default function Settings() {
 
   const saveSettings = trpc.catalog.updateSettings.useMutation({
     onMutate: async () => {
-      // request polling อาจเริ่มก่อนกดบันทึกและถือค่าเก่าอยู่ ต้องยกเลิกก่อนเขียนค่าใหม่
-      settingsSaveInFlight.current = true;
+      // Cancel an in-flight read so an older response cannot overwrite the
+      // settings returned by this mutation.
       await utils.catalog.getSettings.cancel();
     },
     onSuccess: result => {
@@ -557,25 +596,37 @@ export default function Settings() {
       ok("บันทึกการตั้งค่าลงฐานข้อมูลแล้ว");
     },
     onError: e => fail(e.message),
-    onSettled: () => {
-      settingsSaveInFlight.current = false;
+  });
+  const saveAiConfig = trpc.assistant.updateConfig.useMutation({
+    onSuccess: result => {
+      setPrevAiConfig(result.config);
+      setAiProvider(result.config.provider);
+      setAiOllamaModel(result.config.ollamaModel);
+      setAiDeepseekModel(result.config.deepseekModel);
+      setAiDeepseekApiKey("");
+      utils.assistant.config.setData(undefined, result.config);
+      ok("บันทึกการตั้งค่า AI แล้ว");
     },
+    onError: e => fail(e.message),
   });
   const saveProduct = trpc.catalog.updateProduct.useMutation({
     onSuccess: () => {
       utils.catalog.listProducts.invalidate();
+      utils.pos.currentShift.invalidate();
       setEditP(null);
+      setInitialEditP(null);
       ok("บันทึกสินค้าแล้ว");
     },
-    onError: e => fail(e.message),
+    onError: () => setMsg(""),
   });
   const createProduct = trpc.catalog.createProduct.useMutation({
     onSuccess: () => {
       utils.catalog.listProducts.invalidate();
       setEditP(null);
+      setInitialEditP(null);
       ok("เพิ่มสินค้าแล้ว");
     },
-    onError: e => fail(e.message),
+    onError: () => setMsg(""),
   });
   const createStaff = trpc.auth.createStaff.useMutation({
     onSuccess: () => {
@@ -585,7 +636,7 @@ export default function Settings() {
       setShowStaff(false);
       setNewStaff({
         username: "",
-        pin: "",
+        password: "",
         name: "",
         role: "cashier",
         accessGroupId: null,
@@ -703,7 +754,6 @@ export default function Settings() {
     refetch: refetchDbInfo,
   } = trpc.dbadmin.dbInfo.useQuery(undefined, {
     enabled: isAdmin,
-    refetchInterval: 60_000,
   });
   const backupNow = trpc.dbadmin.backup.useMutation({
     onSuccess: async result => {
@@ -758,6 +808,30 @@ export default function Settings() {
       .map(([key, value]) => ({ key, value }));
     if (logoData !== null) entries.push({ key: "shop_logo", value: logoData });
     saveSettings.mutate({ entries });
+  };
+
+  const saveAi = () => {
+    saveAiConfig.mutate({
+      provider: aiProvider,
+      ollamaModel: aiOllamaModel.trim(),
+      deepseekModel: aiDeepseekModel.trim(),
+      deepseekApiKey: aiDeepseekApiKey.trim() || undefined,
+    });
+  };
+
+  const clearAiApiKey = () => {
+    if (
+      !window.confirm(
+        "ลบ DeepSeek API Key ที่บันทึกไว้สำหรับสาขานี้หรือไม่?"
+      )
+    )
+      return;
+    saveAiConfig.mutate({
+      provider: aiProvider,
+      ollamaModel: aiOllamaModel.trim(),
+      deepseekModel: aiDeepseekModel.trim(),
+      clearDeepseekApiKey: true,
+    });
   };
 
   const onLogoFile = (e: ChangeEvent<HTMLInputElement>) => {
@@ -836,11 +910,47 @@ export default function Settings() {
       {msg && <p className="text-sm text-green-600">{msg}</p>}
       {err && <p className="text-sm text-destructive">{err}</p>}
 
+      <Tabs defaultValue="shop" className="gap-4">
+        <TabsList className="w-full station-scrollbar">
+          <TabsTrigger value="shop" className="flex-none sm:flex-1">
+            <Store /> ร้านและเอกสาร
+          </TabsTrigger>
+          <TabsTrigger value="network" className="flex-none sm:flex-1">
+            <Network /> เครือข่าย
+          </TabsTrigger>
+          <TabsTrigger value="products" className="flex-none sm:flex-1">
+            <Fuel /> สินค้า
+          </TabsTrigger>
+          <TabsTrigger value="people" className="flex-none sm:flex-1">
+            <UserCog /> ผู้ใช้และสาขา
+          </TabsTrigger>
+          <TabsTrigger value="rewards" className="flex-none sm:flex-1">
+            <Gift /> ของรางวัล
+          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="pumps" className="flex-none sm:flex-1">
+              <Gauge /> หัวจ่าย
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="ai" className="flex-none sm:flex-1">
+              <BrainCircuit /> AI
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="database" className="flex-none sm:flex-1">
+              <Database /> ฐานข้อมูล
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="shop" className="mt-0 space-y-5">
       {/* ข้อมูลร้าน */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="font-heading text-base flex items-center gap-2">
-            <Store className="w-4 h-4" /> ข้อมูลร้าน (แสดงบนใบเสร็จ/ใบกำกับภาษี)
+                <Store className="w-4 h-4" /> ข้อมูลร้าน
+                (แสดงบนใบเสร็จ/ใบกำกับภาษี)
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1090,9 +1200,9 @@ export default function Settings() {
                   พิมพ์ใบเสร็จอัตโนมัติหลังชำระเงิน
                 </Label>
                 <p className="text-xs text-muted-foreground mt-1">
-                  พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows ทันทีโดยไม่เด้ง
-                  dialog (เฉพาะ desktop app — ต้องตั้งเครื่องพิมพ์ที่ใช้เป็น
-                  default ไว้ก่อน)
+                      พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows
+                      ทันทีโดยไม่เด้ง dialog (เฉพาะ desktop app —
+                      ต้องตั้งเครื่องพิมพ์ที่ใช้เป็น default ไว้ก่อน)
                 </p>
               </div>
               <Switch
@@ -1116,7 +1226,9 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="network" className="mt-0">
       {/* เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน) */}
       <Card>
         <CardHeader className="pb-2">
@@ -1169,7 +1281,8 @@ export default function Settings() {
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  ไม่พบ IP ของเครื่องนี้ในเครือข่าย — ตรวจสอบการเชื่อมต่อ LAN
+                      ไม่พบ IP ของเครื่องนี้ในเครือข่าย — ตรวจสอบการเชื่อมต่อ
+                      LAN
                 </p>
               )}
               <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
@@ -1211,7 +1324,9 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="products" className="mt-0">
       {/* สินค้าและราคา */}
       <Card>
         <CardHeader className="pb-2 flex-row items-center justify-between">
@@ -1222,7 +1337,13 @@ export default function Settings() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setEditP({ ...emptyProduct })}
+                  onClick={() => {
+                    saveProduct.reset();
+                    createProduct.reset();
+                    setErr("");
+                    setInitialEditP(null);
+                    setEditP({ ...emptyProduct });
+                  }}
             >
               <Plus className="w-4 h-4 mr-1" /> เพิ่มสินค้า
             </Button>
@@ -1244,8 +1365,13 @@ export default function Settings() {
             </TableHeader>
             <TableBody>
               {(products ?? []).map(p => (
-                <TableRow key={p.id} className={!p.active ? "opacity-50" : ""}>
-                  <TableCell className="font-mono text-xs">{p.code}</TableCell>
+                    <TableRow
+                      key={p.id}
+                      className={!p.active ? "opacity-50" : ""}
+                    >
+                      <TableCell className="font-mono text-xs">
+                        {p.code}
+                      </TableCell>
                   <TableCell>
                     {p.name}{" "}
                     <span className="text-xs text-muted-foreground">
@@ -1288,7 +1414,13 @@ export default function Settings() {
                           variant="ghost"
                           className="h-8 w-8"
                           title="แก้ไข"
-                          onClick={() => setEditP(p)}
+                              onClick={() => {
+                                saveProduct.reset();
+                                createProduct.reset();
+                                setErr("");
+                                setInitialEditP(p);
+                                setEditP(p);
+                              }}
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -1318,7 +1450,9 @@ export default function Settings() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="people" className="mt-0 space-y-5">
       {isAdmin && (
         <Card className="border-violet-200/70 bg-gradient-to-br from-white to-violet-50/40">
           <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1424,10 +1558,15 @@ export default function Settings() {
                 <Store className="size-4" /> สาขา
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
-                สินค้า สต็อก ยอดขาย กะ เอกสาร และการตั้งค่าจะแยกจากกันตามสาขา
+                    สินค้า สต็อก ยอดขาย กะ เอกสาร
+                    และการตั้งค่าจะแยกจากกันตามสาขา
               </p>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setShowBranch(true)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowBranch(true)}
+                >
               <Plus className="mr-1 size-4" /> เพิ่มสาขา
             </Button>
           </CardHeader>
@@ -1440,7 +1579,9 @@ export default function Settings() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <Badge variant={branch.active ? "default" : "secondary"}>
+                          <Badge
+                            variant={branch.active ? "default" : "secondary"}
+                          >
                         {branch.code}
                       </Badge>
                       {branch.id === staff?.branch.id && (
@@ -1449,7 +1590,9 @@ export default function Settings() {
                         </span>
                       )}
                     </div>
-                    <div className="mt-2 truncate font-medium">{branch.name}</div>
+                        <div className="mt-2 truncate font-medium">
+                          {branch.name}
+                        </div>
                     <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                       {branch.address || "ยังไม่ได้ระบุที่อยู่"}
                     </div>
@@ -1472,7 +1615,6 @@ export default function Settings() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* พนักงาน */}
         <Card>
           <CardHeader className="pb-2 flex-row items-center justify-between">
@@ -1531,7 +1673,9 @@ export default function Settings() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <Badge variant={s.role === "admin" ? "default" : "secondary"}>
+                    <Badge
+                      variant={s.role === "admin" ? "default" : "secondary"}
+                    >
                     {roleLabel[s.role] ?? s.role}
                   </Badge>
                   {isAdmin && (
@@ -1551,7 +1695,7 @@ export default function Settings() {
                               typeof s.accessGroupId === "number"
                                 ? s.accessGroupId
                                 : null,
-                            pin: "",
+                            password: "",
                             menuPermissions: staffMenuPermissions(
                               s.role,
                               "menuPermissions" in s
@@ -1586,7 +1730,9 @@ export default function Settings() {
             ))}
           </CardContent>
         </Card>
+        </TabsContent>
 
+        <TabsContent value="rewards" className="mt-0">
         {/* ของรางวัล */}
         <Card>
           <CardHeader className="pb-2 flex-row items-center justify-between">
@@ -1652,8 +1798,9 @@ export default function Settings() {
             ))}
           </CardContent>
         </Card>
-      </div>
+        </TabsContent>
 
+        <TabsContent value="pumps" className="mt-0">
       {/* ตู้จ่าย / หัวจ่าย (admin) */}
       {isAdmin && (
         <Card>
@@ -1706,7 +1853,218 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
 
+        <TabsContent value="ai" className="mt-0">
+          {isAdmin && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="font-heading text-base flex items-center gap-2">
+                      <BrainCircuit className="w-4 h-4" /> ผู้ช่วย AI
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      เลือกผู้ให้บริการและโมเดลสำหรับสาขา{" "}
+                      {staff?.branch.name ?? "ปัจจุบัน"}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">เฉพาะผู้ดูแลระบบ</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {aiConfigPending && !aiConfig ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    กำลังโหลดการตั้งค่า AI…
+                  </div>
+                ) : aiConfigError && !aiConfig ? (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm text-destructive">
+                      โหลดการตั้งค่า AI ไม่สำเร็จ: {aiConfigQueryError?.message}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={() => void refetchAiConfig()}
+                    >
+                      <RefreshCw className="mr-1.5 h-4 w-4" /> ลองใหม่
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>ผู้ให้บริการ AI</Label>
+                        <Select
+                          value={aiProvider}
+                          onValueChange={value =>
+                            setAiProvider(value as AiProvider)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ollama">
+                              Ollama — ทำงานในเครื่อง
+                            </SelectItem>
+                            <SelectItem value="deepseek">
+                              DeepSeek — ใช้ Cloud API
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ai-model">โมเดล</Label>
+                        {aiProvider === "ollama" ? (
+                          <>
+                            <Input
+                              id="ai-model"
+                              list="ollama-model-options"
+                              value={aiOllamaModel}
+                              onChange={event =>
+                                setAiOllamaModel(event.target.value)
+                              }
+                              placeholder="เช่น qwen3:4b-instruct"
+                            />
+                            <datalist id="ollama-model-options">
+                              <option value="qwen3:4b-instruct" />
+                              <option value="qwen3:8b" />
+                              <option value="qwen3:14b" />
+                            </datalist>
+                          </>
+                        ) : (
+                          <>
+                            <Input
+                              id="ai-model"
+                              list="deepseek-model-options"
+                              value={aiDeepseekModel}
+                              onChange={event =>
+                                setAiDeepseekModel(event.target.value)
+                              }
+                              placeholder="เช่น deepseek-v4-flash"
+                            />
+                            <datalist id="deepseek-model-options">
+                              <option value="deepseek-v4-flash" />
+                              <option value="deepseek-v4-pro" />
+                            </datalist>
+                          </>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          เลือกจากรายการหรือพิมพ์ชื่อโมเดลที่ติดตั้ง/รองรับได้
+                        </p>
+                      </div>
+                    </div>
+
+                    {aiProvider === "ollama" ? (
+                      <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4 text-sm text-sky-900">
+                        Ollama ไม่ต้องใช้ API Key และต้องเปิด Ollama
+                        บนเครื่องที่รันเซิร์ฟเวอร์ PumpPOS
+                      </div>
+                    ) : (
+                      <div className="space-y-3 rounded-lg border p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-medium">
+                            <KeyRound className="h-4 w-4" /> DeepSeek API Key
+                          </div>
+                          <Badge
+                            variant={
+                              aiConfig?.deepseekApiKeyConfigured
+                                ? "default"
+                                : "destructive"
+                            }
+                          >
+                            {aiConfig?.deepseekApiKeyConfigured
+                              ? "ตั้งค่าแล้ว"
+                              : "ยังไม่ได้ตั้งค่า"}
+                          </Badge>
+                        </div>
+                        <Input
+                          type="password"
+                          autoComplete="new-password"
+                          value={aiDeepseekApiKey}
+                          onChange={event =>
+                            setAiDeepseekApiKey(event.target.value)
+                          }
+                          placeholder={
+                            aiConfig?.deepseekApiKeyConfigured
+                              ? "เว้นว่างเพื่อใช้ Key เดิม"
+                              : "วาง API Key ที่นี่"
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          ระบบไม่แสดง Key เดิมกลับมาที่หน้าเว็บ
+                          และจะเข้ารหัสก่อนบันทึกลงฐานข้อมูล
+                          {aiConfig?.apiKeySource === "environment"
+                            ? " · ขณะนี้ใช้ Key สำรองจาก .env"
+                            : ""}
+                        </p>
+                      </div>
+                    )}
+
+                    {aiProvider === "deepseek" &&
+                      !aiConfig?.deepseekApiKeyConfigured &&
+                      !aiDeepseekApiKey.trim() && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                          กรุณาใส่ API Key ก่อนเปิดใช้ DeepSeek
+                        </div>
+                      )}
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={saveAi}
+                        disabled={
+                          saveAiConfig.isPending ||
+                          !aiOllamaModel.trim() ||
+                          !aiDeepseekModel.trim() ||
+                          (aiProvider === "deepseek" &&
+                            !aiConfig?.deepseekApiKeyConfigured &&
+                            !aiDeepseekApiKey.trim())
+                        }
+                      >
+                        <Save className="mr-1.5 h-4 w-4" />
+                        {saveAiConfig.isPending
+                          ? "กำลังบันทึก…"
+                          : "บันทึกการตั้งค่า AI"}
+                      </Button>
+                      {aiConfig?.apiKeySource === "settings" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive"
+                          onClick={clearAiApiKey}
+                          disabled={saveAiConfig.isPending}
+                        >
+                          <Trash2 className="mr-1.5 h-4 w-4" /> ลบ API Key
+                        </Button>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {aiConfig?.settingsSource === "settings"
+                          ? "ใช้ค่าที่บันทึกสำหรับสาขานี้"
+                          : "ยังใช้ค่าเริ่มต้นจากเซิร์ฟเวอร์"}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <span>
+                        API Key เป็นข้อมูลแบบเขียนอย่างเดียว
+                        เก็บในตาราง private แยกจากการตั้งค่าทั่วไป
+                        และเปิดจัดการเฉพาะบัญชี admin
+                      </span>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="database" className="mt-0">
       {/* ฐานข้อมูลและ Backup (admin) */}
       {isAdmin && (
         <Card>
@@ -1730,8 +2088,8 @@ export default function Settings() {
                 </div>
                 <p className="text-sm">สำรองอัตโนมัติรายวันโดย Supabase</p>
                 <p className="text-xs text-muted-foreground">
-                  กู้คืนย้อนหลังได้ {dbInfo?.supabaseDailyRetentionDays ?? 7}{" "}
-                  วัน
+                      กู้คืนย้อนหลังได้{" "}
+                      {dbInfo?.supabaseDailyRetentionDays ?? 7} วัน
                 </p>
               </div>
 
@@ -1755,11 +2113,13 @@ export default function Settings() {
                   {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
                 </p>
                 <p className="break-all text-xs text-muted-foreground">
-                  {dbInfo?.offsiteBucket || "Private bucket กำลังรอการตั้งค่า"}
+                      {dbInfo?.offsiteBucket ||
+                        "Private bucket กำลังรอการตั้งค่า"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35} วัน ·
-                  รายเดือน {dbInfo?.offsiteMonthlyRetentionDays ?? 370} วัน
+                      เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35} วัน
+                      · รายเดือน {dbInfo?.offsiteMonthlyRetentionDays ?? 370}{" "}
+                      วัน
                 </p>
               </div>
             </div>
@@ -1808,7 +2168,9 @@ export default function Settings() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium">ไฟล์สำรองนอกระบบล่าสุด</p>
+                    <p className="text-sm font-medium">
+                      ไฟล์สำรองนอกระบบล่าสุด
+                    </p>
                 <span className="text-xs text-muted-foreground">
                   ลิงก์ดาวน์โหลดมีอายุ 15 นาที
                 </span>
@@ -1866,7 +2228,9 @@ export default function Settings() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => setRestoreBackupTarget(backup)}
+                                    onClick={() =>
+                                      setRestoreBackupTarget(backup)
+                                    }
                               >
                                 <History className="mr-1 h-3.5 w-3.5" />
                                 Restore
@@ -1880,7 +2244,7 @@ export default function Settings() {
                                   title={
                                     dbInfo.offsiteDeleteEnabled
                                       ? "ลบ Manual Backup"
-                                      : "Railway ยังไม่ได้เปิด GCS_BACKUP_DELETE_ENABLED"
+                                      : "ระบบ Cloud ใช้ Supabase Managed Backups"
                                   }
                                   disabled={!dbInfo.offsiteDeleteEnabled}
                                   onClick={() => {
@@ -1921,6 +2285,8 @@ export default function Settings() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+      </Tabs>
 
       {/* Restore ทำได้ผ่านฐานทดสอบเท่านั้น */}
       <Dialog
@@ -2082,7 +2448,18 @@ export default function Settings() {
       </Dialog>
 
       {/* Dialog สินค้า */}
-      <Dialog open={!!editP} onOpenChange={o => !o && setEditP(null)}>
+      <Dialog
+        open={!!editP}
+        onOpenChange={open => {
+          if (!open) {
+            saveProduct.reset();
+            createProduct.reset();
+            setErr("");
+            setEditP(null);
+            setInitialEditP(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="font-heading">
@@ -2141,6 +2518,16 @@ export default function Settings() {
                     setEditP({ ...editP, price: Number(e.target.value) || 0 })
                   }
                 />
+                {editP.id != null &&
+                  editP.category === "fuel" &&
+                  currentShift?.readings.some(
+                    reading => reading.product?.id === editP.id
+                  ) && (
+                    <p className="text-xs text-amber-700">
+                      ราคาใหม่จะมีผลทันที หลังเปลี่ยนราคาระหว่างกะให้ยึดมิเตอร์
+                      P เป็นยอดเงินจริงตอนปิดกะ
+                    </p>
+                  )}
               </div>
               <div className="space-y-1.5">
                 <Label>ต้นทุน</Label>
@@ -2199,6 +2586,12 @@ export default function Settings() {
               )}
             </div>
           )}
+          {(saveProduct.error || createProduct.error) && (
+            <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{(saveProduct.error || createProduct.error)?.message}</p>
+            </div>
+          )}
           <DialogFooter>
             <Button
               className="w-full"
@@ -2211,18 +2604,18 @@ export default function Settings() {
               onClick={() => {
                 if (!editP) return;
                 if (editP.id) {
-                  saveProduct.mutate({
-                    id: editP.id,
-                    code: editP.code,
-                    name: editP.name,
-                    category: editP.category,
-                    unit: editP.unit,
-                    price: editP.price,
-                    cost: editP.cost,
-                    stockQty: editP.stockQty,
-                    lowStockAt: editP.lowStockAt,
-                    active: editP.active,
-                  });
+                  if (!initialEditP) return;
+                  const patch = createProductUpdatePatch(
+                    editP as EditableProductValues,
+                    initialEditP
+                  );
+                  if (Object.keys(patch).length === 1) {
+                    setEditP(null);
+                    setInitialEditP(null);
+                    ok("ไม่มีการเปลี่ยนแปลง");
+                    return;
+                  }
+                  saveProduct.mutate(patch);
                 } else {
                   createProduct.mutate({
                     code: editP.code,
@@ -2468,7 +2861,8 @@ export default function Settings() {
                   คัดลอกโครงสร้างจากสาขาปัจจุบัน
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
-                  คัดลอกสินค้า หัวจ่าย ถัง รางวัล และกะงาน แต่เริ่มสต็อก/มิเตอร์ที่ศูนย์
+                  คัดลอกสินค้า หัวจ่าย ถัง รางวัล และกะงาน
+                  แต่เริ่มสต็อก/มิเตอร์ที่ศูนย์
                 </div>
               </div>
               <Switch
@@ -2523,12 +2917,12 @@ export default function Settings() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>รหัส PIN (อย่างน้อย 4 หลัก)</Label>
+              <Label>รหัสผ่าน Supabase Auth (อย่างน้อย 10 ตัว)</Label>
               <Input
                 type="password"
-                value={newStaff.pin}
+                value={newStaff.password}
                 onChange={e =>
-                  setNewStaff({ ...newStaff, pin: e.target.value })
+                  setNewStaff({ ...newStaff, password: e.target.value })
                 }
               />
             </div>
@@ -2558,9 +2952,7 @@ export default function Settings() {
             <StaffBranchSelector
               branches={(allBranches ?? []).filter(branch => branch.active)}
               value={newStaff.branchIds}
-              onChange={branchIds =>
-                setNewStaff({ ...newStaff, branchIds })
-              }
+              onChange={branchIds => setNewStaff({ ...newStaff, branchIds })}
             />
             <StaffAccessSelector
               role={newStaff.role}
@@ -2581,7 +2973,7 @@ export default function Settings() {
               disabled={
                 !newStaff.name ||
                 newStaff.username.length < 3 ||
-                newStaff.pin.length < 4 ||
+                newStaff.password.length < 10 ||
                 newStaff.branchIds.length === 0 ||
                 (newStaff.role !== "admin" &&
                   newStaff.accessGroupId === null &&
@@ -2624,12 +3016,14 @@ export default function Settings() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>รหัส PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</Label>
+                <Label>รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</Label>
                 <Input
                   type="password"
-                  value={editS.pin}
-                  onChange={e => setEditS({ ...editS, pin: e.target.value })}
-                  placeholder="••••"
+                  value={editS.password}
+                  onChange={e =>
+                    setEditS({ ...editS, password: e.target.value })
+                  }
+                  placeholder="อย่างน้อย 10 ตัวอักษร"
                 />
               </div>
               <div className="space-y-1.5">
@@ -2695,7 +3089,7 @@ export default function Settings() {
                   accessGroupId: editS.accessGroupId,
                   menuPermissions: editS.menuPermissions,
                   branchIds: editS.branchIds,
-                  ...(editS.pin ? { pin: editS.pin } : {}),
+                  ...(editS.password ? { password: editS.password } : {}),
                 })
               }
             >
