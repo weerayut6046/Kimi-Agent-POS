@@ -1,6 +1,5 @@
 import { Routes, Route, Navigate } from "react-router";
 import { lazy, Suspense, type ReactNode } from "react";
-import Login from "@/pages/Login";
 import { useStaff } from "@/hooks/useStaff";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,30 +43,8 @@ function MenuRoute({
 }
 
 export default function App() {
-  const { staff, isCheckingSession, logout } = useStaff();
-
-  if (isCheckingSession) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#f6f5fb] p-6">
-        <div
-          className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-white px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-violet-100/50"
-          role="status"
-        >
-          <span className="size-5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600" />
-          กำลังตรวจสอบเซสชันผู้ใช้งาน...
-        </div>
-      </main>
-    );
-  }
-
-  if (!staff) {
-    return (
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    );
-  }
+  const { staff, logout } = useStaff();
+  if (!staff) return null;
 
   const landingPath = getFirstAllowedMenuPath(
     staff.role,

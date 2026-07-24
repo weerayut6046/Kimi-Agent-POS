@@ -69,6 +69,8 @@ import {
 import {
   createInitialSettingsForm,
   createProductUpdatePatch,
+  staffMutationErrorMessage,
+  staffPasswordValidationMessage,
   type EditableProductValues,
 } from "./settingsForm";
 import type { Product } from "@db/schema";
@@ -645,7 +647,7 @@ export default function Settings() {
       });
       ok("เพิ่มพนักงานแล้ว");
     },
-    onError: e => fail(e.message),
+    onError: e => fail(staffMutationErrorMessage(e)),
   });
   const createBranch = trpc.auth.createBranch.useMutation({
     onSuccess: () => {
@@ -680,7 +682,7 @@ export default function Settings() {
       setEditS(null);
       ok("แก้ไขพนักงานแล้ว");
     },
-    onError: e => fail(e.message),
+    onError: e => fail(staffMutationErrorMessage(e)),
   });
   const deleteStaff = trpc.auth.deleteStaff.useMutation({
     onSuccess: () => {
@@ -2924,7 +2926,17 @@ export default function Settings() {
                 onChange={e =>
                   setNewStaff({ ...newStaff, password: e.target.value })
                 }
+                aria-invalid={
+                  newStaff.password.length > 0 &&
+                  staffPasswordValidationMessage(newStaff.password) !== null
+                }
               />
+              {newStaff.password.length > 0 &&
+                staffPasswordValidationMessage(newStaff.password) && (
+                  <p className="text-xs font-medium text-destructive">
+                    {staffPasswordValidationMessage(newStaff.password)}
+                  </p>
+                )}
             </div>
             <div className="space-y-1.5">
               <Label>สิทธิ์</Label>
@@ -2973,7 +2985,7 @@ export default function Settings() {
               disabled={
                 !newStaff.name ||
                 newStaff.username.length < 3 ||
-                newStaff.password.length < 10 ||
+                staffPasswordValidationMessage(newStaff.password) !== null ||
                 newStaff.branchIds.length === 0 ||
                 (newStaff.role !== "admin" &&
                   newStaff.accessGroupId === null &&
@@ -3024,7 +3036,17 @@ export default function Settings() {
                     setEditS({ ...editS, password: e.target.value })
                   }
                   placeholder="อย่างน้อย 10 ตัวอักษร"
+                  aria-invalid={
+                    editS.password.length > 0 &&
+                    staffPasswordValidationMessage(editS.password) !== null
+                  }
                 />
+                {editS.password.length > 0 &&
+                  staffPasswordValidationMessage(editS.password) && (
+                    <p className="text-xs font-medium text-destructive">
+                      {staffPasswordValidationMessage(editS.password)}
+                    </p>
+                  )}
               </div>
               <div className="space-y-1.5">
                 <Label>สิทธิ์</Label>
@@ -3074,6 +3096,8 @@ export default function Settings() {
               disabled={
                 !editS?.name ||
                 editS.branchIds.length === 0 ||
+                (editS.password.length > 0 &&
+                  staffPasswordValidationMessage(editS.password) !== null) ||
                 (editS.role !== "admin" &&
                   editS.accessGroupId === null &&
                   editS.menuPermissions.length === 0) ||

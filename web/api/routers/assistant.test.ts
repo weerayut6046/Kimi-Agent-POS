@@ -12,6 +12,9 @@ import {
   assistantActionProposals,
   expenses,
   members,
+  products,
+  saleItems,
+  sales,
   staffUsers,
 } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
@@ -118,6 +121,71 @@ describe("AI assistant security", () => {
     expect(externalRequest).not.toContain("get_all_fuel_tank_levels");
     expect(externalRequest).not.toContain("get_admin_business_summary");
     expect(externalRequest).not.toContain("get_admin_documents");
+  });
+
+  it("calculates today's fuel sales volume and keeps the figures inside PumpPOS", async () => {
+    const [fuel] = await t.db
+      .insert(products)
+      .values({
+        branchId: 1,
+        code: "AI-FUEL-TEST",
+        name: "น้ำมันทดสอบ AI",
+        category: "fuel",
+        unit: "ลิตร",
+        price: 40,
+        cost: 30,
+        stockQty: 1_000,
+        lowStockAt: 100,
+      })
+      .returning();
+    const [sale] = await t.db
+      .insert(sales)
+      .values({
+        branchId: 1,
+        receiptNo: "AI-FUEL-VOLUME-001",
+        staffName: "ผู้ทดสอบ",
+        subtotal: 250,
+        total: 250,
+        paymentMethod: "cash",
+        received: 250,
+      })
+      .returning();
+    await t.db.insert(saleItems).values({
+      branchId: 1,
+      saleId: sale.id,
+      productId: fuel.id,
+      name: fuel.name,
+      qty: 6.25,
+      unit: "ลิตร",
+      unitPrice: 40,
+      amount: 250,
+    });
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        toolCompletion("get_today_sales_overview", "call-fuel-volume")
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await t.caller("cashier").assistant.chat({
+      messages: [
+        { role: "user", content: "คำนวณปริมาตรการขายน้ำมันวันนี้ได้ไหม" },
+      ],
+    });
+
+    expect(result.answer).toContain("ปริมาณน้ำมันที่ขายได้วันนี้");
+    expect(result.answer).toContain("AI-FUEL-TEST น้ำมันทดสอบ AI: 6.25 ลิตร");
+    expect(result.includeInModelContext).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(requestBody.tool_choice).toEqual({
+      type: "function",
+      function: { name: "get_today_sales_overview" },
+    });
+    const externalRequest = JSON.stringify(requestBody);
+    expect(externalRequest).not.toContain("น้ำมันทดสอบ AI");
+    expect(externalRequest).not.toContain("6.25");
   });
 
   it("allows only admin to read every fuel tank level while keeping values out of DeepSeek", async () => {

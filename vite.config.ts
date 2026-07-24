@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
         entry: "web/api/boot.ts",
         exclude: [/^\/api\/trpc(?:\/|$)/, /^\/(?!api\/).*$/],
       }),
-      inspectAttr(),
+      ...(mode === "development" ? [inspectAttr()] : []),
       react(),
     ],
     server: {

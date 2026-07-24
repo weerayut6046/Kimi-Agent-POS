@@ -1,6 +1,5 @@
 import { Link } from "react-router";
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
@@ -16,33 +15,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import SalesTrendChart from "@/components/SalesTrendChart";
 import { trpc } from "@/providers/trpc";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel } from "@/lib/format";
 
-export default function Dashboard() {
-  const { data, isLoading, isError, error, refetch, isFetching } =
-    trpc.pos.dashboard.useQuery(undefined, { refetchInterval: 30000 });
+function createDashboardPlaceholder() {
+  const now = new Date();
+  return {
+    todayTotal: 0,
+    todayBills: 0,
+    litersToday: 0,
+    fuelByCode: {} as Record<
+      string,
+      { name: string; liters: number; amount: number }
+    >,
+    chart: Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(now);
+      date.setDate(now.getDate() - (6 - index));
+      return {
+        date: date.toISOString().slice(0, 10),
+        label: `${date.getDate()}/${date.getMonth() + 1}`,
+        total: 0,
+        bills: 0,
+      };
+    }),
+    openShift: null,
+    tanks: [],
+    lowTanks: [],
+    lowProducts: [],
+    recentSales: [],
+  };
+}
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-80 flex-col items-center justify-center gap-4 text-muted-foreground">
-        <div className="relative grid size-14 place-items-center rounded-2xl bg-white shadow-lg ring-1 ring-violet-100">
-          <span className="absolute inset-0 animate-ping rounded-2xl bg-violet-400/15" />
-          <Activity className="relative size-6 animate-pulse text-violet-600" />
-        </div>
-        <span className="text-sm font-medium">กำลังเตรียมศูนย์ควบคุม...</span>
-      </div>
-    );
-  }
+export default function Dashboard() {
+  const {
+    data,
+    isError,
+    error,
+    refetch,
+    isFetching,
+    isPlaceholderData,
+  } = trpc.pos.dashboard.useQuery(undefined, {
+    refetchInterval: 30000,
+    placeholderData: createDashboardPlaceholder,
+  });
 
   if (isError || !data) {
     return (
@@ -109,7 +125,10 @@ export default function Dashboard() {
   }).format(new Date());
 
   return (
-    <div className="space-y-5 lg:space-y-6">
+    <div
+      className="space-y-5 lg:space-y-6"
+      aria-busy={isPlaceholderData || isFetching}
+    >
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
         <div className="aurora-border relative z-0 overflow-hidden rounded-[28px] bg-gradient-to-br from-[#11112c] via-[#1b1950] to-[#12344c] p-5 text-white shadow-[0_28px_70px_rgba(30,24,82,0.28)] sm:p-7 lg:p-8">
           <div className="surface-grid pointer-events-none absolute inset-0 opacity-70" />
@@ -127,13 +146,16 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-8">
-              <p className="text-xs font-medium text-white/50">ยอดขายวันนี้</p>
+              <h1 className="font-heading text-4xl font-extrabold leading-none tracking-[-0.04em] sm:text-5xl lg:text-[3.5rem]">
+                ยอดขายวันนี้
+              </h1>
               <div className="mt-2 flex flex-wrap items-end gap-3">
-                <h1 className="font-heading text-4xl font-extrabold leading-none tracking-[-0.06em] sm:text-5xl lg:text-[3.5rem] number-display">
-                  ฿{fmtMoney(data.todayTotal)}
-                </h1>
+                <div className="font-heading text-3xl font-extrabold leading-none tracking-[-0.04em] number-display">
+                  {isPlaceholderData ? "฿—" : `฿${fmtMoney(data.todayTotal)}`}
+                </div>
                 <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
-                  <TrendingUp className="size-3" /> อัปเดตแบบเรียลไทม์
+                  <TrendingUp className="size-3" />{" "}
+                  {isPlaceholderData ? "กำลังอัปเดตข้อมูล" : "อัปเดตแบบเรียลไทม์"}
                 </div>
               </div>
               <p className="mt-3 max-w-xl text-sm leading-6 text-white/50">
@@ -333,57 +355,7 @@ export default function Dashboard() {
             </div>
           </CardHeader>
           <CardContent className="h-72 px-2 pb-2 sm:px-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.chart} margin={{ left: 0, right: 8 }}>
-                <defs>
-                  <linearGradient id="salesArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7667f7" stopOpacity={0.38} />
-                    <stop offset="65%" stopColor="#7667f7" stopOpacity={0.08} />
-                    <stop offset="100%" stopColor="#7667f7" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  stroke="#e8e7f0"
-                  strokeDasharray="3 7"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: "#8b8aa1" }}
-                />
-                <YAxis
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  width={42}
-                  tick={{ fill: "#8b8aa1" }}
-                  tickFormatter={(value: number) => `${value / 1000}k`}
-                />
-                <Tooltip
-                  cursor={{ stroke: "#8b7cf8", strokeDasharray: "4 4" }}
-                  contentStyle={{
-                    borderRadius: 16,
-                    borderColor: "rgba(221, 217, 250, .9)",
-                    boxShadow: "0 18px 45px rgba(39,32,89,.16)",
-                    background: "rgba(255,255,255,.94)",
-                  }}
-                  formatter={value => [`฿${fmtMoney(Number(value))}`, "ยอดขาย"]}
-                  labelFormatter={label => `วันที่ ${label}`}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="total"
-                  stroke="#6d5df4"
-                  strokeWidth={3}
-                  fill="url(#salesArea)"
-                  activeDot={{ r: 5, fill: "#18c7bf", strokeWidth: 3 }}
-                  animationDuration={900}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <SalesTrendChart data={data.chart} />
           </CardContent>
         </Card>
 

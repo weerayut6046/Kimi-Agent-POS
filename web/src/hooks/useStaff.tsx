@@ -15,6 +15,7 @@ import {
 import {
   clearSupabaseSession,
   getSupabaseBrowserClient,
+  hasPersistedSupabaseSession,
 } from "@/lib/supabase";
 
 export type StaffSession = {
@@ -149,13 +150,17 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const [cachedStaff, setCachedStaff] = useState<StaffSession | null>(
     readCachedStaff,
   );
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState(
+    () => !hasPersistedSupabaseSession() && readCachedStaff() === null,
+  );
   const [hasAuthSession, setHasAuthSession] = useState(
-    () => readCachedStaff() !== null,
+    () => readCachedStaff() !== null || hasPersistedSupabaseSession(),
   );
   const utils = trpc.useUtils();
 
   useEffect(() => {
+    if (authReady && !hasAuthSession) return;
+
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
 
@@ -195,7 +200,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       stopped = true;
       unsubscribe?.();
     };
-  }, [utils]);
+  }, [authReady, hasAuthSession, utils]);
 
   const currentStaff = trpc.auth.currentStaff.useQuery(undefined, {
     enabled: authReady && hasAuthSession,

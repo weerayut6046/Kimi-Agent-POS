@@ -6,15 +6,18 @@ import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
 import { currentSupabaseAccessToken } from "@/lib/supabase";
+import { resolveTrpcUrl } from "@/lib/trpcUrl";
 
 export const trpc = createTRPCReact<AppRouter>();
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "") ?? "";
 const supabaseFunctionRegion =
   import.meta.env.VITE_SUPABASE_FUNCTION_REGION?.trim() || "ap-northeast-1";
-const trpcUrl = !import.meta.env.DEV && supabaseUrl
-  ? `${supabaseUrl}/functions/v1/pos-api`
-  : "/api/trpc";
+const trpcUrl = resolveTrpcUrl({
+  isDesktop: typeof window !== "undefined" && Boolean(window.posDesktop),
+  isDev: import.meta.env.DEV,
+  supabaseUrl,
+});
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,7 +35,8 @@ const queryClient = new QueryClient({
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      // Call Supabase directly instead of taking an extra Vercel proxy hop.
+      // Web production calls Supabase directly. Desktop stays same-origin so
+      // its local offline runtime can proxy/cache requests without CORS.
       url: trpcUrl,
       transformer: superjson,
       maxURLLength: 2_048,

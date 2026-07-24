@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
 import {
   Droplet,
   LogIn,
@@ -26,8 +25,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
-import { getFirstAllowedMenuPath } from "@contracts/menuPermissions";
 import { signInStaffWithPassword } from "@/lib/supabase";
+
+function preloadAuthenticatedApp(): void {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+  if (supabaseUrl && !document.querySelector(`link[href="${supabaseUrl}"]`)) {
+    const connectionHint = document.createElement("link");
+    connectionHint.rel = "preconnect";
+    connectionHint.href = supabaseUrl;
+    connectionHint.crossOrigin = "anonymous";
+    document.head.append(connectionHint);
+  }
+
+  if (!import.meta.env.PROD) return;
+  void Promise.all([
+    import("@/AuthenticatedApp"),
+    import("@/components/Layout"),
+    import("@/pages/Dashboard"),
+  ]);
+}
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -37,7 +53,6 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const { login } = useStaff();
-  const navigate = useNavigate();
   const utils = trpc.useUtils();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
@@ -47,26 +62,18 @@ export default function Login() {
       .then(setAppVersion)
       .catch(() => {});
 
-    // Vite serves every imported source module separately in development, so
-    // eager route loading there creates a large request storm in DevTools.
-    // Production uses bundled chunks and can safely warm the landing screen
-    // while the user is entering credentials.
-    if (import.meta.env.PROD) {
-      void import("@/components/Layout");
-      void import("@/pages/Dashboard");
-    }
   }, []);
 
   const finishLogin = async (activePassword: string) => {
     await signInStaffWithPassword(username, activePassword);
     const staff = await utils.auth.currentStaff.fetch();
     await login(staff);
-    navigate(getFirstAllowedMenuPath(staff.role, staff.menuPermissions) ?? "/");
   };
 
   const submitLogin = async () => {
     setError("");
     setIsSubmitting(true);
+    preloadAuthenticatedApp();
     try {
       await finishLogin(password);
     } catch (loginError) {
@@ -81,7 +88,7 @@ export default function Login() {
   };
 
   return (
-    <div className="grid min-h-screen bg-[#f6f5fb] lg:grid-cols-[minmax(440px,1.04fr)_minmax(520px,0.96fr)]">
+    <main className="grid min-h-screen bg-[#f6f5fb] lg:grid-cols-[minmax(440px,1.04fr)_minmax(520px,0.96fr)]">
       <section className="relative hidden overflow-hidden bg-gradient-to-br from-[#101028] via-[#211b58] to-[#104453] p-10 text-white lg:flex lg:flex-col xl:p-14">
         <div className="surface-grid pointer-events-none absolute inset-0 opacity-75" />
         <div className="ambient-float pointer-events-none absolute -right-24 top-16 size-96 rounded-full bg-violet-500/30 blur-3xl" />
@@ -299,6 +306,6 @@ export default function Login() {
           </CardContent>
         </Card>
       </section>
-    </div>
+    </main>
   );
 }

@@ -2,6 +2,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { AnyRouter } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
+import {
+  createAllowedOrigins,
+  createCorsResponseHeaders,
+} from "./cors.ts";
 
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -22,38 +26,12 @@ function loadApiRuntime(): Promise<ApiRuntime> {
   apiRuntime ??= import("./app.bundle.ts") as Promise<ApiRuntime>;
   return apiRuntime;
 }
-const allowedOrigins = new Set(
-  required("ALLOWED_ORIGINS")
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean)
-);
+const allowedOrigins = createAllowedOrigins(required("ALLOWED_ORIGINS"));
 
 function required(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
-}
-
-function responseHeaders(origin: string | null): Headers {
-  const headers = new Headers({
-    "cache-control": "no-store, private",
-    pragma: "no-cache",
-    "referrer-policy": "no-referrer",
-    "x-content-type-options": "nosniff",
-    "x-pumppos-runtime": "supabase-edge",
-  });
-  if (origin && allowedOrigins.has(origin)) {
-    headers.set("access-control-allow-origin", origin);
-    headers.set(
-      "access-control-allow-headers",
-      "authorization,content-type,apikey,trpc-accept,x-branch-id,x-region"
-    );
-    headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
-    headers.set("access-control-max-age", "600");
-    headers.set("vary", "Origin");
-  }
-  return headers;
 }
 
 async function requestFingerprint(request: Request): Promise<string> {
@@ -102,7 +80,7 @@ function consumeRequestLimit(key: string, now = Date.now()): number | null {
 
 Deno.serve(async request => {
   const origin = request.headers.get("origin");
-  const headers = responseHeaders(origin);
+  const headers = createCorsResponseHeaders(origin, allowedOrigins);
   if (origin && !allowedOrigins.has(origin)) {
     return Response.json(
       { error: { message: "Origin is not allowed" } },

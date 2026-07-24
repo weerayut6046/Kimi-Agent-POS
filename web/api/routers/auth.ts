@@ -49,11 +49,11 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const menuPermissionsInput = z.array(z.enum(MENU_PERMISSION_KEYS)).min(1);
 const staffPasswordInput = z
   .string()
-  .min(10)
-  .max(128)
+  .min(10, "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร")
+  .max(128, "รหัสผ่านต้องไม่เกิน 128 ตัวอักษร")
   .refine(
     value => /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value),
-    "Password must include uppercase, lowercase, and a number",
+    "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข",
   );
 
 function effectiveMenuPermissions(

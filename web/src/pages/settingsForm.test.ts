@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createInitialSettingsForm,
   createProductUpdatePatch,
+  staffMutationErrorMessage,
+  staffPasswordValidationMessage,
   type EditableProductValues,
 } from "./settingsForm";
 
@@ -63,5 +65,43 @@ describe("createProductUpdatePatch", () => {
     expect(createProductUpdatePatch({ ...product }, product)).toEqual({
       id: 95,
     });
+  });
+});
+
+describe("staff password validation", () => {
+  it("rejects short passwords before sending the mutation", () => {
+    expect(staffPasswordValidationMessage("Short1")).toBe(
+      "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร"
+    );
+  });
+
+  it("requires lowercase, uppercase, and a number", () => {
+    expect(staffPasswordValidationMessage("alllowercase1")).toBe(
+      "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข"
+    );
+    expect(staffPasswordValidationMessage("ValidPass1")).toBeNull();
+  });
+
+  it("turns the raw Zod issue shown in Settings into a Thai message", () => {
+    const rawIssue = JSON.stringify([
+      {
+        origin: "string",
+        code: "too_small",
+        minimum: 10,
+        inclusive: true,
+        path: ["password"],
+        message: "Too small: expected string to have >=10 characters",
+      },
+    ]);
+
+    expect(staffMutationErrorMessage(new Error(rawIssue))).toBe(
+      "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร"
+    );
+  });
+
+  it("preserves ordinary server errors", () => {
+    expect(staffMutationErrorMessage(new Error("ชื่อผู้ใช้นี้ถูกใช้แล้ว"))).toBe(
+      "ชื่อผู้ใช้นี้ถูกใช้แล้ว"
+    );
   });
 });

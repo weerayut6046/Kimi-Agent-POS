@@ -10,8 +10,18 @@ export type SupabaseRealtimeSession = {
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+const SUPABASE_AUTH_STORAGE_KEY = "pumppos_supabase_auth";
 
 let browserClient: Promise<SupabaseClient | null> | undefined;
+
+export function hasPersistedSupabaseSession(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return Boolean(window.localStorage.getItem(SUPABASE_AUTH_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
 
 export function getSupabaseBrowserClient(): Promise<SupabaseClient | null> {
   if (browserClient !== undefined) return browserClient;
@@ -26,7 +36,7 @@ export function getSupabaseBrowserClient(): Promise<SupabaseClient | null> {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        storageKey: "pumppos_supabase_auth",
+        storageKey: SUPABASE_AUTH_STORAGE_KEY,
       },
     });
   });
