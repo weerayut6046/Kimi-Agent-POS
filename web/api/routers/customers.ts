@@ -4,7 +4,13 @@ import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { outstandingOf } from "../lib/debt";
+import {
+  lookupRevenueDepartmentTaxpayer,
+  RevenueDepartmentUnavailableError,
+  TaxpayerNotFoundError,
+} from "../lib/revenueDepartment";
 import { customers } from "@db/schema";
+import { TRPCError } from "@trpc/server";
 
 const customerInput = z.object({
   name: z.string().min(1, "กรุณาระบุชื่อลูกค้า"),
@@ -19,7 +25,11 @@ const customerInput = z.object({
 export const customersRouter = createRouter({
   // ค้นหา/แสดงรายการลูกค้า (ทุกสิทธิ์ใช้ได้ — ใช้ตอนออกใบกำกับภาษี)
   list: publicQuery
-    .input(z.object({ q: z.string().optional(), limit: z.number().default(100) }).optional())
+    .input(
+      z
+        .object({ q: z.string().optional(), limit: z.number().default(100) })
+        .optional()
+    )
     .query(async ({ input }) => {
       const q = input?.q?.trim();
       const pattern = q ? `%${q}%` : null;
@@ -32,42 +42,88 @@ export const customersRouter = createRouter({
                 like(customers.name, pattern),
                 like(customers.taxId, pattern),
                 like(customers.phone, pattern),
-                like(customers.vehiclePlate, pattern),
+                like(customers.vehiclePlate, pattern)
               )
-            : undefined,
+            : undefined
         )
         .orderBy(desc(customers.createdAt))
         .limit(input?.limit ?? 100);
     }),
 
+  lookupTaxpayer: publicQuery
+    .input(
+      z.object({
+        taxId: z.string().regex(/^\d{13}$/),
+        branchNumber: z.number().int().min(0).max(99999).default(0),
+      })
+    )
+    .query(async ({ input }) => {
+      try {
+        return await lookupRevenueDepartmentTaxpayer(input);
+      } catch (error) {
+        if (error instanceof TaxpayerNotFoundError) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              input.branchNumber > 0
+                ? "ไม่พบสาขานี้ในทะเบียน VAT กรมสรรพากร"
+                : "ไม่พบข้อมูลในทะเบียน VAT กรมสรรพากร กรุณากรอกชื่อและที่อยู่ด้วยตนเอง",
+          });
+        }
+        if (error instanceof RevenueDepartmentUnavailableError) {
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message:
+              "ระบบกรมสรรพากรไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่หรือกรอกข้อมูลด้วยตนเอง",
+          });
+        }
+        throw error;
+      }
+    }),
+
   create: managerQuery.input(customerInput).mutation(async ({ input }) => {
     const db = getDb();
     if (input.taxId) {
-      const dup = await db.query.customers.findFirst({ where: eq(customers.taxId, input.taxId) });
-      if (dup) throw new Error(`มีลูกค้าที่ใช้เลขผู้เสียภาษีนี้แล้ว (${dup.name})`);
+      const dup = await db.query.customers.findFirst({
+        where: eq(customers.taxId, input.taxId),
+      });
+      if (dup)
+        throw new Error(`มีลูกค้าที่ใช้เลขผู้เสียภาษีนี้แล้ว (${dup.name})`);
     }
-    const [{ id }] = await db.insert(customers).values(input).returning({ id: customers.id });
+    const [{ id }] = await db
+      .insert(customers)
+      .values(input)
+      .returning({ id: customers.id });
     return db.query.customers.findFirst({ where: eq(customers.id, id) });
   }),
 
-  update: managerQuery.input(customerInput.partial().extend({ id: z.number() })).mutation(async ({ input }) => {
-    const { id, ...patch } = input;
-    const db = getDb();
-    const existing = await db.query.customers.findFirst({ where: eq(customers.id, id) });
-    if (!existing) throw new Error("ไม่พบลูกค้า");
-    if (patch.taxId && patch.taxId !== existing.taxId) {
-      const dup = await db.query.customers.findFirst({ where: eq(customers.taxId, patch.taxId) });
-      if (dup && dup.id !== id) throw new Error(`มีลูกค้าที่ใช้เลขผู้เสียภาษีนี้แล้ว (${dup.name})`);
-    }
-    await db.update(customers).set(patch).where(eq(customers.id, id));
-    return db.query.customers.findFirst({ where: eq(customers.id, id) });
-  }),
+  update: managerQuery
+    .input(customerInput.partial().extend({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const { id, ...patch } = input;
+      const db = getDb();
+      const existing = await db.query.customers.findFirst({
+        where: eq(customers.id, id),
+      });
+      if (!existing) throw new Error("ไม่พบลูกค้า");
+      if (patch.taxId && patch.taxId !== existing.taxId) {
+        const dup = await db.query.customers.findFirst({
+          where: eq(customers.taxId, patch.taxId),
+        });
+        if (dup && dup.id !== id)
+          throw new Error(`มีลูกค้าที่ใช้เลขผู้เสียภาษีนี้แล้ว (${dup.name})`);
+      }
+      await db.update(customers).set(patch).where(eq(customers.id, id));
+      return db.query.customers.findFirst({ where: eq(customers.id, id) });
+    }),
 
-  remove: managerQuery.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    const db = getDb();
-    const outstanding = await outstandingOf(db, input.id);
-    if (outstanding > 0) throw new Error("ลบไม่ได้ ลูกค้ามียอดค้างชำระ");
-    await db.delete(customers).where(eq(customers.id, input.id));
-    return { ok: true };
-  }),
+  remove: managerQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const outstanding = await outstandingOf(db, input.id);
+      if (outstanding > 0) throw new Error("ลบไม่ได้ ลูกค้ามียอดค้างชำระ");
+      await db.delete(customers).where(eq(customers.id, input.id));
+      return { ok: true };
+    }),
 });

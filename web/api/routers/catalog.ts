@@ -12,6 +12,7 @@ import {
   nozzles,
   fuelTanks,
   tankRefills,
+  tankReadings,
   priceChanges,
   settings,
   shifts,
@@ -90,7 +91,7 @@ export const catalogRouter = createRouter({
       const before = await db.query.products.findFirst({
         where: and(
           eq(products.id, id),
-          eq(products.branchId, ctx.staff.branchId),
+          eq(products.branchId, ctx.staff.branchId)
         ),
       });
       if (!before) throw new Error("ไม่พบสินค้า");
@@ -100,10 +101,7 @@ export const catalogRouter = createRouter({
         .update(products)
         .set(patch)
         .where(
-          and(
-            eq(products.id, id),
-            eq(products.branchId, ctx.staff.branchId),
-          ),
+          and(eq(products.id, id), eq(products.branchId, ctx.staff.branchId))
         );
       // บันทึกประวัติ + audit เฉพาะตอนราคาเปลี่ยนจริง
       if (priceChanged) {
@@ -137,8 +135,8 @@ export const catalogRouter = createRouter({
         .where(
           and(
             eq(products.id, input.id),
-            eq(products.branchId, ctx.staff.branchId),
-          ),
+            eq(products.branchId, ctx.staff.branchId)
+          )
         );
       return { ok: true };
     }),
@@ -153,8 +151,8 @@ export const catalogRouter = createRouter({
         .where(
           and(
             eq(priceChanges.productId, input.productId),
-            eq(priceChanges.branchId, ctx.staff.branchId),
-          ),
+            eq(priceChanges.branchId, ctx.staff.branchId)
+          )
         )
         .orderBy(desc(priceChanges.createdAt), desc(priceChanges.id))
         .limit(50);
@@ -173,7 +171,7 @@ export const catalogRouter = createRouter({
       const p = await db.query.products.findFirst({
         where: and(
           eq(products.id, input.productId),
-          eq(products.branchId, ctx.staff.branchId),
+          eq(products.branchId, ctx.staff.branchId)
         ),
       });
       if (!p) throw new Error("ไม่พบสินค้า");
@@ -185,8 +183,8 @@ export const catalogRouter = createRouter({
         .where(
           and(
             eq(products.id, input.productId),
-            eq(products.branchId, ctx.staff.branchId),
-          ),
+            eq(products.branchId, ctx.staff.branchId)
+          )
         );
       return { ok: true, stockQty: next };
     }),
@@ -240,7 +238,7 @@ export const catalogRouter = createRouter({
       const product = await db.query.products.findFirst({
         where: and(
           eq(products.id, nextProductId),
-          eq(products.branchId, branchId),
+          eq(products.branchId, branchId)
         ),
       });
       if (!product || product.category !== "fuel") {
@@ -252,7 +250,7 @@ export const catalogRouter = createRouter({
       const tank = await db.query.fuelTanks.findFirst({
         where: and(
           eq(fuelTanks.id, nextTankId),
-          eq(fuelTanks.branchId, branchId),
+          eq(fuelTanks.branchId, branchId)
         ),
       });
       if (!tank) throw new Error("ไม่พบถังน้ำมันที่เลือก");
@@ -264,10 +262,7 @@ export const catalogRouter = createRouter({
         nextProductId !== nozzle.productId || nextTankId !== nozzle.tankId;
       if (mappingChanged) {
         const openShift = await db.query.shifts.findFirst({
-          where: and(
-            eq(shifts.status, "open"),
-            eq(shifts.branchId, branchId),
-          ),
+          where: and(eq(shifts.status, "open"), eq(shifts.branchId, branchId)),
         });
         if (openShift) {
           throw new Error("กรุณาปิดกะก่อนเปลี่ยนสินค้า/ถังน้ำมันของหัวจ่าย");
@@ -287,9 +282,7 @@ export const catalogRouter = createRouter({
         await db
           .update(nozzles)
           .set(patch)
-          .where(
-            and(eq(nozzles.id, input.id), eq(nozzles.branchId, branchId)),
-          );
+          .where(and(eq(nozzles.id, input.id), eq(nozzles.branchId, branchId)));
       }
       return { ok: true };
     }),
@@ -307,7 +300,7 @@ export const catalogRouter = createRouter({
       db.query.settings.findFirst({
         where: and(
           eq(settings.branchId, branchId),
-          eq(settings.key, TANK_DISPLAY_ORDER_KEY),
+          eq(settings.key, TANK_DISPLAY_ORDER_KEY)
         ),
       }),
     ]);
@@ -443,7 +436,7 @@ export const catalogRouter = createRouter({
       const product = await db.query.products.findFirst({
         where: and(
           eq(products.id, input.productId),
-          eq(products.branchId, ctx.staff.branchId),
+          eq(products.branchId, ctx.staff.branchId)
         ),
       });
       if (!product || product.category !== "fuel") {
@@ -465,14 +458,14 @@ export const catalogRouter = createRouter({
       const tank = await db.query.fuelTanks.findFirst({
         where: and(
           eq(fuelTanks.id, input.id),
-          eq(fuelTanks.branchId, branchId),
+          eq(fuelTanks.branchId, branchId)
         ),
       });
       if (!tank) throw new Error("ไม่พบถัง");
       const linkedNozzle = await db.query.nozzles.findFirst({
         where: and(
           eq(nozzles.tankId, input.id),
-          eq(nozzles.branchId, branchId),
+          eq(nozzles.branchId, branchId)
         ),
       });
       if (linkedNozzle) {
@@ -487,16 +480,13 @@ export const catalogRouter = createRouter({
           .where(
             and(
               eq(tankRefills.tankId, input.id),
-              eq(tankRefills.branchId, branchId),
-            ),
+              eq(tankRefills.branchId, branchId)
+            )
           );
         await tx
           .delete(fuelTanks)
           .where(
-            and(
-              eq(fuelTanks.id, input.id),
-              eq(fuelTanks.branchId, branchId),
-            ),
+            and(eq(fuelTanks.id, input.id), eq(fuelTanks.branchId, branchId))
           );
       });
       return { ok: true };
@@ -526,17 +516,14 @@ export const catalogRouter = createRouter({
         const product = await db.query.products.findFirst({
           where: and(
             eq(products.id, patch.productId),
-            eq(products.branchId, branchId),
+            eq(products.branchId, branchId)
           ),
         });
         if (!product || product.category !== "fuel") {
           throw new Error("ถังต้องผูกกับสินค้าประเภทน้ำมันเท่านั้น");
         }
         const linkedNozzle = await db.query.nozzles.findFirst({
-          where: and(
-            eq(nozzles.tankId, id),
-            eq(nozzles.branchId, branchId),
-          ),
+          where: and(eq(nozzles.tankId, id), eq(nozzles.branchId, branchId)),
         });
         if (linkedNozzle) {
           throw new Error(
@@ -550,9 +537,7 @@ export const catalogRouter = createRouter({
       await db
         .update(fuelTanks)
         .set(patch)
-        .where(
-          and(eq(fuelTanks.id, id), eq(fuelTanks.branchId, branchId)),
-        );
+        .where(and(eq(fuelTanks.id, id), eq(fuelTanks.branchId, branchId)));
       return { ok: true };
     }),
 
@@ -571,24 +556,22 @@ export const catalogRouter = createRouter({
       const tank = await db.query.fuelTanks.findFirst({
         where: and(
           eq(fuelTanks.id, input.tankId),
-          eq(fuelTanks.branchId, branchId),
+          eq(fuelTanks.branchId, branchId)
         ),
       });
       if (!tank) throw new Error("ไม่พบถัง");
       const next = tank.currentLiters + input.liters;
       if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
       await db.transaction(async tx => {
-        await tx
-          .insert(tankRefills)
-          .values({ ...input, branchId });
+        await tx.insert(tankRefills).values({ ...input, branchId });
         await tx
           .update(fuelTanks)
           .set({ currentLiters: next })
           .where(
             and(
               eq(fuelTanks.id, input.tankId),
-              eq(fuelTanks.branchId, branchId),
-            ),
+              eq(fuelTanks.branchId, branchId)
+            )
           );
       });
       return { ok: true, currentLiters: next };
@@ -614,6 +597,117 @@ export const catalogRouter = createRouter({
     }));
   }),
 
+  // ---------- ค่าวัดระดับถังจริง (กระทบยอด) ----------
+  addTankReading: publicQuery
+    .input(
+      z.object({
+        tankId: z.number(),
+        liters: z.number().nonnegative(),
+        note: z.string().optional(),
+        adjustStock: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const tank = await db.query.fuelTanks.findFirst({
+        where: and(
+          eq(fuelTanks.id, input.tankId),
+          eq(fuelTanks.branchId, branchId)
+        ),
+      });
+      if (!tank) throw new Error("ไม่พบถัง");
+      if (input.adjustStock && input.liters > tank.capacityLiters)
+        throw new Error("ค่าที่วัดเกินความจุถัง");
+      const actor = actorFromReq(ctx.req);
+      await db.transaction(async tx => {
+        await tx.insert(tankReadings).values({
+          branchId,
+          tankId: input.tankId,
+          liters: input.liters,
+          staffId: actor.actorId,
+          staffName: actor.actorName,
+          note: input.note,
+        });
+        if (input.adjustStock) {
+          await tx
+            .update(fuelTanks)
+            .set({ currentLiters: input.liters })
+            .where(
+              and(
+                eq(fuelTanks.id, input.tankId),
+                eq(fuelTanks.branchId, branchId)
+              )
+            );
+        }
+      });
+      logAudit({
+        action: "tank.reading",
+        ...actor,
+        detail:
+          `วัดระดับ ${tank.name}: ${input.liters.toLocaleString("th-TH")} ลิตร` +
+          (input.adjustStock
+            ? ` (ปรับยอดสต็อกจาก ${tank.currentLiters.toLocaleString("th-TH")} → ${input.liters.toLocaleString("th-TH")} ลิตร)`
+            : ""),
+        refType: "fuel_tank",
+        refId: tank.id,
+      });
+      return {
+        ok: true,
+        currentLiters: input.adjustStock ? input.liters : tank.currentLiters,
+      };
+    }),
+
+  listTankReadings: publicQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    const branchId = ctx.staff.branchId;
+    const [rows, tankRows] = await Promise.all([
+      db
+        .select()
+        .from(tankReadings)
+        .where(eq(tankReadings.branchId, branchId))
+        .orderBy(desc(tankReadings.measuredAt))
+        .limit(30),
+      db.query.fuelTanks.findMany({
+        where: eq(fuelTanks.branchId, branchId),
+      }),
+    ]);
+    return rows.map(r => ({
+      ...r,
+      tank: tankRows.find(t => t.id === r.tankId) ?? null,
+    }));
+  }),
+
+  deleteTankReading: adminQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const reading = await db.query.tankReadings.findFirst({
+        where: and(
+          eq(tankReadings.id, input.id),
+          eq(tankReadings.branchId, branchId)
+        ),
+      });
+      if (!reading) throw new Error("ไม่พบรายการวัด");
+      await db
+        .delete(tankReadings)
+        .where(
+          and(
+            eq(tankReadings.id, input.id),
+            eq(tankReadings.branchId, branchId)
+          )
+        );
+      logAudit({
+        action: "tank.reading.delete",
+        ...actorFromReq(ctx.req),
+        detail: `ลบค่าวัดถัง #${reading.id}: ${reading.liters.toLocaleString("th-TH")} ลิตร เมื่อ ${reading.measuredAt.toISOString()}`,
+        refType: "tank_reading",
+        refId: reading.id,
+      });
+      return { ok: true };
+    }),
+
   // ---------- ตั้งค่า ----------
   getSettings: publicQuery.query(async ({ ctx }) => {
     // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
@@ -623,8 +717,8 @@ export const catalogRouter = createRouter({
       .where(
         and(
           eq(settings.branchId, ctx.staff.branchId),
-          ne(settings.key, "shop_logo"),
-        ),
+          ne(settings.key, "shop_logo")
+        )
       );
     return mergeSettingDefaults(rows.map(r => [r.key, r.value] as const));
   }),
@@ -633,7 +727,7 @@ export const catalogRouter = createRouter({
     const row = await getDb().query.settings.findFirst({
       where: and(
         eq(settings.branchId, ctx.staff.branchId),
-        eq(settings.key, "shop_logo"),
+        eq(settings.key, "shop_logo")
       ),
     });
     return row?.value || null;
@@ -653,9 +747,7 @@ export const catalogRouter = createRouter({
       const [row] = await db
         .select()
         .from(settings)
-        .where(
-          and(eq(settings.branchId, 1), eq(settings.key, "lan_enabled")),
-        );
+        .where(and(eq(settings.branchId, 1), eq(settings.key, "lan_enabled")));
       enabled = row?.value === "1";
     } catch {
       // ตาราง settings ยังไม่พร้อม — ถือว่าปิด
@@ -709,8 +801,8 @@ export const catalogRouter = createRouter({
         .where(
           and(
             eq(settings.branchId, ctx.staff.branchId),
-            ne(settings.key, "shop_logo"),
-          ),
+            ne(settings.key, "shop_logo")
+          )
         );
       return {
         ok: true,

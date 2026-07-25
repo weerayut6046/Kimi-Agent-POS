@@ -60,6 +60,7 @@ import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const DIFF_TOLERANCE = 1; // บาท
+const METER_SMALL_DIFF_TOLERANCE = 2; // บาท — รองรับการปัดเศษสะสมของมิเตอร์ P
 
 type HistoryStatusFilter = "all" | "open" | "closed";
 
@@ -615,6 +616,33 @@ function MeterDiffBadge({
     return (
       <Badge className="bg-amber-500 hover:bg-amber-500 gap-1 text-white">
         <AlertTriangle className="w-3 h-3" /> เปลี่ยนราคาในกะ
+      </Badge>
+    );
+  }
+  if (
+    diff != null &&
+    Math.abs(diff) > DIFF_TOLERANCE &&
+    Math.abs(diff) <= METER_SMALL_DIFF_TOLERANCE
+  ) {
+    return (
+      <Badge
+        className="gap-1 border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-50"
+        title="ผลต่างไม่เกิน 2 บาท อาจเกิดจากการปัดเศษสะสมของมิเตอร์ P"
+      >
+        <AlertTriangle className="w-3 h-3" /> คลาดเล็กน้อย {diff > 0 ? "+" : ""}
+        {fmtMoney(diff)}
+      </Badge>
+    );
+  }
+  if (diff != null && Math.abs(diff) > METER_SMALL_DIFF_TOLERANCE) {
+    return (
+      <Badge
+        variant="destructive"
+        className="gap-1"
+        title="ส่วนต่างเกิน 2 บาท กรุณาตรวจเลขมิเตอร์ P/L และราคาหน้าตู้"
+      >
+        <AlertTriangle className="w-3 h-3" /> ต่าง {diff > 0 ? "+" : ""}
+        {fmtMoney(diff)}
       </Badge>
     );
   }

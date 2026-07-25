@@ -4,8 +4,10 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
+  isNotNull,
   lt,
   or,
   sql,
@@ -20,11 +22,14 @@ import { queryExpenses } from "./expenses";
 import {
   debtPayments,
   fuelTanks,
+  nozzles,
   priceChanges,
   products,
   saleItems,
   sales,
+  shiftReadings,
   shifts,
+  tankReadings,
   tankRefills,
 } from "@db/schema";
 import {
@@ -868,6 +873,277 @@ export async function queryDailyReport(
   };
 }
 
+// ---------- กระทบยอดถัง ----------
+type ReconStatus = "ok" | "warn" | "critical";
+
+type TankReconRow = {
+  id: number;
+  measuredAt: Date;
+  staffName: string;
+  liters: number;
+  note: string | null;
+  isBaseline: boolean;
+  refillsLiters: number | null;
+  meteredLiters: number | null;
+  expectedLiters: number | null;
+  varianceLiters: number | null;
+  variancePct: number | null;
+  status: ReconStatus | null;
+};
+
+/**
+ * เกณฑ์ผลต่าง: |ผลต่าง| ≤ 0.5% ของลิตรที่จ่าย = ปกติ, ≤ 1% = เฝ้าระวัง, มากกว่านั้น = ผิดปกติ
+ * ช่วงที่ไม่มียอดจ่ายตามมิเตอร์ใช้เกณฑ์ลิตรตรง (≤1 ปกติ, ≤5 เฝ้าระวัง)
+ */
+function reconStatus(
+  varianceLiters: number,
+  meteredLiters: number
+): ReconStatus {
+  const abs = Math.abs(varianceLiters);
+  if (meteredLiters > 0) {
+    const pct = (abs / meteredLiters) * 100;
+    if (pct <= 0.5) return "ok";
+    if (pct <= 1) return "warn";
+    return "critical";
+  }
+  if (abs <= 1) return "ok";
+  if (abs <= 5) return "warn";
+  return "critical";
+}
+
+function reconVariancePct(varianceLiters: number, meteredLiters: number) {
+  return meteredLiters > 0 ? r3((varianceLiters / meteredLiters) * 100) : null;
+}
+
+/**
+ * เทียบค่าวัดถังจริงเป็นคู่ติดกัน: expected = ค่าวัดก่อน + รับเข้า − ลิตรตามมิเตอร์
+ * ของกะที่ปิดแล้วระหว่างช่วง, variance = ค่าวัดปัจจุบัน − expected (ลบ = หาย/รั่ว)
+ */
+async function queryTankReconciliation(
+  db: ReturnType<typeof getDb>,
+  input: { from: string; to: string; tankId?: number },
+  branchId: number
+) {
+  const [fy, fm, fd] = input.from.split("-").map(Number);
+  const [ty, tm, td] = input.to.split("-").map(Number);
+  const start = bangkokBoundary(fy!, fm! - 1, fd);
+  const end = bangkokBoundary(ty!, tm! - 1, td! + 1);
+  if (end <= start) throw new Error("วันที่สิ้นสุดต้องไม่ก่อนวันเริ่มต้น");
+  const nDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+  if (nDays > 92)
+    throw new Error("ช่วงเวลารายงานยาวเกินไป (สูงสุด 92 วันต่อครั้ง)");
+
+  const tankConds = [eq(fuelTanks.branchId, branchId)];
+  if (input.tankId) tankConds.push(eq(fuelTanks.id, input.tankId));
+  const tankRows = await db
+    .select({
+      id: fuelTanks.id,
+      name: fuelTanks.name,
+      capacityLiters: fuelTanks.capacityLiters,
+      currentLiters: fuelTanks.currentLiters,
+      productName: products.name,
+    })
+    .from(fuelTanks)
+    .innerJoin(products, eq(fuelTanks.productId, products.id))
+    .where(and(...tankConds))
+    .orderBy(asc(fuelTanks.id));
+  if (tankRows.length === 0)
+    return { from: input.from, to: input.to, tanks: [] };
+  const tankIds = tankRows.map(t => t.id);
+
+  // ค่าวัดทั้งหมดก่อนสิ้นสุดช่วง — ตัวล่าสุดก่อน from ใช้เป็น baseline ของแถวแรก
+  const readingRows = await db
+    .select()
+    .from(tankReadings)
+    .where(
+      and(
+        eq(tankReadings.branchId, branchId),
+        inArray(tankReadings.tankId, tankIds),
+        lt(tankReadings.measuredAt, end)
+      )
+    )
+    .orderBy(asc(tankReadings.measuredAt), asc(tankReadings.id));
+
+  const readingsByTank = new Map<number, typeof readingRows>();
+  for (const row of readingRows) {
+    const list = readingsByTank.get(row.tankId) ?? [];
+    list.push(row);
+    readingsByTank.set(row.tankId, list);
+  }
+
+  // ขอบล่างของข้อมูลเคลื่อนไหว = ค่าวัด baseline ที่เก่าสุด
+  let movementStart = start;
+  for (const list of readingsByTank.values()) {
+    const before = list.filter(r => r.measuredAt < start);
+    const baseline = before.length > 0 ? before[before.length - 1]! : null;
+    if (baseline && baseline.measuredAt < movementStart)
+      movementStart = baseline.measuredAt;
+  }
+
+  const [refillRows, meterRows] = await Promise.all([
+    db
+      .select({
+        tankId: tankRefills.tankId,
+        at: tankRefills.createdAt,
+        liters: tankRefills.liters,
+      })
+      .from(tankRefills)
+      .where(
+        and(
+          eq(tankRefills.branchId, branchId),
+          inArray(tankRefills.tankId, tankIds),
+          gt(tankRefills.createdAt, movementStart)
+        )
+      ),
+    // ลิตรตามมิเตอร์รายกะ (นับเฉพาะกะที่ปิดแล้ว) แยกตามถังจาก mapping หัวจ่ายปัจจุบัน
+    db
+      .select({
+        tankId: nozzles.tankId,
+        at: shifts.closedAt,
+        liters: sql<number>`coalesce(sum(${shiftReadings.closeMeter} - ${shiftReadings.openMeter}), 0)`,
+      })
+      .from(shiftReadings)
+      .innerJoin(
+        shifts,
+        and(eq(shiftReadings.shiftId, shifts.id), eq(shifts.branchId, branchId))
+      )
+      .innerJoin(
+        nozzles,
+        and(
+          eq(shiftReadings.nozzleId, nozzles.id),
+          eq(nozzles.branchId, branchId)
+        )
+      )
+      .where(
+        and(
+          eq(shiftReadings.branchId, branchId),
+          eq(shifts.status, "closed"),
+          isNotNull(shiftReadings.closeMeter),
+          gt(shifts.closedAt, movementStart),
+          inArray(nozzles.tankId, tankIds)
+        )
+      )
+      .groupBy(nozzles.tankId, shifts.id, shifts.closedAt),
+  ]);
+
+  const refillsBetween = (tankId: number, after: Date, upTo: Date) =>
+    r3(
+      refillRows
+        .filter(r => r.tankId === tankId && r.at > after && r.at <= upTo)
+        .reduce((sum, r) => sum + Number(r.liters), 0)
+    );
+  const meteredBetween = (tankId: number, after: Date, upTo: Date) =>
+    r3(
+      meterRows
+        .filter(
+          r => r.tankId === tankId && r.at && r.at > after && r.at <= upTo
+        )
+        .reduce((sum, r) => sum + Number(r.liters), 0)
+    );
+
+  const now = new Date();
+  const tanks = tankRows.map(tank => {
+    const all = readingsByTank.get(tank.id) ?? [];
+    const inRange = all.filter(r => r.measuredAt >= start);
+
+    const rows: TankReconRow[] = [];
+    // ไม่มีค่าวัดก่อนช่วง → แถวแรกในช่วงเป็น baseline ที่ยังคำนวณผลต่างไม่ได้
+    let prev = all.filter(r => r.measuredAt < start).at(-1) ?? null;
+    for (const r of inRange) {
+      if (!prev) {
+        rows.push({
+          id: r.id,
+          measuredAt: r.measuredAt,
+          staffName: r.staffName,
+          liters: r.liters,
+          note: r.note,
+          isBaseline: true,
+          refillsLiters: null,
+          meteredLiters: null,
+          expectedLiters: null,
+          varianceLiters: null,
+          variancePct: null,
+          status: null,
+        });
+        prev = r;
+        continue;
+      }
+      const refillsLiters = refillsBetween(
+        tank.id,
+        prev.measuredAt,
+        r.measuredAt
+      );
+      const meteredLiters = meteredBetween(
+        tank.id,
+        prev.measuredAt,
+        r.measuredAt
+      );
+      const expectedLiters = r3(prev.liters + refillsLiters - meteredLiters);
+      const varianceLiters = r3(r.liters - expectedLiters);
+      rows.push({
+        id: r.id,
+        measuredAt: r.measuredAt,
+        staffName: r.staffName,
+        liters: r.liters,
+        note: r.note,
+        isBaseline: false,
+        refillsLiters,
+        meteredLiters,
+        expectedLiters,
+        varianceLiters,
+        variancePct: reconVariancePct(varianceLiters, meteredLiters),
+        status: reconStatus(varianceLiters, meteredLiters),
+      });
+      prev = r;
+    }
+
+    const counted = rows.filter(r => !r.isBaseline);
+    const totalRefills = r3(
+      counted.reduce((sum, r) => sum + (r.refillsLiters ?? 0), 0)
+    );
+    const totalMetered = r3(
+      counted.reduce((sum, r) => sum + (r.meteredLiters ?? 0), 0)
+    );
+    const totalVariance = r3(
+      counted.reduce((sum, r) => sum + (r.varianceLiters ?? 0), 0)
+    );
+
+    // ส่วนต่างสะสมของยอดคำนวณเทียบค่าวัดล่าสุด (ชดเชยการเคลื่อนไหวหลังวัดแล้ว)
+    const latest = all.length > 0 ? all[all.length - 1]! : null;
+    const driftAtLatest = latest
+      ? r3(
+          tank.currentLiters -
+            (latest.liters +
+              refillsBetween(tank.id, latest.measuredAt, now) -
+              meteredBetween(tank.id, latest.measuredAt, now))
+        )
+      : null;
+
+    return {
+      tank,
+      latestReading: latest
+        ? {
+            liters: latest.liters,
+            measuredAt: latest.measuredAt,
+            staffName: latest.staffName,
+          }
+        : null,
+      driftAtLatest,
+      rows,
+      totals: {
+        refillsLiters: totalRefills,
+        meteredLiters: totalMetered,
+        varianceLiters: totalVariance,
+        variancePct: reconVariancePct(totalVariance, totalMetered),
+        status:
+          counted.length > 0 ? reconStatus(totalVariance, totalMetered) : null,
+      },
+    };
+  });
+
+  return { from: input.from, to: input.to, tanks };
+}
+
 export const reportsRouter = createRouter({
   // Z-report หน้าเว็บ — strip bills + fuelProfit (ข้อมูลต้นทุน) ออก เหลือเฉพาะยอดขาย
   daily: publicQuery
@@ -894,6 +1170,19 @@ export const reportsRouter = createRouter({
     .input(fuelStockInputSchema)
     .query(({ input, ctx }) =>
       queryFuelStockSummary(getDb(), input, ctx.staff.branchId)
+    ),
+
+  // กระทบยอดถัง: เทียบค่าวัดจริงกับยอดคำนวณจากมิเตอร์และการรับเข้า
+  tankReconciliation: managerQuery
+    .input(
+      z.object({
+        from: dateSchema,
+        to: dateSchema,
+        tankId: z.number().int().positive().optional(),
+      })
+    )
+    .query(({ input, ctx }) =>
+      queryTankReconciliation(getDb(), input, ctx.staff.branchId)
     ),
 
   exportFuelStockExcel: managerQuery

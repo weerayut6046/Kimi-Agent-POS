@@ -36,6 +36,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { CreditAccountRequestDoc } from "@/components/CreditAccountRequestDoc";
+import { TaxpayerLookupButton } from "@/components/TaxpayerLookupButton";
 import { ScaledFit } from "@/components/TaxInvoiceDialog";
 import { printA4FormElement } from "@/lib/printDoc";
 import type { Customer } from "@db/schema";
@@ -332,7 +333,7 @@ export default function Customers() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="customer-tax-id">
                           เลขประจำตัวผู้เสียภาษี
@@ -345,7 +346,31 @@ export default function Customers() {
                           placeholder="เลข 13 หลัก"
                           value={edit.taxId}
                           onChange={e =>
-                            setEdit({ ...edit, taxId: e.target.value })
+                            setEdit({
+                              ...edit,
+                              taxId: e.target.value
+                                .replace(/\D/g, "")
+                                .slice(0, 13),
+                            })
+                          }
+                        />
+                        <TaxpayerLookupButton
+                          taxId={edit.taxId}
+                          branchType={edit.branchType}
+                          branchNo={edit.branchNo}
+                          onFound={result =>
+                            setEdit(current =>
+                              current
+                                ? {
+                                    ...current,
+                                    name: result.name,
+                                    taxId: result.taxId,
+                                    branchType: result.branchType,
+                                    branchNo: result.branchNo,
+                                    address: result.address,
+                                  }
+                                : current
+                            )
                           }
                         />
                       </div>

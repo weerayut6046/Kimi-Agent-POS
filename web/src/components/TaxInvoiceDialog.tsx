@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDoc } from "@/components/TaxInvoiceDoc";
+import { TaxpayerLookupButton } from "@/components/TaxpayerLookupButton";
 import { parseTaxInvoicePaper, printTaxInvoiceElement } from "@/lib/printDoc";
 import type { Customer, TaxInvoice } from "@db/schema";
 
@@ -198,14 +199,34 @@ function TaxInvoiceForm({
           onChange={e => set("customerName", e.target.value)}
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label>เลขประจำตัวผู้เสียภาษี</Label>
           <Input
             inputMode="numeric"
             maxLength={13}
             value={f.customerTaxId}
-            onChange={e => set("customerTaxId", e.target.value)}
+            onChange={e =>
+              set(
+                "customerTaxId",
+                e.target.value.replace(/\D/g, "").slice(0, 13)
+              )
+            }
+          />
+          <TaxpayerLookupButton
+            taxId={f.customerTaxId}
+            branchType={f.branchType}
+            branchNo={f.branchNo}
+            onFound={result =>
+              setF(current => ({
+                ...current,
+                customerName: result.name,
+                customerTaxId: result.taxId,
+                branchType: result.branchType,
+                branchNo: result.branchNo,
+                customerAddress: result.address,
+              }))
+            }
           />
         </div>
         <div className="space-y-1.5">

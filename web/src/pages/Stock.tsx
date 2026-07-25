@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -170,6 +171,7 @@ export default function Stock() {
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: refills } = trpc.catalog.listRefills.useQuery();
+  const { data: tankReadings } = trpc.catalog.listTankReadings.useQuery();
   const orderedTanks = tanks;
   const tankSensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -187,6 +189,15 @@ export default function Stock() {
   } | null>(null);
   const [liters, setLiters] = useState("");
   const [cost, setCost] = useState("");
+  const [readTank, setReadTank] = useState<{
+    id: number;
+    name: string;
+    currentLiters: number;
+    capacityLiters: number;
+  } | null>(null);
+  const [readLiters, setReadLiters] = useState("");
+  const [readNote, setReadNote] = useState("");
+  const [readAdjust, setReadAdjust] = useState(false);
   const [adjustP, setAdjustP] = useState<Product | null>(null);
   const [adjustQty, setAdjustQty] = useState("");
   const [editTank, setEditTank] = useState<{
@@ -242,6 +253,27 @@ export default function Stock() {
       setRefillTank(null);
       setLiters("");
       setCost("");
+      setErr("");
+    },
+    onError: e => setErr(e.message),
+  });
+
+  const addReadingMut = trpc.catalog.addTankReading.useMutation({
+    onSuccess: () => {
+      utils.catalog.listTanks.invalidate();
+      utils.catalog.listTankReadings.invalidate();
+      setReadTank(null);
+      setReadLiters("");
+      setReadNote("");
+      setReadAdjust(false);
+      setErr("");
+    },
+    onError: e => setErr(e.message),
+  });
+
+  const deleteReadingMut = trpc.catalog.deleteTankReading.useMutation({
+    onSuccess: () => {
+      utils.catalog.listTankReadings.invalidate();
       setErr("");
     },
     onError: e => setErr(e.message),
@@ -469,8 +501,8 @@ export default function Stock() {
                       <div
                         className={`grid gap-2 ${
                           isAdmin
-                            ? "grid-cols-[minmax(0,1fr)_auto_auto]"
-                            : "grid-cols-1"
+                            ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
+                            : "grid-cols-2"
                         }`}
                       >
                         <Button
@@ -482,6 +514,25 @@ export default function Stock() {
                         >
                           <PlusCircle className="size-4" />
                           <span className="truncate">รับน้ำมันเข้าถัง</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-10 min-w-0 rounded-xl"
+                          onClick={() => {
+                            setReadTank({
+                              id: t.id,
+                              name: t.name,
+                              currentLiters: t.currentLiters,
+                              capacityLiters: t.capacityLiters,
+                            });
+                            setReadLiters("");
+                            setReadNote("");
+                            setReadAdjust(false);
+                          }}
+                        >
+                          <Gauge className="size-4" />
+                          <span className="truncate">วัดระดับถัง</span>
                         </Button>
                         {isAdmin && (
                           <>
@@ -652,6 +703,77 @@ export default function Stock() {
         </CardContent>
       </Card>
 
+      {/* ประวัติการวัดระดับถัง */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-heading text-base">
+            ประวัติการวัดระดับถัง
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>เวลาที่วัด</TableHead>
+                <TableHead>ถัง</TableHead>
+                <TableHead>ผู้วัด</TableHead>
+                <TableHead className="text-right">ลิตรที่วัดได้</TableHead>
+                <TableHead>หมายเหตุ</TableHead>
+                {isAdmin && <TableHead className="w-12" />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(tankReadings ?? []).map(r => (
+                <TableRow key={r.id}>
+                  <TableCell>{fmtDateTime(r.measuredAt)}</TableCell>
+                  <TableCell>{r.tank?.name ?? "-"}</TableCell>
+                  <TableCell>{r.staffName || "-"}</TableCell>
+                  <TableCell className="text-right">
+                    {fmtNum(r.liters)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {r.note ?? ""}
+                  </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        title="ลบค่าวัด"
+                        aria-label={`ลบค่าวัด ${fmtDateTime(r.measuredAt)}`}
+                        className="text-destructive"
+                        disabled={deleteReadingMut.isPending}
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `ยืนยันลบค่าวัด ${fmtNum(r.liters)} ลิตร ของ ${r.tank?.name ?? "ถังนี้"}?`
+                            )
+                          ) {
+                            deleteReadingMut.mutate({ id: r.id });
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+              {(tankReadings ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={isAdmin ? 6 : 5}
+                    className="text-center text-muted-foreground py-6"
+                  >
+                    ยังไม่มีประวัติการวัด
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
       {/* Dialog รับน้ำมัน */}
       <Dialog open={!!refillTank} onOpenChange={o => !o && setRefillTank(null)}>
         <DialogContent className="max-w-sm">
@@ -696,6 +818,77 @@ export default function Stock() {
               }
             >
               บันทึกรับเข้า
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog วัดระดับถัง */}
+      <Dialog open={!!readTank} onOpenChange={o => !o && setReadTank(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-heading">
+              วัดระดับ{readTank?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              ยอดคำนวณในระบบตอนนี้{" "}
+              <span className="font-semibold text-foreground number-display">
+                {fmtNum(readTank?.currentLiters ?? 0)}
+              </span>{" "}
+              ลิตร · ความจุ {fmtNum(readTank?.capacityLiters ?? 0)} ลิตร
+            </p>
+            <div className="space-y-1.5">
+              <Label>ลิตรที่วัดได้จริง</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.001"
+                value={readLiters}
+                onChange={e => setReadLiters(e.target.value)}
+                placeholder="เช่น 8540"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>หมายเหตุ (ไม่บังคับ)</Label>
+              <Input
+                value={readNote}
+                onChange={e => setReadNote(e.target.value)}
+                placeholder="เช่น วัดตอนเปิดปั๊ม"
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={readAdjust}
+                onCheckedChange={v => setReadAdjust(v === true)}
+              />
+              <span>
+                ปรับยอดสต็อกในระบบให้ตรงกับค่าที่วัด
+                <span className="block text-xs text-muted-foreground">
+                  ใช้เมื่อต้องการให้ยอดคำนวณเริ่มนับใหม่จากค่าวัดครั้งนี้
+                </span>
+              </span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              className="w-full"
+              disabled={
+                readLiters === "" ||
+                Number(readLiters) < 0 ||
+                addReadingMut.isPending
+              }
+              onClick={() =>
+                addReadingMut.mutate({
+                  tankId: readTank!.id,
+                  liters: Number(readLiters),
+                  note: readNote.trim() || undefined,
+                  adjustStock: readAdjust,
+                })
+              }
+            >
+              บันทึกค่าวัด
             </Button>
           </DialogFooter>
         </DialogContent>

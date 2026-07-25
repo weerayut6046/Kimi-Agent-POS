@@ -20,6 +20,7 @@ const Sales = lazy(() => import("@/pages/Sales"));
 const Expenses = lazy(() => import("@/pages/Expenses"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const FuelStockReport = lazy(() => import("@/pages/FuelStockReport"));
+const TankReconciliation = lazy(() => import("@/pages/TankReconciliation"));
 const TaxInvoices = lazy(() => import("@/pages/TaxInvoices"));
 const Documents = lazy(() => import("@/pages/Documents"));
 const Audit = lazy(() => import("@/pages/Audit"));
@@ -176,6 +177,14 @@ export default function App() {
             element={
               <MenuRoute permission="reports">
                 <FuelStockReport />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/reports/tank-reconciliation"
+            element={
+              <MenuRoute permission="reports">
+                <TankReconciliation />
               </MenuRoute>
             }
           />

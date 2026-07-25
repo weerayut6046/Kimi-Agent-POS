@@ -6,17 +6,17 @@
 
 ## 1. สถานะปัจจุบัน
 
-| รายการ            | สถานะ                                                               |
-| ----------------- | ------------------------------------------------------------------- |
-| เวอร์ชันใน source | `2.1.2`                                                             |
-| รุ่นเผยแพร่ล่าสุด | `2.1.2`                                                             |
-| Branch หลัก       | `main`                                                              |
-| รูปแบบใช้งานหลัก  | Windows Desktop (Electron, NSIS installer)                          |
+| รายการ            | สถานะ                                                                |
+| ----------------- | -------------------------------------------------------------------- |
+| เวอร์ชันใน source | `2.1.2`                                                              |
+| รุ่นเผยแพร่ล่าสุด | `2.1.2`                                                              |
+| Branch หลัก       | `main`                                                               |
+| รูปแบบใช้งานหลัก  | Windows Desktop (Electron, NSIS installer)                           |
 | รูปแบบเสริม       | Portable `.exe`, Web ผ่าน Docker และ Web ออนไลน์ (Vercel + Supabase) |
-| ฐานข้อมูล         | Supabase PostgreSQL + Drizzle ORM                                   |
-| Auto Update       | Google Cloud Storage ผ่าน `electron-updater` generic provider       |
-| Update bucket     | `gs://kimi-agent-pos-updates`                                       |
-| การทำงานออฟไลน์   | Desktop ขายเงินสด/QR/บัตรได้ และซิงก์อัตโนมัติเมื่อออนไลน์          |
+| ฐานข้อมูล         | Supabase PostgreSQL + Drizzle ORM                                    |
+| Auto Update       | Google Cloud Storage ผ่าน `electron-updater` generic provider        |
+| Update bucket     | `gs://kimi-agent-pos-updates`                                        |
+| การทำงานออฟไลน์   | Desktop ขายเงินสด/QR/บัตรได้ และซิงก์อัตโนมัติเมื่อออนไลน์           |
 
 ไฟล์ติดตั้งรุ่นล่าสุดที่เผยแพร่:
 
@@ -41,6 +41,7 @@
 - ขายน้ำมันและสินค้าทั่วไปในบิลเดียว รองรับเงินสด QR บัตร และเครดิต
 - เปิด–ปิดกะ บันทึกมิเตอร์ลิตร/เงิน และนับเงินลิ้นชักแยกธนบัตรกับเหรียญ
 - จัดการสินค้า ตู้จ่าย หัวจ่าย ถังน้ำมัน การเติมถัง และประวัติราคา
+- กระทบยอดถัง: บันทึกค่าวัดระดับน้ำมันจริงเทียบกับยอดคำนวณจากมิเตอร์และการรับเข้า พร้อมเกณฑ์เตือนความผิดปกติและตัวเลือกปรับยอดสต็อกตามค่าวัด
 - สมาชิกสะสม/ใช้แต้ม ระดับสมาชิก และแลกของรางวัล
 - ลูกค้าเครดิต วงเงิน ยอดค้าง และใบรับชำระหนี้
 - เอกสาร A4 สำหรับขอเปิดบัญชีเครดิตและรายการรถบรรทุก/เครื่องจักร โดยดึงข้อมูลลูกค้ามากรอกให้อัตโนมัติ
@@ -90,7 +91,7 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 | `desktop/build/`               | EULA, NSIS hooks, โลโก้ ไอคอน และภาพประกอบตัวติดตั้ง           |
 | `desktop/electron-builder.yml` | การตั้งค่า NSIS, Portable และ update provider                  |
 | `vercel.json`                  | config Vercel — build frontend, rewrite `/api/*`, SPA fallback |
-| `supabase/functions/`          | Edge Functions สำหรับ API, AI และการย้ายบัญชีไป Supabase Auth |
+| `supabase/functions/`          | Edge Functions สำหรับ API, AI และการย้ายบัญชีไป Supabase Auth  |
 | `data/`                        | สำเนา SQLite ต้นทางเดิมสำหรับตรวจสอบ/ย้ายข้อมูลเท่านั้น        |
 | `dist/`                        | ผลลัพธ์ build ชั่วคราว ไม่ commit                              |
 | `release/`                     | installer, portable, blockmap และ `latest.yml` ไม่ commit      |
@@ -110,23 +111,23 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 
 ## 7. คำสั่งสำคัญ
 
-| คำสั่ง                      | ใช้สำหรับ                                        |
-| --------------------------- | ------------------------------------------------ |
-| `npm install`               | ติดตั้ง dependencies                             |
-| `npm run dev`               | พัฒนา Web โดยใช้ Supabase จาก `DATABASE_URL`     |
-| `npm run dev:desktop`       | พัฒนา Desktop โดยใช้ Supabase ฐานเดียวกับเว็บ    |
-| `npm run db:migrate`        | รัน migration ผ่าน `DIRECT_URL` (session pooler) |
-| `npm run check`             | ตรวจ TypeScript                                  |
-| `npm run lint`              | ตรวจรูปแบบและกฎ ESLint                           |
-| `npm test`                  | รัน Vitest                                       |
-| `npm run build:edge`       | bundle API สำหรับ Supabase Edge Functions       |
-| `npm run build:desktop`     | build Web/API/Electron                           |
-| `npm run dist:exe`          | สร้าง NSIS installer และ Portable ลง `release/`  |
-| `npm run publish:gcs`       | อัปโหลดไฟล์เวอร์ชันปัจจุบันไป update bucket      |
-| `docker compose up --build` | รัน Web deployment ด้วย Docker                   |
-| `npx vercel deploy --prod`  | deploy frontend ขึ้น Vercel (ต้องมี token)       |
-| `npx supabase db push`      | apply Supabase migrations (ต้อง link project)    |
-| `npx supabase functions deploy pos-api` | deploy backend ขึ้น Supabase Edge |
+| คำสั่ง                                  | ใช้สำหรับ                                        |
+| --------------------------------------- | ------------------------------------------------ |
+| `npm install`                           | ติดตั้ง dependencies                             |
+| `npm run dev`                           | พัฒนา Web โดยใช้ Supabase จาก `DATABASE_URL`     |
+| `npm run dev:desktop`                   | พัฒนา Desktop โดยใช้ Supabase ฐานเดียวกับเว็บ    |
+| `npm run db:migrate`                    | รัน migration ผ่าน `DIRECT_URL` (session pooler) |
+| `npm run check`                         | ตรวจ TypeScript                                  |
+| `npm run lint`                          | ตรวจรูปแบบและกฎ ESLint                           |
+| `npm test`                              | รัน Vitest                                       |
+| `npm run build:edge`                    | bundle API สำหรับ Supabase Edge Functions        |
+| `npm run build:desktop`                 | build Web/API/Electron                           |
+| `npm run dist:exe`                      | สร้าง NSIS installer และ Portable ลง `release/`  |
+| `npm run publish:gcs`                   | อัปโหลดไฟล์เวอร์ชันปัจจุบันไป update bucket      |
+| `docker compose up --build`             | รัน Web deployment ด้วย Docker                   |
+| `npx vercel deploy --prod`              | deploy frontend ขึ้น Vercel (ต้องมี token)       |
+| `npx supabase db push`                  | apply Supabase migrations (ต้อง link project)    |
+| `npx supabase functions deploy pos-api` | deploy backend ขึ้น Supabase Edge                |
 
 ## 8. ขั้นตอนปล่อย Desktop เวอร์ชันใหม่
 
@@ -177,12 +178,12 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 
 เว็บ frontend ใช้งานที่ https://kimi-agent-pos.vercel.app และไม่มีบัญชี production เริ่มต้นที่เผยแพร่ใน source
 
-| ส่วน | บริการ | รายละเอียด |
-| --- | --- | --- |
-| Frontend | Vercel | static build จาก `npx vite build`; `vercel.json` rewrite API ไป Supabase และทำ SPA fallback |
-| Backend | Supabase | Edge Functions `pos-api`, `pos-assistant`; `pos-auth-bootstrap` เป็น tombstone ที่ปิดถาวร |
-| Auth | Supabase | Email/password identities ที่สร้างจาก username แบบ deterministic; admin เป็นผู้ provision/reset |
-| Database | Supabase | PostgreSQL project `Kimi-Agent-POS`; ตารางแอปอยู่ใน private schema `pos` พร้อม RLS |
+| ส่วน     | บริการ   | รายละเอียด                                                                                      |
+| -------- | -------- | ----------------------------------------------------------------------------------------------- |
+| Frontend | Vercel   | static build จาก `npx vite build`; `vercel.json` rewrite API ไป Supabase และทำ SPA fallback     |
+| Backend  | Supabase | Edge Functions `pos-api`, `pos-assistant`; `pos-auth-bootstrap` เป็น tombstone ที่ปิดถาวร       |
+| Auth     | Supabase | Email/password identities ที่สร้างจาก username แบบ deterministic; admin เป็นผู้ provision/reset |
+| Database | Supabase | PostgreSQL project `Kimi-Agent-POS`; ตารางแอปอยู่ใน private schema `pos` พร้อม RLS              |
 
 Vercel เก็บเฉพาะ frontend และ rewrite `/api/*` ไป Supabase Edge Functions ส่วน browser/Desktop ใช้ publishable key และ access token ของผู้ใช้ ไม่ได้รับ service role หรือ database URL
 

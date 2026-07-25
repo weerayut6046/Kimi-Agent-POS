@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ClipboardList, FileSpreadsheet, Fuel, Printer } from "lucide-react";
+import {
+  ClipboardList,
+  FileSpreadsheet,
+  Fuel,
+  Gauge,
+  Printer,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -114,6 +120,13 @@ export default function Reports() {
             <Button asChild className="flex-1 sm:flex-none" variant="outline">
               <Link to="/reports/fuel-stock">
                 <Fuel className="mr-1 size-4" /> สรุปสต๊อกน้ำมัน
+              </Link>
+            </Button>
+          )}
+          {canManage && (
+            <Button asChild className="flex-1 sm:flex-none" variant="outline">
+              <Link to="/reports/tank-reconciliation">
+                <Gauge className="mr-1 size-4" /> กระทบยอดถัง
               </Link>
             </Button>
           )}
