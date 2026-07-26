@@ -428,7 +428,6 @@ export default function Stock() {
             : "กดค้างที่ปุ่มจับบนการ์ด แล้วลากเพื่อสลับตำแหน่ง"}
         </div>
       )}
-      <div className="rounded-2xl bg-slate-50/70 p-3 ring-1 ring-slate-100 sm:p-4">
       <DndContext
         sensors={tankSensors}
         collisionDetection={closestCenter}
@@ -659,7 +658,6 @@ export default function Stock() {
           </div>
         </SortableContext>
       </DndContext>
-      </div>
         </CardContent>
       </Card>
         </TabsContent>
