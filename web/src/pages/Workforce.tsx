@@ -7,11 +7,13 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Clock,
   Pencil,
   Plus,
   RotateCcw,
   Settings2,
   Trash2,
+  UserPlus,
   UserRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -274,6 +277,14 @@ export default function Workforce() {
       showSuccess(
         "เพิ่มพนักงานแล้ว กรุณาตั้งค่าตำแหน่งและอัตราค่าจ้างต่อได้เลย"
       );
+    },
+    onError: err => showError(err.message),
+  });
+  const deleteStaff = trpc.auth.deleteStaff.useMutation({
+    onSuccess: () => {
+      void utils.auth.listStaff.invalidate();
+      refreshProfiles();
+      showSuccess("ลบพนักงานแล้ว");
     },
     onError: err => showError(err.message),
   });
@@ -634,7 +645,7 @@ export default function Workforce() {
                           OT / ชั่วโมง
                         </TableHead>
                         <TableHead>เริ่มงาน</TableHead>
-                        <TableHead className="w-16" />
+                        <TableHead className="w-24" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -668,27 +679,56 @@ export default function Workforce() {
                             {profile.hireDate ? fmtDate(profile.hireDate) : "-"}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              title="แก้ข้อมูลพนักงาน"
-                              onClick={() =>
-                                setProfileForm({
-                                  staffId: profile.staffId,
-                                  name: profile.name,
-                                  position: profile.position ?? "",
-                                  salaryType: profile.salaryType ?? "monthly",
-                                  baseRate: String(profile.baseRate ?? 0),
-                                  overtimeRate: String(
-                                    profile.overtimeRate ?? 0
-                                  ),
-                                  hireDate: profile.hireDate ?? "",
-                                  note: profile.note ?? "",
-                                })
-                              }
-                            >
-                              <Pencil />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="แก้ข้อมูลพนักงาน"
+                                onClick={() =>
+                                  setProfileForm({
+                                    staffId: profile.staffId,
+                                    name: profile.name,
+                                    position: profile.position ?? "",
+                                    salaryType: profile.salaryType ?? "monthly",
+                                    baseRate: String(profile.baseRate ?? 0),
+                                    overtimeRate: String(
+                                      profile.overtimeRate ?? 0
+                                    ),
+                                    hireDate: profile.hireDate ?? "",
+                                    note: profile.note ?? "",
+                                  })
+                                }
+                              >
+                                <Pencil />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title={
+                                  profile.staffId === staff?.id
+                                    ? "ลบบัญชีตัวเองไม่ได้"
+                                    : "ลบพนักงาน"
+                                }
+                                className="text-destructive hover:text-destructive"
+                                disabled={
+                                  deleteStaff.isPending ||
+                                  profile.staffId === staff?.id
+                                }
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `ยืนยันลบพนักงาน "${profile.name}"? บัญชีและสิทธิ์การเข้าใช้งานจะถูกลบถาวร`
+                                    )
+                                  ) {
+                                    deleteStaff.mutate({
+                                      id: profile.staffId,
+                                    });
+                                  }
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -993,110 +1033,156 @@ export default function Workforce() {
         open={scheduleForm != null}
         onOpenChange={open => !open && setScheduleForm(null)}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {scheduleForm?.id ? "แก้ไขตารางงาน" : "เพิ่มตารางงาน"}
-            </DialogTitle>
-          </DialogHeader>
-          {scheduleForm && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>วันที่</Label>
-                <Input
-                  type="date"
-                  value={scheduleForm.workDate}
-                  onChange={event =>
-                    setScheduleForm({
-                      ...scheduleForm,
-                      workDate: event.target.value,
-                    })
-                  }
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <CalendarDays className="h-6 w-6" />
               </div>
-              <div className="space-y-1.5">
-                <Label>กะงาน</Label>
-                <Select
-                  value={scheduleForm.shiftTemplateId}
-                  onValueChange={value =>
-                    setScheduleForm({ ...scheduleForm, shiftTemplateId: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกกะ" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {templates.map(template => (
-                      <SelectItem
-                        key={template.id}
-                        value={String(template.id)}
-                        disabled={!template.active}
-                      >
-                        {template.name} ({template.startTime}-{template.endTime}
-                        )
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>พนักงาน</Label>
-                <Select
-                  value={scheduleForm.staffId}
-                  onValueChange={value =>
-                    setScheduleForm({ ...scheduleForm, staffId: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกพนักงาน" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {directory.map(person => (
-                      <SelectItem key={person.id} value={String(person.id)}>
-                        {person.name}
-                        {person.position ? ` · ${person.position}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>สถานะ</Label>
-                <Select
-                  value={scheduleForm.status}
-                  onValueChange={(value: ScheduleStatus) =>
-                    setScheduleForm({ ...scheduleForm, status: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(scheduleStatusLabel).map(
-                      ([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>หมายเหตุ</Label>
-                <Textarea
-                  value={scheduleForm.note}
-                  onChange={event =>
-                    setScheduleForm({
-                      ...scheduleForm,
-                      note: event.target.value,
-                    })
-                  }
-                />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Work schedule
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {scheduleForm?.id ? "แก้ไขตารางงาน" : "เพิ่มตารางงาน"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กำหนดวันทำงาน กะงาน และพนักงานผู้รับผิดชอบ
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {scheduleForm && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <CalendarDays className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      รายละเอียดตารางงาน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      วันที่ กะงาน พนักงาน และสถานะ
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      วันที่
+                    </Label>
+                    <Input
+                      type="date"
+                      value={scheduleForm.workDate}
+                      onChange={event =>
+                        setScheduleForm({
+                          ...scheduleForm,
+                          workDate: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      กะงาน
+                    </Label>
+                    <Select
+                      value={scheduleForm.shiftTemplateId}
+                      onValueChange={value =>
+                        setScheduleForm({ ...scheduleForm, shiftTemplateId: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกกะ" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templates.map(template => (
+                          <SelectItem
+                            key={template.id}
+                            value={String(template.id)}
+                            disabled={!template.active}
+                          >
+                            {template.name} ({template.startTime}-{template.endTime}
+                            )
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      พนักงาน
+                    </Label>
+                    <Select
+                      value={scheduleForm.staffId}
+                      onValueChange={value =>
+                        setScheduleForm({ ...scheduleForm, staffId: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกพนักงาน" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {directory.map(person => (
+                          <SelectItem key={person.id} value={String(person.id)}>
+                            {person.name}
+                            {person.position ? ` · ${person.position}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      สถานะ
+                    </Label>
+                    <Select
+                      value={scheduleForm.status}
+                      onValueChange={(value: ScheduleStatus) =>
+                        setScheduleForm({ ...scheduleForm, status: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(scheduleStatusLabel).map(
+                          ([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หมายเหตุ
+                    </Label>
+                    <Textarea
+                      value={scheduleForm.note}
+                      onChange={event =>
+                        setScheduleForm({
+                          ...scheduleForm,
+                          note: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button variant="outline" onClick={() => setScheduleForm(null)}>
               ยกเลิก
             </Button>
@@ -1111,169 +1197,234 @@ export default function Workforce() {
       </Dialog>
 
       <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>รูปแบบกะการทำงาน</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-72 overflow-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ชื่อกะ</TableHead>
-                  <TableHead>เวลา</TableHead>
-                  <TableHead>พัก</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead className="w-24" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {templates.map(template => (
-                  <TableRow key={template.id}>
-                    <TableCell className="font-medium">
-                      {template.name}
-                    </TableCell>
-                    <TableCell>
-                      {template.startTime}-{template.endTime}
-                    </TableCell>
-                    <TableCell>{template.breakMinutes} นาที</TableCell>
-                    <TableCell>
-                      {template.active ? "ใช้งาน" : "ปิดใช้งาน"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() =>
-                            setTemplateForm({
-                              id: template.id,
-                              name: template.name,
-                              startTime: template.startTime,
-                              endTime: template.endTime,
-                              breakMinutes: String(template.breakMinutes),
-                              active: template.active,
-                            })
-                          }
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="text-destructive"
-                          onClick={() => {
-                            if (confirm(`ลบรูปแบบกะ “${template.name}”?`)) {
-                              deleteTemplate.mutate({ id: template.id });
-                            }
-                          }}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          {templateForm ? (
-            <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
-              <div className="grid gap-3 sm:grid-cols-4">
-                <div className="space-y-1 sm:col-span-2">
-                  <Label>ชื่อกะ</Label>
-                  <Input
-                    value={templateForm.name}
-                    onChange={event =>
-                      setTemplateForm({
-                        ...templateForm,
-                        name: event.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>เริ่ม</Label>
-                  <Input
-                    type="time"
-                    value={templateForm.startTime}
-                    onChange={event =>
-                      setTemplateForm({
-                        ...templateForm,
-                        startTime: event.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>เลิก</Label>
-                  <Input
-                    type="time"
-                    value={templateForm.endTime}
-                    onChange={event =>
-                      setTemplateForm({
-                        ...templateForm,
-                        endTime: event.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>พัก (นาที)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={templateForm.breakMinutes}
-                    onChange={event =>
-                      setTemplateForm({
-                        ...templateForm,
-                        breakMinutes: event.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <label className="flex items-center gap-2 pt-6 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    checked={templateForm.active}
-                    onChange={event =>
-                      setTemplateForm({
-                        ...templateForm,
-                        active: event.target.checked,
-                      })
-                    }
-                  />
-                  เปิดใช้งาน
-                </label>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Settings2 className="h-6 w-6" />
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setTemplateForm(null)}>
-                  ยกเลิก
-                </Button>
-                <Button
-                  onClick={submitTemplate}
-                  disabled={upsertTemplate.isPending}
-                >
-                  บันทึกรูปแบบกะ
-                </Button>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Shift templates
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  รูปแบบกะการทำงาน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  จัดการชื่อกะ เวลาเข้า-ออก และเวลาพักของแต่ละกะ
+                </DialogDescription>
               </div>
             </div>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() =>
-                setTemplateForm({
-                  name: "",
-                  startTime: "08:00",
-                  endTime: "17:00",
-                  breakMinutes: "60",
-                  active: true,
-                })
-              }
-            >
-              <Plus /> เพิ่มรูปแบบกะ
-            </Button>
-          )}
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Clock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    รูปแบบกะทั้งหมด
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    แตะไอคอนดินสอเพื่อแก้ไข หรือถังขยะเพื่อลบ
+                  </p>
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="max-h-72 overflow-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ชื่อกะ</TableHead>
+                        <TableHead>เวลา</TableHead>
+                        <TableHead>พัก</TableHead>
+                        <TableHead>สถานะ</TableHead>
+                        <TableHead className="w-24" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {templates.map(template => (
+                        <TableRow key={template.id}>
+                          <TableCell className="font-medium">
+                            {template.name}
+                          </TableCell>
+                          <TableCell>
+                            {template.startTime}-{template.endTime}
+                          </TableCell>
+                          <TableCell>{template.breakMinutes} นาที</TableCell>
+                          <TableCell>
+                            {template.active ? "ใช้งาน" : "ปิดใช้งาน"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() =>
+                                  setTemplateForm({
+                                    id: template.id,
+                                    name: template.name,
+                                    startTime: template.startTime,
+                                    endTime: template.endTime,
+                                    breakMinutes: String(template.breakMinutes),
+                                    active: template.active,
+                                  })
+                                }
+                              >
+                                <Pencil />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-destructive"
+                                onClick={() => {
+                                  if (confirm(`ลบรูปแบบกะ “${template.name}”?`)) {
+                                    deleteTemplate.mutate({ id: template.id });
+                                  }
+                                }}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </section>
+            {templateForm ? (
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Pencil className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      {templateForm.id ? "แก้ไขรูปแบบกะ" : "รูปแบบกะใหม่"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อกะ เวลาเริ่ม-เลิก เวลาพัก และสถานะการใช้งาน
+                    </p>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div className="grid gap-4 sm:grid-cols-4">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        ชื่อกะ
+                      </Label>
+                      <Input
+                        value={templateForm.name}
+                        onChange={event =>
+                          setTemplateForm({
+                            ...templateForm,
+                            name: event.target.value,
+                          })
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        เริ่ม
+                      </Label>
+                      <Input
+                        type="time"
+                        value={templateForm.startTime}
+                        onChange={event =>
+                          setTemplateForm({
+                            ...templateForm,
+                            startTime: event.target.value,
+                          })
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        เลิก
+                      </Label>
+                      <Input
+                        type="time"
+                        value={templateForm.endTime}
+                        onChange={event =>
+                          setTemplateForm({
+                            ...templateForm,
+                            endTime: event.target.value,
+                          })
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        พัก (นาที)
+                      </Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={templateForm.breakMinutes}
+                        onChange={event =>
+                          setTemplateForm({
+                            ...templateForm,
+                            breakMinutes: event.target.value,
+                          })
+                        }
+                        className="bg-white"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 pt-6 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={templateForm.active}
+                        onChange={event =>
+                          setTemplateForm({
+                            ...templateForm,
+                            active: event.target.checked,
+                          })
+                        }
+                      />
+                      เปิดใช้งาน
+                    </label>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-4">
+                    <Button variant="outline" onClick={() => setTemplateForm(null)}>
+                      ยกเลิก
+                    </Button>
+                    <Button
+                      onClick={submitTemplate}
+                      disabled={upsertTemplate.isPending}
+                    >
+                      บันทึกรูปแบบกะ
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setTemplateForm({
+                    name: "",
+                    startTime: "08:00",
+                    endTime: "17:00",
+                    breakMinutes: "60",
+                    active: true,
+                  })
+                }
+              >
+                <Plus /> เพิ่มรูปแบบกะ
+              </Button>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -1281,73 +1432,118 @@ export default function Workforce() {
         open={staffForm != null}
         onOpenChange={open => !open && setStaffForm(null)}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>เพิ่มพนักงาน</DialogTitle>
-          </DialogHeader>
-          {staffForm && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อพนักงาน</Label>
-                <Input
-                  autoFocus
-                  value={staffForm.name}
-                  onChange={event =>
-                    setStaffForm({ ...staffForm, name: event.target.value })
-                  }
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <UserPlus className="h-6 w-6" />
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>ชื่อผู้ใช้</Label>
-                  <Input
-                    value={staffForm.username}
-                    onChange={event =>
-                      setStaffForm({
-                        ...staffForm,
-                        username: event.target.value,
-                      })
-                    }
-                    placeholder="อย่างน้อย 3 ตัวอักษร"
-                  />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New member
+                  </span>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>PIN</Label>
-                  <Input
-                    type="password"
-                    inputMode="numeric"
-                    value={staffForm.password}
-                    onChange={event =>
-                      setStaffForm({
-                        ...staffForm,
-                        password: event.target.value,
-                      })
-                    }
-                    placeholder="อย่างน้อย 4 หลัก"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>สิทธิ์ใช้งาน</Label>
-                <Select
-                  value={staffForm.role}
-                  onValueChange={(value: StaffForm["role"]) =>
-                    setStaffForm({ ...staffForm, role: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cashier">พนักงานขาย</SelectItem>
-                    <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
-                    <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                  </SelectContent>
-                </Select>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  เพิ่มพนักงาน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  สร้างบัญชีผู้ใช้ใหม่และกำหนดสิทธิ์การเข้าถึงระบบ
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {staffForm && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <UserPlus className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลพนักงานใหม่
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ บัญชีผู้ใช้ PIN และสิทธิ์ใช้งาน
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อพนักงาน
+                    </Label>
+                    <Input
+                      autoFocus
+                      value={staffForm.name}
+                      onChange={event =>
+                        setStaffForm({ ...staffForm, name: event.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อผู้ใช้
+                    </Label>
+                    <Input
+                      value={staffForm.username}
+                      onChange={event =>
+                        setStaffForm({
+                          ...staffForm,
+                          username: event.target.value,
+                        })
+                      }
+                      placeholder="อย่างน้อย 3 ตัวอักษร"
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      PIN
+                    </Label>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      value={staffForm.password}
+                      onChange={event =>
+                        setStaffForm({
+                          ...staffForm,
+                          password: event.target.value,
+                        })
+                      }
+                      placeholder="อย่างน้อย 4 หลัก"
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      สิทธิ์ใช้งาน
+                    </Label>
+                    <Select
+                      value={staffForm.role}
+                      onValueChange={(value: StaffForm["role"]) =>
+                        setStaffForm({ ...staffForm, role: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                        <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
+                        <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button variant="outline" onClick={() => setStaffForm(null)}>
               ยกเลิก
             </Button>
@@ -1370,104 +1566,190 @@ export default function Workforce() {
         open={profileForm != null}
         onOpenChange={open => !open && setProfileForm(null)}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>ข้อมูลพนักงาน · {profileForm?.name}</DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <UserRound className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Employee profile
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {profileForm?.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  แก้ไขตำแหน่ง วันที่เริ่มงาน และอัตราค่าจ้างของพนักงาน
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {profileForm && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>ตำแหน่ง</Label>
-                <Input
-                  value={profileForm.position}
-                  onChange={event =>
-                    setProfileForm({
-                      ...profileForm,
-                      position: event.target.value,
-                    })
-                  }
-                  placeholder="เช่น พนักงานหน้าลาน"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>รูปแบบค่าจ้าง</Label>
-                <Select
-                  value={profileForm.salaryType}
-                  onValueChange={(value: SalaryType) =>
-                    setProfileForm({ ...profileForm, salaryType: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(salaryTypeLabel).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>วันที่เริ่มงาน</Label>
-                <Input
-                  type="date"
-                  value={profileForm.hireDate}
-                  onChange={event =>
-                    setProfileForm({
-                      ...profileForm,
-                      hireDate: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>อัตราหลัก (บาท)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={profileForm.baseRate}
-                  onChange={event =>
-                    setProfileForm({
-                      ...profileForm,
-                      baseRate: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>OT ต่อชั่วโมง (บาท)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={profileForm.overtimeRate}
-                  onChange={event =>
-                    setProfileForm({
-                      ...profileForm,
-                      overtimeRate: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>หมายเหตุ</Label>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <UserRound className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลการจ้างงาน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ตำแหน่งงานและวันที่เริ่มงาน
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ตำแหน่ง
+                    </Label>
+                    <Input
+                      value={profileForm.position}
+                      onChange={event =>
+                        setProfileForm({
+                          ...profileForm,
+                          position: event.target.value,
+                        })
+                      }
+                      placeholder="เช่น พนักงานหน้าลาน"
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      วันที่เริ่มงาน
+                    </Label>
+                    <Input
+                      type="date"
+                      value={profileForm.hireDate}
+                      onChange={event =>
+                        setProfileForm({
+                          ...profileForm,
+                          hireDate: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                    <CircleDollarSign className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      อัตราค่าจ้าง
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      รูปแบบค่าจ้าง เรทหลัก และค่าล่วงเวลา
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รูปแบบค่าจ้าง
+                    </Label>
+                    <Select
+                      value={profileForm.salaryType}
+                      onValueChange={(value: SalaryType) =>
+                        setProfileForm({ ...profileForm, salaryType: value })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(salaryTypeLabel).map(
+                          ([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      อัตราหลัก (บาท)
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={profileForm.baseRate}
+                        onChange={event =>
+                          setProfileForm({
+                            ...profileForm,
+                            baseRate: event.target.value,
+                          })
+                        }
+                        className="bg-white pr-8"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">
+                        ฿
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      OT ต่อชั่วโมง (บาท)
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={profileForm.overtimeRate}
+                        onChange={event =>
+                          setProfileForm({
+                            ...profileForm,
+                            overtimeRate: event.target.value,
+                          })
+                        }
+                        className="bg-white pr-8"
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-slate-400">
+                        ฿
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50">
+                <Label className="text-xs font-semibold text-slate-700">
+                  หมายเหตุ
+                </Label>
                 <Textarea
                   value={profileForm.note}
                   onChange={event =>
                     setProfileForm({ ...profileForm, note: event.target.value })
                   }
+                  placeholder="บันทึกเพิ่มเติมเกี่ยวกับพนักงาน (ถ้ามี)"
+                  className="mt-2 min-h-[80px] bg-white"
                 />
-              </div>
+              </section>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button variant="outline" onClick={() => setProfileForm(null)}>
               ยกเลิก
             </Button>
             <Button onClick={submitProfile} disabled={upsertProfile.isPending}>
+              <CheckCircle2 />
               บันทึก
             </Button>
           </DialogFooter>
@@ -1478,71 +1760,117 @@ export default function Workforce() {
         open={payrollForm != null}
         onOpenChange={open => !open && setPayrollForm(null)}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              แก้รายการเงินเดือน · {payrollForm?.staffName}
-            </DialogTitle>
-          </DialogHeader>
-          {payrollForm && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>OT (ชั่วโมง)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={payrollForm.overtimeHours}
-                  onChange={event =>
-                    setPayrollForm({
-                      ...payrollForm,
-                      overtimeHours: event.target.value,
-                    })
-                  }
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <CircleDollarSign className="h-6 w-6" />
               </div>
-              <div className="space-y-1.5">
-                <Label>โบนัส / เงินเพิ่ม</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={payrollForm.bonus}
-                  onChange={event =>
-                    setPayrollForm({
-                      ...payrollForm,
-                      bonus: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>รายการหัก</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={payrollForm.deduction}
-                  onChange={event =>
-                    setPayrollForm({
-                      ...payrollForm,
-                      deduction: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-3">
-                <Label>หมายเหตุ</Label>
-                <Textarea
-                  value={payrollForm.note}
-                  onChange={event =>
-                    setPayrollForm({ ...payrollForm, note: event.target.value })
-                  }
-                />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Payroll
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  แก้รายการเงินเดือน · {payrollForm?.staffName}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ปรับชั่วโมง OT โบนัส และรายการหักก่อนบันทึก
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {payrollForm && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <CircleDollarSign className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      รายการปรับเงินเดือน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชั่วโมง OT โบนัส รายการหัก และหมายเหตุ
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      OT (ชั่วโมง)
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={payrollForm.overtimeHours}
+                      onChange={event =>
+                        setPayrollForm({
+                          ...payrollForm,
+                          overtimeHours: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      โบนัส / เงินเพิ่ม
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={payrollForm.bonus}
+                      onChange={event =>
+                        setPayrollForm({
+                          ...payrollForm,
+                          bonus: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รายการหัก
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={payrollForm.deduction}
+                      onChange={event =>
+                        setPayrollForm({
+                          ...payrollForm,
+                          deduction: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-3">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หมายเหตุ
+                    </Label>
+                    <Textarea
+                      value={payrollForm.note}
+                      onChange={event =>
+                        setPayrollForm({ ...payrollForm, note: event.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button variant="outline" onClick={() => setPayrollForm(null)}>
               ยกเลิก
             </Button>

@@ -10,9 +10,11 @@ import {
 import { adminQuery, staffIdFromHeader } from "../guard";
 import { getDb } from "../queries/connection";
 import {
+  assistantActionProposals,
   branches,
   fuelTanks,
   nozzles,
+  payrollRecords,
   products,
   pumps,
   rewards,
@@ -952,6 +954,21 @@ export const authRouter = createRouter({
       if (target.role === "admin" && admins.length <= 1) {
         throw new Error("ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน");
       }
+      // ประวัติเงินเดือนเป็นเอกสารการเงิน ห้ามลบทิ้งตามบัญชี (FK restrict)
+      // — ถ้ามีแล้วให้ปิดใช้งานบัญชีแทน
+      const hasPayroll = await db.query.payrollRecords.findFirst({
+        where: eq(payrollRecords.staffId, input.id),
+        columns: { id: true },
+      });
+      if (hasPayroll) {
+        throw new Error(
+          `ลบไม่ได้เพราะ ${target.name} มีประวัติเงินเดือนแล้ว หากไม่ต้องการให้ใช้งาน ให้ปิดใช้งานบัญชีแทน (ตั้งค่าระบบ → พนักงาน)`
+        );
+      }
+      // คำสั่งผู้ช่วย AI ผูก staff แบบ restrict — ลบตามไปด้วย (audit log หลักยังเก็บไว้)
+      await db
+        .delete(assistantActionProposals)
+        .where(eq(assistantActionProposals.staffId, input.id));
       if (target.supabaseAuthUserId) {
         await deleteSupabaseStaffIdentity(target.supabaseAuthUserId);
       }

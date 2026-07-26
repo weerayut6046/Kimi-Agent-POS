@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Banknote, Pencil, Plus, Trash2 } from "lucide-react";
+import { Banknote, Pencil, Plus, ReceiptText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -233,61 +234,104 @@ export default function Expenses() {
 
       {/* Dialog บันทึก/แก้ไขค่าใช้จ่าย */}
       <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {edit?.id ? "แก้ไขค่าใช้จ่าย" : "บันทึกค่าใช้จ่าย"}
-            </DialogTitle>
-          </DialogHeader>
-          {edit && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>
-                  รายการ <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  autoFocus
-                  placeholder="เช่น ค่าน้ำแข็ง, ค่าถุง, ค่าแรงชั่วคราว"
-                  value={edit.title}
-                  onChange={e => setEdit({ ...edit, title: e.target.value })}
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Banknote className="h-6 w-6" />
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>หมวด</Label>
-                  <Input
-                    placeholder="เช่น วัตถุดิบ, สาธารณูปโภค"
-                    value={edit.category}
-                    onChange={e =>
-                      setEdit({ ...edit, category: e.target.value })
-                    }
-                  />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Expense
+                  </span>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>
-                    จำนวนเงิน (บาท) <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="0.00"
-                    value={edit.amount}
-                    onChange={e => setEdit({ ...edit, amount: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>หมายเหตุ</Label>
-                <Textarea
-                  rows={2}
-                  value={edit.note}
-                  onChange={e => setEdit({ ...edit, note: e.target.value })}
-                />
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {edit?.id ? "แก้ไขค่าใช้จ่าย" : "บันทึกค่าใช้จ่าย"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  บันทึกรายการค่าใช้จ่ายหน้าร้าน พร้อมจำนวนเงินและหมวดหมู่
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {edit && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <ReceiptText className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      รายละเอียดค่าใช้จ่าย
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อรายการ หมวดหมู่ และจำนวนเงิน
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รายการ <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      autoFocus
+                      placeholder="เช่น ค่าน้ำแข็ง, ค่าถุง, ค่าแรงชั่วคราว"
+                      value={edit.title}
+                      onChange={e => setEdit({ ...edit, title: e.target.value })}
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หมวด
+                    </Label>
+                    <Input
+                      placeholder="เช่น วัตถุดิบ, สาธารณูปโภค"
+                      value={edit.category}
+                      onChange={e =>
+                        setEdit({ ...edit, category: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      จำนวนเงิน (บาท){" "}
+                      <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder="0.00"
+                      value={edit.amount}
+                      onChange={e =>
+                        setEdit({ ...edit, amount: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หมายเหตุ
+                    </Label>
+                    <Textarea
+                      rows={2}
+                      value={edit.note}
+                      onChange={e => setEdit({ ...edit, note: e.target.value })}
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!valid || create.isPending || update.isPending}

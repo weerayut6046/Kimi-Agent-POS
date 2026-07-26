@@ -75,8 +75,10 @@ export interface ShiftRow {
   posAmount: number;
   openingFloat: number; // เงินทอนเริ่มกะ
   countedCash: number | null; // เงินสดนับได้ตอนปิดกะ
+  transferAmount: number | null; // ยอดเงินที่ลูกค้าโอนตอนปิดกะ
   cashExpected: number; // เงินสดที่ควรมี (snapshot ตอนปิดกะ หรือคำนวณย้อนหลังสำหรับกะเก่า)
-  cashDiff: number | null; // นับได้ − ควรมี
+  cashDiff: number | null; // (นับได้ + โอน) − ควรมี
+  cashDiffP: number | null; // (นับได้ + โอน) − ควรมีเทียบยอด P (null ถ้าไม่มียอด P)
 }
 
 export interface ExpenseRow {
@@ -397,7 +399,7 @@ export async function buildDailyWorkbook(
 
   // กะการทำงาน
   const wsShift = wb.addWorksheet("กะการทำงาน");
-  widths(wsShift, [8, 18, 20, 20, 12, 12, 16, 14, 14, 12, 14, 14, 12]);
+  widths(wsShift, [8, 18, 20, 20, 12, 12, 16, 14, 14, 12, 14, 14, 12, 12, 14]);
   addTable(
     wsShift,
     [
@@ -413,7 +415,9 @@ export async function buildDailyWorkbook(
       "เงินทอน",
       "เงินสดควรมี",
       "นับได้",
+      "ยอดโอน",
       "ต่าง",
+      "ต่างเทียบ P",
     ],
     daily.shifts.map(s => [
       `#${s.id}`,
@@ -428,9 +432,11 @@ export async function buildDailyWorkbook(
       s.openingFloat,
       s.cashExpected,
       s.countedCash,
+      s.transferAmount,
       s.cashDiff,
+      s.cashDiffP,
     ]),
-    [5, 6, 7, 8, 9, 10, 11, 12]
+    [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
   );
 
   // ค่าใช้จ่าย

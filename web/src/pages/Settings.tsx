@@ -2295,45 +2295,80 @@ export default function Settings() {
         open={!!restoreBackupTarget}
         onOpenChange={open => !open && setRestoreBackupTarget(null)}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              Restore ลง Supabase โปรเจกต์ทดสอบ
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Database className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Backup restore
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  Restore ลง Supabase โปรเจกต์ทดสอบ
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กู้คืนไฟล์สำรองลงโปรเจกต์ทดสอบอย่างปลอดภัย โดยไม่แตะฐาน
+                  production
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {restoreBackupTarget && (
-            <div className="space-y-4 text-sm">
-              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-                ระบบจะไม่กู้ไฟล์นี้ทับ production โดยตรง
-                ต้องตรวจข้อมูลบนโปรเจกต์ทดสอบก่อนทุกครั้ง
-              </div>
-              <div className="space-y-1 rounded-lg border p-3">
-                <p className="font-medium">ไฟล์ที่เลือก</p>
-                <p className="break-all font-mono text-xs">
-                  {restoreBackupTarget.fileName}
-                </p>
-                <p className="break-all font-mono text-xs text-muted-foreground">
-                  SHA-256: {restoreBackupTarget.sha256 || "ไม่ระบุ"}
-                </p>
-              </div>
-              <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
-                <li>ดาวน์โหลดไฟล์และตรวจ SHA-256 ให้ตรงกับรายการ</li>
-                <li>
-                  สร้าง Supabase โปรเจกต์ทดสอบ หรือใช้ Restore-to-New-Project
-                  จาก Supabase Backup
-                </li>
-                <li>
-                  กู้ไฟล์นี้ด้วย <code>pg_restore</code> ไปยัง Session pooler
-                  ของโปรเจกต์ทดสอบเท่านั้น
-                </li>
-                <li>
-                  ทดสอบ Login, Dashboard, เปิดกะ, การขาย และรายงาน
-                  ก่อนวางแผนสลับ DATABASE_URL
-                </li>
-              </ol>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ขั้นตอนการกู้คืนอย่างปลอดภัย
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ตรวจสอบไฟล์และทำตามลำดับก่อนสลับการเชื่อมต่อ
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4 p-4 text-sm">
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                    ระบบจะไม่กู้ไฟล์นี้ทับ production โดยตรง
+                    ต้องตรวจข้อมูลบนโปรเจกต์ทดสอบก่อนทุกครั้ง
+                  </div>
+                  <div className="space-y-1 rounded-lg border p-3">
+                    <p className="font-medium">ไฟล์ที่เลือก</p>
+                    <p className="break-all font-mono text-xs">
+                      {restoreBackupTarget.fileName}
+                    </p>
+                    <p className="break-all font-mono text-xs text-muted-foreground">
+                      SHA-256: {restoreBackupTarget.sha256 || "ไม่ระบุ"}
+                    </p>
+                  </div>
+                  <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
+                    <li>ดาวน์โหลดไฟล์และตรวจ SHA-256 ให้ตรงกับรายการ</li>
+                    <li>
+                      สร้าง Supabase โปรเจกต์ทดสอบ หรือใช้
+                      Restore-to-New-Project จาก Supabase Backup
+                    </li>
+                    <li>
+                      กู้ไฟล์นี้ด้วย <code>pg_restore</code> ไปยัง Session
+                      pooler ของโปรเจกต์ทดสอบเท่านั้น
+                    </li>
+                    <li>
+                      ทดสอบ Login, Dashboard, เปิดกะ, การขาย และรายงาน
+                      ก่อนวางแผนสลับ DATABASE_URL
+                    </li>
+                  </ol>
+                </div>
+              </section>
             </div>
           )}
-          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+          <DialogFooter className="shrink-0 flex-wrap gap-2 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:justify-between sm:px-5 sm:pb-3.5">
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -2379,42 +2414,81 @@ export default function Settings() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-heading text-destructive">
-              ยืนยันลบ Manual Backup
-            </DialogTitle>
-          </DialogHeader>
-          {deleteBackupTarget && (
-            <div className="space-y-4 text-sm">
-              <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                <p>
-                  ระบบจะลบทั้งไฟล์ dump และ manifest จาก Private GCS
-                  โดยไฟล์ยังอยู่ใน GCS Soft Delete ตามระยะเวลาที่ bucket กำหนด
-                </p>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Trash2 className="h-6 w-6" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="backup-delete-confirmation">
-                  พิมพ์ชื่อไฟล์ต่อไปนี้เพื่อยืนยัน
-                </Label>
-                <p className="break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
-                  {deleteBackupTarget.fileName}
-                </p>
-                <Input
-                  id="backup-delete-confirmation"
-                  autoComplete="off"
-                  value={deleteBackupConfirmation}
-                  onChange={event =>
-                    setDeleteBackupConfirmation(event.target.value)
-                  }
-                  placeholder={deleteBackupTarget.fileName}
-                  disabled={deleteBackup.isPending}
-                />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Delete backup
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  ยืนยันลบ Manual Backup
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ลบไฟล์ dump และ manifest ออกจาก Private GCS อย่างถาวร
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {deleteBackupTarget && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ยืนยันการลบไฟล์สำรอง
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      พิมพ์ชื่อไฟล์ให้ตรงเพื่อปลดล็อกปุ่มลบ
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4 p-4 text-sm">
+                  <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <p>
+                      ระบบจะลบทั้งไฟล์ dump และ manifest จาก Private GCS
+                      โดยไฟล์ยังอยู่ใน GCS Soft Delete ตามระยะเวลาที่ bucket
+                      กำหนด
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="backup-delete-confirmation"
+                      className="text-xs font-semibold text-slate-700"
+                    >
+                      พิมพ์ชื่อไฟล์ต่อไปนี้เพื่อยืนยัน
+                    </Label>
+                    <p className="break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
+                      {deleteBackupTarget.fileName}
+                    </p>
+                    <Input
+                      id="backup-delete-confirmation"
+                      autoComplete="off"
+                      className="bg-white"
+                      value={deleteBackupConfirmation}
+                      onChange={event =>
+                        setDeleteBackupConfirmation(event.target.value)
+                      }
+                      placeholder={deleteBackupTarget.fileName}
+                      disabled={deleteBackup.isPending}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               type="button"
               variant="outline"
@@ -2462,139 +2536,234 @@ export default function Settings() {
           }
         }}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {editP?.id ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"}
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Fuel className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Product
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {editP?.id ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กำหนดรหัส หมวด ราคา และสต๊อกของสินค้า
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {editP && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>รหัสสินค้า</Label>
-                <Input
-                  value={editP.code}
-                  disabled={!!editP.id}
-                  onChange={e => setEditP({ ...editP, code: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ชื่อสินค้า</Label>
-                <Input
-                  value={editP.name}
-                  onChange={e => setEditP({ ...editP, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>หมวด</Label>
-                <Select
-                  value={editP.category}
-                  onValueChange={v =>
-                    setEditP({ ...editP, category: v as typeof editP.category })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fuel">น้ำมัน</SelectItem>
-                    <SelectItem value="lubricant">2T/น้ำมันเครื่อง</SelectItem>
-                    <SelectItem value="other">สินค้าอื่นๆ</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>หน่วย</Label>
-                <Input
-                  value={editP.unit}
-                  onChange={e => setEditP({ ...editP, unit: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ราคาขาย</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editP.price || ""}
-                  onChange={e =>
-                    setEditP({ ...editP, price: Number(e.target.value) || 0 })
-                  }
-                />
-                {editP.id != null &&
-                  editP.category === "fuel" &&
-                  currentShift?.readings.some(
-                    reading => reading.product?.id === editP.id
-                  ) && (
-                    <p className="text-xs text-amber-700">
-                      ราคาใหม่จะมีผลทันที หลังเปลี่ยนราคาระหว่างกะให้ยึดมิเตอร์
-                      P เป็นยอดเงินจริงตอนปิดกะ
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Fuel className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลสินค้า
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      รหัส ชื่อ หมวดสินค้า และหน่วยนับ
                     </p>
-                  )}
-              </div>
-              <div className="space-y-1.5">
-                <Label>ต้นทุน</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editP.cost || ""}
-                  onChange={e =>
-                    setEditP({ ...editP, cost: Number(e.target.value) || 0 })
-                  }
-                />
-              </div>
-              {editP.category !== "fuel" && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label>สต๊อก</Label>
-                    <Input
-                      type="number"
-                      value={editP.stockQty || ""}
-                      onChange={e =>
-                        setEditP({
-                          ...editP,
-                          stockQty: Number(e.target.value) || 0,
-                        })
-                      }
-                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>แจ้งเตือนเมื่อต่ำกว่า</Label>
-                    <Input
-                      type="number"
-                      value={editP.lowStockAt || ""}
-                      onChange={e =>
-                        setEditP({
-                          ...editP,
-                          lowStockAt: Number(e.target.value) || 0,
-                        })
-                      }
-                    />
-                  </div>
-                </>
-              )}
-              {editP.id && (
-                <div className="col-span-2 flex items-center gap-2">
-                  <Label>สถานะ:</Label>
-                  <Button
-                    size="sm"
-                    variant={editP.active ? "outline" : "default"}
-                    onClick={() =>
-                      setEditP({ ...editP, active: !editP.active })
-                    }
-                  >
-                    {editP.active ? "ปิดการขาย" : "เปิดการขาย"}
-                  </Button>
                 </div>
-              )}
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รหัสสินค้า
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editP.code}
+                      disabled={!!editP.id}
+                      onChange={e =>
+                        setEditP({ ...editP, code: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อสินค้า
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editP.name}
+                      onChange={e =>
+                        setEditP({ ...editP, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หมวด
+                    </Label>
+                    <Select
+                      value={editP.category}
+                      onValueChange={v =>
+                        setEditP({
+                          ...editP,
+                          category: v as typeof editP.category,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fuel">น้ำมัน</SelectItem>
+                        <SelectItem value="lubricant">
+                          2T/น้ำมันเครื่อง
+                        </SelectItem>
+                        <SelectItem value="other">สินค้าอื่นๆ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      หน่วย
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editP.unit}
+                      onChange={e =>
+                        setEditP({ ...editP, unit: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Gauge className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ราคาและสต๊อก
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ราคาขาย ต้นทุน และจุดแจ้งเตือนสต๊อก
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ราคาขาย
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="bg-white"
+                      value={editP.price || ""}
+                      onChange={e =>
+                        setEditP({
+                          ...editP,
+                          price: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                    {editP.id != null &&
+                      editP.category === "fuel" &&
+                      currentShift?.readings.some(
+                        reading => reading.product?.id === editP.id
+                      ) && (
+                        <p className="text-xs text-amber-700">
+                          ราคาใหม่จะมีผลทันที
+                          หลังเปลี่ยนราคาระหว่างกะให้ยึดมิเตอร์ P
+                          เป็นยอดเงินจริงตอนปิดกะ
+                        </p>
+                      )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ต้นทุน
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="bg-white"
+                      value={editP.cost || ""}
+                      onChange={e =>
+                        setEditP({
+                          ...editP,
+                          cost: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  {editP.category !== "fuel" && (
+                    <>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          สต๊อก
+                        </Label>
+                        <Input
+                          type="number"
+                          className="bg-white"
+                          value={editP.stockQty || ""}
+                          onChange={e =>
+                            setEditP({
+                              ...editP,
+                              stockQty: Number(e.target.value) || 0,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          แจ้งเตือนเมื่อต่ำกว่า
+                        </Label>
+                        <Input
+                          type="number"
+                          className="bg-white"
+                          value={editP.lowStockAt || ""}
+                          onChange={e =>
+                            setEditP({
+                              ...editP,
+                              lowStockAt: Number(e.target.value) || 0,
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  )}
+                  {editP.id && (
+                    <div className="flex items-center gap-2 sm:col-span-2">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        สถานะ:
+                      </Label>
+                      <Button
+                        size="sm"
+                        variant={editP.active ? "outline" : "default"}
+                        onClick={() =>
+                          setEditP({ ...editP, active: !editP.active })
+                        }
+                      >
+                        {editP.active ? "ปิดการขาย" : "เปิดการขาย"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           )}
           {(saveProduct.error || createProduct.error) && (
-            <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+            <div className="mx-4 mb-4 flex shrink-0 gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:mx-5">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>{(saveProduct.error || createProduct.error)?.message}</p>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -2640,48 +2809,84 @@ export default function Settings() {
 
       {/* Dialog ประวัติเปลี่ยนราคา */}
       <Dialog open={!!histP} onOpenChange={o => !o && setHistP(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              ประวัติเปลี่ยนราคา — {histP?.name}
-            </DialogTitle>
-          </DialogHeader>
-          {(priceHist ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              ยังไม่มีการเปลี่ยนราคา
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>วันที่เวลา</TableHead>
-                    <TableHead className="text-right">ราคาเดิม</TableHead>
-                    <TableHead className="text-right">ราคาใหม่</TableHead>
-                    <TableHead>ผู้เปลี่ยน</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(priceHist ?? []).map(h => (
-                    <TableRow key={h.id}>
-                      <TableCell className="text-sm">
-                        {fmtDateTime(h.createdAt)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ฿{fmtMoney(h.oldPrice)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-primary">
-                        ฿{fmtMoney(h.newPrice)}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {h.changedBy || "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <History className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Price history
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  ประวัติเปลี่ยนราคา — {histP?.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  รายการปรับราคาย้อนหลังทั้งหมดของสินค้านี้
+                </DialogDescription>
+              </div>
             </div>
-          )}
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <History className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ประวัติการเปลี่ยนราคา
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    บันทึกทุกครั้งที่มีการปรับราคาขาย
+                  </p>
+                </div>
+              </div>
+              <div className="p-4">
+                {(priceHist ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    ยังไม่มีการเปลี่ยนราคา
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>วันที่เวลา</TableHead>
+                          <TableHead className="text-right">ราคาเดิม</TableHead>
+                          <TableHead className="text-right">ราคาใหม่</TableHead>
+                          <TableHead>ผู้เปลี่ยน</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(priceHist ?? []).map(h => (
+                          <TableRow key={h.id}>
+                            <TableCell className="text-sm">
+                              {fmtDateTime(h.createdAt)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              ฿{fmtMoney(h.oldPrice)}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold text-primary">
+                              ฿{fmtMoney(h.newPrice)}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {h.changedBy || "-"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -2690,69 +2895,106 @@ export default function Settings() {
         open={!!editAccessGroup}
         onOpenChange={open => !open && setEditAccessGroup(null)}
       >
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {editAccessGroup?.id ? "แก้ไขกลุ่มสิทธิ์" : "เพิ่มกลุ่มสิทธิ์"}
-            </DialogTitle>
-            <DialogDescription>
-              สมาชิกทุกคนในกลุ่มจะเห็นและเข้าใช้งานเฉพาะเมนูที่เปิดไว้
-            </DialogDescription>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-3xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Access group
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {editAccessGroup?.id ? "แก้ไขกลุ่มสิทธิ์" : "เพิ่มกลุ่มสิทธิ์"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  สมาชิกทุกคนในกลุ่มจะเห็นและเข้าใช้งานเฉพาะเมนูที่เปิดไว้
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {editAccessGroup && (
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>ชื่อกลุ่ม</Label>
-                  <Input
-                    value={editAccessGroup.name}
-                    onChange={event =>
-                      setEditAccessGroup({
-                        ...editAccessGroup,
-                        name: event.target.value,
-                      })
-                    }
-                    placeholder="เช่น พนักงานหน้าลาน"
-                  />
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <UsersRound className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลกลุ่มสิทธิ์
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ ระดับผู้ใช้ และรายละเอียดของกลุ่ม
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>ระดับผู้ใช้ของกลุ่ม</Label>
-                  <Select
-                    value={editAccessGroup.role}
-                    disabled={Boolean(editAccessGroup.id)}
-                    onValueChange={value =>
-                      setEditAccessGroup({
-                        ...editAccessGroup,
-                        role: value as "manager" | "cashier",
-                        menuPermissions: getRoleMenuPermissions(
-                          value as "manager" | "cashier"
-                        ),
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cashier">พนักงานขาย</SelectItem>
-                      <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อกลุ่ม
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editAccessGroup.name}
+                      onChange={event =>
+                        setEditAccessGroup({
+                          ...editAccessGroup,
+                          name: event.target.value,
+                        })
+                      }
+                      placeholder="เช่น พนักงานหน้าลาน"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ระดับผู้ใช้ของกลุ่ม
+                    </Label>
+                    <Select
+                      value={editAccessGroup.role}
+                      disabled={Boolean(editAccessGroup.id)}
+                      onValueChange={value =>
+                        setEditAccessGroup({
+                          ...editAccessGroup,
+                          role: value as "manager" | "cashier",
+                          menuPermissions: getRoleMenuPermissions(
+                            value as "manager" | "cashier"
+                          ),
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                        <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รายละเอียด
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editAccessGroup.description}
+                      onChange={event =>
+                        setEditAccessGroup({
+                          ...editAccessGroup,
+                          description: event.target.value,
+                        })
+                      }
+                      placeholder="อธิบายหน้าที่หรือขอบเขตของกลุ่ม"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>รายละเอียด</Label>
-                <Input
-                  value={editAccessGroup.description}
-                  onChange={event =>
-                    setEditAccessGroup({
-                      ...editAccessGroup,
-                      description: event.target.value,
-                    })
-                  }
-                  placeholder="อธิบายหน้าที่หรือขอบเขตของกลุ่ม"
-                />
-              </div>
+              </section>
               <MenuPermissionEditor
                 role={editAccessGroup.role}
                 value={editAccessGroup.menuPermissions}
@@ -2762,7 +3004,7 @@ export default function Settings() {
               />
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -2798,84 +3040,132 @@ export default function Settings() {
 
       {/* Dialog พนักงาน */}
       <Dialog open={showBranch} onOpenChange={setShowBranch}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="font-heading">เพิ่มสาขา</DialogTitle>
-            <DialogDescription>
-              ระบบจะสร้างพื้นที่ข้อมูลแยก และเริ่มเลขเอกสารของสาขาใหม่จาก 1
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>รหัสสาขา</Label>
-              <Input
-                value={newBranch.code}
-                onChange={event =>
-                  setNewBranch({
-                    ...newBranch,
-                    code: event.target.value.toUpperCase(),
-                  })
-                }
-                placeholder="เช่น BKK01"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>ชื่อสาขา</Label>
-              <Input
-                value={newBranch.name}
-                onChange={event =>
-                  setNewBranch({ ...newBranch, name: event.target.value })
-                }
-                placeholder="เช่น สาขากรุงเทพ"
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label>ที่อยู่</Label>
-              <Textarea
-                value={newBranch.address}
-                onChange={event =>
-                  setNewBranch({ ...newBranch, address: event.target.value })
-                }
-                rows={2}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>โทรศัพท์</Label>
-              <Input
-                value={newBranch.phone}
-                onChange={event =>
-                  setNewBranch({ ...newBranch, phone: event.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>เลขประจำตัวผู้เสียภาษี</Label>
-              <Input
-                value={newBranch.taxId}
-                onChange={event =>
-                  setNewBranch({ ...newBranch, taxId: event.target.value })
-                }
-              />
-            </div>
-            <label className="flex items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
-              <div>
-                <div className="text-sm font-medium">
-                  คัดลอกโครงสร้างจากสาขาปัจจุบัน
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Store className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New branch
+                  </span>
                 </div>
-                <div className="mt-0.5 text-xs text-muted-foreground">
-                  คัดลอกสินค้า หัวจ่าย ถัง รางวัล และกะงาน
-                  แต่เริ่มสต็อก/มิเตอร์ที่ศูนย์
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  เพิ่มสาขา
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ระบบจะสร้างพื้นที่ข้อมูลแยก และเริ่มเลขเอกสารของสาขาใหม่จาก 1
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Store className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ข้อมูลสาขา
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    รหัส ชื่อ ที่อยู่ และข้อมูลติดต่อ
+                  </p>
                 </div>
               </div>
-              <Switch
-                checked={newBranch.cloneCurrentSetup}
-                onCheckedChange={cloneCurrentSetup =>
-                  setNewBranch({ ...newBranch, cloneCurrentSetup })
-                }
-              />
-            </label>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    รหัสสาขา
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newBranch.code}
+                    onChange={event =>
+                      setNewBranch({
+                        ...newBranch,
+                        code: event.target.value.toUpperCase(),
+                      })
+                    }
+                    placeholder="เช่น BKK01"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ชื่อสาขา
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newBranch.name}
+                    onChange={event =>
+                      setNewBranch({ ...newBranch, name: event.target.value })
+                    }
+                    placeholder="เช่น สาขากรุงเทพ"
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ที่อยู่
+                  </Label>
+                  <Textarea
+                    className="bg-white"
+                    value={newBranch.address}
+                    onChange={event =>
+                      setNewBranch({ ...newBranch, address: event.target.value })
+                    }
+                    rows={2}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    โทรศัพท์
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newBranch.phone}
+                    onChange={event =>
+                      setNewBranch({ ...newBranch, phone: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    เลขประจำตัวผู้เสียภาษี
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newBranch.taxId}
+                    onChange={event =>
+                      setNewBranch({ ...newBranch, taxId: event.target.value })
+                    }
+                  />
+                </div>
+                <label className="flex items-center justify-between gap-3 rounded-xl border bg-slate-50 p-3 sm:col-span-2">
+                  <div>
+                    <div className="text-sm font-medium">
+                      คัดลอกโครงสร้างจากสาขาปัจจุบัน
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      คัดลอกสินค้า หัวจ่าย ถัง รางวัล และกะงาน
+                      แต่เริ่มสต็อก/มิเตอร์ที่ศูนย์
+                    </div>
+                  </div>
+                  <Switch
+                    checked={newBranch.cloneCurrentSetup}
+                    onCheckedChange={cloneCurrentSetup =>
+                      setNewBranch({ ...newBranch, cloneCurrentSetup })
+                    }
+                  />
+                </label>
+              </div>
+            </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -2892,75 +3182,119 @@ export default function Settings() {
       </Dialog>
 
       <Dialog open={showStaff} onOpenChange={setShowStaff}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-heading">เพิ่มพนักงาน</DialogTitle>
-            <DialogDescription>
-              กรอกข้อมูลบัญชีและเลือกเมนูที่พนักงานคนนี้สามารถใช้งานได้
-            </DialogDescription>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-3xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <UsersRound className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New staff
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  เพิ่มพนักงาน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กรอกข้อมูลบัญชีและเลือกเมนูที่พนักงานคนนี้สามารถใช้งานได้
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>ชื่อ-นามสกุล</Label>
-              <Input
-                value={newStaff.name}
-                onChange={e =>
-                  setNewStaff({ ...newStaff, name: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>ชื่อผู้ใช้</Label>
-              <Input
-                value={newStaff.username}
-                onChange={e =>
-                  setNewStaff({ ...newStaff, username: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>รหัสผ่าน Supabase Auth (อย่างน้อย 10 ตัว)</Label>
-              <Input
-                type="password"
-                value={newStaff.password}
-                onChange={e =>
-                  setNewStaff({ ...newStaff, password: e.target.value })
-                }
-                aria-invalid={
-                  newStaff.password.length > 0 &&
-                  staffPasswordValidationMessage(newStaff.password) !== null
-                }
-              />
-              {newStaff.password.length > 0 &&
-                staffPasswordValidationMessage(newStaff.password) && (
-                  <p className="text-xs font-medium text-destructive">
-                    {staffPasswordValidationMessage(newStaff.password)}
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <UserCog className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ข้อมูลบัญชีพนักงาน
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    ชื่อ ชื่อผู้ใช้ รหัสผ่าน และระดับสิทธิ์
                   </p>
-                )}
-            </div>
-            <div className="space-y-1.5">
-              <Label>สิทธิ์</Label>
-              <Select
-                value={newStaff.role}
-                onValueChange={v =>
-                  setNewStaff({
-                    ...newStaff,
-                    role: v as "admin" | "manager" | "cashier",
-                    accessGroupId: null,
-                    menuPermissions: getRoleMenuPermissions(v as StaffRole),
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cashier">พนักงานขาย</SelectItem>
-                  <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
-                  <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                </div>
+              </div>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ชื่อ-นามสกุล
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newStaff.name}
+                    onChange={e =>
+                      setNewStaff({ ...newStaff, name: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ชื่อผู้ใช้
+                  </Label>
+                  <Input
+                    className="bg-white"
+                    value={newStaff.username}
+                    onChange={e =>
+                      setNewStaff({ ...newStaff, username: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    รหัสผ่าน Supabase Auth (อย่างน้อย 10 ตัว)
+                  </Label>
+                  <Input
+                    type="password"
+                    className="bg-white"
+                    value={newStaff.password}
+                    onChange={e =>
+                      setNewStaff({ ...newStaff, password: e.target.value })
+                    }
+                    aria-invalid={
+                      newStaff.password.length > 0 &&
+                      staffPasswordValidationMessage(newStaff.password) !== null
+                    }
+                  />
+                  {newStaff.password.length > 0 &&
+                    staffPasswordValidationMessage(newStaff.password) && (
+                      <p className="text-xs font-medium text-destructive">
+                        {staffPasswordValidationMessage(newStaff.password)}
+                      </p>
+                    )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    สิทธิ์
+                  </Label>
+                  <Select
+                    value={newStaff.role}
+                    onValueChange={v =>
+                      setNewStaff({
+                        ...newStaff,
+                        role: v as "admin" | "manager" | "cashier",
+                        accessGroupId: null,
+                        menuPermissions: getRoleMenuPermissions(v as StaffRole),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                      <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
+                      <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </section>
             <StaffBranchSelector
               branches={(allBranches ?? []).filter(branch => branch.active)}
               value={newStaff.branchIds}
@@ -2979,7 +3313,7 @@ export default function Settings() {
               }
             />
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -3002,75 +3336,123 @@ export default function Settings() {
 
       {/* Dialog แก้ไขพนักงาน */}
       <Dialog open={!!editS} onOpenChange={o => !o && setEditS(null)}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-heading">แก้ไขพนักงาน</DialogTitle>
-            <DialogDescription>
-              แก้ไขข้อมูลบัญชีและกำหนดสิทธิ์เมนูสำหรับพนักงานคนนี้
-            </DialogDescription>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-3xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <UserCog className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Edit staff
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  แก้ไขพนักงาน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  แก้ไขข้อมูลบัญชีและกำหนดสิทธิ์เมนูสำหรับพนักงานคนนี้
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {editS && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อ-นามสกุล</Label>
-                <Input
-                  value={editS.name}
-                  onChange={e => setEditS({ ...editS, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ชื่อผู้ใช้</Label>
-                <Input
-                  value={editS.username}
-                  onChange={e =>
-                    setEditS({ ...editS, username: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</Label>
-                <Input
-                  type="password"
-                  value={editS.password}
-                  onChange={e =>
-                    setEditS({ ...editS, password: e.target.value })
-                  }
-                  placeholder="อย่างน้อย 10 ตัวอักษร"
-                  aria-invalid={
-                    editS.password.length > 0 &&
-                    staffPasswordValidationMessage(editS.password) !== null
-                  }
-                />
-                {editS.password.length > 0 &&
-                  staffPasswordValidationMessage(editS.password) && (
-                    <p className="text-xs font-medium text-destructive">
-                      {staffPasswordValidationMessage(editS.password)}
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <UserCog className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลบัญชีพนักงาน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ ชื่อผู้ใช้ รหัสผ่าน และระดับสิทธิ์
                     </p>
-                  )}
-              </div>
-              <div className="space-y-1.5">
-                <Label>สิทธิ์</Label>
-                <Select
-                  value={editS.role}
-                  onValueChange={v =>
-                    setEditS({
-                      ...editS,
-                      role: v as "admin" | "manager" | "cashier",
-                      accessGroupId: null,
-                      menuPermissions: getRoleMenuPermissions(v as StaffRole),
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cashier">พนักงานขาย</SelectItem>
-                    <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
-                    <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                  </SelectContent>
-              </Select>
-            </div>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อ-นามสกุล
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editS.name}
+                      onChange={e =>
+                        setEditS({ ...editS, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อผู้ใช้
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editS.username}
+                      onChange={e =>
+                        setEditS({ ...editS, username: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)
+                    </Label>
+                    <Input
+                      type="password"
+                      className="bg-white"
+                      value={editS.password}
+                      onChange={e =>
+                        setEditS({ ...editS, password: e.target.value })
+                      }
+                      placeholder="อย่างน้อย 10 ตัวอักษร"
+                      aria-invalid={
+                        editS.password.length > 0 &&
+                        staffPasswordValidationMessage(editS.password) !== null
+                      }
+                    />
+                    {editS.password.length > 0 &&
+                      staffPasswordValidationMessage(editS.password) && (
+                        <p className="text-xs font-medium text-destructive">
+                          {staffPasswordValidationMessage(editS.password)}
+                        </p>
+                      )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      สิทธิ์
+                    </Label>
+                    <Select
+                      value={editS.role}
+                      onValueChange={v =>
+                        setEditS({
+                          ...editS,
+                          role: v as "admin" | "manager" | "cashier",
+                          accessGroupId: null,
+                          menuPermissions: getRoleMenuPermissions(
+                            v as StaffRole
+                          ),
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cashier">พนักงานขาย</SelectItem>
+                        <SelectItem value="manager">ผู้จัดการสาขา</SelectItem>
+                        <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
               <StaffBranchSelector
                 branches={(allBranches ?? []).filter(branch => branch.active)}
                 value={editS.branchIds}
@@ -3090,7 +3472,7 @@ export default function Settings() {
               />
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -3125,108 +3507,167 @@ export default function Settings() {
 
       {/* Dialog แก้ไขหัวจ่าย */}
       <Dialog open={!!editN} onOpenChange={o => !o && setEditN(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">แก้ไขหัวจ่าย</DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Gauge className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Nozzle
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  แก้ไขหัวจ่าย
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ปรับชื่อหัวจ่าย ถังที่ตัดสต๊อก และค่ามิเตอร์สะสม
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {editN && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อหัวจ่าย</Label>
-                <Input
-                  value={editN.label}
-                  onChange={e => setEditN({ ...editN, label: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ชนิดน้ำมันที่จ่าย</Label>
-                <Select
-                  value={String(editN.productId)}
-                  onValueChange={v => {
-                    const productId = Number(v);
-                    const firstTank = (tanks ?? []).find(
-                      tank => tank.productId === productId
-                    );
-                    setEditN({
-                      ...editN,
-                      productId,
-                      tankId: firstTank?.id ?? null,
-                    });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(products ?? [])
-                      .filter(p => p.category === "fuel" && p.active)
-                      .map(p => (
-                        <SelectItem key={p.id} value={String(p.id)}>
-                          {p.name} ({p.code})
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>ถังน้ำมันที่ตัดสต๊อก</Label>
-                <Select
-                  value={
-                    editN.tankId != null ? String(editN.tankId) : undefined
-                  }
-                  onValueChange={v => setEditN({ ...editN, tankId: Number(v) })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกถังน้ำมัน" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(tanks ?? [])
-                      .filter(tank => tank.productId === editN.productId)
-                      .map(tank => (
-                        <SelectItem key={tank.id} value={String(tank.id)}>
-                          {tank.name} (คงเหลือ {fmtNum(tank.currentLiters)}{" "}
-                          ลิตร)
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                {(tanks ?? []).filter(
-                  tank => tank.productId === editN.productId
-                ).length === 0 && (
-                  <p className="text-xs text-destructive">
-                    ยังไม่มีถังสำหรับน้ำมันชนิดนี้ กรุณาเพิ่มถังในหน้า “สต๊อก”
-                    ก่อน
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Fuel className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลหัวจ่าย
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ ชนิดน้ำมัน ถังน้ำมัน และมิเตอร์
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อหัวจ่าย
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editN.label}
+                      onChange={e =>
+                        setEditN({ ...editN, label: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชนิดน้ำมันที่จ่าย
+                    </Label>
+                    <Select
+                      value={String(editN.productId)}
+                      onValueChange={v => {
+                        const productId = Number(v);
+                        const firstTank = (tanks ?? []).find(
+                          tank => tank.productId === productId
+                        );
+                        setEditN({
+                          ...editN,
+                          productId,
+                          tankId: firstTank?.id ?? null,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(products ?? [])
+                          .filter(p => p.category === "fuel" && p.active)
+                          .map(p => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                              {p.name} ({p.code})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ถังน้ำมันที่ตัดสต๊อก
+                    </Label>
+                    <Select
+                      value={
+                        editN.tankId != null ? String(editN.tankId) : undefined
+                      }
+                      onValueChange={v =>
+                        setEditN({ ...editN, tankId: Number(v) })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกถังน้ำมัน" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(tanks ?? [])
+                          .filter(tank => tank.productId === editN.productId)
+                          .map(tank => (
+                            <SelectItem key={tank.id} value={String(tank.id)}>
+                              {tank.name} (คงเหลือ {fmtNum(tank.currentLiters)}{" "}
+                              ลิตร)
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {(tanks ?? []).filter(
+                      tank => tank.productId === editN.productId
+                    ).length === 0 && (
+                      <p className="text-xs text-destructive">
+                        ยังไม่มีถังสำหรับน้ำมันชนิดนี้ กรุณาเพิ่มถังในหน้า
+                        “สต๊อก” ก่อน
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      มิเตอร์ P ปัจจุบัน (บาทสะสม)
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="bg-white"
+                      value={editN.money}
+                      onChange={e =>
+                        setEditN({
+                          ...editN,
+                          money: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      มิเตอร์ L ปัจจุบัน (ลิตรสะสม)
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="bg-white"
+                      value={editN.meter}
+                      onChange={e =>
+                        setEditN({
+                          ...editN,
+                          meter: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <p className="text-xs text-amber-600 sm:col-span-2">
+                    ⚠️ แก้มิเตอร์เฉพาะกรณีค่าในระบบไม่ตรงกับหน้าตู้จ่ายจริง
                   </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label>มิเตอร์ P ปัจจุบัน (บาทสะสม)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editN.money}
-                  onChange={e =>
-                    setEditN({ ...editN, money: Number(e.target.value) || 0 })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>มิเตอร์ L ปัจจุบัน (ลิตรสะสม)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={editN.meter}
-                  onChange={e =>
-                    setEditN({ ...editN, meter: Number(e.target.value) || 0 })
-                  }
-                />
-              </div>
-              <p className="text-xs text-amber-600">
-                ⚠️ แก้มิเตอร์เฉพาะกรณีค่าในระบบไม่ตรงกับหน้าตู้จ่ายจริง
-              </p>
+                </div>
+              </section>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -3252,47 +3693,95 @@ export default function Settings() {
 
       {/* Dialog ของรางวัล */}
       <Dialog open={!!editR} onOpenChange={o => !o && setEditR(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {editR?.id ? "แก้ไขของรางวัล" : "เพิ่มของรางวัล"}
-            </DialogTitle>
-          </DialogHeader>
-          {editR && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อของรางวัล</Label>
-                <Input
-                  value={editR.name}
-                  onChange={e => setEditR({ ...editR, name: e.target.value })}
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Gift className="h-6 w-6" />
               </div>
-              <div className="space-y-1.5">
-                <Label>แต้มที่ใช้แลก</Label>
-                <Input
-                  type="number"
-                  value={editR.pointsRequired || ""}
-                  onChange={e =>
-                    setEditR({
-                      ...editR,
-                      pointsRequired: Number(e.target.value) || 0,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>จำนวนคงเหลือ</Label>
-                <Input
-                  type="number"
-                  value={editR.stock || ""}
-                  onChange={e =>
-                    setEditR({ ...editR, stock: Number(e.target.value) || 0 })
-                  }
-                />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Reward
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {editR?.id ? "แก้ไขของรางวัล" : "เพิ่มของรางวัล"}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กำหนดแต้มที่ใช้แลกและจำนวนคงเหลือของของรางวัล
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {editR && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Gift className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      รายละเอียดของรางวัล
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ แต้มที่ใช้แลก และสต๊อกคงเหลือ
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อของรางวัล
+                    </Label>
+                    <Input
+                      className="bg-white"
+                      value={editR.name}
+                      onChange={e =>
+                        setEditR({ ...editR, name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      แต้มที่ใช้แลก
+                    </Label>
+                    <Input
+                      type="number"
+                      className="bg-white"
+                      value={editR.pointsRequired || ""}
+                      onChange={e =>
+                        setEditR({
+                          ...editR,
+                          pointsRequired: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      จำนวนคงเหลือ
+                    </Label>
+                    <Input
+                      type="number"
+                      className="bg-white"
+                      value={editR.stock || ""}
+                      onChange={e =>
+                        setEditR({
+                          ...editR,
+                          stock: Number(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!editR?.name || saveReward.isPending}

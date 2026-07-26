@@ -475,7 +475,7 @@ export default function Pos() {
       {/* ตะกร้า */}
       {(() => {
         const cartPanel = (
-          <Card className="h-fit gap-0 overflow-hidden border-white/90 py-0 shadow-[0_22px_58px_rgba(38,30,90,0.13)] lg:sticky lg:top-[108px] lg:col-span-2">
+          <Card className="h-fit shrink-0 gap-0 overflow-hidden border-white/90 py-0 shadow-[0_22px_58px_rgba(38,30,90,0.13)] lg:sticky lg:top-[108px] lg:col-span-2">
             <CardHeader className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-[#17143a] via-[#272162] to-[#154457] px-4 py-5 pr-14 text-white sm:px-5 lg:pr-5">
               <div className="surface-grid pointer-events-none absolute inset-0 opacity-50" />
               <div className="relative flex items-center justify-between gap-3">
@@ -901,7 +901,7 @@ export default function Pos() {
             <Sheet open={mobileCartOpen} onOpenChange={setMobileCartOpen}>
               <SheetContent
                 side="bottom"
-                className="max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] gap-0 overflow-y-auto rounded-t-2xl border-0 bg-transparent p-0 pb-[env(safe-area-inset-bottom)]"
+                className="max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] gap-0 overflow-y-auto overscroll-contain rounded-t-2xl border-0 bg-transparent p-0 pb-[env(safe-area-inset-bottom)]"
               >
                 <SheetHeader className="sr-only">
                   <SheetTitle>รายการขายและชำระเงิน</SheetTitle>

@@ -387,6 +387,7 @@ export default function Reports() {
                     <TableHead className="text-right">เงินทอน</TableHead>
                     <TableHead className="text-right">เงินสดนับได้</TableHead>
                     <TableHead className="text-right">เงินสดต่าง</TableHead>
+                    <TableHead className="text-right">เงินสดต่างเทียบ P</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -448,12 +449,30 @@ export default function Reports() {
                           "-"
                         )}
                       </TableCell>
+                      <TableCell className="text-right">
+                        {s.cashDiffP != null ? (
+                          <span
+                            className={
+                              s.cashDiffP < 0
+                                ? "text-red-600 font-medium"
+                                : s.cashDiffP > 0
+                                  ? "text-green-700 font-medium"
+                                  : ""
+                            }
+                          >
+                            {s.cashDiffP > 0 ? "+" : ""}฿
+                            {fmtMoney(s.cashDiffP)}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {r.shifts.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={12}
+                        colSpan={13}
                         className="text-center text-muted-foreground py-6"
                       >
                         ไม่มีกะในวันนี้

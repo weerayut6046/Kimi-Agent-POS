@@ -17,7 +17,7 @@ import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
-import { shiftCashSummary } from "../lib/cash";
+import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
 import {
   debtPayments,
@@ -808,7 +808,7 @@ export async function queryDailyReport(
       )
     )
     .orderBy(asc(shifts.openedAt));
-  const shiftsWithCash = await Promise.all(
+  const baseShifts = await Promise.all(
     shiftRows.map(async s => {
       // ใช้ snapshot ตอนปิดกะถ้ามี; กะเก่า (null) คำนวณย้อนหลังจากข้อมูลปัจจุบัน
       const cashExpected =
@@ -817,10 +817,29 @@ export async function queryDailyReport(
         ...s,
         cashExpected,
         cashDiff:
-          s.countedCash != null ? r2(s.countedCash - cashExpected) : null,
+          s.countedCash != null
+            ? r2(s.countedCash + (s.transferAmount ?? 0) - cashExpected)
+            : null,
       };
     })
   );
+  // เงินสดเทียบยอด P — ใช้ cashExpected ที่ resolve แล้วเป็นฐาน โดยไม่เขียนทับ expectedCash เดิม
+  const cashMeterRows = await attachShiftCashMeter(
+    db,
+    branchId,
+    baseShifts.map(s => ({
+      id: s.id,
+      expectedCash: s.cashExpected,
+      totalMoneyMeter: s.totalMoneyMeter,
+      countedCash: s.countedCash,
+      transferAmount: s.transferAmount,
+    }))
+  );
+  const shiftsWithCash = baseShifts.map((s, i) => ({
+    ...s,
+    cashExpectedP: cashMeterRows[i]!.cashExpectedP,
+    cashDiffP: cashMeterRows[i]!.cashDiffP,
+  }));
 
   // ---- ค่าใช้จ่ายของวัน (logic เดียวกับ expenses.list) ----
   const expenseResult = await queryExpenses(db, { branchId, start, end });

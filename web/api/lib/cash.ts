@@ -1,5 +1,12 @@
-import { and, eq, sql } from "drizzle-orm";
-import { debtPayments, expenses, sales, type Shift } from "@db/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import {
+  debtPayments,
+  expenses,
+  products,
+  saleItems,
+  sales,
+  type Shift,
+} from "@db/schema";
 import type { getDb } from "../queries/connection";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -65,4 +72,117 @@ export async function shiftCashSummary(
       shift.openingFloat + cashSales + cashDebtPayments - expensesTotal
     ),
   };
+}
+
+/**
+ * ยอดขายน้ำมัน (เฉพาะสินค้าหมวด fuel) จากบิล completed ของแต่ละกะ
+ * คิดตามสัดส่วนมูลค่าน้ำมันในบิล (total × ยอดน้ำมัน/subtotal)
+ * เพื่อให้สอดคล้องกับยอดบิลหลังหักส่วนลด (subtotal เป็น 0 ข้ามบิลนั้น)
+ */
+export async function shiftFuelSalesTotals(
+  db: ReturnType<typeof getDb>,
+  branchId: number,
+  shiftIds: number[]
+): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (shiftIds.length === 0) return result;
+  const saleRows = await db
+    .select({
+      id: sales.id,
+      shiftId: sales.shiftId,
+      subtotal: sales.subtotal,
+      total: sales.total,
+    })
+    .from(sales)
+    .where(
+      and(
+        eq(sales.branchId, branchId),
+        inArray(sales.shiftId, shiftIds),
+        eq(sales.status, "completed")
+      )
+    );
+  if (saleRows.length === 0) return result;
+  const fuelRows = await db
+    .select({
+      saleId: saleItems.saleId,
+      fuel: sql<number>`coalesce(sum(${saleItems.amount}),0)`.mapWith(Number),
+    })
+    .from(saleItems)
+    .innerJoin(products, eq(products.id, saleItems.productId))
+    .where(
+      and(
+        eq(saleItems.branchId, branchId),
+        inArray(
+          saleItems.saleId,
+          saleRows.map(r => r.id)
+        ),
+        eq(products.category, "fuel")
+      )
+    )
+    .groupBy(saleItems.saleId);
+  const fuelBySale = new Map(fuelRows.map(r => [r.saleId, r.fuel]));
+  for (const s of saleRows) {
+    if (s.shiftId == null || s.subtotal <= 0) continue;
+    const fuelAmount = fuelBySale.get(s.id) ?? 0;
+    if (fuelAmount <= 0) continue;
+    result.set(
+      s.shiftId,
+      (result.get(s.shiftId) ?? 0) + s.total * (fuelAmount / s.subtotal)
+    );
+  }
+  for (const [id, value] of result) result.set(id, r2(value));
+  return result;
+}
+
+export interface ShiftCashMeterColumns {
+  /** เงินสดควรมีเมื่อใช้ยอด P แทนยอดขายน้ำมันใน POS (null ถ้าไม่มี expectedCash หรือยอด P) */
+  cashExpectedP: number | null;
+  /** (นับได้ + ยอดโอน) − cashExpectedP */
+  cashDiffP: number | null;
+}
+
+/**
+ * แนบคอลัมน์เงินสดเทียบยอด P ให้แถวข้อมูลกะ
+ * cashExpectedP = expectedCash + ยอด P − ยอดขายน้ำมันตามบิล POS
+ * (แทนยอดขายน้ำมันใน POS ด้วยยอดจากมิเตอร์เงิน P เพื่อจับบิลที่ลืมเปิดใน POS)
+ * ฝั่งนับได้รวมยอดเงินโอนตอนปิดกะด้วย (นับได้ + โอน)
+ * คิดเฉพาะกะที่มี expectedCash และยอด P > 0 — กะเก่าก่อนระบบ P ได้ null
+ */
+export async function attachShiftCashMeter<
+  T extends {
+    id: number;
+    expectedCash: number | null;
+    totalMoneyMeter: number;
+    countedCash: number | null;
+    transferAmount: number | null;
+  },
+>(
+  db: ReturnType<typeof getDb>,
+  branchId: number,
+  rows: T[]
+): Promise<Array<T & ShiftCashMeterColumns>> {
+  const eligible = rows.filter(
+    r => r.expectedCash != null && r.totalMoneyMeter > 0
+  );
+  const fuelByShift = await shiftFuelSalesTotals(
+    db,
+    branchId,
+    eligible.map(r => r.id)
+  );
+  return rows.map(r => {
+    if (r.expectedCash == null || r.totalMoneyMeter <= 0) {
+      return { ...r, cashExpectedP: null, cashDiffP: null };
+    }
+    const cashExpectedP = r2(
+      r.expectedCash + r.totalMoneyMeter - (fuelByShift.get(r.id) ?? 0)
+    );
+    return {
+      ...r,
+      cashExpectedP,
+      cashDiffP:
+        r.countedCash != null
+          ? r2(r.countedCash + (r.transferAmount ?? 0) - cashExpectedP)
+          : null,
+    };
+  });
 }

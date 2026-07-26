@@ -49,6 +49,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -776,36 +777,76 @@ export default function Stock() {
 
       {/* Dialog รับน้ำมัน */}
       <Dialog open={!!refillTank} onOpenChange={o => !o && setRefillTank(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              รับน้ำมันเข้า{refillTank?.name}
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Fuel className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Fuel intake
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  รับน้ำมันเข้า{refillTank?.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  บันทึกจำนวนลิตรและต้นทุนต่อลิตรที่รับเข้าถัง
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>จำนวนลิตรที่รับเข้า</Label>
-              <Input
-                type="number"
-                min={0}
-                value={liters}
-                onChange={e => setLiters(e.target.value)}
-                placeholder="เช่น 10000"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>ต้นทุนต่อลิตร (บาท)</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={cost}
-                onChange={e => setCost(e.target.value)}
-                placeholder="เช่น 39.20"
-              />
-            </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Package className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    รายละเอียดการรับเข้า
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    จำนวนลิตรและต้นทุนของล็อตที่รับ
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    จำนวนลิตรที่รับเข้า
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={liters}
+                    onChange={e => setLiters(e.target.value)}
+                    placeholder="เช่น 10000"
+                    className="bg-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ต้นทุนต่อลิตร (บาท)
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={cost}
+                    onChange={e => setCost(e.target.value)}
+                    placeholder="เช่น 39.20"
+                    className="bg-white"
+                  />
+                </div>
+              </div>
+            </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!Number(liters) || refillMut.isPending}
@@ -825,53 +866,93 @@ export default function Stock() {
 
       {/* Dialog วัดระดับถัง */}
       <Dialog open={!!readTank} onOpenChange={o => !o && setReadTank(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              วัดระดับ{readTank?.name}
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Gauge className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Tank reading
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  วัดระดับ{readTank?.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  บันทึกค่าวัดระดับน้ำมันจริงเทียบกับยอดคำนวณในระบบ
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              ยอดคำนวณในระบบตอนนี้{" "}
-              <span className="font-semibold text-foreground number-display">
-                {fmtNum(readTank?.currentLiters ?? 0)}
-              </span>{" "}
-              ลิตร · ความจุ {fmtNum(readTank?.capacityLiters ?? 0)} ลิตร
-            </p>
-            <div className="space-y-1.5">
-              <Label>ลิตรที่วัดได้จริง</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.001"
-                value={readLiters}
-                onChange={e => setReadLiters(e.target.value)}
-                placeholder="เช่น 8540"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>หมายเหตุ (ไม่บังคับ)</Label>
-              <Input
-                value={readNote}
-                onChange={e => setReadNote(e.target.value)}
-                placeholder="เช่น วัดตอนเปิดปั๊ม"
-              />
-            </div>
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={readAdjust}
-                onCheckedChange={v => setReadAdjust(v === true)}
-              />
-              <span>
-                ปรับยอดสต็อกในระบบให้ตรงกับค่าที่วัด
-                <span className="block text-xs text-muted-foreground">
-                  ใช้เมื่อต้องการให้ยอดคำนวณเริ่มนับใหม่จากค่าวัดครั้งนี้
-                </span>
-              </span>
-            </label>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Gauge className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    บันทึกค่าวัด
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    กรอกลิตรที่วัดได้จริงจากถัง
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <p className="rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-600 sm:col-span-2">
+                  ยอดคำนวณในระบบตอนนี้{" "}
+                  <span className="font-semibold text-foreground number-display">
+                    {fmtNum(readTank?.currentLiters ?? 0)}
+                  </span>{" "}
+                  ลิตร · ความจุ {fmtNum(readTank?.capacityLiters ?? 0)} ลิตร
+                </p>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ลิตรที่วัดได้จริง
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.001"
+                    value={readLiters}
+                    onChange={e => setReadLiters(e.target.value)}
+                    placeholder="เช่น 8540"
+                    className="bg-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    หมายเหตุ (ไม่บังคับ)
+                  </Label>
+                  <Input
+                    value={readNote}
+                    onChange={e => setReadNote(e.target.value)}
+                    placeholder="เช่น วัดตอนเปิดปั๊ม"
+                    className="bg-white"
+                  />
+                </div>
+                <label className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-sm sm:col-span-2">
+                  <Checkbox
+                    checked={readAdjust}
+                    onCheckedChange={v => setReadAdjust(v === true)}
+                  />
+                  <span>
+                    ปรับยอดสต็อกในระบบให้ตรงกับค่าที่วัด
+                    <span className="block text-xs text-muted-foreground">
+                      ใช้เมื่อต้องการให้ยอดคำนวณเริ่มนับใหม่จากค่าวัดครั้งนี้
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={
@@ -896,93 +977,161 @@ export default function Stock() {
 
       {/* Dialog แก้ไขถัง (admin) */}
       <Dialog open={!!editTank} onOpenChange={o => !o && setEditTank(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">แก้ไขถังน้ำมัน</DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Pencil className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Edit tank
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  แก้ไขถังน้ำมัน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  แก้ไขข้อมูลถัง ระดับน้ำมัน และจุดแจ้งเตือนสต๊อกต่ำ
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {editTank && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อถัง</Label>
-                <Input
-                  value={editTank.name}
-                  onChange={e =>
-                    setEditTank({ ...editTank, name: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ชนิดน้ำมัน (สินค้า)</Label>
-                <Select
-                  value={String(editTank.productId)}
-                  onValueChange={v =>
-                    setEditTank({ ...editTank, productId: Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกชนิดน้ำมัน" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fuelProducts.map(p => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name} ({p.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  ถ้าถังยังผูกกับหัวจ่ายอยู่ ต้องเปลี่ยนถังของหัวจ่ายก่อน
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <Label>ระดับน้ำมันปัจจุบัน (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={editTank.currentLiters}
-                  onChange={e =>
-                    setEditTank({
-                      ...editTank,
-                      currentLiters: Number(e.target.value) || 0,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ความจุถัง (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={editTank.capacityLiters}
-                  onChange={e =>
-                    setEditTank({
-                      ...editTank,
-                      capacityLiters: Number(e.target.value) || 0,
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>แจ้งเตือนเมื่อต่ำกว่า (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={editTank.lowAlertAt}
-                  onChange={e =>
-                    setEditTank({
-                      ...editTank,
-                      lowAlertAt: Number(e.target.value) || 0,
-                    })
-                  }
-                />
-              </div>
-              <p className="text-xs text-amber-600">
-                ⚠️ ใช้สำหรับแก้ค่าคลาดเคลื่อนหรือหลังสอบเทียบถังเท่านั้น —
-                การรับน้ำมันปกติให้ใช้ปุ่ม "รับน้ำมันเข้าถัง"
-              </p>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Fuel className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลถัง
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อถังและชนิดน้ำมันที่บรรจุ
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อถัง
+                    </Label>
+                    <Input
+                      value={editTank.name}
+                      onChange={e =>
+                        setEditTank({ ...editTank, name: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชนิดน้ำมัน (สินค้า)
+                    </Label>
+                    <Select
+                      value={String(editTank.productId)}
+                      onValueChange={v =>
+                        setEditTank({ ...editTank, productId: Number(v) })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกชนิดน้ำมัน" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fuelProducts.map(p => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {p.name} ({p.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      ถ้าถังยังผูกกับหัวจ่ายอยู่ ต้องเปลี่ยนถังของหัวจ่ายก่อน
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Gauge className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ระดับน้ำมันและการแจ้งเตือน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ยอดคงเหลือ ความจุ และจุดแจ้งเตือน
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ระดับน้ำมันปัจจุบัน (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editTank.currentLiters}
+                      onChange={e =>
+                        setEditTank({
+                          ...editTank,
+                          currentLiters: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ความจุถัง (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={editTank.capacityLiters}
+                      onChange={e =>
+                        setEditTank({
+                          ...editTank,
+                          capacityLiters: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      แจ้งเตือนเมื่อต่ำกว่า (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editTank.lowAlertAt}
+                      onChange={e =>
+                        setEditTank({
+                          ...editTank,
+                          lowAlertAt: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 sm:col-span-2">
+                    ⚠️ ใช้สำหรับแก้ค่าคลาดเคลื่อนหรือหลังสอบเทียบถังเท่านั้น —
+                    การรับน้ำมันปกติให้ใช้ปุ่ม "รับน้ำมันเข้าถัง"
+                  </p>
+                </div>
+              </section>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={updateTankMut.isPending || !editTank?.name.trim()}
@@ -1006,78 +1155,154 @@ export default function Stock() {
 
       {/* Dialog เพิ่มถังน้ำมัน (admin) */}
       <Dialog open={!!addTank} onOpenChange={o => !o && setAddTank(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">เพิ่มถังน้ำมัน</DialogTitle>
-          </DialogHeader>
-          {addTank && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อถัง</Label>
-                <Input
-                  value={addTank.name}
-                  placeholder="เช่น ถัง GSH95"
-                  onChange={e =>
-                    setAddTank({ ...addTank, name: e.target.value })
-                  }
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Plus className="h-6 w-6" />
               </div>
-              <div className="space-y-1.5">
-                <Label>ชนิดน้ำมัน (สินค้า)</Label>
-                <Select
-                  value={addTank.productId}
-                  onValueChange={v => setAddTank({ ...addTank, productId: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกชนิดน้ำมัน" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {fuelProducts.map(p => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>ความจุถัง (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={addTank.capacityLiters}
-                  placeholder="เช่น 20000"
-                  onChange={e =>
-                    setAddTank({ ...addTank, capacityLiters: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ระดับน้ำมันเริ่มต้น (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={addTank.currentLiters}
-                  onChange={e =>
-                    setAddTank({ ...addTank, currentLiters: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>แจ้งเตือนเมื่อต่ำกว่า (ลิตร)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={addTank.lowAlertAt}
-                  placeholder="เช่น 4000"
-                  onChange={e =>
-                    setAddTank({ ...addTank, lowAlertAt: e.target.value })
-                  }
-                />
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New tank
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  เพิ่มถังน้ำมัน
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  สร้างถังใหม่และผูกกับชนิดน้ำมันที่บรรจุ
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {addTank && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Fuel className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลถัง
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อถังและชนิดน้ำมันที่บรรจุ
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อถัง
+                    </Label>
+                    <Input
+                      value={addTank.name}
+                      placeholder="เช่น ถัง GSH95"
+                      onChange={e =>
+                        setAddTank({ ...addTank, name: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชนิดน้ำมัน (สินค้า)
+                    </Label>
+                    <Select
+                      value={addTank.productId}
+                      onValueChange={v =>
+                        setAddTank({ ...addTank, productId: v })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกชนิดน้ำมัน" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fuelProducts.map(p => (
+                          <SelectItem key={p.id} value={String(p.id)}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <BellRing className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ความจุและการแจ้งเตือน
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ความจุ ยอดเริ่มต้น และจุดแจ้งเตือน
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ความจุถัง (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={addTank.capacityLiters}
+                      placeholder="เช่น 20000"
+                      onChange={e =>
+                        setAddTank({
+                          ...addTank,
+                          capacityLiters: e.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ระดับน้ำมันเริ่มต้น (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={addTank.currentLiters}
+                      onChange={e =>
+                        setAddTank({
+                          ...addTank,
+                          currentLiters: e.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      แจ้งเตือนเมื่อต่ำกว่า (ลิตร)
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={addTank.lowAlertAt}
+                      placeholder="เช่น 4000"
+                      onChange={e =>
+                        setAddTank({ ...addTank, lowAlertAt: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!addTankValid || createTankMut.isPending}
@@ -1100,34 +1325,74 @@ export default function Stock() {
 
       {/* Dialog ปรับสต๊อก */}
       <Dialog open={!!adjustP} onOpenChange={o => !o && setAdjustP(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              ปรับสต๊อก: {adjustP?.name}
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Package className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Stock adjustment
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  ปรับสต๊อก: {adjustP?.name}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  เพิ่มหรือลดยอดสต๊อกคงเหลือของสินค้า
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            คงเหลือปัจจุบัน: {fmtNum(adjustP?.stockQty ?? 0)} {adjustP?.unit}
-          </p>
-          <div className="space-y-1.5">
-            <Label>จำนวนที่เพิ่ม (+) หรือลด (-)</Label>
-            <Input
-              type="number"
-              value={adjustQty}
-              onChange={e => setAdjustQty(e.target.value)}
-              placeholder="เช่น 24 หรือ -2"
-            />
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Package className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ปรับยอดคงเหลือ
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    ระบุจำนวนที่ต้องการเพิ่มหรือลด
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 p-4">
+                <p className="rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-600">
+                  คงเหลือปัจจุบัน: {fmtNum(adjustP?.stockQty ?? 0)}{" "}
+                  {adjustP?.unit}
+                </p>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    จำนวนที่เพิ่ม (+) หรือลด (-)
+                  </Label>
+                  <Input
+                    type="number"
+                    value={adjustQty}
+                    onChange={e => setAdjustQty(e.target.value)}
+                    placeholder="เช่น 24 หรือ -2"
+                    className="bg-white"
+                  />
+                </div>
+                {adjustQty && (
+                  <p className="text-sm">
+                    หลังปรับ:{" "}
+                    <b>
+                      {fmtNum((adjustP?.stockQty ?? 0) + Number(adjustQty))}{" "}
+                      {adjustP?.unit}
+                    </b>
+                  </p>
+                )}
+              </div>
+            </section>
           </div>
-          {adjustQty && (
-            <p className="text-sm">
-              หลังปรับ:{" "}
-              <b>
-                {fmtNum((adjustP?.stockQty ?? 0) + Number(adjustQty))}{" "}
-                {adjustP?.unit}
-              </b>
-            </p>
-          )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!adjustQty || adjustMut.isPending}

@@ -1235,9 +1235,20 @@ export default function Shifts() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm">
                     นับได้ <b>฿{fmtMoney(countedTotal)}</b>
+                    {Number(transferVal) > 0 && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        (+โอน ฿{fmtMoney(Number(transferVal))} = ฿
+                        {fmtMoney(r2(countedTotal + Number(transferVal)))})
+                      </span>
+                    )}
                   </span>
                   <DiffBadge
-                    diff={r2(countedTotal - currentShift.cash.expectedCash)}
+                    diff={r2(
+                      countedTotal +
+                        (Number(transferVal) || 0) -
+                        currentShift.cash.expectedCash
+                    )}
                   />
                 </div>
               )}
@@ -1469,6 +1480,7 @@ export default function Shifts() {
                   <TableHead className="text-right">เงินทอน</TableHead>
                   <TableHead className="text-right">เงินสดนับได้</TableHead>
                   <TableHead>เงินสดต่าง</TableHead>
+                  <TableHead>เงินสดต่างเทียบ P</TableHead>
                   <TableHead className="text-right">ยอดโอน</TableHead>
                   <TableHead>สถานะ</TableHead>
                   <TableHead></TableHead>
@@ -1514,7 +1526,20 @@ export default function Shifts() {
                     </TableCell>
                     <TableCell>
                       {s.countedCash != null && s.expectedCash != null ? (
-                        <DiffBadge diff={r2(s.countedCash - s.expectedCash)} />
+                        <DiffBadge
+                          diff={r2(
+                            s.countedCash +
+                              (s.transferAmount ?? 0) -
+                              s.expectedCash
+                          )}
+                        />
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {s.cashDiffP != null ? (
+                        <DiffBadge diff={s.cashDiffP} />
                       ) : (
                         "-"
                       )}
@@ -1613,7 +1638,7 @@ export default function Shifts() {
                 {(history ?? []).length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={13}
+                      colSpan={14}
                       className="text-center text-muted-foreground py-8"
                     >
                       ยังไม่มีประวัติ
@@ -2096,160 +2121,248 @@ export default function Shifts() {
         open={detailId != null}
         onOpenChange={o => !o && setDetailId(null)}
       >
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              รายละเอียดกะ #{detailId}
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-4xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <ReceiptText className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Shift detail
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  รายละเอียดกะ #{detailId}
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  สรุปผลการขาย มิเตอร์หัวจ่าย และยอดเงินสดของกะนี้
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {detail && (
-            <div className="space-y-3 text-sm min-w-0">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  พนักงาน: <b>{detail.staffName}</b>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 text-sm min-w-0 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <UserRound className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลกะ
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      พนักงานผู้รับผิดชอบและเวลาเปิด–ปิดกะ
+                    </p>
+                  </div>
                 </div>
-                <div>เปิด: {fmtDateTime(detail.openedAt)}</div>
-                <div>
-                  ปิด: {detail.closedAt ? fmtDateTime(detail.closedAt) : "-"}
+                <div className="grid grid-cols-2 gap-2 p-4">
+                  <div>
+                    พนักงาน: <b>{detail.staffName}</b>
+                  </div>
+                  <div>เปิด: {fmtDateTime(detail.openedAt)}</div>
+                  <div>
+                    ปิด: {detail.closedAt ? fmtDateTime(detail.closedAt) : "-"}
+                  </div>
                 </div>
-              </div>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>หัวจ่าย</TableHead>
-                      <TableHead className="text-right">
-                        L ตั้งต้น → ปิด
-                      </TableHead>
-                      <TableHead className="text-right">ลิตร</TableHead>
-                      <TableHead className="text-right">
-                        P ตั้งต้น → ปิด
-                      </TableHead>
-                      <TableHead className="text-right">ยอดจากลิตร</TableHead>
-                      <TableHead className="text-right">ยอดจาก P</TableHead>
-                      <TableHead>เทียบ</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detail.readings.map(r => (
-                      <TableRow key={r.id}>
-                        <TableCell className="whitespace-nowrap">
-                          {r.nozzle?.label}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap text-xs">
-                          {fmtNum(r.openMeter)} →{" "}
-                          {r.closeMeter != null ? fmtNum(r.closeMeter) : "-"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {r.liters != null ? fmtNum(r.liters) : "-"}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap text-xs">
-                          {fmtNum(r.openMoney)} →{" "}
-                          {r.closeMoney != null ? fmtNum(r.closeMoney) : "-"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {r.amount != null ? `฿${fmtMoney(r.amount)}` : "-"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {r.money != null ? `฿${fmtMoney(r.money)}` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          <MeterDiffBadge
-                            diff={r.diff}
-                            priceChangedDuringShift={r.priceChangedDuringShift}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex flex-wrap items-center gap-4 bg-blue-50 rounded-xl p-3">
-                <div>
-                  ยอดจาก P: <b>฿{fmtMoney(detail.totalMoneyMeter)}</b>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Gauge className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      มิเตอร์หัวจ่าย
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ลิตรและยอดเงินที่ขายได้แยกตามหัวจ่าย
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  ยอดจากลิตร: <b>฿{fmtMoney(detail.totalAmount)}</b>
+                <div className="space-y-3 p-4">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>หัวจ่าย</TableHead>
+                          <TableHead className="text-right">
+                            L ตั้งต้น → ปิด
+                          </TableHead>
+                          <TableHead className="text-right">ลิตร</TableHead>
+                          <TableHead className="text-right">
+                            P ตั้งต้น → ปิด
+                          </TableHead>
+                          <TableHead className="text-right">
+                            ยอดจากลิตร
+                          </TableHead>
+                          <TableHead className="text-right">ยอดจาก P</TableHead>
+                          <TableHead>เทียบ</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {detail.readings.map(r => (
+                          <TableRow key={r.id}>
+                            <TableCell className="whitespace-nowrap">
+                              {r.nozzle?.label}
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap text-xs">
+                              {fmtNum(r.openMeter)} →{" "}
+                              {r.closeMeter != null ? fmtNum(r.closeMeter) : "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {r.liters != null ? fmtNum(r.liters) : "-"}
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap text-xs">
+                              {fmtNum(r.openMoney)} →{" "}
+                              {r.closeMoney != null ? fmtNum(r.closeMoney) : "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {r.amount != null
+                                ? `฿${fmtMoney(r.amount)}`
+                                : "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {r.money != null ? `฿${fmtMoney(r.money)}` : "-"}
+                            </TableCell>
+                            <TableCell>
+                              <MeterDiffBadge
+                                diff={r.diff}
+                                priceChangedDuringShift={
+                                  r.priceChangedDuringShift
+                                }
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 bg-blue-50 rounded-xl p-3">
+                    <div>
+                      ยอดจาก P: <b>฿{fmtMoney(detail.totalMoneyMeter)}</b>
+                    </div>
+                    <div>
+                      ยอดจากลิตร: <b>฿{fmtMoney(detail.totalAmount)}</b>
+                    </div>
+                    <div>
+                      รวมลิตร: <b>{fmtNum(detail.totalLiters)}</b>
+                    </div>
+                    <div>
+                      ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
+                    </div>
+                    {detail.status === "closed" && (
+                      <MeterDiffBadge
+                        diff={r2(detail.totalMoneyMeter - detail.totalAmount)}
+                        priceChangedDuringShift={detailHasPriceChange}
+                      />
+                    )}
+                  </div>
                 </div>
-                <div>
-                  รวมลิตร: <b>{fmtNum(detail.totalLiters)}</b>
-                </div>
-                <div>
-                  ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
-                </div>
-                {detail.status === "closed" && (
-                  <MeterDiffBadge
-                    diff={r2(detail.totalMoneyMeter - detail.totalAmount)}
-                    priceChangedDuringShift={detailHasPriceChange}
-                  />
-                )}
-              </div>
+              </section>
 
               {/* กระทบยอดเงินสด */}
-              <div className="border rounded-xl p-3 space-y-2">
-                <div className="font-medium">กระทบยอดเงินสด</div>
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-                  <span>
-                    เงินทอนเริ่มกะ: <b>฿{fmtMoney(detail.openingFloat)}</b>
-                  </span>
-                  <span>
-                    ขายเงินสด: <b>฿{fmtMoney(detail.cash.cashSales)}</b>
-                  </span>
-                  <span>
-                    ชำระหนี้เงินสด:{" "}
-                    <b>฿{fmtMoney(detail.cash.cashDebtPayments)}</b>
-                  </span>
-                  <span>
-                    ค่าใช้จ่าย: <b>฿{fmtMoney(detail.cash.expensesTotal)}</b>
-                  </span>
-                  <span>
-                    เงินสดควรมี:{" "}
-                    <b>
-                      ฿
-                      {fmtMoney(
-                        detail.expectedCash ?? detail.cash.expectedCash
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Banknote className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      กระทบยอดเงินสด
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      เงินทอนเริ่มกะ ยอดเงินสด และผลการนับเงิน
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2 p-4">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                    <span>
+                      เงินทอนเริ่มกะ: <b>฿{fmtMoney(detail.openingFloat)}</b>
+                    </span>
+                    <span>
+                      ขายเงินสด: <b>฿{fmtMoney(detail.cash.cashSales)}</b>
+                    </span>
+                    <span>
+                      ชำระหนี้เงินสด:{" "}
+                      <b>฿{fmtMoney(detail.cash.cashDebtPayments)}</b>
+                    </span>
+                    <span>
+                      ค่าใช้จ่าย: <b>฿{fmtMoney(detail.cash.expensesTotal)}</b>
+                    </span>
+                    <span>
+                      เงินสดควรมี:{" "}
+                      <b>
+                        ฿
+                        {fmtMoney(
+                          detail.expectedCash ?? detail.cash.expectedCash
+                        )}
+                      </b>
+                      {detail.expectedCash == null && (
+                        <span className="text-xs text-amber-600">
+                          {" "}
+                          (คำนวณย้อนหลัง)
+                        </span>
                       )}
-                    </b>
-                    {detail.expectedCash == null && (
-                      <span className="text-xs text-amber-600">
-                        {" "}
-                        (คำนวณย้อนหลัง)
+                    </span>
+                    {detail.countedCash != null && (
+                      <span className="flex items-center gap-2">
+                        นับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
+                        {detail.transferAmount != null && (
+                          <span className="text-muted-foreground">
+                            (+โอน ฿{fmtMoney(detail.transferAmount)} = ฿
+                            {fmtMoney(
+                              r2(detail.countedCash + detail.transferAmount)
+                            )}
+                            )
+                          </span>
+                        )}
+                        <DiffBadge
+                          diff={r2(
+                            detail.countedCash +
+                              (detail.transferAmount ?? 0) -
+                              (detail.expectedCash ?? detail.cash.expectedCash)
+                          )}
+                        />
                       </span>
                     )}
-                  </span>
-                  {detail.countedCash != null && (
-                    <span className="flex items-center gap-2">
-                      นับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
-                      <DiffBadge
-                        diff={r2(
-                          detail.countedCash -
-                            (detail.expectedCash ?? detail.cash.expectedCash)
+                    {detail.cashExpectedP != null && (
+                      <span className="flex items-center gap-2">
+                        ควรมีเทียบ P: <b>฿{fmtMoney(detail.cashExpectedP)}</b>
+                        {detail.cashDiffP != null && (
+                          <DiffBadge diff={detail.cashDiffP} />
                         )}
-                      />
-                    </span>
-                  )}
-                  {detail.transferAmount != null && (
-                    <span>
-                      ยอดเงินโอน: <b>฿{fmtMoney(detail.transferAmount)}</b>
-                    </span>
-                  )}
+                      </span>
+                    )}
+                    {detail.transferAmount != null && (
+                      <span>
+                        ยอดเงินโอน: <b>฿{fmtMoney(detail.transferAmount)}</b>
+                      </span>
+                    )}
+                  </div>
+                  {detail.cashCounts &&
+                    Object.keys(detail.cashCounts).length > 0 && (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground border-t pt-2">
+                        {CASH_DENOMINATIONS.filter(
+                          d => (detail.cashCounts?.[String(d)] ?? 0) > 0
+                        ).map(d => {
+                          const n = detail.cashCounts?.[String(d)] ?? 0;
+                          return (
+                            <span key={d}>
+                              {cashDenomLabel(d)} × {n} = ฿{fmtMoney(d * n)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                 </div>
-                {detail.cashCounts &&
-                  Object.keys(detail.cashCounts).length > 0 && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground border-t pt-2">
-                      {CASH_DENOMINATIONS.filter(
-                        d => (detail.cashCounts?.[String(d)] ?? 0) > 0
-                      ).map(d => {
-                        const n = detail.cashCounts?.[String(d)] ?? 0;
-                        return (
-                          <span key={d}>
-                            {cashDenomLabel(d)} × {n} = ฿{fmtMoney(d * n)}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-              </div>
+              </section>
             </div>
           )}
         </DialogContent>

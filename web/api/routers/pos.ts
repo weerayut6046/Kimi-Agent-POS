@@ -19,7 +19,7 @@ import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
-import { shiftCashSummary } from "../lib/cash";
+import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import {
   isValidCashCounts,
   sumCashCounts,
@@ -492,14 +492,18 @@ export const posRouter = createRouter({
           .where(and(eq(shifts.id, shift.id), eq(shifts.branchId, branchId)));
       });
 
+      // ฝั่งนับได้รวมยอดเงินโอนตอนปิดกะด้วย (นับได้ + โอน)
       const cashDiff =
-        countedCash != null ? r2(countedCash - cash.expectedCash) : null;
+        countedCash != null
+          ? r2(countedCash + (input.transferAmount ?? 0) - cash.expectedCash)
+          : null;
       logAudit({
         action: "close_shift",
         ...actorFromReq(ctx.req),
         detail:
           `ปิดกะ #${shift.id} (${shift.staffName}) ลิตร ${totalLiters} ยอด P ${totalMoneyMeter} ` +
-          `เงินทอน ${cash.openingFloat} เงินสดควรมี ${cash.expectedCash} นับได้ ${countedCash ?? "-"} ต่าง ${cashDiff ?? "-"}`,
+          `เงินทอน ${cash.openingFloat} เงินสดควรมี ${cash.expectedCash} นับได้ ${countedCash ?? "-"} ` +
+          `โอน ${input.transferAmount ?? "-"} ต่าง ${cashDiff ?? "-"}`,
         refType: "shift",
         refId: shift.id,
       });
@@ -513,12 +517,14 @@ export const posRouter = createRouter({
     }),
 
   shiftHistory: publicQuery.query(async ({ ctx }) => {
-    return getDb()
+    const db = getDb();
+    const rows = await db
       .select(shiftHistorySelection)
       .from(historyShifts)
       .where(eq(historyShifts.branchId, ctx.staff.branchId))
       .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
       .limit(50);
+    return attachShiftCashMeter(db, ctx.staff.branchId, rows);
   }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
@@ -548,12 +554,13 @@ export const posRouter = createRouter({
         exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
         conditions.push(lt(historyShifts.openedAt, exclusiveEnd));
       }
-      return getDb()
+      const rows = await getDb()
         .select(shiftHistorySelection)
         .from(historyShifts)
         .where(and(...conditions))
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input.limit);
+      return attachShiftCashMeter(getDb(), ctx.staff.branchId, rows);
     }),
 
   createShiftHistory: adminQuery
@@ -879,6 +886,16 @@ export const posRouter = createRouter({
           )
         );
       const cash = await shiftCashSummary(db, shift);
+      // เงินสดเทียบยอด P (ใช้ snapshot ตอนปิดกะถ้ามี ไม่งั้นคำนวณย้อนหลัง)
+      const [cashMeter] = await attachShiftCashMeter(db, branchId, [
+        {
+          id: shift.id,
+          expectedCash: shift.expectedCash ?? cash.expectedCash,
+          totalMoneyMeter: shift.totalMoneyMeter,
+          countedCash: shift.countedCash,
+          transferAmount: shift.transferAmount,
+        },
+      ]);
       // parse JSON การนับแบงก์/เหรียญ (กะเก่า/ข้อมูลเสีย → null)
       let cashCounts: CashCounts | null = null;
       if (shift.cashCounts) {
@@ -917,6 +934,8 @@ export const posRouter = createRouter({
         ...shift,
         cashCounts,
         cash, // สรุปเงินสด (กะเก่าที่ expectedCash เป็น null ใช้ยอดคำนวณย้อนหลังจากตัวนี้)
+        cashExpectedP: cashMeter.cashExpectedP,
+        cashDiffP: cashMeter.cashDiffP,
         sales: saleRows,
         priceChangedDuringShift: detailReadings.some(
           reading => reading.priceChangedDuringShift

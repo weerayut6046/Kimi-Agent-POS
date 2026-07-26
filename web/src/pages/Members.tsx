@@ -25,6 +25,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -320,30 +321,72 @@ export default function Members() {
 
       {/* Dialog สมัครสมาชิก */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">สมัครสมาชิกใหม่</DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <UserPlus className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New member
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  สมัครสมาชิกใหม่
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  กรอกชื่อและเบอร์โทรศัพท์เพื่อเปิดบัญชีสมาชิกสะสมแต้ม
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>ชื่อ-นามสกุล</Label>
-              <Input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="เช่น สมชาย ใจดี"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>เบอร์โทรศัพท์</Label>
-              <Input
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                inputMode="tel"
-                placeholder="08x-xxx-xxxx"
-              />
-            </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Users className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    ข้อมูลสมาชิก
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    ชื่อและเบอร์โทรศัพท์สำหรับติดต่อ
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 p-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ชื่อ-นามสกุล
+                  </Label>
+                  <Input
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="เช่น สมชาย ใจดี"
+                    className="bg-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    เบอร์โทรศัพท์
+                  </Label>
+                  <Input
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    inputMode="tel"
+                    placeholder="08x-xxx-xxxx"
+                    className="bg-white"
+                  />
+                </div>
+              </div>
+            </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!name || phone.length < 9 || createMut.isPending}
@@ -357,48 +400,96 @@ export default function Members() {
 
       {/* Dialog แก้ไขสมาชิก (admin) */}
       <Dialog open={!!editM} onOpenChange={o => !o && setEditM(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="font-heading">แก้ไขสมาชิก</DialogTitle>
-          </DialogHeader>
-          {editM && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>ชื่อ-นามสกุล</Label>
-                <Input
-                  value={editM.name}
-                  onChange={e => setEditM({ ...editM, name: e.target.value })}
-                />
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Pencil className="h-6 w-6" />
               </div>
-              <div className="space-y-1.5">
-                <Label>เบอร์โทรศัพท์</Label>
-                <Input
-                  value={editM.phone}
-                  onChange={e => setEditM({ ...editM, phone: e.target.value })}
-                  inputMode="tel"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>ระดับสมาชิก</Label>
-                <Select
-                  value={editM.tier}
-                  onValueChange={v =>
-                    setEditM({ ...editM, tier: v as typeof editM.tier })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="silver">ซิลเวอร์</SelectItem>
-                    <SelectItem value="gold">โกลด์</SelectItem>
-                    <SelectItem value="platinum">แพลทินัม</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Edit member
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  แก้ไขสมาชิก
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ปรับปรุงข้อมูลติดต่อและระดับสมาชิก
+                </DialogDescription>
               </div>
             </div>
+          </DialogHeader>
+          {editM && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Users className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ข้อมูลสมาชิก
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ชื่อ เบอร์โทรศัพท์ และระดับสมาชิก
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ชื่อ-นามสกุล
+                    </Label>
+                    <Input
+                      value={editM.name}
+                      onChange={e =>
+                        setEditM({ ...editM, name: e.target.value })
+                      }
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      เบอร์โทรศัพท์
+                    </Label>
+                    <Input
+                      value={editM.phone}
+                      onChange={e =>
+                        setEditM({ ...editM, phone: e.target.value })
+                      }
+                      inputMode="tel"
+                      className="bg-white"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      ระดับสมาชิก
+                    </Label>
+                    <Select
+                      value={editM.tier}
+                      onValueChange={v =>
+                        setEditM({ ...editM, tier: v as typeof editM.tier })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="silver">ซิลเวอร์</SelectItem>
+                        <SelectItem value="gold">โกลด์</SelectItem>
+                        <SelectItem value="platinum">แพลทินัม</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </section>
+            </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
               disabled={!editM?.name || updateMut.isPending}
@@ -412,142 +503,205 @@ export default function Members() {
 
       {/* Dialog จัดการสมาชิก */}
       <Dialog open={!!selected} onOpenChange={o => !o && setSelected(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              {selected?.name}{" "}
-              <span className="text-sm font-normal text-muted-foreground">
-                ({selected?.memberCode})
-              </span>
-            </DialogTitle>
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <Users className="h-6 w-6" />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    Member detail
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  {selected?.name}{" "}
+                  <span className="text-sm font-normal text-blue-100/80">
+                    ({selected?.memberCode})
+                  </span>
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  แลกของรางวัล ปรับแต้ม และตรวจสอบประวัติแต้มของสมาชิก
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
           {selected && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4 bg-blue-50 rounded-xl p-3">
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    แต้มคงเหลือ
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                    <Gift className="h-4 w-4" />
                   </div>
-                  <div className="font-heading text-2xl font-bold text-primary">
-                    {selected.points}
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      แต้มและของรางวัล
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      แต้มคงเหลือและรายการแลกรางวัล
+                    </p>
                   </div>
                 </div>
-                <Badge
-                  className={`${tierColor[selected.tier]} text-white ml-auto`}
-                >
-                  {tierLabel[selected.tier]}
-                </Badge>
-              </div>
-
-              {/* แลกของรางวัล */}
-              <div>
-                <div className="text-sm font-medium mb-2">แลกของรางวัล</div>
-                <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto">
-                  {(rewardList ?? [])
-                    .filter(r => r.active && r.stock > 0)
-                    .map(r => (
-                      <div
-                        key={r.id}
-                        className="flex items-center justify-between border rounded-lg px-3 py-1.5 text-sm"
-                      >
-                        <span>
-                          {r.name}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            ({r.pointsRequired} แต้ม)
-                          </span>
-                        </span>
-                        <Button
-                          size="sm"
-                          variant={
-                            selected.points >= r.pointsRequired
-                              ? "default"
-                              : "outline"
-                          }
-                          disabled={
-                            selected.points < r.pointsRequired ||
-                            redeemMut.isPending
-                          }
-                          onClick={() =>
-                            redeemMut.mutate({
-                              memberId: selected.id,
-                              rewardId: r.id,
-                            })
-                          }
-                        >
-                          แลก
-                        </Button>
+                <div className="space-y-4 p-4">
+                  <div className="flex items-center gap-4 bg-blue-50 rounded-xl p-3">
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        แต้มคงเหลือ
                       </div>
-                    ))}
+                      <div className="font-heading text-2xl font-bold text-primary">
+                        {selected.points}
+                      </div>
+                    </div>
+                    <Badge
+                      className={`${tierColor[selected.tier]} text-white ml-auto`}
+                    >
+                      {tierLabel[selected.tier]}
+                    </Badge>
+                  </div>
+
+                  {/* แลกของรางวัล */}
+                  <div>
+                    <div className="text-sm font-medium mb-2">แลกของรางวัล</div>
+                    <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto">
+                      {(rewardList ?? [])
+                        .filter(r => r.active && r.stock > 0)
+                        .map(r => (
+                          <div
+                            key={r.id}
+                            className="flex items-center justify-between border rounded-lg px-3 py-1.5 text-sm"
+                          >
+                            <span>
+                              {r.name}{" "}
+                              <span className="text-xs text-muted-foreground">
+                                ({r.pointsRequired} แต้ม)
+                              </span>
+                            </span>
+                            <Button
+                              size="sm"
+                              variant={
+                                selected.points >= r.pointsRequired
+                                  ? "default"
+                                  : "outline"
+                              }
+                              disabled={
+                                selected.points < r.pointsRequired ||
+                                redeemMut.isPending
+                              }
+                              onClick={() =>
+                                redeemMut.mutate({
+                                  memberId: selected.id,
+                                  rewardId: r.id,
+                                })
+                              }
+                            >
+                              แลก
+                            </Button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
 
               {/* ปรับแต้ม (admin) */}
               {isAdmin && (
-                <div className="border rounded-xl p-3 space-y-2">
-                  <div className="text-sm font-medium">ปรับแต้ม (แอดมิน)</div>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      placeholder="+/-"
-                      value={adjustPts}
-                      onChange={e => setAdjustPts(e.target.value)}
-                      className="w-24"
-                    />
-                    <Input
-                      placeholder="เหตุผล"
-                      value={adjustNote}
-                      onChange={e => setAdjustNote(e.target.value)}
-                    />
+                <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                  <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <Star className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        ปรับแต้ม (แอดมิน)
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        เพิ่มหรือหักแต้มพร้อมระบุเหตุผล
+                      </p>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={!adjustPts || !adjustNote || adjustMut.isPending}
-                    onClick={() =>
-                      adjustMut.mutate({
-                        memberId: selected.id,
-                        points: Number(adjustPts),
-                        note: adjustNote,
-                      })
-                    }
-                  >
-                    บันทึกปรับแต้ม
-                  </Button>
-                </div>
+                  <div className="space-y-3 p-4">
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        placeholder="+/-"
+                        value={adjustPts}
+                        onChange={e => setAdjustPts(e.target.value)}
+                        className="w-24 bg-white"
+                      />
+                      <Input
+                        placeholder="เหตุผล"
+                        value={adjustNote}
+                        onChange={e => setAdjustNote(e.target.value)}
+                        className="bg-white"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={
+                        !adjustPts || !adjustNote || adjustMut.isPending
+                      }
+                      onClick={() =>
+                        adjustMut.mutate({
+                          memberId: selected.id,
+                          points: Number(adjustPts),
+                          note: adjustNote,
+                        })
+                      }
+                    >
+                      บันทึกปรับแต้ม
+                    </Button>
+                  </div>
+                </section>
               )}
 
               {/* ประวัติแต้ม */}
-              <div>
-                <div className="text-sm font-medium mb-2">
-                  ประวัติแต้มล่าสุด
-                </div>
-                <div className="divide-y text-sm max-h-40 overflow-y-auto">
-                  {(txns ?? []).map(t => (
-                    <div
-                      key={t.id}
-                      className="py-1.5 flex justify-between gap-2"
-                    >
-                      <div>
-                        <div className="text-xs text-muted-foreground">
-                          {fmtDateTime(t.createdAt)}
-                        </div>
-                        <div>{t.note}</div>
-                      </div>
-                      <span
-                        className={`font-semibold ${t.points >= 0 ? "text-green-600" : "text-destructive"}`}
-                      >
-                        {t.points >= 0 ? "+" : ""}
-                        {t.points}
-                      </span>
-                    </div>
-                  ))}
-                  {(txns ?? []).length === 0 && (
-                    <p className="text-xs text-muted-foreground py-3 text-center">
-                      ยังไม่มีประวัติ
+              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <History className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      ประวัติแต้มล่าสุด
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      รายการเคลื่อนไหวของแต้ม
                     </p>
-                  )}
+                  </div>
                 </div>
-              </div>
+                <div className="p-4">
+                  <div className="divide-y text-sm max-h-40 overflow-y-auto">
+                    {(txns ?? []).map(t => (
+                      <div
+                        key={t.id}
+                        className="py-1.5 flex justify-between gap-2"
+                      >
+                        <div>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtDateTime(t.createdAt)}
+                          </div>
+                          <div>{t.note}</div>
+                        </div>
+                        <span
+                          className={`font-semibold ${t.points >= 0 ? "text-green-600" : "text-destructive"}`}
+                        >
+                          {t.points >= 0 ? "+" : ""}
+                          {t.points}
+                        </span>
+                      </div>
+                    ))}
+                    {(txns ?? []).length === 0 && (
+                      <p className="text-xs text-muted-foreground py-3 text-center">
+                        ยังไม่มีประวัติ
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
             </div>
           )}
         </DialogContent>

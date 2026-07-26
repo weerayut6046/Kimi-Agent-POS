@@ -15,6 +15,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -178,41 +179,78 @@ export default function TaxInvoices() {
 
       {/* เลือกบิลเพื่อออกใบกำกับภาษี (admin) */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">
-              เลือกบิลที่ต้องการออกใบกำกับภาษี
-            </DialogTitle>
-          </DialogHeader>
-          <Input
-            autoFocus
-            placeholder="ค้นหาเลขที่บิล"
-            value={addQ}
-            onChange={e => setAddQ(e.target.value)}
-          />
-          <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
-            {availableFiltered.map(s => (
-              <button
-                key={s.id}
-                className="w-full text-left px-3 py-2 hover:bg-accent flex justify-between gap-2 text-sm"
-                onClick={() => {
-                  setShowAdd(false);
-                  setAddQ("");
-                  setTaxSaleId(s.id);
-                }}
-              >
-                <span className="font-mono text-xs">{s.receiptNo}</span>
-                <span className="text-muted-foreground text-xs">
-                  {fmtDateTime(s.createdAt)}
-                </span>
-                <span className="font-semibold">฿{fmtMoney(s.total)}</span>
-              </button>
-            ))}
-            {availableFiltered.length === 0 && (
-              <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                ไม่มีบิลที่รอออกใบกำกับภาษี
+        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
+            <div className="relative flex items-center gap-3.5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+                <FileText className="h-6 w-6" />
               </div>
-            )}
+              <div className="min-w-0">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
+                    New tax invoice
+                  </span>
+                </div>
+                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
+                  เลือกบิลที่ต้องการออกใบกำกับภาษี
+                </DialogTitle>
+                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
+                  ค้นหาและเลือกใบเสร็จย่อที่ยังไม่ได้ออกใบกำกับภาษี
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Search className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    เลือกใบเสร็จย่อ
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    บิลขายที่ยังไม่มีใบกำกับภาษี
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-3 p-4">
+                <Input
+                  autoFocus
+                  placeholder="ค้นหาเลขที่บิล"
+                  value={addQ}
+                  onChange={e => setAddQ(e.target.value)}
+                  className="bg-white"
+                />
+                <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
+                  {availableFiltered.map(s => (
+                    <button
+                      key={s.id}
+                      className="w-full text-left px-3 py-2 hover:bg-accent flex justify-between gap-2 text-sm"
+                      onClick={() => {
+                        setShowAdd(false);
+                        setAddQ("");
+                        setTaxSaleId(s.id);
+                      }}
+                    >
+                      <span className="font-mono text-xs">{s.receiptNo}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {fmtDateTime(s.createdAt)}
+                      </span>
+                      <span className="font-semibold">฿{fmtMoney(s.total)}</span>
+                    </button>
+                  ))}
+                  {availableFiltered.length === 0 && (
+                    <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      ไม่มีบิลที่รอออกใบกำกับภาษี
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
           </div>
         </DialogContent>
       </Dialog>
