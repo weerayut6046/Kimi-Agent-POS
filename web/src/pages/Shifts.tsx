@@ -17,6 +17,7 @@ import {
   Eye,
   AlertTriangle,
   CheckCircle2,
+  History,
   Pencil,
   Plus,
   Search,
@@ -51,6 +52,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
@@ -959,6 +966,17 @@ export default function Shifts() {
         </Card>
       )}
 
+      <Tabs defaultValue="current" className="gap-4">
+        <TabsList className="w-full station-scrollbar">
+          <TabsTrigger value="current" className="flex-none sm:flex-1">
+            <Clock /> กะปัจจุบัน
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex-none sm:flex-1">
+            <History /> ประวัติการตัดกะ
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="current" className="mt-0 space-y-5">
       {/* ============ เปิดกะ ============ */}
       {!currentShift && (
         <Card>
@@ -1357,7 +1375,9 @@ export default function Shifts() {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
 
+        <TabsContent value="history" className="mt-0 space-y-5">
       {/* ============ ประวัติ ============ */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -1650,6 +1670,8 @@ export default function Shifts() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* เพิ่ม/แก้ไขประวัติตัดกะ — admin เท่านั้น */}
       <Dialog

@@ -27,10 +27,12 @@ import {
   Plus,
   Trash2,
   Gauge,
+  Banknote,
   BellRing,
   ChartNoAxesCombined,
   ShieldCheck,
   GripVertical,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,10 +63,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, categoryLabel } from "@/lib/format";
 import { getFuelLiquidTone } from "@/lib/fuelColors";
+import { summarizeTankValues, tankSaleValue } from "@/lib/stockValue";
 import type { Product } from "@db/schema";
 
 function TankLevelVisual({
@@ -319,6 +328,7 @@ export default function Stock() {
   const fuelProducts = (products ?? []).filter(
     p => p.category === "fuel" && p.active
   );
+  const stockSummary = summarizeTankValues(orderedTanks ?? []);
 
   const addTankValid =
     !!addTank &&
@@ -343,7 +353,51 @@ export default function Stock() {
       </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
 
-      {/* ถังน้ำมัน */}
+      <Tabs defaultValue="tanks" className="gap-4">
+        <TabsList className="w-full station-scrollbar">
+          <TabsTrigger value="tanks" className="flex-none sm:flex-1">
+            <Fuel /> ถังน้ำมัน
+          </TabsTrigger>
+          <TabsTrigger value="goods" className="flex-none sm:flex-1">
+            <Package /> สต๊อกสินค้า
+          </TabsTrigger>
+          <TabsTrigger value="history" className="flex-none sm:flex-1">
+            <History /> ประวัติ
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="tanks" className="mt-0">
+      {/* การ์ดถังน้ำมัน + มูลค่าน้ำมันคงเหลือ (ลิตรคงเหลือ × ราคาขายปัจจุบัน) */}
+      <Card className="interactive-card spotlight-card group gap-0 overflow-hidden py-0">
+        <span className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-emerald-100/70 blur-2xl" />
+        <CardContent className="relative space-y-5 p-5">
+          {stockSummary.byProduct.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-inner ring-1 ring-white">
+              <Banknote className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-medium text-slate-500">
+                มูลค่าน้ำมันคงเหลือ (ราคาขายปัจจุบัน)
+              </div>
+              <div className="mt-1 font-heading text-xl font-extrabold text-slate-900 number-display">
+                ฿{fmtMoney(stockSummary.total)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {stockSummary.byProduct.map(p => (
+                  <span
+                    key={p.productId}
+                    className="rounded-full bg-slate-50/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-100 number-display"
+                  >
+                    {p.name}: ฿{fmtMoney(p.value)} ({fmtNum(p.liters)} ล.)
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          )}
+
+          {/* ถังน้ำมัน */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-lg font-semibold flex items-center gap-2">
           <Fuel className="w-5 h-5 text-primary" /> ถังน้ำมัน
@@ -374,6 +428,7 @@ export default function Stock() {
             : "กดค้างที่ปุ่มจับบนการ์ด แล้วลากเพื่อสลับตำแหน่ง"}
         </div>
       )}
+      <div className="rounded-2xl bg-slate-50/70 p-3 ring-1 ring-slate-100 sm:p-4">
       <DndContext
         sensors={tankSensors}
         collisionDetection={closestCenter}
@@ -495,6 +550,24 @@ export default function Stock() {
                                 {fmtNum(t.lowAlertAt)} ล.
                               </div>
                             </div>
+                            <div className="col-span-2 rounded-xl bg-emerald-50/80 p-2.5 ring-1 ring-emerald-100">
+                              <Banknote className="size-3.5 text-emerald-500" />
+                              <div className="mt-1 text-[9px] text-slate-400">
+                                มูลค่า (ราคาขาย)
+                              </div>
+                              <div className="text-xs font-bold text-emerald-700 number-display">
+                                {t.product ? (
+                                  <>
+                                    ฿{fmtMoney(tankSaleValue(t))}
+                                    <span className="ml-1 font-medium text-slate-400">
+                                      (฿{fmtMoney(t.product.price)}/ลิตร)
+                                    </span>
+                                  </>
+                                ) : (
+                                  "—"
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -586,7 +659,12 @@ export default function Stock() {
           </div>
         </SortableContext>
       </DndContext>
+      </div>
+        </CardContent>
+      </Card>
+        </TabsContent>
 
+        <TabsContent value="goods" className="mt-0 space-y-5">
       {/* สต๊อกสินค้า */}
       <Card>
         <CardHeader>
@@ -654,7 +732,9 @@ export default function Stock() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
 
+        <TabsContent value="history" className="mt-0 space-y-5">
       {/* ประวัติรับน้ำมัน */}
       <Card>
         <CardHeader>
@@ -774,6 +854,8 @@ export default function Stock() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Dialog รับน้ำมัน */}
       <Dialog open={!!refillTank} onOpenChange={o => !o && setRefillTank(null)}>
