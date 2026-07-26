@@ -1,0 +1,4 @@
+# False positive: dummy HMAC key used only in tests (both gateway.test.ts files were later deleted).
+# Value "0123456789abcdef0123456789abcdef" is a placeholder, not a real credential.
+b3250dcb983058ea0e1f53b23320ae48ced9d7f9:supabase/functions/pos-api/gateway.test.ts:generic-api-key:5
+a11ff666f6f70e4b011684cf42c22d0d11648bfc:supabase/functions/pos-assistant/gateway.test.ts:generic-api-key:5
