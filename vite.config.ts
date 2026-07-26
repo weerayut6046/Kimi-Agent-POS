@@ -15,9 +15,9 @@ export default defineConfig(({ mode }) => {
     Boolean(supabaseUrl);
 
   if (!proxyTrpcToSupabase) {
-    // Vite loads .env.local for the browser, while dotenv/config in the local
-    // Hono entry only loads .env. Reuse the same public Supabase values so the
-    // local API can verify the JWT issued to the browser.
+    // env ทั้งโปรเจกต์อยู่ใน `.env` ไฟล์เดียว — Vite โหลด VITE_* ให้ browser
+    // ส่วน dotenv/config ใน local Hono entry อ่านไฟล์เดียวกัน ส่งต่อค่า
+    // public Supabase เดียวกันให้ local API verify JWT ที่ browser ได้รับ
     process.env.SUPABASE_URL ||= viteEnv.VITE_SUPABASE_URL;
     process.env.SUPABASE_PUBLISHABLE_KEY ||=
       viteEnv.VITE_SUPABASE_PUBLISHABLE_KEY;
