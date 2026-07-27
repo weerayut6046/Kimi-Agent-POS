@@ -34,6 +34,7 @@ export const paymentLabel: Record<string, string> = {
   qr: "QR พร้อมเพย์",
   card: "บัตร",
   credit: "เครดิต",
+  thungngern: "QR ถุงเงิน",
 };
 
 /** วิธีรับชำระหนี้ (ตาราง debt_payments) */

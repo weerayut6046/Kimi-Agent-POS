@@ -34,6 +34,7 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { DebtPaymentDoc } from "@/components/DebtPaymentDoc";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { printElement } from "@/lib/printDoc";
 import { fmtMoney, fmtDateTime, debtMethodLabel } from "@/lib/format";
 import type { DebtPayment } from "@db/schema";
@@ -167,6 +168,7 @@ function DebtDetailDialog({
   staffName: string;
   onClose: () => void;
 }) {
+  const confirmAction = useAppConfirm();
   const utils = trpc.useUtils();
   const { data: detail } = trpc.credit.detail.useQuery({ customerId });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
@@ -221,7 +223,10 @@ function DebtDetailDialog({
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="flex max-h-[94vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl sm:p-0">
+      <DialogContent
+        className="flex max-h-[min(94dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl sm:p-0"
+        aria-describedby={undefined}
+      >
         <div className="shrink-0 border-b border-violet-100 bg-gradient-to-br from-violet-50 via-white to-indigo-50 px-5 py-5 sm:px-7 sm:py-6">
           <DialogHeader className="pr-8 text-left">
             <div className="flex items-center gap-3">
@@ -403,9 +408,9 @@ function DebtDetailDialog({
                               className="text-destructive hover:bg-red-50 hover:text-destructive"
                               title="ลบรายการชำระ"
                               disabled={removePay.isPending}
-                              onClick={() => {
+                              onClick={async () => {
                                 if (
-                                  confirm(
+                                  await confirmAction(
                                     `ยืนยันลบรายการชำระ ${p.paymentNo} (฿${fmtMoney(p.amount)})?`
                                   )
                                 ) {

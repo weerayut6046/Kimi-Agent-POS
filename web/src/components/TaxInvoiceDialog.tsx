@@ -337,6 +337,7 @@ export function TaxInvoiceDialog({ saleId, onClose, canEdit = true }: Props) {
             ? "max-w-md"
             : "max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
         }
+        aria-describedby={undefined}
       >
         <DialogHeader>
           <DialogTitle className="font-heading flex items-center gap-2">

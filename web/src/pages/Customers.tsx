@@ -13,6 +13,7 @@ import {
   Truck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -80,6 +81,7 @@ function formFromCustomer(c: Customer): CustForm {
 }
 
 export default function Customers() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
   const utils = trpc.useUtils();
@@ -233,8 +235,12 @@ export default function Customers() {
                           className="h-8 w-8 text-destructive"
                           title="ลบ"
                           disabled={remove.isPending}
-                          onClick={() => {
-                            if (confirm(`ยืนยันลบลูกค้า "${c.name}"?`))
+                          onClick={async () => {
+                            if (
+                              await confirmAction(
+                                `ยืนยันลบลูกค้า "${c.name}"?`
+                              )
+                            )
                               remove.mutate({ id: c.id });
                           }}
                         >
@@ -262,7 +268,10 @@ export default function Customers() {
 
       {/* Dialog เพิ่ม/แก้ไขลูกค้า */}
       <Dialog open={!!edit} onOpenChange={o => !o && setEdit(null)}>
-        <DialogContent className="flex max-h-[94vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl sm:p-0">
+        <DialogContent
+          className="flex max-h-[min(94dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl sm:p-0"
+          aria-describedby={undefined}
+        >
           <div className="shrink-0 border-b border-violet-100 bg-gradient-to-br from-violet-50 via-white to-indigo-50 px-5 py-5 sm:px-7 sm:py-6">
             <DialogHeader className="pr-8 text-left">
               <div className="flex items-center gap-3">
@@ -596,7 +605,10 @@ export default function Customers() {
 
       {/* Dialog พรีวิว/พิมพ์ใบขอเปิดบัญชีลูกค้าเครดิต */}
       <Dialog open={!!printCust} onOpenChange={o => !o && setPrintCust(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent
+          className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <DialogTitle className="font-heading flex items-center gap-2">
               <Printer className="w-5 h-5 text-primary" />

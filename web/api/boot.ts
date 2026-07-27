@@ -14,6 +14,7 @@ import {
   BackupInProgressError,
   createDatabaseBackup,
 } from "./lib/databaseBackup";
+import { handleIncomingPaymentRequest } from "./payments/incomingPaymentHttp";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -119,6 +120,12 @@ app.get("/api/realtime", async c => {
   response.headers.set("X-Accel-Buffering", "no");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+});
+// webhook รับแจ้งเงินเข้าจากแอปบนมือถือของร้าน (ตั้งค่า token ที่ ตั้งค่าระบบ > การชำระเงิน)
+app.post("/api/payments/incoming", async c => {
+  const response = await handleIncomingPaymentRequest(c.req.raw);
+  response.headers.set("Cache-Control", "no-store");
   return response;
 });
 app.use("/api/trpc/*", async c => {

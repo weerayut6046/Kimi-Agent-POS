@@ -19,6 +19,7 @@ const daily: DailyReportData = {
     qr: { count: 0, total: 0 },
     card: { count: 0, total: 0 },
     credit: { count: 0, total: 0 },
+    thungngern: { count: 0, total: 0 },
   },
   fuelLiters: [{ name: "แก๊สโซฮอล์ 95", liters: 30 }],
   totalLiters: 30,

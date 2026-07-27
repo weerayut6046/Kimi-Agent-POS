@@ -46,7 +46,7 @@ import {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
-const PAY_METHODS = ["cash", "qr", "card", "credit"] as const;
+const PAY_METHODS = ["cash", "qr", "card", "credit", "thungngern"] as const;
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 
 const dateSchema = z

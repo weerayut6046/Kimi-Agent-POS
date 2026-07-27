@@ -1,6 +1,6 @@
 import { fmtMoney, fmtNum, fmtDateTH, fmtDateTimeTH, paymentLabel, debtMethodLabel } from "@/lib/format";
 
-const PAY_METHODS = ["cash", "qr", "card", "credit"] as const;
+const PAY_METHODS = ["cash", "qr", "card", "credit", "thungngern"] as const;
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 
 type DailyReport = {

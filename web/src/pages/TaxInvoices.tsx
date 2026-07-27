@@ -22,9 +22,11 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { fmtMoney, fmtDateTime } from "@/lib/format";
 
 export default function TaxInvoices() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const utils = trpc.useUtils();
@@ -143,9 +145,9 @@ export default function TaxInvoices() {
                           className="h-8 w-8 text-destructive"
                           title="ลบ"
                           disabled={remove.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              confirm(
+                              await confirmAction(
                                 `ยืนยันลบใบกำกับภาษี ${r.taxInvoiceNo}?\n(บิลขาย ${r.receiptNo} ยังคงอยู่ สามารถออกใบกำกับใหม่ได้)`
                               )
                             ) {

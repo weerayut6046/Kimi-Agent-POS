@@ -1,0 +1,1 @@
+ALTER TABLE "pos"."payment_settings" ADD COLUMN "webhook_token_encrypted" text;

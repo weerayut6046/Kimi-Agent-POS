@@ -68,6 +68,7 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
     return "sales";
   }
   if (path === "pos.createSale" || path === "pos.dashboard") return "pos";
+  if (path.startsWith("payments.")) return "pos";
   return null;
 }
 

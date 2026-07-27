@@ -295,7 +295,7 @@ export default function AssistantChat() {
         </button>
       </DialogTrigger>
 
-      <DialogContent className="flex h-[min(780px,calc(100dvh-env(safe-area-inset-top)-0.5rem))] max-h-none flex-col gap-0 overflow-hidden p-0 sm:h-[min(720px,calc(100dvh-2rem))] sm:max-w-[560px]">
+      <DialogContent className="flex h-[min(780px,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem))] flex-col gap-0 overflow-hidden p-0 sm:h-[min(720px,calc(100dvh-2rem))] sm:max-w-[560px]">
         <DialogHeader className="shrink-0 border-b border-slate-200/80 bg-gradient-to-r from-violet-50 via-white to-cyan-50 px-5 py-4 pr-14 text-left">
           <div className="flex items-center gap-3">
             <div className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-violet-600 to-cyan-600 text-white shadow-lg shadow-violet-500/20">

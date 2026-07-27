@@ -24,6 +24,7 @@ const PAY_LABEL: Record<string, string> = {
   qr: "QR พร้อมเพย์",
   card: "บัตร",
   credit: "เครดิต",
+  thungngern: "QR ถุงเงิน",
 };
 const DEBT_LABEL: Record<string, string> = {
   cash: "เงินสด",
@@ -417,6 +418,7 @@ export async function buildRangeWorkbook(input: {
           "QR",
           "บัตร",
           "เครดิต",
+          "ถุงเงิน",
           "ลิตร",
           "ค่าใช้จ่าย",
           "ชำระหนี้",
@@ -433,6 +435,7 @@ export async function buildRangeWorkbook(input: {
           day.byMethod.qr.total,
           day.byMethod.card.total,
           day.byMethod.credit.total,
+          day.byMethod.thungngern.total,
           day.totalLiters,
           day.expenses.total,
           day.debtPayments.total,
@@ -461,6 +464,10 @@ export async function buildRangeWorkbook(input: {
                 ),
                 input.days.reduce(
                   (sum, day) => sum + day.byMethod.credit.total,
+                  0,
+                ),
+                input.days.reduce(
+                  (sum, day) => sum + day.byMethod.thungngern.total,
                   0,
                 ),
                 input.days.reduce((sum, day) => sum + day.totalLiters, 0),

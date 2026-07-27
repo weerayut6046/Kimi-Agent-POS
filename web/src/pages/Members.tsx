@@ -39,10 +39,12 @@ import {
 } from "@/components/ui/select";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { fmtDateTime, tierLabel } from "@/lib/format";
 import type { Member, Reward } from "@db/schema";
 
 export default function Members() {
+  const confirmAction = useAppConfirm();
   const utils = trpc.useUtils();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
@@ -219,8 +221,12 @@ export default function Members() {
                               variant="ghost"
                               className="h-8 w-8 text-destructive"
                               disabled={deleteMut.isPending}
-                              onClick={() => {
-                                if (confirm(`ยืนยันลบสมาชิก "${m.name}"?`))
+                              onClick={async () => {
+                                if (
+                                  await confirmAction(
+                                    `ยืนยันลบสมาชิก "${m.name}"?`
+                                  )
+                                )
                                   deleteMut.mutate({ id: m.id });
                               }}
                             >

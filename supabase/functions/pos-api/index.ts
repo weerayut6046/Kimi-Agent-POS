@@ -19,6 +19,7 @@ const rateLimitBuckets = new Map<string, RateLimitBucket>();
 type ApiRuntime = {
   edgeAppRouter: AnyRouter;
   createContext: (opts: FetchCreateContextFnOptions) => Promise<object>;
+  handleIncomingPaymentRequest: (request: Request) => Promise<Response>;
 };
 let apiRuntime: Promise<ApiRuntime> | null = null;
 
@@ -136,6 +137,14 @@ Deno.serve(async request => {
       { status: 500, headers }
     );
   }
+  // webhook รับแจ้งเงินเข้าจากแอปบนมือถือของร้าน — ไม่ผ่าน tRPC (แอปภายนอกยิง JSON ตรงๆ)
+  if (pathname.endsWith("/payments/incoming")) {
+    const incomingResponse =
+      await runtime.handleIncomingPaymentRequest(request);
+    for (const [name, value] of headers) incomingResponse.headers.set(name, value);
+    return incomingResponse;
+  }
+
   const endpoint = pathname.startsWith("/functions/v1/")
     ? pathname.split("/").slice(0, 4).join("/")
     : pathname.split("/").length > 2

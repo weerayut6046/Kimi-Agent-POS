@@ -54,6 +54,9 @@ coverage/
 # Playwright MCP session artifacts
 .playwright-mcp/
 
+# Generated manuals/artifacts (PDF etc.)
+output/
+
 # Code-signing private key + password — ห้าม commit (เก็บเฉพาะ .cer สาธารณะ)
 desktop/certs/*.pfx
 desktop/certs/pfx-password.txt

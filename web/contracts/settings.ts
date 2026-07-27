@@ -22,6 +22,10 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   backup_auto_enabled: "0",
   backup_auto_time: "23:30",
   backup_auto_keep: "7",
+  pay_cash_enabled: "1",
+  pay_qr_enabled: "1",
+  pay_card_enabled: "1",
+  pay_credit_enabled: "1",
 };
 
 export function mergeSettingDefaults(

@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -669,6 +670,7 @@ function ShiftPageHeader() {
 }
 
 export default function Shifts() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const utils = trpc.useUtils();
@@ -1637,9 +1639,9 @@ export default function Shifts() {
                               className="h-8 w-8 text-destructive hover:text-destructive"
                               title="ลบประวัติ"
                               disabled={deleteShiftHistory.isPending}
-                              onClick={() => {
+                              onClick={async () => {
                                 if (
-                                  confirm(
+                                  await confirmAction(
                                     `ลบประวัติกะ #${s.id} ของ ${s.staffName}?\n\nรายการขาย รับชำระ และค่าใช้จ่ายจะยังอยู่ แต่จะไม่ผูกกับกะนี้`
                                   )
                                 ) {
@@ -1678,7 +1680,7 @@ export default function Shifts() {
         open={isAdmin && historyForm != null}
         onOpenChange={open => !open && setHistoryForm(null)}
       >
-        <DialogContent className="h-[min(94dvh,860px)] max-h-[calc(100dvh-0.5rem)] gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-5xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+        <DialogContent className="h-[min(94dvh,860px)] max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1rem)] gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-5xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
           <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-16 text-left text-white sm:px-7 sm:py-6">
             <div className="pointer-events-none absolute -right-12 -top-16 size-48 rounded-full bg-blue-400/15 blur-2xl" />
             <div className="pointer-events-none absolute -bottom-24 left-1/3 size-48 rounded-full bg-cyan-300/10 blur-3xl" />

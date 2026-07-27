@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -150,6 +151,7 @@ function statusBadge(status: ScheduleStatus) {
 }
 
 export default function Workforce() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const [searchParams] = useSearchParams();
@@ -574,9 +576,9 @@ export default function Workforce() {
                               variant="ghost"
                               className="text-destructive"
                               title="ลบ"
-                              onClick={() => {
+                              onClick={async () => {
                                 if (
-                                  confirm(
+                                  await confirmAction(
                                     `ลบกะ ${schedule.shiftName} ของ ${schedule.staffName}?`
                                   )
                                 ) {
@@ -714,9 +716,9 @@ export default function Workforce() {
                                   deleteStaff.isPending ||
                                   profile.staffId === staff?.id
                                 }
-                                onClick={() => {
+                                onClick={async () => {
                                   if (
-                                    confirm(
+                                    await confirmAction(
                                       `ยืนยันลบพนักงาน "${profile.name}"? บัญชีและสิทธิ์การเข้าใช้งานจะถูกลบถาวร`
                                     )
                                   ) {
@@ -924,11 +926,14 @@ export default function Workforce() {
                                 variant="ghost"
                                 className="text-emerald-700"
                                 title="ยืนยันว่าจ่ายแล้ว"
-                                onClick={() => {
+                                onClick={async () => {
                                   if (
-                                    confirm(
-                                      `ยืนยันจ่ายเงินเดือน ${row.staffName} ฿${fmtMoney(row.netAmount)}?`
-                                    )
+                                    await confirmAction({
+                                      title: "ยืนยันการจ่ายเงินเดือน",
+                                      description: `ยืนยันจ่ายเงินเดือน ${row.staffName} ฿${fmtMoney(row.netAmount)}?`,
+                                      confirmLabel: "ยืนยันจ่าย",
+                                      variant: "warning",
+                                    })
                                   ) {
                                     setPayrollStatus.mutate({
                                       id: row.id,
@@ -1282,8 +1287,12 @@ export default function Workforce() {
                                 size="icon"
                                 variant="ghost"
                                 className="text-destructive"
-                                onClick={() => {
-                                  if (confirm(`ลบรูปแบบกะ “${template.name}”?`)) {
+                                onClick={async () => {
+                                  if (
+                                    await confirmAction(
+                                      `ลบรูปแบบกะ “${template.name}”?`
+                                    )
+                                  ) {
                                     deleteTemplate.mutate({ id: template.id });
                                   }
                                 }}

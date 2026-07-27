@@ -14,6 +14,11 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { MenuPermissionKey } from "@contracts/menuPermissions";
+import type {
+  PaymentConfirmedBy,
+  ThungngernSaleSnapshot,
+  ThungngernSessionStatus,
+} from "@contracts/payments";
 
 // Keep application tables outside Supabase's exposed `public` schema.
 export const posSchema = pgSchema("pos");
@@ -596,7 +601,7 @@ export const sales = posSchema
         mode: "number",
       }).notNull(),
       paymentMethod: text("payment_method", {
-        enum: ["cash", "qr", "card", "credit"],
+        enum: ["cash", "qr", "card", "credit", "thungngern"],
       })
         .notNull()
         .default("cash"),
@@ -1090,6 +1095,89 @@ export const auditLogs = posSchema
   )
   .enableRLS();
 
+// ============ ชำระเงิน QR ถุงเงิน (Krungthai Thungngern merchant) ============
+// ตั้งค่าระดับสาขา — เก็บแยกจาก settings ทั่วไปเพราะมี Slip2Go secret ที่เข้ารหัส
+export const paymentSettings = posSchema
+  .table("payment_settings", {
+    branchId: integer("branch_id")
+      .primaryKey()
+      .references(() => branches.id, { onDelete: "cascade" }),
+    thungngernEnabled: boolean("thungngern_enabled").notNull().default(false),
+    promptpayId: text("promptpay_id").notNull().default(""),
+    // promptpay = QR พร้อมเพย์ส่วนตัว (tag 29); merchant = QR ร้านค้าถุงเงิน (tag 30 bill payment)
+    qrMode: text("qr_mode").notNull().default("promptpay"),
+    // static merchant payload ต้นฉบับจากแอปถุงเงิน (ฉีดยอด+CRC ใหม่ตอนสร้าง QR ของแต่ละบิล)
+    merchantPayload: text("merchant_payload"),
+    // provider ตรวจสลิป — ปัจจุบันรองรับ slip2go เท่านั้น
+    provider: text("provider").notNull().default("slip2go"),
+    // AES-256-GCM ciphertext เท่านั้น; key สำหรับถอดรหัสอยู่ใน APP_SECRET ฝั่ง server
+    // (ชื่อคอลัมน์เดิมจากยุค EasySlip — เก็บไว้เพื่อไม่ต้อง migrate ciphertext)
+    easyApiKeyEncrypted: text("easy_api_key_encrypted"),
+    // token สำหรับ webhook รับแจ้งเงินเข้าจากแอปบนมือถือ (เข้ารหัสแบบเดียวกับ easy_api_key_encrypted)
+    webhookTokenEncrypted: text("webhook_token_encrypted"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  })
+  .enableRLS();
+
+// session การรอชำระ 1 บิล — ล็อกยอดใน QR, ยืนยันด้วยการสแกนสลิปผ่าน Slip2Go หรือยืนยันเอง
+export const paymentSessions = posSchema
+  .table(
+    "payment_sessions",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      refCode: text("ref_code").notNull(), // TNG-XXXXXXXX — รหัสอ้างอิง session บนหน้าจอ
+      status: text("status", {
+        enum: ["pending", "confirmed", "expired", "cancelled"],
+      })
+        .$type<ThungngernSessionStatus>()
+        .notNull()
+        .default("pending"),
+      amount: numeric("amount", { precision: 18, scale: 3, mode: "number" })
+        .notNull(), // ยอดที่ล็อกใน QR (บาท)
+      saleId: integer("sale_id").references(() => sales.id, {
+        onDelete: "set null",
+      }),
+      confirmedBy: text("confirmed_by", { enum: ["auto", "manual", "webhook"] })
+        .$type<PaymentConfirmedBy>(),
+      externalRef: text("external_ref"), // transRef จาก Slip2Go/ธนาคาร (คอลัมน์เดิม)
+      // transRef จากสลิปที่ตรวจผ่าน Slip2Go — สลิป 1 ใบใช้ปิดบิลได้ครั้งเดียว (unique เฉพาะที่มีค่า)
+      transRef: text("trans_ref"),
+      saleSnapshot: jsonb("sale_snapshot")
+        .$type<ThungngernSaleSnapshot>()
+        .notNull(),
+      lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }), // เผื่อ throttle การตรวจในอนาคต
+      expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+      confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("paymentsession_branch_idx").on(t.branchId),
+      branchRefUnique: uniqueIndex("paymentsession_branch_ref_unique").on(
+        t.branchId,
+        t.refCode
+      ),
+      // 1 session = ได้บิลเดียว — กันปิดบิลซ้ำจากการยืนยันพร้อมกันหลายทาง
+      saleUnique: uniqueIndex("paymentsession_sale_unique").on(t.saleId),
+      // สลิป 1 ใบ (transRef เดียว) ใช้ยืนยันได้ 1 บิลเท่านั้น
+      transRefUnique: uniqueIndex("paymentsession_transref_unique")
+        .on(t.transRef)
+        .where(sql`trans_ref is not null`),
+      statusExpiresIdx: index("paymentsession_status_expires_idx").on(
+        t.status,
+        t.expiresAt
+      ),
+    })
+  )
+  .enableRLS();
+
 // ============ ตั้งค่าร้าน ============
 export const settings = posSchema
   .table(
@@ -1220,3 +1308,5 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type AssistantSetting = typeof assistantSettings.$inferSelect;
 export type AssistantActionProposal =
   typeof assistantActionProposals.$inferSelect;
+export type PaymentSetting = typeof paymentSettings.$inferSelect;
+export type PaymentSession = typeof paymentSessions.$inferSelect;

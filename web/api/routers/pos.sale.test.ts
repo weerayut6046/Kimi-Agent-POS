@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq } from "drizzle-orm";
-import { products, members, saleItems, sales } from "@db/schema";
+import { and, eq } from "drizzle-orm";
+import { products, members, saleItems, sales, settings } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสการขายผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed เหมือน production)
@@ -219,6 +219,39 @@ describe("voidSale", () => {
 });
 
 describe("updateSale", () => {
+  it("ช่องทางที่ผู้ดูแลปิดไว้: สร้างบิลออนไลน์ไม่ได้ แต่บิลออฟไลน์ซิงก์ได้", async () => {
+    const water = await productByCode("WATER");
+    await t.db
+      .insert(settings)
+      .values({ branchId: 1, key: "pay_card_enabled", value: "0" })
+      .onConflictDoUpdate({
+        target: [settings.branchId, settings.key],
+        set: { value: "0" },
+      });
+    try {
+      await expect(
+        t.caller().pos.createSale({
+          items: [{ productId: water.id, qty: 1 }],
+          paymentMethod: "card",
+        })
+      ).rejects.toThrow("ปิดใช้งาน");
+
+      // บิลออฟไลน์ (มี clientReceiptNo) บันทึกได้ — รับเงินไปแล้วจริงที่หน้าร้าน
+      const offline = await t.caller().pos.createSale({
+        clientReceiptNo: "OFF-BCC123-20260722100000-0007",
+        items: [{ productId: water.id, qty: 1 }],
+        paymentMethod: "card",
+      });
+      expect(offline.sale.paymentMethod).toBe("card");
+    } finally {
+      await t.db
+        .delete(settings)
+        .where(
+          and(eq(settings.branchId, 1), eq(settings.key, "pay_card_enabled"))
+        );
+    }
+  });
+
   it("แก้ส่วนลดแล้วคำนวณยอดสุทธิ/VAT/แต้มใหม่", async () => {
     const water = await productByCode("WATER");
     const member = await memberByCode("M0001");
@@ -247,5 +280,22 @@ describe("updateSale", () => {
     await expect(
       t.caller("cashier").pos.updateSale({ id: sale.id, discount: 5 })
     ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+  });
+
+  it("แก้วิธีชำระเป็น QR ถุงเงินได้ ยอดรับเท่ายอดสุทธิและไม่มีเงินทอน", async () => {
+    const water = await productByCode("WATER");
+    const { sale } = await t.caller().pos.createSale({
+      items: [{ productId: water.id, qty: 2 }], // 20 บาท
+      paymentMethod: "cash",
+      received: 100,
+    });
+
+    const updated = await t
+      .caller("manager")
+      .pos.updateSale({ id: sale.id, paymentMethod: "thungngern" });
+
+    expect(updated!.paymentMethod).toBe("thungngern");
+    expect(updated!.received).toBe(20); // ไม่ใช่เงินสด → รับเท่ายอดสุทธิ
+    expect(updated!.changeAmt).toBe(0);
   });
 });

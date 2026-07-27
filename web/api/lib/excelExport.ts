@@ -11,6 +11,7 @@ const PAY_LABEL: Record<string, string> = {
   qr: "QR พร้อมเพย์",
   card: "บัตร",
   credit: "เครดิต",
+  thungngern: "QR ถุงเงิน",
 };
 const DEBT_LABEL: Record<string, string> = {
   cash: "เงินสด",
@@ -108,7 +109,7 @@ export interface DailyReportData {
   discountTotal: number;
   vatTotal: number;
   byMethod: Record<
-    "cash" | "qr" | "card" | "credit",
+    "cash" | "qr" | "card" | "credit" | "thungngern",
     { count: number; total: number }
   >;
   fuelLiters: { name: string; liters: number }[];
@@ -227,7 +228,7 @@ export interface FuelStockSummaryData {
   }>;
 }
 
-const PAY_METHODS = ["cash", "qr", "card", "credit"] as const;
+const PAY_METHODS = ["cash", "qr", "card", "credit", "thungngern"] as const;
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 
 // ---------- style helpers ----------
@@ -487,7 +488,7 @@ export async function buildRangeWorkbook(opts: {
   wb.creator = "POS ปั๊มน้ำมัน";
 
   const ws = wb.addWorksheet("สรุปรายวัน");
-  widths(ws, [12, 14, 8, 8, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14]);
+  widths(ws, [12, 14, 8, 8, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14]);
   const title = ws.addRow([
     `รายงานยอดขาย ${fmtDateTH(dayDate(opts.from))} – ${fmtDateTH(dayDate(opts.to))}`,
   ]);
@@ -506,6 +507,7 @@ export async function buildRangeWorkbook(opts: {
       "QR",
       "บัตร",
       "เครดิต",
+      "ถุงเงิน",
       "ลิตร",
       "ค่าใช้จ่าย",
       "ชำระหนี้",
@@ -522,12 +524,13 @@ export async function buildRangeWorkbook(opts: {
       d.byMethod.qr.total,
       d.byMethod.card.total,
       d.byMethod.credit.total,
+      d.byMethod.thungngern.total,
       d.totalLiters,
       d.expenses.total,
       d.debtPayments.total,
       d.expectedCash,
     ]),
-    [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     [2, 3]
   );
   if (opts.days.length > 0) {
@@ -544,6 +547,7 @@ export async function buildRangeWorkbook(opts: {
       sum(d => d.byMethod.qr.total),
       sum(d => d.byMethod.card.total),
       sum(d => d.byMethod.credit.total),
+      sum(d => d.byMethod.thungngern.total),
       sum(d => d.totalLiters),
       sum(d => d.expenses.total),
       sum(d => d.debtPayments.total),

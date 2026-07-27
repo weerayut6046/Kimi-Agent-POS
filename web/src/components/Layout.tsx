@@ -55,6 +55,7 @@ import {
   hasMenuPermission,
   type MenuPermissionKey,
 } from "@contracts/menuPermissions";
+import { toast } from "sonner";
 
 type MenuItem = {
   permission: MenuPermissionKey;
@@ -274,9 +275,10 @@ export default function Layout() {
     try {
       await switchBranch(branchId);
     } catch (error) {
-      window.alert(
-        error instanceof Error ? error.message : "ไม่สามารถเปลี่ยนสาขาได้"
-      );
+      toast.error("เปลี่ยนสาขาไม่สำเร็จ", {
+        description:
+          error instanceof Error ? error.message : "ไม่สามารถเปลี่ยนสาขาได้",
+      });
     } finally {
       setSwitchingBranch(false);
     }

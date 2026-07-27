@@ -957,7 +957,9 @@ export const posRouter = createRouter({
           )
           .min(1),
         discount: z.number().nonnegative().default(0),
-        paymentMethod: z.enum(["cash", "qr", "card", "credit"]).default("cash"),
+        paymentMethod: z
+          .enum(["cash", "qr", "card", "credit", "thungngern"])
+          .default("cash"),
         customerId: z.number().int().positive().optional(), // บังคับเมื่อ paymentMethod = credit
         received: z.number().nonnegative().default(0),
         pointsToRedeem: z.number().int().nonnegative().default(0),
@@ -1023,6 +1025,13 @@ export const posRouter = createRouter({
         where: eq(products.branchId, branchId),
       });
       const settingMap = await getSettingMap(db, branchId);
+      // ผู้ดูแลปิดช่องทางนี้ไว้ — เว้นบิลออฟไลน์ (clientReceiptNo) เพราะรับเงินไปแล้วจริง
+      if (
+        !input.clientReceiptNo &&
+        (settingMap[`pay_${input.paymentMethod}_enabled`] ?? "1") === "0"
+      ) {
+        throw new Error("ช่องทางชำระเงินนี้ถูกปิดใช้งานโดยผู้ดูแล");
+      }
       const vatRate = Number(settingMap.vat_rate ?? "7");
       const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
       const pointValue = Number(settingMap.point_redeem_value ?? "1");
@@ -1322,7 +1331,9 @@ export const posRouter = createRouter({
       z.object({
         id: z.number(),
         staffName: z.string().min(1).optional(),
-        paymentMethod: z.enum(["cash", "qr", "card", "credit"]).optional(),
+        paymentMethod: z
+          .enum(["cash", "qr", "card", "credit", "thungngern"])
+          .optional(),
         discount: z.number().nonnegative().optional(),
       })
     )

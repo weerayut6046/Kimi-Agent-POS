@@ -102,6 +102,13 @@ npx vercel deploy --prod
 - สำหรับ Supabase Realtime ให้ตั้ง `VITE_SUPABASE_URL` และ `VITE_SUPABASE_PUBLISHABLE_KEY` ใน Environment ของ Vercel (Production/Preview ตามที่ใช้งาน) หรือใน `.env` สำหรับ local development ใช้เฉพาะ URL และ publishable key เท่านั้น ห้ามใส่ `service_role`/secret key หรือ `DEEPSEEK_API_KEY` ในตัวแปรที่ขึ้นต้นด้วย `VITE_`
 - จำกัดข้อความ 8 ครั้งต่อนาทีต่อพนักงาน จำกัดขนาดข้อความ/ผลลัพธ์ และไม่แสดง upstream error หรือ API key กลับไปที่ client
 
+### QR ถุงเงิน (Krungthai Thungngern)
+
+- แคชเชียร์เลือกช่องทาง **QR ถุงเงิน** ในหน้าขายเพื่อสร้าง QR ล็อกยอดของบิลจาก QR ร้านค้าถุงเงิน (EMVCo tag 30 — เงินเข้าบัญชีถุงเงินโดยตรง) หรือพร้อมเพย์ส่วนตัวตามการตั้งค่า จากนั้นสแกน QR บนสลิปของลูกค้าเพื่อให้ระบบตรวจสลิปกับ Slip2Go แล้วปิดบิลแบบ idempotent พร้อมทางเลือกยืนยันเองและโหมดออฟไลน์ผ่าน outbox เดิม
+- ตั้งค่าที่ **ตั้งค่าระบบ > การชำระเงิน** (admin) — เลือกโหมด QR ร้านค้าถุงเงิน (วาง static payload จากแอปถุงเงิน) หรือพร้อมเพย์ส่วนตัว และ Slip2Go API Secret (เขียนอย่างเดียว เข้ารหัส AES-256-GCM ด้วย `APP_SECRET` ก่อนลงฐานข้อมูล client ไม่เห็น secret จริง)
+- ตัวแปรเซิร์ฟเวอร์ `SLIP2GO_BASE_URL`, `SLIP2GO_API_SECRET` (fallback), `SLIP2GO_TIMEOUT_MS`, `SLIP2GO_MOCK` — ห้ามใช้ชื่อขึ้นต้น `VITE_`
+- รายละเอียด flow การสแกนสลิป โควตา และ contract ของ Slip2Go ดู [`docs/thungngern-payments.md`](./docs/thungngern-payments.md)
+
 #### เริ่ม Local AI ด้วย Ollama + Qwen
 
 1. ติดตั้งและเปิด Ollama บนเครื่องที่รัน backend

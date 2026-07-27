@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import QRCode from "qrcode";
 import {
   Fuel,
   Droplet,
@@ -21,6 +22,7 @@ import {
   Package,
   ArrowRight,
   Sparkles,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +51,10 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import {
+  ThungngernQrDialog,
+  type ThungngernSession,
+} from "@/components/ThungngernQrDialog";
+import {
   printReceiptElement,
   parseReceiptPaper,
   printReceiptSilent,
@@ -70,6 +76,7 @@ const paymentIcons = {
   qr: QrCode,
   card: CreditCard,
   credit: BookOpenCheck,
+  thungngern: Wallet,
 };
 
 function productTone(code: string, category: string) {
@@ -130,9 +137,9 @@ export default function Pos() {
   const [phoneQ, setPhoneQ] = useState("");
   const [discount, setDiscount] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
-  const [payMethod, setPayMethod] = useState<"cash" | "qr" | "card" | "credit">(
-    "cash"
-  );
+  const [payMethod, setPayMethod] = useState<
+    "cash" | "qr" | "card" | "credit" | "thungngern"
+  >("cash");
   const [received, setReceived] = useState("");
   const [creditCustomer, setCreditCustomer] = useState<Customer | null>(null);
   const [custQ, setCustQ] = useState("");
@@ -144,6 +151,11 @@ export default function Pos() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [err, setErr] = useState("");
   const [desktopSalePending, setDesktopSalePending] = useState(false);
+  const [thungngernSession, setThungngernSession] =
+    useState<ThungngernSession | null>(null);
+
+  const { data: thungngernStatus } =
+    trpc.payments.thungngernStatus.useQuery();
 
   const pointValue = Number(settingMap?.point_redeem_value ?? "1");
   const activeProducts = useMemo(
@@ -156,6 +168,48 @@ export default function Pos() {
   const total = Math.max(0, subtotal - discount - redeemDiscount);
   const receivedNum = Number(received) || 0;
   const change = payMethod === "cash" ? Math.max(0, receivedNum - total) : 0;
+
+  // QR พร้อมเพย์ทั่วไป — payload ล็อกยอดตามบิล (ไม่ผ่าน session ถุงเงิน)
+  const qrAmount = Math.round(total * 100) / 100;
+  const { data: promptpayQr } = trpc.payments.promptpayQr.useQuery(
+    { amount: qrAmount },
+    { enabled: payMethod === "qr" && qrAmount > 0 }
+  );
+  const [promptpayQrUrl, setPromptpayQrUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setPromptpayQrUrl(null);
+    const payload = payMethod === "qr" ? promptpayQr?.payload : null;
+    if (!payload) return;
+    let cancelled = false;
+    QRCode.toDataURL(payload, {
+      width: 220,
+      margin: 1,
+      errorCorrectionLevel: "M",
+    })
+      .then(url => {
+        if (!cancelled) setPromptpayQrUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [payMethod, promptpayQr?.payload]);
+
+  // ช่องทางชำระที่ผู้ดูแลเปิดใช้ (ตั้งค่าระบบ > การชำระเงิน) — ถุงเงินมีสวิตช์ของตัวเอง
+  const enabledPayMethods = useMemo(
+    () =>
+      (["cash", "qr", "card", "credit", "thungngern"] as const).filter(
+        m =>
+          m === "thungngern" ||
+          (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
+      ),
+    [settingMap]
+  );
+  useEffect(() => {
+    if (!enabledPayMethods.includes(payMethod)) {
+      setPayMethod(enabledPayMethods[0] ?? "cash");
+    }
+  }, [enabledPayMethods, payMethod]);
 
   const addToCart = (p: Product, qty: number) => {
     setCart(c => {
@@ -239,7 +293,20 @@ export default function Pos() {
       }),
     onError: e => setErr(e.message),
   });
-  const salePending = createSale.isPending || desktopSalePending;
+  const startThungngern = trpc.payments.startThungngern.useMutation({
+    onSuccess: r => {
+      setThungngernSession({
+        sessionId: r.sessionId,
+        refCode: r.refCode,
+        payload: r.payload,
+        amount: r.amount,
+        expiresAt: r.expiresAt,
+      });
+    },
+    onError: e => setErr(e.message),
+  });
+  const salePending =
+    createSale.isPending || desktopSalePending || startThungngern.isPending;
 
   const memberSearch = trpc.membership.findByPhone.useQuery(
     { phone: phoneQ },
@@ -275,6 +342,20 @@ export default function Pos() {
     }
     if (syncStatus?.online === false && pointsToRedeem > 0) {
       setErr("ขณะออฟไลน์ยังไม่รองรับการใช้แต้ม กรุณาตั้งค่าแต้มที่ใช้เป็น 0");
+      return;
+    }
+
+    // QR ถุงเงิน (ออนไลน์) — สร้าง session ล็อกยอดแล้วเปิด dialog รอยืนยัน
+    if (payMethod === "thungngern" && syncStatus?.online !== false) {
+      setErr("");
+      startThungngern.mutate({
+        shiftId: currentShift?.id,
+        staffName: staff?.name ?? "",
+        memberId: member?.id,
+        items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
+        discount,
+        pointsToRedeem,
+      });
       return;
     }
 
@@ -722,30 +803,68 @@ export default function Pos() {
                 <div className="mb-2 text-xs font-semibold text-slate-500">
                   ช่องทางชำระเงิน
                 </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {(["cash", "qr", "card", "credit"] as const).map(m => {
-                    const PaymentIcon = paymentIcons[m];
-                    const disabled =
-                      m === "credit" && syncStatus?.online === false;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => setPayMethod(m)}
-                        title={
-                          disabled
-                            ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
-                            : undefined
-                        }
-                        className={`flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "-translate-y-0.5 border-violet-500 bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-lg shadow-violet-500/25" : "border-slate-200 bg-white/80 text-slate-500 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 hover:shadow-md"}`}
-                      >
-                        <PaymentIcon className="size-[18px]" />
-                        {paymentLabel[m]}
-                      </button>
-                    );
-                  })}
+                <div className="grid grid-cols-5 gap-2">
+                  {enabledPayMethods.map(m => {
+                      const PaymentIcon = paymentIcons[m];
+                      const disabled =
+                        (m === "credit" && syncStatus?.online === false) ||
+                        (m === "thungngern" && !thungngernStatus?.enabled);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setPayMethod(m)}
+                          title={
+                            m === "credit" && syncStatus?.online === false
+                              ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
+                              : m === "thungngern" && !thungngernStatus?.enabled
+                                ? "ให้ผู้ดูแลเปิดใช้งานและตั้งค่า PromptPay ID ที่ ตั้งค่าระบบ > การชำระเงิน"
+                                : undefined
+                          }
+                          className={`flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "-translate-y-0.5 border-violet-500 bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-lg shadow-violet-500/25" : "border-slate-200 bg-white/80 text-slate-500 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 hover:shadow-md"}`}
+                        >
+                          <PaymentIcon className="size-[18px]" />
+                          {paymentLabel[m]}
+                        </button>
+                      );
+                    }
+                  )}
                 </div>
+                {payMethod === "thungngern" && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800">
+                    {syncStatus?.online === false
+                      ? "ขณะออฟไลน์: ระบบจะบันทึกเป็นบิล QR ถุงเงินรอยืนยันการชำระ และซิงก์ขึ้นคลาวด์เมื่ออินเทอร์เน็ตกลับมา"
+                      : "กดยืนยันการชำระเงินเพื่อสร้าง QR ล็อกยอด — ลูกค้าสแกนด้วยแอปธนาคารใดก็ได้ ระบบเช็กยอดเข้าถุงเงินและปิดบิลให้อัตโนมัติ"}
+                  </div>
+                )}
+                {payMethod === "qr" && (
+                  <div className="flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5">
+                    {promptpayQrUrl ? (
+                      <img
+                        src={promptpayQrUrl}
+                        alt="QR พร้อมเพย์"
+                        className="size-28 shrink-0 rounded-lg border border-sky-100 bg-white p-1"
+                      />
+                    ) : (
+                      <div className="flex size-28 shrink-0 items-center justify-center rounded-lg border border-dashed border-sky-300 bg-white p-1 text-center text-[10px] text-sky-500">
+                        {promptpayQr?.payload === null
+                          ? "ไม่มี QR"
+                          : "กำลังสร้าง QR…"}
+                      </div>
+                    )}
+                    <div className="min-w-0 text-xs text-sky-900">
+                      <div className="font-bold">
+                        QR พร้อมเพย์ ฿{fmtMoney(qrAmount)}
+                      </div>
+                      <div className="mt-0.5 leading-relaxed text-sky-700">
+                        {promptpayQr?.payload === null
+                          ? "ยังไม่ได้ตั้งค่า PromptPay ID — ให้ผู้ดูแลตั้งค่าที่ ตั้งค่าระบบ > การชำระเงิน"
+                          : "ให้ลูกค้าสแกนด้วยแอปธนาคารใดก็ได้ แล้วกดชำระเงินเพื่อบันทึกบิล"}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {payMethod === "credit" && (
                 <div className="space-y-2 text-sm">
@@ -936,7 +1055,10 @@ export default function Pos() {
 
       {/* Dialog เติมน้ำมัน */}
       <Dialog open={!!fuelDialog} onOpenChange={o => !o && setFuelDialog(null)}>
-        <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+        <DialogContent
+          className="max-w-md gap-0 overflow-hidden p-0"
+          aria-describedby={undefined}
+        >
           <DialogHeader>
             <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-[#17143a] via-[#282263] to-[#15505d] px-6 py-5 text-white">
               <div className="surface-grid pointer-events-none absolute inset-0 opacity-50" />
@@ -1037,7 +1159,8 @@ export default function Pos() {
 
       {/* ใบเสร็จ */}
       <Dialog open={!!receipt} onOpenChange={o => !o && setReceipt(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
+          <DialogTitle className="sr-only">ใบเสร็จ</DialogTitle>
           {receipt && (
             <>
               {receipt.sale.id < 0 && (
@@ -1089,6 +1212,16 @@ export default function Pos() {
 
       {/* ใบกำกับภาษีเต็มรูป */}
       <TaxInvoiceDialog saleId={taxSaleId} onClose={() => setTaxSaleId(null)} />
+
+      {/* QR ถุงเงิน — รอยืนยันยอดเข้าและปิดบิลอัตโนมัติ */}
+      <ThungngernQrDialog
+        session={thungngernSession}
+        onConfirmed={receipt => {
+          setThungngernSession(null);
+          finishSale(receipt as ReceiptData);
+        }}
+        onClosed={() => setThungngernSession(null)}
+      />
     </div>
   );
 }

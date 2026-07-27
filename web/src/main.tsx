@@ -7,6 +7,7 @@ import { DesktopSyncProvider } from "@/hooks/useDesktopSync";
 import { RealtimeProvider } from "@/hooks/useRealtime";
 import Root from "@/Root";
 import DeferredToaster from "@/components/DeferredToaster";
+import { AppConfirmDialogProvider } from "@/components/AppConfirmDialog";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -14,8 +15,10 @@ createRoot(document.getElementById("root")!).render(
       <DesktopSyncProvider>
         <StaffProvider>
           <RealtimeProvider>
-            <Root />
-            <DeferredToaster richColors closeButton />
+            <AppConfirmDialogProvider>
+              <Root />
+              <DeferredToaster richColors closeButton />
+            </AppConfirmDialogProvider>
           </RealtimeProvider>
         </StaffProvider>
       </DesktopSyncProvider>

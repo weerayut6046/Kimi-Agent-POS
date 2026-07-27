@@ -41,7 +41,7 @@ function todayStr() {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-const PAY_METHODS = ["cash", "qr", "card", "credit"] as const;
+const PAY_METHODS = ["cash", "qr", "card", "credit", "thungngern"] as const;
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 
 export default function Reports() {

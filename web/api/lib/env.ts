@@ -90,6 +90,18 @@ export const env = {
   deepseekApiKey: runtimeValue("DEEPSEEK_API_KEY") ?? "",
   deepseekModel:
     runtimeValue("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+  // Slip2Go — ตรวจสลิปโอนเงินเข้าบัญชีถุงเงินของร้าน (server-side only)
+  slip2goBaseUrl: (
+    runtimeValue("SLIP2GO_BASE_URL") || "https://connect.slip2go.com"
+  ).replace(/\/+$/, ""),
+  slip2goApiSecret: runtimeValue("SLIP2GO_API_SECRET") ?? "",
+  slip2goTimeoutMs: (() => {
+    const parsed = Number(runtimeValue("SLIP2GO_TIMEOUT_MS"));
+    return Number.isFinite(parsed) && parsed > 0
+      ? Math.min(Math.max(parsed, 1_000), 30_000)
+      : 8_000;
+  })(),
+  slip2goMock: runtimeValue("SLIP2GO_MOCK") === "1",
   pgDumpPath: runtimeValue("PG_DUMP_PATH") || "pg_dump",
   pgRestorePath: runtimeValue("PG_RESTORE_PATH") || "pg_restore",
 };

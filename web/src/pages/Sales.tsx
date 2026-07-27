@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -51,7 +52,10 @@ import { fmtMoney, fmtDateTime, paymentLabel } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-type PayMethod = "cash" | "qr" | "card" | "credit";
+type PayMethod = "cash" | "qr" | "card" | "credit" | "thungngern";
+
+// ตัวเลือกวิธีชำระที่ API รับ (ตรงกับ enum ใน pos router)
+const PAY_METHODS: PayMethod[] = ["cash", "qr", "card", "credit", "thungngern"];
 
 type SaleRow = {
   id: number;
@@ -65,6 +69,7 @@ type SaleRow = {
 };
 
 export default function Sales() {
+  const confirmAction = useAppConfirm();
   const utils = trpc.useUtils();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
@@ -238,9 +243,9 @@ export default function Sales() {
                           variant="ghost"
                           className="h-8 w-8 text-destructive"
                           disabled={deleteMut.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              confirm(
+                              await confirmAction(
                                 `ยืนยันลบบิล ${s.receiptNo} ถาวร? (คืนสต๊อกและแต้มอัตโนมัติ)`
                               )
                             ) {
@@ -345,9 +350,9 @@ export default function Sales() {
                   <Button
                     variant="destructive"
                     disabled={voidMut.isPending}
-                    onClick={() => {
+                    onClick={async () => {
                       if (
-                        confirm(
+                        await confirmAction(
                           "ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)"
                         )
                       ) {
@@ -379,6 +384,9 @@ export default function Sales() {
       {addOpen && (
         <AddSaleDialog
           staffName={staff?.name ?? ""}
+          payMethods={PAY_METHODS.filter(
+            m => (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
+          )}
           onClose={() => setAddOpen(false)}
           onCreated={invalidate}
         />
@@ -479,7 +487,7 @@ function EditSaleDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(paymentLabel) as PayMethod[]).map(k => (
+                    {PAY_METHODS.map(k => (
                       <SelectItem key={k} value={k}>
                         {paymentLabel[k]}
                       </SelectItem>
@@ -546,10 +554,12 @@ type Line = {
 
 function AddSaleDialog({
   staffName,
+  payMethods,
   onClose,
   onCreated,
 }: {
   staffName: string;
+  payMethods: PayMethod[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -558,7 +568,9 @@ function AddSaleDialog({
   const [qty, setQty] = useState("1");
   const [lines, setLines] = useState<Line[]>([]);
   const [discount, setDiscount] = useState("0");
-  const [paymentMethod, setPaymentMethod] = useState<PayMethod>("cash");
+  const [paymentMethod, setPaymentMethod] = useState<PayMethod>(
+    payMethods[0] ?? "cash"
+  );
   const [received, setReceived] = useState("");
   const [phone, setPhone] = useState("");
   const [member, setMember] = useState<{ id: number; name: string } | null>(
@@ -850,7 +862,7 @@ function AddSaleDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(paymentLabel) as PayMethod[]).map(k => (
+                    {payMethods.map(k => (
                       <SelectItem key={k} value={k}>
                         {paymentLabel[k]}
                       </SelectItem>

@@ -35,6 +35,7 @@ import {
   History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -174,6 +175,7 @@ function SortableTankItem({
 }
 
 export default function Stock() {
+  const confirmAction = useAppConfirm();
   const utils = trpc.useUtils();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
@@ -635,9 +637,9 @@ export default function Stock() {
                               aria-label={`ลบ ${t.name}`}
                               className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                               disabled={deleteTankMut.isPending}
-                              onClick={() => {
+                              onClick={async () => {
                                 if (
-                                  confirm(
+                                  await confirmAction(
                                     `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
                                   )
                                 ) {
@@ -822,9 +824,9 @@ export default function Stock() {
                         aria-label={`ลบค่าวัด ${fmtDateTime(r.measuredAt)}`}
                         className="text-destructive"
                         disabled={deleteReadingMut.isPending}
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
+                            await confirmAction(
                               `ยืนยันลบค่าวัด ${fmtNum(r.liters)} ลิตร ของ ${r.tank?.name ?? "ถังนี้"}?`
                             )
                           ) {

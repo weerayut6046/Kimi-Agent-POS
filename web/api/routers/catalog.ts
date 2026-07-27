@@ -754,7 +754,10 @@ export const catalogRouter = createRouter({
     }
     const port = parseInt(process.env.PORT || "3000");
     const urls: string[] = [];
-    for (const infos of Object.values(os.networkInterfaces())) {
+    // ข้าม adapter เสมือน (WSL/Hyper-V/Docker/VM) — IP พวกนี้เครื่องอื่นใน LAN เข้าไม่ได้
+    const VIRTUAL_ADAPTER = /vethernet|wsl|hyper-v|docker|vmware|virtualbox|loopback|pseudo/i;
+    for (const [name, infos] of Object.entries(os.networkInterfaces())) {
+      if (VIRTUAL_ADAPTER.test(name)) continue;
       for (const info of infos ?? []) {
         // family อาจเป็น "IPv4" (string) หรือ 4 (number) แล้วแต่ runtime — รองรับทั้งสองรูปแบบ
         const fam = String(info.family);

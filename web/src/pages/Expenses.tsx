@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Banknote, Pencil, Plus, ReceiptText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -55,6 +56,7 @@ function formFromExpense(e: Expense): ExpForm {
 }
 
 export default function Expenses() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
   const utils = trpc.useUtils();
@@ -200,9 +202,9 @@ export default function Expenses() {
                           className="h-8 w-8 text-destructive"
                           title="ลบ"
                           disabled={remove.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              confirm(
+                              await confirmAction(
                                 `ยืนยันลบค่าใช้จ่าย "${e.title}" ฿${fmtMoney(e.amount)}?`
                               )
                             ) {

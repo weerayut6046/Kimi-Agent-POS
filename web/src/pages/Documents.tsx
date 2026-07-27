@@ -125,6 +125,7 @@ export default function Documents() {
               ? "max-w-4xl max-h-[90vh] overflow-hidden flex flex-col"
               : "max-w-md"
           }
+          aria-describedby={undefined}
         >
           <DialogHeader>
             <DialogTitle className="font-heading">{active?.title}</DialogTitle>

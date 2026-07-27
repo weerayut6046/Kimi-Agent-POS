@@ -25,8 +25,13 @@ import {
   AlertTriangle,
   BrainCircuit,
   KeyRound,
+  Wallet,
+  BellRing,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +61,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
@@ -404,6 +415,7 @@ function StaffAccessSelector({
 }
 
 export default function Settings() {
+  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
@@ -611,6 +623,155 @@ export default function Settings() {
     },
     onError: e => fail(e.message),
   });
+  // ---------- QR ถุงเงิน (Krungthai Thungngern) ----------
+  const {
+    data: paymentConfig,
+    isPending: paymentConfigPending,
+    isError: paymentConfigError,
+    error: paymentConfigQueryError,
+    refetch: refetchPaymentConfig,
+  } = trpc.payments.config.useQuery(undefined, { enabled: isAdmin });
+  const [tngEnabled, setTngEnabled] = useState(false);
+  const [tngQrMode, setTngQrMode] = useState<"promptpay" | "merchant">(
+    "promptpay"
+  );
+  const [tngPromptpayId, setTngPromptpayId] = useState("");
+  const [tngMerchantPayload, setTngMerchantPayload] = useState("");
+  const [tngMerchantEditorOpen, setTngMerchantEditorOpen] = useState(false);
+  const [tngApiSecret, setTngApiSecret] = useState("");
+  const [tngTestResult, setTngTestResult] = useState("");
+  const [prevPaymentConfig, setPrevPaymentConfig] = useState(paymentConfig);
+  if (paymentConfig !== prevPaymentConfig) {
+    setPrevPaymentConfig(paymentConfig);
+    if (paymentConfig) {
+      setTngEnabled(paymentConfig.thungngernEnabled);
+      setTngQrMode(paymentConfig.qrMode);
+      setTngPromptpayId(paymentConfig.promptpayId);
+      setTngMerchantPayload("");
+      setTngMerchantEditorOpen(false);
+      setTngApiSecret("");
+      setTngTestResult("");
+    }
+  }
+  const savePaymentConfig = trpc.payments.updateConfig.useMutation({
+    onSuccess: result => {
+      setPrevPaymentConfig(result.config);
+      setTngEnabled(result.config.thungngernEnabled);
+      setTngQrMode(result.config.qrMode);
+      setTngPromptpayId(result.config.promptpayId);
+      setTngMerchantPayload("");
+      setTngMerchantEditorOpen(false);
+      setTngApiSecret("");
+      utils.payments.config.setData(undefined, result.config);
+      void utils.payments.thungngernStatus.invalidate();
+      ok("บันทึกการตั้งค่าการชำระเงินแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const testPaymentConnection = trpc.payments.testConnection.useMutation({
+    onSuccess: result => {
+      setTngTestResult(
+        result.mockMode
+          ? "เชื่อมต่อโหมดจำลอง (SLIP2GO_MOCK) สำเร็จ"
+          : `เชื่อมต่อสำเร็จ` +
+              (result.shopName ? ` — ร้าน ${result.shopName}` : "") +
+              (result.packageName ? ` · แพ็กเกจ ${result.packageName}` : "") +
+              (result.packageExpiredDate
+                ? ` · หมดอายุ ${result.packageExpiredDate}`
+                : "") +
+              (result.tokenRemaining != null
+                ? ` · Token คงเหลือ ${result.tokenRemaining}`
+                : "") +
+              (result.estimatedQuotaSlip != null
+                ? ` · เช็กสลิปได้ประมาณ ${result.estimatedQuotaSlip} ครั้ง`
+                : "")
+      );
+      ok("ทดสอบการเชื่อมต่อ Slip2Go สำเร็จ");
+    },
+    onError: e => {
+      setTngTestResult("");
+      fail(e.message);
+    },
+  });
+  const savePayments = () => {
+    if (
+      tngEnabled &&
+      tngQrMode === "promptpay" &&
+      !tngPromptpayId.trim()
+    ) {
+      fail("กรุณาระบุ PromptPay ID ที่ผูกกับบัญชีถุงเงินก่อนเปิดใช้งาน");
+      return;
+    }
+    if (
+      tngEnabled &&
+      tngQrMode === "merchant" &&
+      !paymentConfig?.merchant &&
+      !tngMerchantPayload.trim()
+    ) {
+      fail("กรุณาวาง QR ร้านค้าถุงเงิน (payload จากแอปถุงเงิน) ก่อนเปิดใช้งาน");
+      return;
+    }
+    savePaymentConfig.mutate({
+      thungngernEnabled: tngEnabled,
+      promptpayId: tngPromptpayId.trim(),
+      qrMode: tngQrMode,
+      merchantPayload: tngMerchantPayload.trim() || undefined,
+      apiSecret: tngApiSecret.trim() || undefined,
+    });
+  };
+  const clearApiSecret = async () => {
+    if (
+      !(await confirmAction(
+        "ลบ Slip2Go API Secret ที่บันทึกไว้สำหรับสาขานี้หรือไม่?"
+      ))
+    )
+      return;
+    savePaymentConfig.mutate({
+      thungngernEnabled: tngEnabled,
+      promptpayId: tngPromptpayId.trim(),
+      qrMode: tngQrMode,
+      merchantPayload: tngMerchantPayload.trim() || undefined,
+      clearApiSecret: true,
+    });
+  };
+
+  // ---------- webhook รับแจ้งเงินเข้าอัตโนมัติ ----------
+  // URL สำหรับตั้งในแอปแจ้งเงินเข้า — ใช้ Supabase Edge ตามที่ frontend เรียก API อยู่
+  // (desktop/dev ที่ไม่มี Supabase ใช้ origin เดียวกับเว็บ)
+  const supabaseBaseUrl =
+    import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "") ?? "";
+  const webhookUrl = paymentConfig
+    ? `${
+        supabaseBaseUrl
+          ? `${supabaseBaseUrl}/functions/v1/pos-api/payments/incoming`
+          : `${window.location.origin}/api/payments/incoming`
+      }?branch=${paymentConfig.branchId}`
+    : "";
+  const [showWebhookToken, setShowWebhookToken] = useState(false);
+  const copyText = (value: string, label: string) => {
+    void navigator.clipboard?.writeText(value);
+    ok(`คัดลอก${label}แล้ว`);
+  };
+  const regenerateWebhookToken = async () => {
+    if (
+      paymentConfig?.webhookConfigured &&
+      !(await confirmAction(
+        "สร้าง webhook token ใหม่? token เดิมที่ตั้งไว้ในแอปแจ้งเงินเข้าจะใช้ไม่ได้อีก"
+      ))
+    )
+      return;
+    savePaymentConfig.mutate(
+      {
+        thungngernEnabled: tngEnabled,
+        promptpayId: tngPromptpayId.trim(),
+        qrMode: tngQrMode,
+        regenerateWebhookToken: true,
+      },
+      // token สร้างเสร็จแล้วต้องคัดลอกไปตั้งแอป — แสดงให้เห็นทันที
+      { onSuccess: () => setShowWebhookToken(true) }
+    );
+  };
+
   const saveProduct = trpc.catalog.updateProduct.useMutation({
     onSuccess: () => {
       utils.catalog.listProducts.invalidate();
@@ -821,11 +982,11 @@ export default function Settings() {
     });
   };
 
-  const clearAiApiKey = () => {
+  const clearAiApiKey = async () => {
     if (
-      !window.confirm(
+      !(await confirmAction(
         "ลบ DeepSeek API Key ที่บันทึกไว้สำหรับสาขานี้หรือไม่?"
-      )
+      ))
     )
       return;
     saveAiConfig.mutate({
@@ -937,6 +1098,11 @@ export default function Settings() {
           {isAdmin && (
             <TabsTrigger value="ai" className="flex-none sm:flex-1">
               <BrainCircuit /> AI
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="payments" className="flex-none sm:flex-1">
+              <Wallet /> การชำระเงิน
             </TabsTrigger>
           )}
           {isAdmin && (
@@ -1241,9 +1407,15 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between rounded-md border p-3 max-w-xl">
-            <Label htmlFor="lan_enabled" className="cursor-pointer">
-              เปิดให้เครื่องอื่นใน LAN เชื่อมต่อ
-            </Label>
+            <div>
+              <Label htmlFor="lan_enabled" className="cursor-pointer">
+                แสดง URL สำหรับเครื่องลูกที่หน้า Login
+              </Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                สวิตช์นี้ใช้แสดง URL เท่านั้น — การเชื่อมต่อจริงต้องรันแอปแบบ
+                LAN (npm run dev:lan หรือ npm start) และอนุญาต Firewall
+              </p>
+            </div>
             <Switch
               id="lan_enabled"
               disabled={!isAdmin}
@@ -1254,7 +1426,9 @@ export default function Settings() {
           {form.lan_enabled === "1" && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-amber-600">
-                มีผลหลังกดบันทึกแล้วรีสตาร์ทแอป (Docker: restart container)
+                มีผลหลังกดบันทึกแล้วรีสตาร์ทแอป — ถ้ารันแบบ dev ต้องรันด้วย{" "}
+                <code className="rounded bg-muted px-1">npm run dev:lan</code>{" "}
+                (Docker/production: restart container อย่างเดียว)
               </p>
               {lanInfo && lanInfo.urls.length > 0 ? (
                 <div className="space-y-1">
@@ -1431,9 +1605,9 @@ export default function Settings() {
                           variant="ghost"
                           className="h-8 w-8 text-destructive"
                           disabled={deleteProduct.isPending}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              confirm(
+                              await confirmAction(
                                 `ยืนยันลบสินค้า "${p.name}"? (ประวัติขายเก่ายังคงอยู่)`
                               )
                             ) {
@@ -1532,9 +1706,9 @@ export default function Settings() {
                       variant="ghost"
                       className="size-8 text-destructive"
                       disabled={deleteAccessGroup.isPending}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          confirm(
+                          await confirmAction(
                             `ยืนยันลบกลุ่ม "${group.name}"? สมาชิก ${group.memberCount} คนจะกลับไปใช้สิทธิ์รายบุคคล`
                           )
                         ) {
@@ -1718,8 +1892,12 @@ export default function Settings() {
                         variant="ghost"
                         className="h-8 w-8 text-destructive"
                         disabled={deleteStaff.isPending}
-                        onClick={() => {
-                          if (confirm(`ยืนยันลบพนักงาน "${s.name}"?`))
+                        onClick={async () => {
+                          if (
+                            await confirmAction(
+                              `ยืนยันลบพนักงาน "${s.name}"?`
+                            )
+                          )
                             deleteStaff.mutate({ id: s.id });
                         }}
                       >
@@ -1787,8 +1965,12 @@ export default function Settings() {
                       variant="ghost"
                       className="h-8 w-8 text-destructive"
                       disabled={deleteReward.isPending}
-                      onClick={() => {
-                        if (confirm(`ยืนยันลบของรางวัล "${r.name}"?`))
+                      onClick={async () => {
+                        if (
+                          await confirmAction(
+                            `ยืนยันลบของรางวัล "${r.name}"?`
+                          )
+                        )
                           deleteReward.mutate({ id: r.id });
                       }}
                     >
@@ -2057,6 +2239,499 @@ export default function Settings() {
                         API Key เป็นข้อมูลแบบเขียนอย่างเดียว
                         เก็บในตาราง private แยกจากการตั้งค่าทั่วไป
                         และเปิดจัดการเฉพาะบัญชี admin
+                      </span>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="payments" className="mt-0 space-y-5">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Wallet className="w-4 h-4" /> ช่องทางชำระเงินที่เปิดใช้งาน
+              </CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                เลือกช่องทางที่แสดงให้แคชเชียร์ในหน้าขาย (POS) — QR
+                ถุงเงินตั้งค่าแยกที่การ์ดด้านล่าง
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(
+                [
+                  ["pay_cash_enabled", "เงินสด"],
+                  ["pay_qr_enabled", "QR พร้อมเพย์"],
+                  ["pay_card_enabled", "บัตร"],
+                  ["pay_credit_enabled", "เครดิต (ขายเชื่อ)"],
+                ] as const
+              ).map(([key, label]) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between rounded-lg border p-4"
+                >
+                  <div className="font-medium">{label}</div>
+                  <Switch
+                    checked={(form[key] ?? "1") !== "0"}
+                    onCheckedChange={v => set(key, v ? "1" : "0")}
+                    aria-label={`เปิด/ปิดช่องทาง ${label}`}
+                  />
+                </div>
+              ))}
+              <Button
+                disabled={!isAdmin || saveSettings.isPending}
+                onClick={saveAll}
+              >
+                บันทึกช่องทางชำระเงิน {!isAdmin && "(เฉพาะแอดมิน)"}
+              </Button>
+            </CardContent>
+          </Card>
+          {isAdmin && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="font-heading text-base flex items-center gap-2">
+                      <Wallet className="w-4 h-4" /> QR ถุงเงิน (Krungthai
+                      Thungngern)
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      สร้าง QR พร้อมเพย์ล็อกยอดให้ลูกค้าสแกน
+                      เงินเข้าบัญชีถุงเงินของร้าน
+                      และยืนยันอัตโนมัติด้วยการสแกนสลิปผ่าน Slip2Go สำหรับสาขา{" "}
+                      {staff?.branch.name ?? "ปัจจุบัน"}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">เฉพาะผู้ดูแลระบบ</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {paymentConfigPending && !paymentConfig ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    กำลังโหลดการตั้งค่าการชำระเงิน…
+                  </div>
+                ) : paymentConfigError && !paymentConfig ? (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                    <p className="text-sm text-destructive">
+                      โหลดการตั้งค่าการชำระเงินไม่สำเร็จ:{" "}
+                      {paymentConfigQueryError?.message}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={() => void refetchPaymentConfig()}
+                    >
+                      <RefreshCw className="mr-1.5 h-4 w-4" /> ลองใหม่
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <div className="font-medium">เปิดใช้งาน QR ถุงเงิน</div>
+                        <p className="text-xs text-muted-foreground">
+                          แสดงช่องทาง "QR ถุงเงิน" ในหน้าขาย (POS)
+                        </p>
+                      </div>
+                      <Switch
+                        checked={tngEnabled}
+                        onCheckedChange={setTngEnabled}
+                        aria-label="เปิดใช้งาน QR ถุงเงิน"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label>รูปแบบ QR ที่ให้ลูกค้าสแกน</Label>
+                      <RadioGroup
+                        value={tngQrMode}
+                        onValueChange={value =>
+                          setTngQrMode(value as "promptpay" | "merchant")
+                        }
+                        className="grid gap-2 sm:grid-cols-2"
+                      >
+                        <label
+                          htmlFor="tng-mode-merchant"
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${tngQrMode === "merchant" ? "border-emerald-500 bg-emerald-50/50" : ""}`}
+                        >
+                          <RadioGroupItem
+                            id="tng-mode-merchant"
+                            value="merchant"
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="block text-sm font-medium">
+                              QR ร้านค้าถุงเงิน (แนะนำ)
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              เงินเข้าบัญชีถุงเงินของร้านโดยตรง
+                              ใช้ QR จากแอปถุงเงิน
+                            </span>
+                          </span>
+                        </label>
+                        <label
+                          htmlFor="tng-mode-promptpay"
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${tngQrMode === "promptpay" ? "border-emerald-500 bg-emerald-50/50" : ""}`}
+                        >
+                          <RadioGroupItem
+                            id="tng-mode-promptpay"
+                            value="promptpay"
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="block text-sm font-medium">
+                              พร้อมเพย์ส่วนตัว
+                            </span>
+                            <span className="block text-xs text-muted-foreground">
+                              สร้าง QR จากเบอร์โทร/เลขบัตรประชาชน
+                              เงินเข้าบัญชีที่ผูกพร้อมเพย์นั้น
+                            </span>
+                          </span>
+                        </label>
+                      </RadioGroup>
+                    </div>
+
+                    {tngQrMode === "promptpay" && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="tng-promptpay-id">
+                          PromptPay ID ที่ผูกกับบัญชีถุงเงิน
+                        </Label>
+                        <Input
+                          id="tng-promptpay-id"
+                          inputMode="numeric"
+                          value={tngPromptpayId}
+                          onChange={event =>
+                            setTngPromptpayId(event.target.value)
+                          }
+                          placeholder="เบอร์โทร 10 หลัก หรือเลขบัตรประชาชน 13 หลัก"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          ระบบจะสร้าง QR พร้อมเพย์จาก ID นี้และล็อกยอดเงินของแต่ละบิล
+                        </p>
+                      </div>
+                    )}
+
+                    {tngQrMode === "merchant" && (
+                      <div className="space-y-3 rounded-lg border p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-medium">
+                            <Store className="h-4 w-4" /> QR ร้านค้าถุงเงิน
+                          </div>
+                          <Badge
+                            variant={
+                              paymentConfig?.merchant ? "default" : "destructive"
+                            }
+                          >
+                            {paymentConfig?.merchant
+                              ? "ตั้งค่าแล้ว"
+                              : "ยังไม่ได้ตั้งค่า"}
+                          </Badge>
+                        </div>
+                        {paymentConfig?.merchant ? (
+                          <div className="grid gap-2 rounded-lg bg-muted/40 p-3 text-sm sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs text-muted-foreground">
+                                รหัสร้านค้า (Ref 1)
+                              </div>
+                              <div className="font-mono">
+                                {paymentConfig.merchant.ref1}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground">
+                                ชื่อบัญชี (Ref 2)
+                              </div>
+                              <div>{paymentConfig.merchant.ref2 || "—"}</div>
+                            </div>
+                            <div className="sm:col-span-2">
+                              <div className="text-xs text-muted-foreground">
+                                Biller ID
+                              </div>
+                              <div className="font-mono">
+                                {paymentConfig.merchant.billerId}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            ยังไม่มี QR ร้านค้า — เปิดแอปถุงเงิน ไปที่ QR
+                            รับเงินของร้าน แล้วคัดลอก payload
+                            (ข้อความยาวขึ้นต้นด้วย 000201...) มาวางด้านล่าง
+                          </div>
+                        )}
+                        <Collapsible
+                          open={tngMerchantEditorOpen}
+                          onOpenChange={setTngMerchantEditorOpen}
+                        >
+                          <CollapsibleTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                            >
+                              {tngMerchantEditorOpen
+                                ? "ซ่อนช่องเปลี่ยน QR"
+                                : paymentConfig?.merchant
+                                  ? "เปลี่ยน QR ร้านค้า"
+                                  : "วาง QR ร้านค้า"}
+                            </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2 space-y-1.5">
+                            <Textarea
+                              value={tngMerchantPayload}
+                              onChange={event =>
+                                setTngMerchantPayload(event.target.value)
+                              }
+                              placeholder="วาง payload QR ร้านค้าจากแอปถุงเงิน (ขึ้นต้นด้วย 000201...)"
+                              rows={3}
+                              className="font-mono text-xs"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              เซิร์ฟเวอร์จะตรวจโครงสร้างก่อนบันทึก
+                              และใช้ payload นี้ฉีดยอดเงินของแต่ละบิลตอนสร้าง QR
+                              เว้นว่างเพื่อใช้ของเดิม
+                            </p>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-medium">
+                          <KeyRound className="h-4 w-4" /> Slip2Go API Secret
+                        </div>
+                        <Badge
+                          variant={
+                            paymentConfig?.apiSecretConfigured
+                              ? "default"
+                              : "destructive"
+                          }
+                        >
+                          {paymentConfig?.apiSecretConfigured
+                            ? "ตั้งค่าแล้ว"
+                            : "ยังไม่ได้ตั้งค่า"}
+                        </Badge>
+                      </div>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        value={tngApiSecret}
+                        onChange={event =>
+                          setTngApiSecret(event.target.value)
+                        }
+                        placeholder={
+                          paymentConfig?.apiSecretConfigured
+                            ? "เว้นว่างเพื่อใช้ Secret เดิม"
+                            : "วาง API Secret จาก Slip2Go Dashboard > API Connect"
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        ใช้ตรวจสลิปโอนเงินที่แคชเชียร์สแกนจากลูกค้า
+                        ระบบไม่แสดง Secret เดิมกลับมาที่หน้าเว็บ
+                        และจะเข้ารหัสก่อนบันทึกลงฐานข้อมูล
+                        {paymentConfig?.apiKeySource === "environment"
+                          ? " · ขณะนี้ใช้ Secret สำรองจาก .env"
+                          : ""}
+                        {paymentConfig?.mockMode
+                          ? " · โหมดจำลอง (SLIP2GO_MOCK) เปิดอยู่"
+                          : ""}
+                      </p>
+                      {!paymentConfig?.apiSecretConfigured &&
+                        !tngApiSecret.trim() && (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            ยังไม่มี Slip2Go API Secret — แคชเชียร์ยังกด
+                            "ยืนยันเอง" ได้ แต่ระบบจะไม่ตรวจสลิปอัตโนมัติ
+                          </div>
+                        )}
+                      {tngTestResult && (
+                        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+                          {tngTestResult}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 font-medium">
+                          <BellRing className="h-4 w-4" /> แจ้งเงินเข้าอัตโนมัติ
+                          (Webhook)
+                        </div>
+                        <Badge
+                          variant={
+                            paymentConfig?.webhookConfigured
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {paymentConfig?.webhookConfigured
+                            ? "พร้อมใช้งาน"
+                            : "ยังไม่ได้สร้าง token"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        ใช้คู่กับแอปอ่าน Notification บนมือถือเครื่องที่ล็อกอิน
+                        แอปถุงเงิน/ธนาคารของร้าน (เช่น ตังค์เข้า, PayNotify) —
+                        เมื่อมีเงินเข้า แอปจะส่งยอดมาที่ URL นี้
+                        ระบบจะจับคู่กับบิล QR ที่รออยู่ แล้วแจ้ง
+                        &quot;เงินเข้าแล้ว&quot; พร้อมปิดบิลให้อัตโนมัติ
+                        (มือถือต้องเข้าถึง URL นี้ผ่านอินเทอร์เน็ตได้)
+                      </p>
+
+                      <div className="space-y-1.5">
+                        <Label>Webhook URL</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            readOnly
+                            value={webhookUrl}
+                            className="font-mono text-xs"
+                            onFocus={event => event.target.select()}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => copyText(webhookUrl, " Webhook URL")}
+                          >
+                            <Copy className="w-3 h-3 mr-1" /> คัดลอก
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Webhook token</Label>
+                        {paymentConfig?.webhookToken ? (
+                          <div className="flex gap-2">
+                            <Input
+                              readOnly
+                              type={showWebhookToken ? "text" : "password"}
+                              value={paymentConfig.webhookToken}
+                              className="font-mono text-xs"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              aria-label={
+                                showWebhookToken ? "ซ่อน token" : "แสดง token"
+                              }
+                              onClick={() =>
+                                setShowWebhookToken(visible => !visible)
+                              }
+                            >
+                              {showWebhookToken ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={() =>
+                                copyText(
+                                  paymentConfig.webhookToken ?? "",
+                                  " token"
+                                )
+                              }
+                            >
+                              <Copy className="w-3 h-3 mr-1" /> คัดลอก
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            ยังไม่มี token — กด &quot;สร้าง token&quot;
+                            แล้วนำ URL และ token ไปตั้งในแอปแจ้งเงินเข้า
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void regenerateWebhookToken()}
+                          disabled={savePaymentConfig.isPending}
+                        >
+                          <RefreshCw className="mr-1.5 h-4 w-4" />
+                          {paymentConfig?.webhookConfigured
+                            ? "สร้าง token ใหม่"
+                            : "สร้าง token"}
+                        </Button>
+                      </div>
+
+                      <div className="rounded-lg bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap break-all">
+                        {`POST ${webhookUrl}
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{"amount": 100.00, "text": "เงินเข้า 100.00 บาท", "ref": "รหัสแจ้งเตือนจากแอป (ถ้ามี)"}`}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        ยอดเงินต้องตรงกับบิลที่รออยู่พอดี 1 บิล —
+                        ถ้ามีบิลยอดเดียวกันค้างอยู่หลายบิล ระบบจะไม่เดาปิดบิลให้
+                        ให้สแกนสลิปยืนยันตามเดิม
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={savePayments}
+                        disabled={savePaymentConfig.isPending}
+                      >
+                        <Save className="mr-1.5 h-4 w-4" />
+                        {savePaymentConfig.isPending
+                          ? "กำลังบันทึก…"
+                          : "บันทึกการตั้งค่าการชำระเงิน"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => testPaymentConnection.mutate()}
+                        disabled={
+                          testPaymentConnection.isPending ||
+                          savePaymentConfig.isPending
+                        }
+                      >
+                        <RefreshCw
+                          className={`mr-1.5 h-4 w-4 ${testPaymentConnection.isPending ? "animate-spin" : ""}`}
+                        />
+                        {testPaymentConnection.isPending
+                          ? "กำลังทดสอบ…"
+                          : "ทดสอบการเชื่อมต่อ"}
+                      </Button>
+                      {paymentConfig?.apiKeySource === "settings" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="text-destructive"
+                          onClick={clearApiSecret}
+                          disabled={savePaymentConfig.isPending}
+                        >
+                          <Trash2 className="mr-1.5 h-4 w-4" /> ลบ API Secret
+                        </Button>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {paymentConfig?.settingsSource === "settings"
+                          ? "ใช้ค่าที่บันทึกสำหรับสาขานี้"
+                          : "ยังใช้ค่าเริ่มต้นจากเซิร์ฟเวอร์"}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                      <span>
+                        Slip2Go API Secret เป็นข้อมูลแบบเขียนอย่างเดียว
+                        เก็บเข้ารหัสในตาราง private ฝั่งเซิร์ฟเวอร์เท่านั้น
+                        หน้าเว็บและเครื่องลูกข่ายไม่เคยเห็น Secret จริง
                       </span>
                     </div>
                   </>

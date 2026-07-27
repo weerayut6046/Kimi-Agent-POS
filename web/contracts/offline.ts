@@ -1,4 +1,4 @@
-export type SalePaymentMethod = "cash" | "qr" | "card" | "credit";
+export type SalePaymentMethod = "cash" | "qr" | "card" | "credit" | "thungngern";
 
 export type DesktopSaleInput = {
   shiftId?: number;

@@ -78,6 +78,34 @@
       "when": 1784938378502,
       "tag": "0010_talented_blockbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785069082893,
+      "tag": "0011_dusty_paladin",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785112801382,
+      "tag": "0012_noisy_dragon_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785116333272,
+      "tag": "0013_vengeful_tenebrous",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785120866801,
+      "tag": "0014_perpetual_selene",
+      "breakpoints": true
     }
   ]
 }
