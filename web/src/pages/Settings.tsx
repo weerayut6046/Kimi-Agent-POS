@@ -631,11 +631,18 @@ export default function Settings() {
     error: paymentConfigQueryError,
     refetch: refetchPaymentConfig,
   } = trpc.payments.config.useQuery(undefined, { enabled: isAdmin });
-  const [tngEnabled, setTngEnabled] = useState(false);
-  const [tngQrMode, setTngQrMode] = useState<"promptpay" | "merchant">(
-    "promptpay"
+  // lazy-init จาก query cache เหมือนฟอร์ม AI ด้านบน — กันฟอร์มไม่ hydrate ตอน
+  // กลับเข้าหน้านี้ใน SPA session เดิม (useQuery คืน cached data ตั้งแต่ render แรก
+  // ทำ prev === paymentConfig พอดี sync block ด้านล่างจึงไม่ทำงาน ฟอร์มค้างที่ค่า default)
+  const [tngEnabled, setTngEnabled] = useState(
+    () => paymentConfig?.thungngernEnabled ?? false
   );
-  const [tngPromptpayId, setTngPromptpayId] = useState("");
+  const [tngQrMode, setTngQrMode] = useState<"promptpay" | "merchant">(
+    () => paymentConfig?.qrMode ?? "promptpay"
+  );
+  const [tngPromptpayId, setTngPromptpayId] = useState(
+    () => paymentConfig?.promptpayId ?? ""
+  );
   const [tngMerchantPayload, setTngMerchantPayload] = useState("");
   const [tngMerchantEditorOpen, setTngMerchantEditorOpen] = useState(false);
   const [tngApiSecret, setTngApiSecret] = useState("");
