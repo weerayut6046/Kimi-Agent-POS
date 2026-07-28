@@ -2046,7 +2046,111 @@ export default function Settings() {
       )}
         </TabsContent>
 
-        <TabsContent value="ai" className="mt-0">
+        <TabsContent value="ai" className="mt-0 space-y-5">
+          {isAdmin && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="font-heading text-base flex items-center gap-2">
+                      <Gauge className="w-4 h-4" /> อ่านมิเตอร์จากภาพตอนตัดกะ
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      เลือกวิธีอ่านจอ seven-segment สำหรับสาขา{" "}
+                      {staff?.branch.name ?? "ปัจจุบัน"}
+                    </p>
+                  </div>
+                  <Badge variant="secondary">เฉพาะผู้ดูแลระบบ</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {settingsPending && !settingMap ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    กำลังโหลดการตั้งค่า…
+                  </div>
+                ) : (
+                  <>
+                    <RadioGroup
+                      value={form.meter_ocr_mode || "gemini"}
+                      onValueChange={value => set("meter_ocr_mode", value)}
+                      className="grid gap-3 lg:grid-cols-3"
+                    >
+                      <Label
+                        htmlFor="meter-ocr-local"
+                        className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 hover:bg-muted/30"
+                      >
+                        <RadioGroupItem
+                          id="meter-ocr-local"
+                          value="local"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-medium">ไม่ใช้ AI</span>
+                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                            อ่าน seven-segment ภายในเครื่องผู้ใช้
+                            รูปภาพไม่ถูกส่งไปยังบริการภายนอก
+                          </span>
+                        </span>
+                      </Label>
+
+                      <Label
+                        htmlFor="meter-ocr-gemini"
+                        className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 hover:bg-muted/30"
+                      >
+                        <RadioGroupItem
+                          id="meter-ocr-gemini"
+                          value="gemini"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-medium">ใช้ Gemini</span>
+                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                            ส่งภาพหน้าตู้ไปให้ Gemini อ่านทุกภาพ
+                            เหมาะกับภาพหรือหน้าตู้หลายรูปแบบ
+                          </span>
+                        </span>
+                      </Label>
+
+                      <Label
+                        htmlFor="meter-ocr-auto"
+                        className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 hover:bg-muted/30"
+                      >
+                        <RadioGroupItem
+                          id="meter-ocr-auto"
+                          value="auto"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-medium">อัตโนมัติ</span>
+                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                            อ่านในเครื่องก่อน และส่งเฉพาะภาพที่ผลไม่ครบ
+                            หรือมีความมั่นใจต่ำไปให้ Gemini
+                          </span>
+                        </span>
+                      </Label>
+                    </RadioGroup>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        onClick={saveAll}
+                        disabled={!isAdmin || saveSettings.isPending}
+                      >
+                        <Save className="mr-1.5 h-4 w-4" />
+                        {saveSettings.isPending
+                          ? "กำลังบันทึก…"
+                          : "บันทึกวิธีอ่านมิเตอร์"}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        ค่าเริ่มต้นของระบบคือ Gemini
+                      </span>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {isAdmin && (
             <Card>
               <CardHeader className="pb-2">

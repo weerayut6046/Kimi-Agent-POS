@@ -2,6 +2,15 @@
  * ค่าตั้งต้นที่ทั้งหน้าเว็บ, API, seed และ migration ใช้ร่วมกัน
  * เพื่อไม่ให้หน้า Settings แสดงค่าหนึ่ง แต่ฐานข้อมูลใช้ค่าอีกชุดหนึ่ง
  */
+export const METER_OCR_MODES = ["local", "gemini", "auto"] as const;
+export type MeterOcrMode = (typeof METER_OCR_MODES)[number];
+
+export function normalizeMeterOcrMode(value: unknown): MeterOcrMode {
+  return METER_OCR_MODES.includes(value as MeterOcrMode)
+    ? (value as MeterOcrMode)
+    : "gemini";
+}
+
 export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   shop_name: "ปั๊มน้ำมันกลางใหญ่บริการ",
   shop_branch: "สาขาหลัก",
@@ -26,6 +35,7 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   pay_qr_enabled: "1",
   pay_card_enabled: "1",
   pay_credit_enabled: "1",
+  meter_ocr_mode: "gemini",
 };
 
 export function mergeSettingDefaults(

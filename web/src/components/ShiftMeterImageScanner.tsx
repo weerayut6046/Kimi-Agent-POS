@@ -15,7 +15,13 @@ import {
   type MeterDisplayMode,
   type MeterDisplaySide,
 } from "@contracts/meterOcr";
+import type { MeterOcrMode } from "@contracts/settings";
 import { trpc } from "@/providers/trpc";
+import {
+  scanMeterImageLocally,
+  shouldUseGeminiFallback,
+  type MeterImageScanResult,
+} from "@/lib/localMeterOcr";
 import {
   prepareMeterImage,
   suggestNozzleId,
@@ -63,11 +69,13 @@ type ScanNote = {
   mode: MeterDisplayMode;
   issue: string;
   screenCount: number;
+  source: "local" | "gemini";
 };
 
 type Props = {
   shiftId: number;
   targets: MeterNozzleTarget[];
+  mode: MeterOcrMode;
   onApply: (values: Record<number, { l?: string; p?: string }>) => void;
 };
 
@@ -81,6 +89,12 @@ function modeLabel(mode: MeterDisplayMode) {
   return "ยังไม่ทราบ L/P";
 }
 
+function readerModeLabel(mode: MeterOcrMode) {
+  if (mode === "local") return "อ่านในเครื่อง · ไม่ส่งภาพออก";
+  if (mode === "auto") return "อัตโนมัติ · Gemini เฉพาะภาพไม่ชัด";
+  return "Gemini";
+}
+
 function chunks<T>(items: T[], size: number): T[][] {
   const output: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -92,6 +106,7 @@ function chunks<T>(items: T[], size: number): T[][] {
 export default function ShiftMeterImageScanner({
   shiftId,
   targets,
+  mode,
   onApply,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -100,12 +115,14 @@ export default function ShiftMeterImageScanner({
   const [scanNotes, setScanNotes] = useState<ScanNote[]>([]);
   const [error, setError] = useState("");
   const [preparing, setPreparing] = useState(false);
+  const [localScanning, setLocalScanning] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const multipleInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const scanMutation = trpc.pos.shiftMeterScan.useMutation({
     trpc: { context: { skipBatch: true } },
   });
+  const scanning = localScanning || scanMutation.isPending;
 
   const imageById = useMemo(
     () => new Map(images.map(image => [image.id, image])),
@@ -221,16 +238,86 @@ export default function ShiftMeterImageScanner({
     const nextNotes: ScanNote[] = [];
 
     try {
+      setLocalScanning(mode !== "gemini");
       for (const batch of chunks(images, METER_OCR_MAX_IMAGES_PER_REQUEST)) {
-        const response = await scanMutation.mutateAsync({
-          shiftId,
-          images: batch.map(image => ({
-            mimeType: image.mimeType,
-            contentBase64: image.contentBase64,
-          })),
-        });
+        let batchResults: Array<{
+          result: MeterImageScanResult;
+          source: "local" | "gemini";
+        }> = [];
 
-        for (const result of response.results) {
+        if (mode === "gemini") {
+          const response = await scanMutation.mutateAsync({
+            shiftId,
+            images: batch.map(image => ({
+              mimeType: image.mimeType,
+              contentBase64: image.contentBase64,
+            })),
+          });
+          batchResults = response.results.map(result => ({
+            result,
+            source: "gemini" as const,
+          }));
+        } else {
+          for (let imageIndex = 0; imageIndex < batch.length; imageIndex += 1) {
+            batchResults.push({
+              result: await scanMeterImageLocally(
+                batch[imageIndex]!,
+                imageIndex
+              ),
+              source: "local",
+            });
+            await new Promise<void>(resolve =>
+              requestAnimationFrame(() => resolve())
+            );
+          }
+
+          if (mode === "auto") {
+            const fallback = batchResults
+              .map((entry, index) => ({ entry, index }))
+              .filter(({ entry }) => shouldUseGeminiFallback(entry.result));
+            if (fallback.length) {
+              try {
+                const response = await scanMutation.mutateAsync({
+                  shiftId,
+                  images: fallback.map(({ index }) => ({
+                    mimeType: batch[index]!.mimeType,
+                    contentBase64: batch[index]!.contentBase64,
+                  })),
+                });
+                for (const result of response.results) {
+                  const original = fallback[result.imageIndex];
+                  if (!original) continue;
+                  batchResults[original.index] = {
+                    result: {
+                      ...result,
+                      imageIndex: original.index,
+                    },
+                    source: "gemini",
+                  };
+                }
+              } catch (cause) {
+                const fallbackIssue =
+                  cause instanceof Error
+                    ? cause.message
+                    : "เรียก Gemini สำรองไม่สำเร็จ";
+                for (const { index } of fallback) {
+                  const current = batchResults[index]!;
+                  batchResults[index] = {
+                    ...current,
+                    result: {
+                      ...current.result,
+                      issue: [current.result.issue, fallbackIssue]
+                        .filter(Boolean)
+                        .join(" · "),
+                    },
+                  };
+                }
+              }
+            }
+          }
+        }
+
+        for (const { result, source } of batchResults) {
           const image = batch[result.imageIndex];
           if (!image) continue;
           nextNotes.push({
@@ -240,6 +327,7 @@ export default function ShiftMeterImageScanner({
             mode: result.mode,
             issue: result.issue,
             screenCount: result.screens.length,
+            source,
           });
           for (const screen of result.screens) {
             nextRows.push({
@@ -276,6 +364,8 @@ export default function ShiftMeterImageScanner({
       setError(
         cause instanceof Error ? cause.message : "อ่านตัวเลขจากภาพไม่สำเร็จ"
       );
+    } finally {
+      setLocalScanning(false);
     }
   };
 
@@ -316,7 +406,7 @@ export default function ShiftMeterImageScanner({
             </DialogTitle>
             <DialogDescription>
               เลือกรูปของหลายตู้พร้อมกันได้ ระบบจะรวมเลขด้านบนกับด้านล่าง
-              แล้วให้ตรวจทานก่อนเติมแบบฟอร์มปิดกะ
+              แล้วให้ตรวจทานก่อนเติมแบบฟอร์มปิดกะ · {readerModeLabel(mode)}
             </DialogDescription>
           </DialogHeader>
 
@@ -351,7 +441,7 @@ export default function ShiftMeterImageScanner({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={preparing || scanMutation.isPending}
+                    disabled={preparing || scanning}
                     onClick={() => multipleInputRef.current?.click()}
                   >
                     <ImagePlus className="mr-2 h-4 w-4" />
@@ -360,7 +450,7 @@ export default function ShiftMeterImageScanner({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={preparing || scanMutation.isPending}
+                    disabled={preparing || scanning}
                     onClick={() => cameraInputRef.current?.click()}
                   >
                     <Camera className="mr-2 h-4 w-4" />
@@ -397,7 +487,7 @@ export default function ShiftMeterImageScanner({
                         variant="destructive"
                         aria-label={`ลบ ${image.fileName}`}
                         className="absolute right-1.5 top-1.5 h-7 w-7 opacity-90"
-                        disabled={scanMutation.isPending}
+                        disabled={scanning}
                         onClick={() => removeImage(image.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -410,17 +500,15 @@ export default function ShiftMeterImageScanner({
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button
                   type="button"
-                  disabled={
-                    !images.length || preparing || scanMutation.isPending
-                  }
+                  disabled={!images.length || preparing || scanning}
                   onClick={scanImages}
                 >
-                  {scanMutation.isPending ? (
+                  {scanning ? (
                     <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <ScanLine className="mr-2 h-4 w-4" />
                   )}
-                  {scanMutation.isPending
+                  {scanning
                     ? `กำลังอ่าน ${progress.done}/${progress.total} ภาพ`
                     : `อ่านตัวเลขจาก ${images.length} ภาพ`}
                 </Button>
@@ -428,7 +516,7 @@ export default function ShiftMeterImageScanner({
                   <Button
                     type="button"
                     variant="ghost"
-                    disabled={scanMutation.isPending}
+                    disabled={scanning}
                     onClick={() => {
                       setImages([]);
                       setReviewRows([]);
@@ -481,6 +569,15 @@ export default function ShiftMeterImageScanner({
                           </Badge>
                           <Badge variant="secondary">
                             {note.screenCount} จอ
+                          </Badge>
+                          <Badge
+                            variant={
+                              note.source === "local" ? "outline" : "secondary"
+                            }
+                          >
+                            {note.source === "local"
+                              ? "อ่านในเครื่อง"
+                              : "Gemini"}
                           </Badge>
                         </div>
                         {note.issue && (

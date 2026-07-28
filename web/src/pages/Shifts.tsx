@@ -60,6 +60,7 @@ import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
 import CashDenomCounter from "@/components/CashDenomCounter";
 import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
 import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
+import { normalizeMeterOcrMode } from "@contracts/settings";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -675,6 +676,11 @@ export default function Shifts() {
     undefined,
     { trpc: { context: { skipBatch: true } } }
   );
+  const { data: branchSettings } = trpc.catalog.getSettings.useQuery(
+    undefined,
+    { enabled: currentShift != null }
+  );
+  const meterOcrMode = normalizeMeterOcrMode(branchSettings?.meter_ocr_mode);
   const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
     enabled: currentShift === null,
   });
@@ -1101,6 +1107,7 @@ export default function Shifts() {
                   <ShiftMeterImageScanner
                     shiftId={currentShift.id}
                     targets={meterScanTargets}
+                    mode={meterOcrMode}
                     onApply={values => {
                       setCloseVals(current => {
                         const next = { ...current };

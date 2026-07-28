@@ -30,6 +30,7 @@ import {
   METER_OCR_MAX_BASE64_CHARS_PER_IMAGE,
   METER_OCR_MAX_IMAGES_PER_REQUEST,
 } from "@contracts/meterOcr";
+import { normalizeMeterOcrMode } from "@contracts/settings";
 import { env } from "../lib/env";
 import { MeterOcrError, readMeterImages } from "../lib/meterOcr";
 import {
@@ -347,6 +348,21 @@ export const posRouter = createRouter({
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "ไม่พบกะที่เปิดอยู่สำหรับอ่านมิเตอร์",
+        });
+      }
+
+      const configuredMode = await getDb().query.settings.findFirst({
+        columns: { value: true },
+        where: and(
+          eq(settings.branchId, branchId),
+          eq(settings.key, "meter_ocr_mode")
+        ),
+      });
+      if (normalizeMeterOcrMode(configuredMode?.value) === "local") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "สาขานี้ตั้งค่าให้อ่านมิเตอร์ในเครื่อง จึงไม่อนุญาตให้ส่งภาพไปยัง Gemini",
         });
       }
 
