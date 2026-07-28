@@ -48,17 +48,11 @@ function createDashboardPlaceholder() {
 }
 
 export default function Dashboard() {
-  const {
-    data,
-    isError,
-    error,
-    refetch,
-    isFetching,
-    isPlaceholderData,
-  } = trpc.pos.dashboard.useQuery(undefined, {
-    refetchInterval: 30000,
-    placeholderData: createDashboardPlaceholder,
-  });
+  const { data, isError, error, refetch, isFetching, isPlaceholderData } =
+    trpc.pos.dashboard.useQuery(undefined, {
+      refetchInterval: 30000,
+      placeholderData: createDashboardPlaceholder,
+    });
 
   if (isError || !data) {
     return (
@@ -151,11 +145,13 @@ export default function Dashboard() {
               </h1>
               <div className="mt-2 flex flex-wrap items-end gap-3">
                 <div className="font-heading text-3xl font-extrabold leading-none tracking-[-0.04em] number-display">
-                  {isPlaceholderData ? "฿—" : `฿${fmtMoney(data.todayTotal)}`}
+                  ฿{fmtMoney(data.todayTotal)}
                 </div>
                 <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
                   <TrendingUp className="size-3" />{" "}
-                  {isPlaceholderData ? "กำลังอัปเดตข้อมูล" : "อัปเดตแบบเรียลไทม์"}
+                  {isPlaceholderData
+                    ? "กำลังอัปเดตข้อมูล"
+                    : "อัปเดตแบบเรียลไทม์"}
                 </div>
               </div>
               <p className="mt-3 max-w-xl text-sm leading-6 text-white/50">
@@ -436,6 +432,8 @@ export default function Dashboard() {
                 </div>
                 <Progress
                   value={tank.percent}
+                  aria-label={`ระดับน้ำมันในถัง ${tank.name}`}
+                  aria-valuetext={`${fmtNum(tank.percent)} เปอร์เซ็นต์`}
                   className={`h-2.5 ${
                     tank.isLow
                       ? "[&>div]:bg-destructive"

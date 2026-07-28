@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
@@ -27,9 +27,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
-import AssistantChat from "@/components/AssistantChat";
 import { useStaff } from "@/hooks/useStaff";
-import LowStockAlert from "@/components/LowStockAlert";
 import {
   Sheet,
   SheetClose,
@@ -56,6 +54,9 @@ import {
   type MenuPermissionKey,
 } from "@contracts/menuPermissions";
 import { toast } from "sonner";
+
+const LowStockAlert = lazy(() => import("@/components/LowStockAlert"));
+const AssistantChat = lazy(() => import("@/components/AssistantChat"));
 
 type MenuItem = {
   permission: MenuPermissionKey;
@@ -238,6 +239,7 @@ export default function Layout() {
     enabled: loadSecondaryData,
   });
   const { data: currentShift } = trpc.pos.currentShift.useQuery(undefined, {
+    enabled: loadSecondaryData,
     refetchInterval: 30000,
     trpc: { context: { skipBatch: true } },
   });
@@ -290,7 +292,7 @@ export default function Layout() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setLoadSecondaryData(true), 1_500);
+    const timer = window.setTimeout(() => setLoadSecondaryData(true), 3_000);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -418,7 +420,11 @@ export default function Layout() {
                   </div>
                 </div>
               </div>
-              {loadSecondaryData && <LowStockAlert />}
+              {loadSecondaryData && (
+                <Suspense fallback={null}>
+                  <LowStockAlert />
+                </Suspense>
+              )}
             </div>
           </div>
 
@@ -514,11 +520,10 @@ export default function Layout() {
                 type="button"
                 onClick={() => setCommandOpen(true)}
                 className="group flex h-11 w-48 items-center gap-2 rounded-2xl border border-white/90 bg-white/70 px-3 text-left text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/60 backdrop-blur-md transition-all hover:w-52 hover:border-violet-200 hover:bg-white hover:text-violet-700 hover:shadow-[0_12px_26px_rgba(75,61,157,0.12)] xl:w-56 xl:hover:w-60"
-                aria-label="ค้นหาเมนู"
               >
                 <Search className="size-4 transition-transform group-hover:scale-110" />
                 <span className="flex-1">ค้นหาเมนู...</span>
-                <kbd className="rounded-lg border border-violet-100 bg-violet-50 px-1.5 py-0.5 font-sans text-[10px] text-violet-400 shadow-xs">
+                <kbd className="rounded-lg border border-violet-100 bg-violet-50 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-violet-700 shadow-xs">
                   Ctrl K
                 </kbd>
               </button>
@@ -540,7 +545,11 @@ export default function Layout() {
                 </div>
                 <div className="text-[11px] text-slate-500">{dateLabel}</div>
               </div>
-              {loadSecondaryData && <LowStockAlert />}
+              {loadSecondaryData && (
+                <Suspense fallback={null}>
+                  <LowStockAlert />
+                </Suspense>
+              )}
             </div>
           </header>
 
@@ -582,7 +591,11 @@ export default function Layout() {
             >
               <Search className="size-[18px]" />
             </button>
-            {loadSecondaryData && <LowStockAlert />}
+            {loadSecondaryData && (
+              <Suspense fallback={null}>
+                <LowStockAlert />
+              </Suspense>
+            )}
           </header>
 
           <DesktopSyncBanner />
@@ -608,7 +621,7 @@ export default function Layout() {
                 className={({ isActive }) =>
                   cn(
                     "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-all",
-                    isActive ? "text-violet-700" : "text-slate-400"
+                    isActive ? "text-violet-700" : "text-slate-600"
                   )
                 }
               >
@@ -639,7 +652,7 @@ export default function Layout() {
               aria-current={moreMenuIsActive ? "page" : undefined}
               className={cn(
                 "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors",
-                moreMenuIsActive ? "text-violet-700" : "text-slate-400"
+                moreMenuIsActive ? "text-violet-700" : "text-slate-600"
               )}
             >
               {moreMenuIsActive && (
@@ -785,7 +798,11 @@ export default function Layout() {
           )}
         </CommandList>
       </CommandDialog>
-      <AssistantChat />
+      {loadSecondaryData && (
+        <Suspense fallback={null}>
+          <AssistantChat />
+        </Suspense>
+      )}
     </Sheet>
   );
 }

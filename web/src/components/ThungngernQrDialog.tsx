@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import {
   CheckCircle2,
@@ -63,19 +63,38 @@ function playMoneyArrivedChime() {
   }
 }
 
-/** Dialog QR ถุงเงิน — ล็อกยอด, นับถอยหลัง, สแกนสลิปยืนยันอัตโนมัติ, ยืนยันเองได้ */
-export function ThungngernQrDialog({
-  session,
-  onConfirmed,
-  onClosed,
-}: {
+type ThungngernQrDialogProps = {
   session: ThungngernSession | null;
   onConfirmed: (receipt: DesktopReceipt) => void;
   onClosed: () => void;
-}) {
+};
+
+/** เปลี่ยน key ตาม session เพื่อให้สถานะภายในเริ่มใหม่โดยไม่ต้อง reset state ใน effect */
+export function ThungngernQrDialog(props: ThungngernQrDialogProps) {
+  return (
+    <ThungngernQrDialogContent
+      key={props.session?.sessionId ?? "closed"}
+      {...props}
+    />
+  );
+}
+
+/** Dialog QR ถุงเงิน — ล็อกยอด, นับถอยหลัง, สแกนสลิปยืนยันอัตโนมัติ, ยืนยันเองได้ */
+function ThungngernQrDialogContent({
+  session,
+  onConfirmed,
+  onClosed,
+}: ThungngernQrDialogProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<DialogStatus>("pending");
-  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    session
+      ? Math.max(
+          0,
+          Math.ceil((new Date(session.expiresAt).getTime() - Date.now()) / 1000)
+        )
+      : 0
+  );
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [slipQr, setSlipQr] = useState("");
@@ -83,11 +102,6 @@ export function ThungngernQrDialog({
 
   useEffect(() => {
     if (!session) return;
-    setStatus("pending");
-    setErr("");
-    setBusy(false);
-    setVerifying(false);
-    setSlipQr("");
     let cancelled = false;
     QRCode.toDataURL(session.payload, {
       width: 280,
@@ -105,15 +119,6 @@ export function ThungngernQrDialog({
     };
   }, [session]);
 
-  // เก็บ callback ล่าสุดใน ref เพื่อไม่ให้ effect ผูกกับ closure เก่า
-  const onConfirmedRef = useRef(onConfirmed);
-  onConfirmedRef.current = onConfirmed;
-
-  // เงินเข้าแล้ว (ไม่ว่าจาก webhook แจ้งเงินเข้า / สแกนสลิป / ยืนยันเอง) — แจ้งด้วยเสียงทันที
-  useEffect(() => {
-    if (status === "confirmed") playMoneyArrivedChime();
-  }, [status]);
-
   // poll สถานะทุก 3 วินาที — อ่านอย่างเดียว; การปิดบิลเกิดจากการสแกนสลิป/ยืนยันเอง
   const statusQuery = trpc.payments.sessionStatus.useQuery(
     { sessionId: session?.sessionId ?? -1 },
@@ -126,36 +131,41 @@ export function ThungngernQrDialog({
 
   const statusData = statusQuery.data;
   const statusError = statusQuery.error;
+  const displayedStatus: DialogStatus =
+    status !== "pending"
+      ? status
+      : statusData?.receipt
+        ? "confirmed"
+        : statusData?.view.status === "cancelled"
+          ? "cancelled"
+          : statusData?.view.status === "expired" ||
+              statusData?.view.secondsLeft === 0 ||
+              secondsLeft === 0
+            ? "expired"
+            : "pending";
+  const displayedError = err || statusError?.message || "";
+
+  // เงินเข้าแล้ว (ไม่ว่าจาก webhook แจ้งเงินเข้า / สแกนสลิป / ยืนยันเอง) — แจ้งด้วยเสียงทันที
   useEffect(() => {
-    if (statusError) {
-      setErr(statusError.message);
-      return;
-    }
-    if (!statusData || status !== "pending") return;
-    setSecondsLeft(statusData.view.secondsLeft);
-    if (statusData.receipt) {
-      setStatus("confirmed");
-      // ให้ผู้ใช้เห็นสถานะยืนยันสั้นๆ ก่อนปิดไปหน้าใบเสร็จ
-      setTimeout(() => onConfirmedRef.current(statusData.receipt!), 900);
-    } else if (
-      statusData.view.status === "expired" ||
-      statusData.view.secondsLeft <= 0
-    ) {
-      setStatus("expired");
-    } else if (statusData.view.status === "cancelled") {
-      setStatus("cancelled");
-    }
-  }, [statusData, statusError, status]);
+    if (displayedStatus === "confirmed") playMoneyArrivedChime();
+  }, [displayedStatus]);
+
+  useEffect(() => {
+    if (!statusData?.receipt || status !== "pending") return;
+    // ให้ผู้ใช้เห็นสถานะยืนยันสั้นๆ ก่อนปิดไปหน้าใบเสร็จ
+    const timeout = setTimeout(() => onConfirmed(statusData.receipt!), 900);
+    return () => clearTimeout(timeout);
+  }, [statusData?.receipt, status, onConfirmed]);
 
   // นับถอยหลังฝั่งจอระหว่างรอ poll รอบถัดไป
   useEffect(() => {
-    if (!session || status !== "pending") return;
+    if (!session || displayedStatus !== "pending") return;
     const expiresAtMs = new Date(session.expiresAt).getTime();
     const interval = setInterval(() => {
       setSecondsLeft(Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)));
     }, 1_000);
     return () => clearInterval(interval);
-  }, [session, status]);
+  }, [session, displayedStatus]);
 
   const manualConfirm = trpc.payments.manualConfirm.useMutation();
   const cancelSession = trpc.payments.cancelSession.useMutation();
@@ -176,7 +186,7 @@ export function ThungngernQrDialog({
         qrCode,
       });
       setStatus("confirmed");
-      setTimeout(() => onConfirmedRef.current(result.receipt), 900);
+      setTimeout(() => onConfirmed(result.receipt), 900);
     } catch (error) {
       // session ยัง pending — แก้สลิปแล้วลองใหม่ได้
       setErr(error instanceof Error ? error.message : "ตรวจสลิปไม่สำเร็จ");
@@ -193,7 +203,7 @@ export function ThungngernQrDialog({
         sessionId: session.sessionId,
       });
       setStatus("confirmed");
-      setTimeout(() => onConfirmedRef.current(result.receipt), 900);
+      setTimeout(() => onConfirmed(result.receipt), 900);
     } catch (error) {
       setErr(error instanceof Error ? error.message : "ยืนยันการชำระไม่สำเร็จ");
       setBusy(false);
@@ -221,7 +231,7 @@ export function ThungngernQrDialog({
     <Dialog
       open={!!session}
       onOpenChange={open => {
-        if (!open && status === "pending") void cancel();
+        if (!open && displayedStatus === "pending") void cancel();
         else if (!open) onClosed();
       }}
     >
@@ -272,7 +282,7 @@ export function ThungngernQrDialog({
             )}
           </div>
 
-          {status === "pending" && (
+          {displayedStatus === "pending" && (
             <div className="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
               <span className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" /> รอชำระ —
@@ -285,7 +295,7 @@ export function ThungngernQrDialog({
             </div>
           )}
 
-          {status === "pending" && (
+          {displayedStatus === "pending" && (
             <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
               <label
                 htmlFor="slip-qr-input"
@@ -330,34 +340,35 @@ export function ThungngernQrDialog({
               </Button>
             </div>
           )}
-          {status === "confirmed" && (
+          {displayedStatus === "confirmed" && (
             <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">
               <CheckCircle2 className="size-5" /> เงินเข้าแล้ว —
               ได้รับเงินเรียบร้อย กำลังพิมพ์ใบเสร็จ
             </div>
           )}
-          {status === "expired" && (
+          {displayedStatus === "expired" && (
             <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
-              <XCircle className="size-5" /> หมดเวลา —
-              QR นี้ใช้ไม่ได้แล้ว กรุณาสร้างใหม่
+              <XCircle className="size-5" /> หมดเวลา — QR นี้ใช้ไม่ได้แล้ว
+              กรุณาสร้างใหม่
             </div>
           )}
-          {status === "cancelled" && (
+          {displayedStatus === "cancelled" && (
             <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
               <XCircle className="size-5" /> ยกเลิกรายการแล้ว
             </div>
           )}
 
-          {err && (
+          {displayedError && (
             <div
               role="alert"
               className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
             >
-              <CircleAlert className="mt-0.5 size-4 shrink-0" /> {err}
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />{" "}
+              {displayedError}
             </div>
           )}
 
-          {status === "pending" && (
+          {displayedStatus === "pending" && (
             <div className="space-y-2">
               <Button
                 type="button"
@@ -380,7 +391,8 @@ export function ThungngernQrDialog({
               </Button>
             </div>
           )}
-          {(status === "expired" || status === "cancelled") && (
+          {(displayedStatus === "expired" ||
+            displayedStatus === "cancelled") && (
             <Button
               type="button"
               className="h-12 w-full rounded-xl"

@@ -137,7 +137,7 @@ export default function Pos() {
   const [phoneQ, setPhoneQ] = useState("");
   const [discount, setDiscount] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
-  const [payMethod, setPayMethod] = useState<
+  const [selectedPayMethod, setPayMethod] = useState<
     "cash" | "qr" | "card" | "credit" | "thungngern"
   >("cash");
   const [received, setReceived] = useState("");
@@ -154,8 +154,21 @@ export default function Pos() {
   const [thungngernSession, setThungngernSession] =
     useState<ThungngernSession | null>(null);
 
-  const { data: thungngernStatus } =
-    trpc.payments.thungngernStatus.useQuery();
+  const { data: thungngernStatus } = trpc.payments.thungngernStatus.useQuery();
+
+  // ใช้ค่าที่เปิดใช้งานจริงทันที โดยไม่ต้องแก้ state ซ้ำจากใน effect
+  const enabledPayMethods = useMemo(
+    () =>
+      (["cash", "qr", "card", "credit", "thungngern"] as const).filter(
+        method =>
+          method === "thungngern" ||
+          (settingMap?.[`pay_${method}_enabled`] ?? "1") !== "0"
+      ),
+    [settingMap]
+  );
+  const payMethod = enabledPayMethods.includes(selectedPayMethod)
+    ? selectedPayMethod
+    : (enabledPayMethods[0] ?? "cash");
 
   const pointValue = Number(settingMap?.point_redeem_value ?? "1");
   const activeProducts = useMemo(
@@ -175,10 +188,13 @@ export default function Pos() {
     { amount: qrAmount },
     { enabled: payMethod === "qr" && qrAmount > 0 }
   );
-  const [promptpayQrUrl, setPromptpayQrUrl] = useState<string | null>(null);
+  const promptpayPayload = payMethod === "qr" ? promptpayQr?.payload : null;
+  const [promptpayQrImage, setPromptpayQrImage] = useState<{
+    payload: string;
+    url: string;
+  } | null>(null);
   useEffect(() => {
-    setPromptpayQrUrl(null);
-    const payload = payMethod === "qr" ? promptpayQr?.payload : null;
+    const payload = promptpayPayload;
     if (!payload) return;
     let cancelled = false;
     QRCode.toDataURL(payload, {
@@ -187,29 +203,17 @@ export default function Pos() {
       errorCorrectionLevel: "M",
     })
       .then(url => {
-        if (!cancelled) setPromptpayQrUrl(url);
+        if (!cancelled) setPromptpayQrImage({ payload, url });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [payMethod, promptpayQr?.payload]);
-
-  // ช่องทางชำระที่ผู้ดูแลเปิดใช้ (ตั้งค่าระบบ > การชำระเงิน) — ถุงเงินมีสวิตช์ของตัวเอง
-  const enabledPayMethods = useMemo(
-    () =>
-      (["cash", "qr", "card", "credit", "thungngern"] as const).filter(
-        m =>
-          m === "thungngern" ||
-          (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
-      ),
-    [settingMap]
-  );
-  useEffect(() => {
-    if (!enabledPayMethods.includes(payMethod)) {
-      setPayMethod(enabledPayMethods[0] ?? "cash");
-    }
-  }, [enabledPayMethods, payMethod]);
+  }, [promptpayPayload]);
+  const promptpayQrUrl =
+    promptpayQrImage && promptpayQrImage.payload === promptpayPayload
+      ? promptpayQrImage.url
+      : null;
 
   const addToCart = (p: Product, qty: number) => {
     setCart(c => {
@@ -805,31 +809,30 @@ export default function Pos() {
                 </div>
                 <div className="grid grid-cols-5 gap-2">
                   {enabledPayMethods.map(m => {
-                      const PaymentIcon = paymentIcons[m];
-                      const disabled =
-                        (m === "credit" && syncStatus?.online === false) ||
-                        (m === "thungngern" && !thungngernStatus?.enabled);
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => setPayMethod(m)}
-                          title={
-                            m === "credit" && syncStatus?.online === false
-                              ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
-                              : m === "thungngern" && !thungngernStatus?.enabled
-                                ? "ให้ผู้ดูแลเปิดใช้งานและตั้งค่า PromptPay ID ที่ ตั้งค่าระบบ > การชำระเงิน"
-                                : undefined
-                          }
-                          className={`flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "-translate-y-0.5 border-violet-500 bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-lg shadow-violet-500/25" : "border-slate-200 bg-white/80 text-slate-500 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 hover:shadow-md"}`}
-                        >
-                          <PaymentIcon className="size-[18px]" />
-                          {paymentLabel[m]}
-                        </button>
-                      );
-                    }
-                  )}
+                    const PaymentIcon = paymentIcons[m];
+                    const disabled =
+                      (m === "credit" && syncStatus?.online === false) ||
+                      (m === "thungngern" && !thungngernStatus?.enabled);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setPayMethod(m)}
+                        title={
+                          m === "credit" && syncStatus?.online === false
+                            ? "ขายเชื่อต้องเชื่อมต่ออินเทอร์เน็ต"
+                            : m === "thungngern" && !thungngernStatus?.enabled
+                              ? "ให้ผู้ดูแลเปิดใช้งานและตั้งค่า PromptPay ID ที่ ตั้งค่าระบบ > การชำระเงิน"
+                              : undefined
+                        }
+                        className={`flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border text-xs font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-300 ${payMethod === m ? "-translate-y-0.5 border-violet-500 bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-lg shadow-violet-500/25" : "border-slate-200 bg-white/80 text-slate-500 hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 hover:shadow-md"}`}
+                      >
+                        <PaymentIcon className="size-[18px]" />
+                        {paymentLabel[m]}
+                      </button>
+                    );
+                  })}
                 </div>
                 {payMethod === "thungngern" && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800">

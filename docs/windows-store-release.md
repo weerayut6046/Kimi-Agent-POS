@@ -1,15 +1,16 @@
-# Windows Store release
+# การเผยแพร่ผ่าน Microsoft Store
 
-PumpPOS uses the Microsoft Store AppX/MSIX path so Microsoft signs the public
-package. The repository does not need a public-trust PFX, certificate password,
-or hardware token for this release path.
+PumpPOS ใช้ช่องทาง AppX/MSIX ของ Microsoft Store เพื่อให้ Microsoft เป็นผู้เซ็น
+แพ็กเกจสำหรับเผยแพร่ ดังนั้นช่องทางนี้ไม่จำเป็นต้องมีไฟล์ PFX แบบ public-trust,
+รหัสผ่าน certificate หรือ hardware token อยู่ใน repository
 
-## One-time Partner Center setup
+## การตั้งค่า Partner Center ครั้งแรก
 
-1. Create or verify the Microsoft Partner Center developer account.
-2. Reserve the PumpPOS product name.
-3. Open **Product management > Product identity**.
-4. Copy these exact non-secret values into the current PowerShell session:
+1. สร้างหรือตรวจสอบบัญชีนักพัฒนา Microsoft Partner Center
+2. จองชื่อผลิตภัณฑ์ PumpPOS
+3. เปิด **Product management > Product identity**
+4. คัดลอกค่าต่อไปนี้จาก Partner Center มาใส่ใน PowerShell session ปัจจุบัน
+   โดยต้องใช้ค่าตรงตามต้นฉบับทุกตัวอักษร:
 
 ```powershell
 $env:PUMPPOS_STORE_IDENTITY_NAME = "<Package/Identity/Name>"
@@ -17,61 +18,103 @@ $env:PUMPPOS_STORE_PUBLISHER = "<Package/Identity/Publisher>"
 $env:PUMPPOS_STORE_PUBLISHER_DISPLAY_NAME = "<Publisher display name>"
 ```
 
-Do not invent or normalize these values. Partner Center rejects a package when
-its identity or publisher differs by even one character. These identifiers are
-not passwords, but account credentials and recovery codes must never be placed
-in the repository, logs, frontend variables, or chat.
+ห้ามเดาหรือปรับรูปแบบค่าเหล่านี้เอง เพราะ Partner Center จะปฏิเสธแพ็กเกจหาก
+Identity หรือ Publisher ต่างจากข้อมูลที่กำหนดไว้แม้เพียงหนึ่งตัวอักษร
+ค่า Identity เหล่านี้ไม่ใช่รหัสผ่าน แต่ห้ามนำข้อมูลเข้าสู่ระบบ รหัสกู้คืนบัญชี
+หรือ secret อื่น ๆ ใส่ใน repository, log, ตัวแปร frontend หรือแชต
 
-## Build
+## การสร้างแพ็กเกจ
 
-Before the Partner Center product is available, validate the pipeline with:
+ก่อนมีผลิตภัณฑ์จริงใน Partner Center สามารถตรวจสอบ build pipeline ด้วยคำสั่ง:
 
 ```powershell
 npm run dist:store:test
 ```
 
-The test artifact is written to `release/store-test/` and cannot be submitted.
-After setting the real Product identity values, build the submission package:
+ไฟล์ทดสอบจะถูกสร้างไว้ใน `release/store-test/` และห้ามนำไปส่งให้ Partner Center
+
+หลังจากตั้งค่า Product identity จริงครบแล้ว ให้สร้างแพ็กเกจสำหรับส่ง Store ด้วย:
 
 ```powershell
 npm run dist:store
 ```
 
-The production `.appx` and recommended `.appxupload` artifacts are written to
-`release/store/`. They are deliberately unsigned before submission. Upload the
-`.appxupload` file to Partner Center; Microsoft Store signs the package after
-certification. Do not distribute either unsigned file directly or upload them
-to the legacy GCS updater bucket.
+ไฟล์ `.appx` และไฟล์ `.appxupload` ที่แนะนำสำหรับส่ง Store จะถูกสร้างไว้ใน
+`release/store/` ไฟล์เหล่านี้จะยังไม่มีลายเซ็นโดยตั้งใจ ให้อัปโหลดไฟล์
+`.appxupload` ไปยัง Partner Center แล้ว Microsoft Store จะเซ็นแพ็กเกจให้หลัง
+ผ่านการรับรอง ห้ามแจกไฟล์ที่ยังไม่ได้เซ็นให้ผู้ใช้โดยตรง และห้ามอัปโหลดไฟล์
+Store ไปยัง bucket GCS ของระบบอัปเดต EXE เดิม
 
-The build verifies the manifest identity, publisher, x64 architecture,
-application ID, `runFullTrust` capability, and absence of an accidental local
-signature.
+กระบวนการ build จะตรวจสอบ Manifest identity, Publisher, สถาปัตยกรรม x64,
+Application ID, capability `runFullTrust` และตรวจว่าไม่มีลายเซ็น local
+ติดเข้าไปโดยไม่ตั้งใจ
 
-## Submission and validation
+## การส่งและตรวจสอบแพ็กเกจ
 
-1. Upload the `.appxupload` from `release/store/` to the Partner Center
-   submission.
-2. Complete properties, age rating, privacy policy URL or text, screenshots,
-   pricing/availability, and certification notes. Add a public support contact
-   when one is available.
-3. For a controlled first release, keep the listing available only through its
-   direct Store link. After certification, install from that link on a clean
-   machine before sharing it more broadly.
-4. Verify authentication, offline sale/outbox sync, receipt printing, local
-   data persistence, uninstall/reinstall behavior, and Store-delivered update.
-5. Expand Store availability only after the production smoke test passes.
+1. อัปโหลดไฟล์ `.appxupload` จาก `release/store/` ไปยัง submission ใน
+   Partner Center
+2. กรอกหรือตรวจสอบ Properties, Age ratings, Privacy policy URL หรือข้อความ
+   นโยบายความเป็นส่วนตัว, ภาพหน้าจอ, Pricing and availability และ Notes for
+   certification หากมีช่องทางช่วยเหลือสาธารณะให้ใส่ข้อมูลติดต่อไว้ด้วย
+3. สำหรับการเผยแพร่ครั้งแรกแบบควบคุม ให้เปิดการติดตั้งผ่านลิงก์ Store โดยตรง
+   ก่อน หลังผ่าน certification ให้ติดตั้งจากลิงก์ดังกล่าวบนเครื่องสะอาดและ
+   ทดสอบให้เรียบร้อยก่อนประชาสัมพันธ์ในวงกว้าง
+4. ตรวจสอบการเข้าสู่ระบบ, การขายแบบออฟไลน์และการ sync outbox, การพิมพ์ใบเสร็จ,
+   การเก็บข้อมูลในเครื่อง, การถอนติดตั้ง/ติดตั้งใหม่ และการอัปเดตผ่าน Store
+5. ขยายการมองเห็นหรือการเผยแพร่บน Store หลัง production smoke test ผ่านแล้ว
+   เท่านั้น
 
-Store packages never start the NSIS/GCS `electron-updater`; Windows Store owns
-their updates. Existing NSIS 2.1.3 installations require one manual migration
-to the Store listing. Back up or sync all pending offline sales before that
-migration, because MSIX virtualizes application data and uninstall can remove
-package-private state.
+Store package จะไม่เริ่ม NSIS/GCS `electron-updater` เพราะ Microsoft Store
+เป็นผู้จัดการการอัปเดตทั้งหมด การติดตั้ง NSIS รุ่น 2.1.3 เดิมต้องย้ายมาใช้รุ่น
+Store ด้วยตนเองหนึ่งครั้ง ก่อนย้ายต้องสำรองหรือ sync รายการขายออฟไลน์ที่ยังค้าง
+ให้หมด เนื่องจาก MSIX แยกพื้นที่ข้อมูลของแอป และการถอนติดตั้งอาจลบข้อมูลที่อยู่
+ภายในพื้นที่เฉพาะของแพ็กเกจ
 
-## Release gates
+## ขั้นตอนอัปเดตเวอร์ชันบน Store
 
-- Never tag or announce the Store version before certification.
-- Never upload the Store artifact to GCS.
-- Never submit the `store-test` artifact.
-- Do not disable Smart App Control on customer machines.
-- Keep the NSIS signing pipeline only as a fallback for future direct EXE
-  distribution with a public-trust certificate.
+1. แก้ไขโค้ดและทดสอบระบบให้เรียบร้อย
+2. เพิ่มหมายเลขเวอร์ชันให้สูงกว่าเวอร์ชันที่อยู่บน Store เช่น `2.1.6` เป็น
+   `2.1.7`:
+
+```powershell
+npm version patch --no-git-tag-version
+```
+
+3. ตรวจสอบคุณภาพก่อน release:
+
+```powershell
+npm run check
+npm run lint
+npm test
+npm audit --audit-level=high
+```
+
+4. หากมีการแก้ Backend หรือ Supabase ให้ deploy และทำ authenticated production
+   smoke test ก่อนสร้าง Store package
+5. ตั้งค่า Product identity เดิมใน PowerShell session แล้วรัน:
+
+```powershell
+npm run dist:store
+```
+
+6. เข้า Partner Center เลือก PumpPOS แล้วกด **Start update**
+7. เปิด **Packages** และอัปโหลดไฟล์ `.appxupload` เวอร์ชันใหม่
+8. ตรวจข้อมูลเดิมและปรับ **What's new in this version**, Notes for certification
+   และบัญชีทดสอบตามความจำเป็น
+9. ตรวจ Submission options แล้วกด **Submit for certification**
+10. หลังผ่านการรับรอง ให้ตรวจว่า Current packages แสดงหมายเลขเวอร์ชันใหม่
+    และทดสอบการอัปเดตผ่าน Microsoft Store บนเครื่องจริง
+
+ข้อมูล Store listing เดิมจะถูกนำมาใช้เป็นจุดเริ่มต้นของ submission ใหม่
+จึงไม่ต้องกรอกข้อมูลทั้งหมดใหม่ เว้นแต่มีการเปลี่ยนแปลงหรือ Partner Center
+แจ้งให้ทบทวน
+
+## เงื่อนไขก่อนเผยแพร่
+
+- ห้ามสร้าง tag หรือประกาศเวอร์ชัน Store ก่อนผ่าน certification
+- ห้ามอัปโหลด Store artifact ไปยัง GCS
+- ห้ามส่ง artifact จาก `store-test` ให้ Partner Center
+- ห้ามปิด Smart App Control บนเครื่องของลูกค้า
+- Store package ทุกชุดต้องมีหมายเลขเวอร์ชันสูงกว่าชุดที่เผยแพร่แล้ว
+- ให้เก็บ NSIS signing pipeline ไว้เป็นช่องทางสำรองสำหรับการแจก EXE โดยตรง
+  ในอนาคต และต้องเซ็นด้วย public-trust certificate เท่านั้น
