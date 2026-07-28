@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findMainDisplays,
   matchSevenSegmentDigit,
   shouldUseGeminiFallback,
   type MeterImageScanResult,
@@ -47,6 +48,41 @@ function validResult(): MeterImageScanResult {
   };
 }
 
+function meterImageData(input: {
+  width?: number;
+  height?: number;
+  panelColor: [number, number, number];
+  onePanelOnly?: boolean;
+}) {
+  const width = input.width ?? 400;
+  const height = input.height ?? 300;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    const offset = index * 4;
+    data[offset] = 236;
+    data[offset + 1] = 231;
+    data[offset + 2] = 220;
+    data[offset + 3] = 255;
+  }
+  const panels = input.onePanelOnly
+    ? [{ x: 28, y: 48, width: 142, height: 62 }]
+    : [
+        { x: 28, y: 48, width: 142, height: 62 },
+        { x: 230, y: 51, width: 144, height: 60 },
+      ];
+  for (const panel of panels) {
+    for (let y = panel.y; y < panel.y + panel.height; y += 1) {
+      for (let x = panel.x; x < panel.x + panel.width; x += 1) {
+        const offset = (y * width + x) * 4;
+        data[offset] = input.panelColor[0];
+        data[offset + 1] = input.panelColor[1];
+        data[offset + 2] = input.panelColor[2];
+      }
+    }
+  }
+  return { width, height, data } as ImageData;
+}
+
 describe("local seven-segment OCR", () => {
   it("maps every standard seven-segment pattern to its digit", () => {
     for (const [digit, segments] of Object.entries(patterns)) {
@@ -73,5 +109,34 @@ describe("local seven-segment OCR", () => {
     expect(shouldUseGeminiFallback({ ...validResult(), mode: "unknown" })).toBe(
       true
     );
+  });
+
+  it("finds both LCD panels after mobile color conversion mutes the blue tint", () => {
+    const displays = findMainDisplays(
+      meterImageData({ panelColor: [148, 159, 165] })
+    );
+
+    expect(displays).not.toBeNull();
+    expect(displays?.map(display => display.x)).toEqual([28, 230]);
+  });
+
+  it("finds both LCD panels in a darker mobile photo", () => {
+    const displays = findMainDisplays(
+      meterImageData({ panelColor: [64, 78, 90] })
+    );
+
+    expect(displays).not.toBeNull();
+    expect(displays?.map(display => display.width)).toEqual([142, 144]);
+  });
+
+  it("does not invent the missing second LCD panel", () => {
+    expect(
+      findMainDisplays(
+        meterImageData({
+          panelColor: [148, 159, 165],
+          onePanelOnly: true,
+        })
+      )
+    ).toBeNull();
   });
 });

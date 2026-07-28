@@ -32,6 +32,11 @@ type Bounds = {
   pixels?: number[];
 };
 
+type DisplayCandidate = Bounds & {
+  fill: number;
+  colorConfidence: number;
+};
+
 type DigitRead = {
   text: string;
   confidence: number;
@@ -190,32 +195,194 @@ function imageDataMask(
   return mask;
 }
 
-function findMainDisplays(imageData: ImageData): [Bounds, Bounds] | null {
-  const { width, height } = imageData;
-  const blueMask = imageDataMask(
-    imageData,
-    (red, green, blue) =>
-      blue - red > 25 &&
-      blue - green > 8 &&
-      red > 90 &&
-      green > 110 &&
-      blue > 145
+function boundsOverlap(left: Bounds, right: Bounds) {
+  const overlapWidth = Math.max(
+    0,
+    Math.min(left.x + left.width, right.x + right.width) -
+      Math.max(left.x, right.x)
   );
-  const candidates = connectedComponents(blueMask, width, height)
+  const overlapHeight = Math.max(
+    0,
+    Math.min(left.y + left.height, right.y + right.height) -
+      Math.max(left.y, right.y)
+  );
+  const intersection = overlapWidth * overlapHeight;
+  if (!intersection) return 0;
+  return (
+    intersection /
+    (left.width * left.height + right.width * right.height - intersection)
+  );
+}
+
+function displayCandidates(
+  imageData: ImageData,
+  predicate: (red: number, green: number, blue: number) => boolean,
+  colorConfidence: number
+) {
+  const { width, height } = imageData;
+  const mask = imageDataMask(imageData, predicate);
+  return connectedComponents(mask, width, height, false, true)
     .filter(component => {
       const fill = component.area / (component.width * component.height);
+      const aspectRatio = component.width / component.height;
+      const centerY = component.y + component.height / 2;
       return (
-        component.width >= width * 0.18 &&
-        component.width <= width * 0.38 &&
-        component.height >= height * 0.12 &&
-        component.height <= height * 0.28 &&
-        fill >= 0.45
+        component.width >= width * 0.15 &&
+        component.width <= width * 0.47 &&
+        component.height >= height * 0.08 &&
+        component.height <= height * 0.38 &&
+        aspectRatio >= 1.05 &&
+        aspectRatio <= 4.8 &&
+        centerY <= height * 0.72 &&
+        fill >= 0.18
       );
     })
-    .sort((left, right) => right.area - left.area)
-    .slice(0, 2)
-    .sort((left, right) => left.x - right.x);
-  return candidates.length === 2 ? [candidates[0]!, candidates[1]!] : null;
+    .map(component => ({
+      ...component,
+      fill: component.area / (component.width * component.height),
+      colorConfidence,
+    }));
+}
+
+function displayPairScore(
+  first: DisplayCandidate,
+  second: DisplayCandidate,
+  imageWidth: number,
+  imageHeight: number
+) {
+  const [left, right] = first.x <= second.x ? [first, second] : [second, first];
+  const leftCenterX = left.x + left.width / 2;
+  const rightCenterX = right.x + right.width / 2;
+  const leftCenterY = left.y + left.height / 2;
+  const rightCenterY = right.y + right.height / 2;
+  const centerDistance = rightCenterX - leftCenterX;
+  const widthSimilarity =
+    Math.min(left.width, right.width) / Math.max(left.width, right.width);
+  const heightSimilarity =
+    Math.min(left.height, right.height) / Math.max(left.height, right.height);
+  const verticalAlignment =
+    1 - Math.abs(leftCenterY - rightCenterY) / imageHeight;
+  const verticalOverlap =
+    Math.max(
+      0,
+      Math.min(left.y + left.height, right.y + right.height) -
+        Math.max(left.y, right.y)
+    ) / Math.min(left.height, right.height);
+  const pairSpan = right.x + right.width - left.x;
+
+  if (
+    centerDistance < imageWidth * 0.22 ||
+    leftCenterX >= imageWidth * 0.58 ||
+    rightCenterX <= imageWidth * 0.42 ||
+    widthSimilarity < 0.48 ||
+    heightSimilarity < 0.45 ||
+    verticalOverlap < 0.28 ||
+    pairSpan < imageWidth * 0.55
+  ) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const centerBalance =
+    1 -
+    Math.min(
+      1,
+      Math.abs((leftCenterX + rightCenterX) / 2 - imageWidth / 2) /
+        (imageWidth * 0.35)
+    );
+  return (
+    (left.colorConfidence + right.colorConfidence) * 1.4 +
+    (left.fill + right.fill) * 0.45 +
+    widthSimilarity * 1.25 +
+    heightSimilarity * 1.25 +
+    verticalAlignment * 1.1 +
+    verticalOverlap * 0.8 +
+    centerBalance * 0.55
+  );
+}
+
+export function findMainDisplays(
+  imageData: ImageData
+): [Bounds, Bounds] | null {
+  const { width, height } = imageData;
+  const masks = [
+    {
+      confidence: 1,
+      predicate: (red: number, green: number, blue: number) =>
+        blue - red > 25 &&
+        blue - green > 8 &&
+        red > 90 &&
+        green > 110 &&
+        blue > 145,
+    },
+    {
+      confidence: 0.82,
+      predicate: (red: number, green: number, blue: number) => {
+        const brightness = (red + green + blue) / 3;
+        return (
+          brightness >= 58 &&
+          brightness <= 232 &&
+          blue - red >= 7 &&
+          blue - green >= -3 &&
+          blue - red + (blue - green) >= 10
+        );
+      },
+    },
+    {
+      confidence: 0.68,
+      predicate: (red: number, green: number, blue: number) => {
+        const brightness = (red + green + blue) / 3;
+        const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+        return (
+          brightness >= 72 &&
+          brightness <= 218 &&
+          spread <= 72 &&
+          blue - red >= 4 &&
+          blue - green >= -4
+        );
+      },
+    },
+  ];
+
+  const candidates: DisplayCandidate[] = [];
+  for (const mask of masks) {
+    for (const candidate of displayCandidates(
+      imageData,
+      mask.predicate,
+      mask.confidence
+    )) {
+      const duplicateIndex = candidates.findIndex(
+        existing => boundsOverlap(existing, candidate) >= 0.76
+      );
+      if (duplicateIndex < 0) {
+        candidates.push(candidate);
+      } else if (
+        candidate.colorConfidence > candidates[duplicateIndex]!.colorConfidence
+      ) {
+        candidates[duplicateIndex] = candidate;
+      }
+    }
+  }
+
+  let best:
+    | { left: DisplayCandidate; right: DisplayCandidate; score: number }
+    | undefined;
+  for (let firstIndex = 0; firstIndex < candidates.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < candidates.length;
+      secondIndex += 1
+    ) {
+      const first = candidates[firstIndex]!;
+      const second = candidates[secondIndex]!;
+      const score = displayPairScore(first, second, width, height);
+      if (!best || score > best.score) {
+        const [left, right] =
+          first.x <= second.x ? [first, second] : [second, first];
+        best = { left, right, score };
+      }
+    }
+  }
+  return best && Number.isFinite(best.score) ? [best.left, best.right] : null;
 }
 
 function otsuThreshold(imageData: ImageData) {
