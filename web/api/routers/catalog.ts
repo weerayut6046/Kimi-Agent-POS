@@ -16,6 +16,7 @@ import {
   priceChanges,
   settings,
   shifts,
+  shiftReadings,
 } from "@db/schema";
 
 const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
@@ -194,8 +195,14 @@ export const catalogRouter = createRouter({
     const db = getDb();
     const branchId = ctx.staff.branchId;
     const [pumpRows, nozzleRows, prodRows, tankRows] = await Promise.all([
-      db.query.pumps.findMany({ where: eq(pumps.branchId, branchId) }),
-      db.query.nozzles.findMany({ where: eq(nozzles.branchId, branchId) }),
+      db.query.pumps.findMany({
+        where: eq(pumps.branchId, branchId),
+        orderBy: (row, { asc }) => [asc(row.id)],
+      }),
+      db.query.nozzles.findMany({
+        where: eq(nozzles.branchId, branchId),
+        orderBy: (row, { asc }) => [asc(row.id)],
+      }),
       db.query.products.findMany({ where: eq(products.branchId, branchId) }),
       db.query.fuelTanks.findMany({
         where: eq(fuelTanks.branchId, branchId),
@@ -213,12 +220,164 @@ export const catalogRouter = createRouter({
     }));
   }),
 
+  createPump: adminQuery
+    .input(
+      z.object({
+        name: z.string().trim().min(1).max(100),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const [pump] = await getDb()
+        .insert(pumps)
+        .values({
+          branchId: ctx.staff.branchId,
+          name: input.name,
+        })
+        .returning();
+      logAudit({
+        action: "create_pump",
+        ...actorFromReq(ctx.req),
+        detail: `เพิ่มตู้จ่าย ${input.name}`,
+        refType: "pump",
+        refId: pump?.id,
+      });
+      return { ok: true, pump };
+    }),
+
+  updatePump: adminQuery
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        name: z.string().trim().min(1).max(100),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const pump = await db.query.pumps.findFirst({
+        where: and(eq(pumps.id, input.id), eq(pumps.branchId, branchId)),
+      });
+      if (!pump) throw new Error("ไม่พบตู้จ่าย");
+      await db
+        .update(pumps)
+        .set({ name: input.name })
+        .where(and(eq(pumps.id, input.id), eq(pumps.branchId, branchId)));
+      logAudit({
+        action: "update_pump",
+        ...actorFromReq(ctx.req),
+        detail: `แก้ไขตู้จ่าย ${pump.name} เป็น ${input.name}`,
+        refType: "pump",
+        refId: pump.id,
+      });
+      return { ok: true };
+    }),
+
+  deletePump: adminQuery
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const pump = await db.query.pumps.findFirst({
+        where: and(eq(pumps.id, input.id), eq(pumps.branchId, branchId)),
+      });
+      if (!pump) throw new Error("ไม่พบตู้จ่าย");
+      const linkedNozzle = await db.query.nozzles.findFirst({
+        where: and(
+          eq(nozzles.pumpId, input.id),
+          eq(nozzles.branchId, branchId)
+        ),
+      });
+      if (linkedNozzle) {
+        throw new Error("ตู้จ่ายนี้ยังมีหัวจ่ายอยู่ กรุณาลบหัวจ่ายก่อน");
+      }
+      await db
+        .delete(pumps)
+        .where(and(eq(pumps.id, input.id), eq(pumps.branchId, branchId)));
+      logAudit({
+        action: "delete_pump",
+        ...actorFromReq(ctx.req),
+        detail: `ลบตู้จ่าย ${pump.name}`,
+        refType: "pump",
+        refId: pump.id,
+      });
+      return { ok: true };
+    }),
+
+  createNozzle: adminQuery
+    .input(
+      z.object({
+        pumpId: z.number().int().positive(),
+        productId: z.number().int().positive(),
+        tankId: z.number().int().positive(),
+        label: z.string().trim().min(1).max(100),
+        meter: z.number().nonnegative().default(0),
+        money: z.number().nonnegative().default(0),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const [pump, product, tank, openShift] = await Promise.all([
+        db.query.pumps.findFirst({
+          where: and(eq(pumps.id, input.pumpId), eq(pumps.branchId, branchId)),
+        }),
+        db.query.products.findFirst({
+          where: and(
+            eq(products.id, input.productId),
+            eq(products.branchId, branchId)
+          ),
+        }),
+        db.query.fuelTanks.findFirst({
+          where: and(
+            eq(fuelTanks.id, input.tankId),
+            eq(fuelTanks.branchId, branchId)
+          ),
+        }),
+        db.query.shifts.findFirst({
+          where: and(eq(shifts.status, "open"), eq(shifts.branchId, branchId)),
+        }),
+      ]);
+      if (!pump) throw new Error("ไม่พบตู้จ่าย");
+      if (!product || product.category !== "fuel") {
+        throw new Error("หัวจ่ายต้องผูกกับสินค้าประเภทน้ำมันเท่านั้น");
+      }
+      if (!tank) throw new Error("ไม่พบถังน้ำมันที่เลือก");
+      if (tank.productId !== product.id) {
+        throw new Error("ถังน้ำมันต้องเป็นชนิดเดียวกับสินค้าของหัวจ่าย");
+      }
+      if (openShift) {
+        throw new Error("กรุณาปิดกะก่อนเพิ่มหัวจ่าย");
+      }
+
+      const [nozzle] = await db
+        .insert(nozzles)
+        .values({
+          branchId,
+          pumpId: pump.id,
+          productId: product.id,
+          tankId: tank.id,
+          label: input.label,
+          currentMeter: input.meter,
+          currentMoney: input.money,
+        })
+        .returning();
+      logAudit({
+        action: "create_nozzle",
+        ...actorFromReq(ctx.req),
+        detail: `เพิ่มหัวจ่าย ${input.label} ใน ${pump.name}`,
+        refType: "nozzle",
+        refId: nozzle?.id,
+      });
+      return { ok: true, nozzle };
+    }),
+
   updateNozzleMeter: adminQuery
     .input(
       z.object({
-        id: z.number(),
-        label: z.string().min(1).optional(),
-        productId: z.number().optional(),
+        id: z.number().int().positive(),
+        pumpId: z.number().int().positive().optional(),
+        label: z.string().trim().min(1).max(100).optional(),
+        productId: z.number().int().positive().optional(),
         tankId: z.number().int().positive().optional(),
         meter: z.number().nonnegative().optional(),
         money: z.number().nonnegative().optional(),
@@ -233,14 +392,21 @@ export const catalogRouter = createRouter({
       });
       if (!nozzle) throw new Error("ไม่พบหัวจ่าย");
 
+      const nextPumpId = input.pumpId ?? nozzle.pumpId;
       const nextProductId = input.productId ?? nozzle.productId;
       const nextTankId = input.tankId ?? nozzle.tankId;
-      const product = await db.query.products.findFirst({
-        where: and(
-          eq(products.id, nextProductId),
-          eq(products.branchId, branchId)
-        ),
-      });
+      const [pump, product] = await Promise.all([
+        db.query.pumps.findFirst({
+          where: and(eq(pumps.id, nextPumpId), eq(pumps.branchId, branchId)),
+        }),
+        db.query.products.findFirst({
+          where: and(
+            eq(products.id, nextProductId),
+            eq(products.branchId, branchId)
+          ),
+        }),
+      ]);
+      if (!pump) throw new Error("ไม่พบตู้จ่าย");
       if (!product || product.category !== "fuel") {
         throw new Error("หัวจ่ายต้องผูกกับสินค้าประเภทน้ำมันเท่านั้น");
       }
@@ -259,17 +425,22 @@ export const catalogRouter = createRouter({
       }
 
       const mappingChanged =
-        nextProductId !== nozzle.productId || nextTankId !== nozzle.tankId;
+        nextPumpId !== nozzle.pumpId ||
+        nextProductId !== nozzle.productId ||
+        nextTankId !== nozzle.tankId;
       if (mappingChanged) {
         const openShift = await db.query.shifts.findFirst({
           where: and(eq(shifts.status, "open"), eq(shifts.branchId, branchId)),
         });
         if (openShift) {
-          throw new Error("กรุณาปิดกะก่อนเปลี่ยนสินค้า/ถังน้ำมันของหัวจ่าย");
+          throw new Error(
+            "กรุณาปิดกะก่อนเปลี่ยนสินค้า/ถังน้ำมันหรือย้ายตู้จ่ายของหัวจ่าย"
+          );
         }
       }
 
       const patch: Record<string, unknown> = {};
+      if (input.pumpId != null) patch.pumpId = input.pumpId;
       if (input.label != null) patch.label = input.label;
       if (input.productId != null) {
         patch.productId = input.productId;
@@ -284,6 +455,54 @@ export const catalogRouter = createRouter({
           .set(patch)
           .where(and(eq(nozzles.id, input.id), eq(nozzles.branchId, branchId)));
       }
+      logAudit({
+        action: "update_nozzle",
+        ...actorFromReq(ctx.req),
+        detail: `แก้ไขหัวจ่าย ${input.label ?? nozzle.label}`,
+        refType: "nozzle",
+        refId: nozzle.id,
+      });
+      return { ok: true };
+    }),
+
+  deleteNozzle: adminQuery
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const nozzle = await db.query.nozzles.findFirst({
+        where: and(eq(nozzles.id, input.id), eq(nozzles.branchId, branchId)),
+      });
+      if (!nozzle) throw new Error("ไม่พบหัวจ่าย");
+      const [openShift, historicalReading] = await Promise.all([
+        db.query.shifts.findFirst({
+          where: and(eq(shifts.status, "open"), eq(shifts.branchId, branchId)),
+        }),
+        db.query.shiftReadings.findFirst({
+          where: and(
+            eq(shiftReadings.nozzleId, input.id),
+            eq(shiftReadings.branchId, branchId)
+          ),
+        }),
+      ]);
+      if (openShift) {
+        throw new Error("กรุณาปิดกะก่อนลบหัวจ่าย");
+      }
+      if (historicalReading) {
+        throw new Error(
+          "หัวจ่ายนี้มีประวัติกะแล้ว จึงลบไม่ได้ เพื่อรักษาความถูกต้องของรายงาน"
+        );
+      }
+      await db
+        .delete(nozzles)
+        .where(and(eq(nozzles.id, input.id), eq(nozzles.branchId, branchId)));
+      logAudit({
+        action: "delete_nozzle",
+        ...actorFromReq(ctx.req),
+        detail: `ลบหัวจ่าย ${nozzle.label}`,
+        refType: "nozzle",
+        refId: nozzle.id,
+      });
       return { ok: true };
     }),
 
@@ -755,7 +974,8 @@ export const catalogRouter = createRouter({
     const port = parseInt(process.env.PORT || "3000");
     const urls: string[] = [];
     // ข้าม adapter เสมือน (WSL/Hyper-V/Docker/VM) — IP พวกนี้เครื่องอื่นใน LAN เข้าไม่ได้
-    const VIRTUAL_ADAPTER = /vethernet|wsl|hyper-v|docker|vmware|virtualbox|loopback|pseudo/i;
+    const VIRTUAL_ADAPTER =
+      /vethernet|wsl|hyper-v|docker|vmware|virtualbox|loopback|pseudo/i;
     for (const [name, infos] of Object.entries(os.networkInterfaces())) {
       if (VIRTUAL_ADAPTER.test(name)) continue;
       for (const info of infos ?? []) {

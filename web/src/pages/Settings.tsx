@@ -512,8 +512,13 @@ export default function Settings() {
     menuPermissions: MenuPermissionKey[];
     branchIds: number[];
   } | null>(null);
+  const [editPump, setEditPump] = useState<{
+    id?: number;
+    name: string;
+  } | null>(null);
   const [editN, setEditN] = useState<{
-    id: number;
+    id?: number;
+    pumpId: number;
     label: string;
     productId: number;
     tankId: number | null;
@@ -701,11 +706,7 @@ export default function Settings() {
     },
   });
   const savePayments = () => {
-    if (
-      tngEnabled &&
-      tngQrMode === "promptpay" &&
-      !tngPromptpayId.trim()
-    ) {
+    if (tngEnabled && tngQrMode === "promptpay" && !tngPromptpayId.trim()) {
       fail("กรุณาระบุ PromptPay ID ที่ผูกกับบัญชีถุงเงินก่อนเปิดใช้งาน");
       return;
     }
@@ -900,11 +901,52 @@ export default function Settings() {
     },
     onError: e => fail(e.message),
   });
+  const createPump = trpc.catalog.createPump.useMutation({
+    onSuccess: () => {
+      void utils.catalog.listPumps.invalidate();
+      setEditPump(null);
+      ok("เพิ่มตู้จ่ายแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const updatePump = trpc.catalog.updatePump.useMutation({
+    onSuccess: () => {
+      void utils.catalog.listPumps.invalidate();
+      setEditPump(null);
+      ok("แก้ไขตู้จ่ายแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const deletePump = trpc.catalog.deletePump.useMutation({
+    onSuccess: () => {
+      void utils.catalog.listPumps.invalidate();
+      ok("ลบตู้จ่ายแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const createNozzle = trpc.catalog.createNozzle.useMutation({
+    onSuccess: () => {
+      void utils.catalog.listPumps.invalidate();
+      void utils.catalog.listTanks.invalidate();
+      setEditN(null);
+      ok("เพิ่มหัวจ่ายแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
   const updateNozzle = trpc.catalog.updateNozzleMeter.useMutation({
     onSuccess: () => {
-      utils.catalog.listPumps.invalidate();
+      void utils.catalog.listPumps.invalidate();
+      void utils.catalog.listTanks.invalidate();
       setEditN(null);
       ok("แก้ไขหัวจ่ายแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const deleteNozzle = trpc.catalog.deleteNozzle.useMutation({
+    onSuccess: () => {
+      void utils.catalog.listPumps.invalidate();
+      void utils.catalog.listTanks.invalidate();
+      ok("ลบหัวจ่ายแล้ว");
     },
     onError: e => fail(e.message),
   });
@@ -1120,406 +1162,409 @@ export default function Settings() {
         </TabsList>
 
         <TabsContent value="shop" className="mt-0 space-y-5">
-      {/* ข้อมูลร้าน */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2">
+          {/* ข้อมูลร้าน */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
                 <Store className="w-4 h-4" /> ข้อมูลร้าน
                 (แสดงบนใบเสร็จ/ใบกำกับภาษี)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label>ชื่อร้าน</Label>
-            <Input
-              value={form.shop_name ?? ""}
-              onChange={e => set("shop_name", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>สาขา</Label>
-            <Input
-              value={form.shop_branch ?? ""}
-              onChange={e => set("shop_branch", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>ที่อยู่</Label>
-            <Textarea
-              rows={2}
-              value={form.shop_address ?? ""}
-              onChange={e => set("shop_address", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>เลขประจำตัวผู้เสียภาษี</Label>
-            <Input
-              value={form.tax_id ?? ""}
-              onChange={e => set("tax_id", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>โทรศัพท์</Label>
-            <Input
-              value={form.shop_phone ?? ""}
-              onChange={e => set("shop_phone", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>อัตรา VAT (%)</Label>
-            <Input
-              type="number"
-              value={form.vat_rate ?? "7"}
-              onChange={e => set("vat_rate", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>สะสมแต้ม (กี่บาท = 1 แต้ม)</Label>
-            <Input
-              type="number"
-              value={form.point_earn_per_baht ?? "25"}
-              onChange={e => set("point_earn_per_baht", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>มูลค่าแต้มตอนใช้ (1 แต้ม = กี่บาท)</Label>
-            <Input
-              type="number"
-              value={form.point_redeem_value ?? "1"}
-              onChange={e => set("point_redeem_value", e.target.value)}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <Button
-              disabled={!isAdmin || saveSettings.isPending}
-              onClick={saveAll}
-            >
-              บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* เลขที่เอกสาร & โลโก้ร้าน */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2">
-            <FileText className="w-4 h-4" /> เลขที่เอกสาร & โลโก้ร้าน
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label>คำนำหน้าเลขใบเสร็จอย่างย่อ</Label>
-            <Input
-              maxLength={10}
-              value={form.receipt_prefix ?? "R"}
-              onChange={e => set("receipt_prefix", e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              เอกสารถัดไป:{" "}
-              {nextPreview(form.receipt_prefix, form.receipt_next_no, "R")}
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>เลขถัดไปใบเสร็จอย่างย่อ</Label>
-            <Input
-              type="number"
-              min={1}
-              value={form.receipt_next_no ?? "1"}
-              onChange={e => set("receipt_next_no", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>คำนำหน้าเลขใบกำกับภาษี</Label>
-            <Input
-              maxLength={10}
-              value={form.tax_invoice_prefix ?? "T"}
-              onChange={e => set("tax_invoice_prefix", e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              เอกสารถัดไป:{" "}
-              {nextPreview(
-                form.tax_invoice_prefix,
-                form.tax_invoice_next_no,
-                "T"
-              )}
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>เลขถัดไปใบกำกับภาษี</Label>
-            <Input
-              type="number"
-              min={1}
-              value={form.tax_invoice_next_no ?? "1"}
-              onChange={e => set("tax_invoice_next_no", e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>โลโก้ร้าน (แสดงบนใบเสร็จ/ใบกำกับภาษี)</Label>
-            <div className="flex items-center gap-3 flex-wrap">
-              {logoShown ? (
-                <img
-                  src={logoShown}
-                  alt="โลโก้ร้าน"
-                  className="h-14 w-auto object-contain border rounded p-1 bg-white"
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>ชื่อร้าน</Label>
+                <Input
+                  value={form.shop_name ?? ""}
+                  onChange={e => set("shop_name", e.target.value)}
                 />
-              ) : (
-                <div className="h-14 w-28 border border-dashed rounded flex items-center justify-center text-xs text-muted-foreground">
-                  ยังไม่มีโลโก้
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!isAdmin}
-                  onClick={() => logoInputRef.current?.click()}
-                >
-                  <ImagePlus className="w-4 h-4 mr-1" /> เลือกรูป
-                </Button>
-                {logoShown && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={!isAdmin}
-                    onClick={() => setLogoData("")}
-                  >
-                    ลบโลโก้
-                  </Button>
-                )}
               </div>
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={onLogoFile}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              รองรับไฟล์รูปไม่เกิน 2MB (ระบบย่อขนาดให้อัตโนมัติ) ·
-              กดบันทึกเพื่อยืนยัน
-            </p>
-          </div>
-          <div className="sm:col-span-2">
-            <Button
-              disabled={!isAdmin || saveSettings.isPending}
-              onClick={saveAll}
-            >
-              บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* การพิมพ์เอกสาร (ผ่านเบราว์เซอร์) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2">
-            <Printer className="w-4 h-4" /> การพิมพ์เอกสาร
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5 max-w-sm">
-            <Label>ขนาดกระดาษใบเสร็จ (พิมพ์ผ่านเบราว์เซอร์)</Label>
-            <Select
-              value={form.receipt_paper_size ?? "80"}
-              onValueChange={v => set("receipt_paper_size", v)}
-              disabled={!isAdmin}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="80">ม้วนความร้อน 80 มม.</SelectItem>
-                <SelectItem value="58">ม้วนความร้อน 58 มม.</SelectItem>
-                <SelectItem value="a5">A5</SelectItem>
-                <SelectItem value="a4">A4</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              ใช้กับปุ่ม &quot;พิมพ์&quot; ธรรมดาบนใบเสร็จ —
-              ถ้าพิมพ์แล้วตัวอักษรใหญ่/ล้นขอบกระดาษ
-              ให้เลือกขนาดตรงนี้ให้ตรงกระดาษจริง
-            </p>
-          </div>
-          <div className="space-y-1.5 max-w-sm">
-            <Label>ขนาดกระดาษใบกำกับภาษีเต็มรูป</Label>
-            <Select
-              value={form.tax_invoice_paper_size ?? "a4"}
-              onValueChange={v => set("tax_invoice_paper_size", v)}
-              disabled={!isAdmin}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="a4">A4</SelectItem>
-                <SelectItem value="a5">A5</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              ใช้กับใบเสร็จรับเงิน/ใบกำกับภาษีเต็มรูป
-              ทั้งหน้าพรีวิวและหน้าต่างพิมพ์
-            </p>
-          </div>
-          {isDesktop && (
-            <div className="flex items-center justify-between rounded-md border p-3 max-w-sm">
-              <div className="pr-3">
-                <Label
-                  htmlFor="receipt_silent_print"
-                  className="cursor-pointer"
+              <div className="space-y-1.5">
+                <Label>สาขา</Label>
+                <Input
+                  value={form.shop_branch ?? ""}
+                  onChange={e => set("shop_branch", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>ที่อยู่</Label>
+                <Textarea
+                  rows={2}
+                  value={form.shop_address ?? ""}
+                  onChange={e => set("shop_address", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>เลขประจำตัวผู้เสียภาษี</Label>
+                <Input
+                  value={form.tax_id ?? ""}
+                  onChange={e => set("tax_id", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>โทรศัพท์</Label>
+                <Input
+                  value={form.shop_phone ?? ""}
+                  onChange={e => set("shop_phone", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>อัตรา VAT (%)</Label>
+                <Input
+                  type="number"
+                  value={form.vat_rate ?? "7"}
+                  onChange={e => set("vat_rate", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>สะสมแต้ม (กี่บาท = 1 แต้ม)</Label>
+                <Input
+                  type="number"
+                  value={form.point_earn_per_baht ?? "25"}
+                  onChange={e => set("point_earn_per_baht", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>มูลค่าแต้มตอนใช้ (1 แต้ม = กี่บาท)</Label>
+                <Input
+                  type="number"
+                  value={form.point_redeem_value ?? "1"}
+                  onChange={e => set("point_redeem_value", e.target.value)}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Button
+                  disabled={!isAdmin || saveSettings.isPending}
+                  onClick={saveAll}
                 >
-                  พิมพ์ใบเสร็จอัตโนมัติหลังชำระเงิน
-                </Label>
-                <p className="text-xs text-muted-foreground mt-1">
+                  บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* เลขที่เอกสาร & โลโก้ร้าน */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <FileText className="w-4 h-4" /> เลขที่เอกสาร & โลโก้ร้าน
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>คำนำหน้าเลขใบเสร็จอย่างย่อ</Label>
+                <Input
+                  maxLength={10}
+                  value={form.receipt_prefix ?? "R"}
+                  onChange={e => set("receipt_prefix", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  เอกสารถัดไป:{" "}
+                  {nextPreview(form.receipt_prefix, form.receipt_next_no, "R")}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>เลขถัดไปใบเสร็จอย่างย่อ</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.receipt_next_no ?? "1"}
+                  onChange={e => set("receipt_next_no", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>คำนำหน้าเลขใบกำกับภาษี</Label>
+                <Input
+                  maxLength={10}
+                  value={form.tax_invoice_prefix ?? "T"}
+                  onChange={e => set("tax_invoice_prefix", e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  เอกสารถัดไป:{" "}
+                  {nextPreview(
+                    form.tax_invoice_prefix,
+                    form.tax_invoice_next_no,
+                    "T"
+                  )}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>เลขถัดไปใบกำกับภาษี</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.tax_invoice_next_no ?? "1"}
+                  onChange={e => set("tax_invoice_next_no", e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>โลโก้ร้าน (แสดงบนใบเสร็จ/ใบกำกับภาษี)</Label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  {logoShown ? (
+                    <img
+                      src={logoShown}
+                      alt="โลโก้ร้าน"
+                      className="h-14 w-auto object-contain border rounded p-1 bg-white"
+                    />
+                  ) : (
+                    <div className="h-14 w-28 border border-dashed rounded flex items-center justify-center text-xs text-muted-foreground">
+                      ยังไม่มีโลโก้
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!isAdmin}
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      <ImagePlus className="w-4 h-4 mr-1" /> เลือกรูป
+                    </Button>
+                    {logoShown && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!isAdmin}
+                        onClick={() => setLogoData("")}
+                      >
+                        ลบโลโก้
+                      </Button>
+                    )}
+                  </div>
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onLogoFile}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  รองรับไฟล์รูปไม่เกิน 2MB (ระบบย่อขนาดให้อัตโนมัติ) ·
+                  กดบันทึกเพื่อยืนยัน
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <Button
+                  disabled={!isAdmin || saveSettings.isPending}
+                  onClick={saveAll}
+                >
+                  บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* การพิมพ์เอกสาร (ผ่านเบราว์เซอร์) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Printer className="w-4 h-4" /> การพิมพ์เอกสาร
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1.5 max-w-sm">
+                <Label>ขนาดกระดาษใบเสร็จ (พิมพ์ผ่านเบราว์เซอร์)</Label>
+                <Select
+                  value={form.receipt_paper_size ?? "80"}
+                  onValueChange={v => set("receipt_paper_size", v)}
+                  disabled={!isAdmin}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="80">ม้วนความร้อน 80 มม.</SelectItem>
+                    <SelectItem value="58">ม้วนความร้อน 58 มม.</SelectItem>
+                    <SelectItem value="a5">A5</SelectItem>
+                    <SelectItem value="a4">A4</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  ใช้กับปุ่ม &quot;พิมพ์&quot; ธรรมดาบนใบเสร็จ —
+                  ถ้าพิมพ์แล้วตัวอักษรใหญ่/ล้นขอบกระดาษ
+                  ให้เลือกขนาดตรงนี้ให้ตรงกระดาษจริง
+                </p>
+              </div>
+              <div className="space-y-1.5 max-w-sm">
+                <Label>ขนาดกระดาษใบกำกับภาษีเต็มรูป</Label>
+                <Select
+                  value={form.tax_invoice_paper_size ?? "a4"}
+                  onValueChange={v => set("tax_invoice_paper_size", v)}
+                  disabled={!isAdmin}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="a4">A4</SelectItem>
+                    <SelectItem value="a5">A5</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  ใช้กับใบเสร็จรับเงิน/ใบกำกับภาษีเต็มรูป
+                  ทั้งหน้าพรีวิวและหน้าต่างพิมพ์
+                </p>
+              </div>
+              {isDesktop && (
+                <div className="flex items-center justify-between rounded-md border p-3 max-w-sm">
+                  <div className="pr-3">
+                    <Label
+                      htmlFor="receipt_silent_print"
+                      className="cursor-pointer"
+                    >
+                      พิมพ์ใบเสร็จอัตโนมัติหลังชำระเงิน
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-1">
                       พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows
                       ทันทีโดยไม่เด้ง dialog (เฉพาะ desktop app —
                       ต้องตั้งเครื่องพิมพ์ที่ใช้เป็น default ไว้ก่อน)
-                </p>
+                    </p>
+                  </div>
+                  <Switch
+                    id="receipt_silent_print"
+                    disabled={!isAdmin}
+                    checked={form.receipt_silent_print === "1"}
+                    onCheckedChange={v =>
+                      set("receipt_silent_print", v ? "1" : "0")
+                    }
+                  />
+                </div>
+              )}
+              <div>
+                <Button
+                  disabled={!isAdmin || saveSettings.isPending}
+                  onClick={saveAll}
+                >
+                  <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
+                  {!isAdmin && "(เฉพาะแอดมิน)"}
+                </Button>
               </div>
-              <Switch
-                id="receipt_silent_print"
-                disabled={!isAdmin}
-                checked={form.receipt_silent_print === "1"}
-                onCheckedChange={v =>
-                  set("receipt_silent_print", v ? "1" : "0")
-                }
-              />
-            </div>
-          )}
-          <div>
-            <Button
-              disabled={!isAdmin || saveSettings.isPending}
-              onClick={saveAll}
-            >
-              <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
-              {!isAdmin && "(เฉพาะแอดมิน)"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="network" className="mt-0">
-      {/* เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="font-heading text-base flex items-center gap-2">
-            <Network className="w-4 h-4" /> เครือข่าย LAN
-            (ขายหลายเครื่องพร้อมกัน)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between rounded-md border p-3 max-w-xl">
-            <div>
-              <Label htmlFor="lan_enabled" className="cursor-pointer">
-                แสดง URL สำหรับเครื่องลูกที่หน้า Login
-              </Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                สวิตช์นี้ใช้แสดง URL เท่านั้น — การเชื่อมต่อจริงต้องรันแอปแบบ
-                LAN (npm run dev:lan หรือ npm start) และอนุญาต Firewall
-              </p>
-            </div>
-            <Switch
-              id="lan_enabled"
-              disabled={!isAdmin}
-              checked={form.lan_enabled === "1"}
-              onCheckedChange={v => set("lan_enabled", v ? "1" : "0")}
-            />
-          </div>
-          {form.lan_enabled === "1" && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-amber-600">
-                มีผลหลังกดบันทึกแล้วรีสตาร์ทแอป — ถ้ารันแบบ dev ต้องรันด้วย{" "}
-                <code className="rounded bg-muted px-1">npm run dev:lan</code>{" "}
-                (Docker/production: restart container อย่างเดียว)
-              </p>
-              {lanInfo && lanInfo.urls.length > 0 ? (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">
-                    เครื่องลูกเปิดเบราว์เซอร์ไปที่:
+          {/* เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน) */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Network className="w-4 h-4" /> เครือข่าย LAN
+                (ขายหลายเครื่องพร้อมกัน)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between rounded-md border p-3 max-w-xl">
+                <div>
+                  <Label htmlFor="lan_enabled" className="cursor-pointer">
+                    แสดง URL สำหรับเครื่องลูกที่หน้า Login
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    สวิตช์นี้ใช้แสดง URL เท่านั้น —
+                    การเชื่อมต่อจริงต้องรันแอปแบบ LAN (npm run dev:lan หรือ npm
+                    start) และอนุญาต Firewall
                   </p>
-                  {lanInfo.urls.map(u => (
-                    <div key={u} className="flex items-center gap-2">
-                      <code className="rounded bg-muted px-2 py-1 text-xs">
-                        {u}
-                      </code>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(u);
-                          ok("คัดลอก URL แล้ว");
-                        }}
-                      >
-                        <Copy className="w-3 h-3 mr-1" /> คัดลอก
-                      </Button>
-                    </div>
-                  ))}
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
+                <Switch
+                  id="lan_enabled"
+                  disabled={!isAdmin}
+                  checked={form.lan_enabled === "1"}
+                  onCheckedChange={v => set("lan_enabled", v ? "1" : "0")}
+                />
+              </div>
+              {form.lan_enabled === "1" && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-amber-600">
+                    มีผลหลังกดบันทึกแล้วรีสตาร์ทแอป — ถ้ารันแบบ dev ต้องรันด้วย{" "}
+                    <code className="rounded bg-muted px-1">
+                      npm run dev:lan
+                    </code>{" "}
+                    (Docker/production: restart container อย่างเดียว)
+                  </p>
+                  {lanInfo && lanInfo.urls.length > 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        เครื่องลูกเปิดเบราว์เซอร์ไปที่:
+                      </p>
+                      {lanInfo.urls.map(u => (
+                        <div key={u} className="flex items-center gap-2">
+                          <code className="rounded bg-muted px-2 py-1 text-xs">
+                            {u}
+                          </code>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              void navigator.clipboard?.writeText(u);
+                              ok("คัดลอก URL แล้ว");
+                            }}
+                          >
+                            <Copy className="w-3 h-3 mr-1" /> คัดลอก
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
                       ไม่พบ IP ของเครื่องนี้ในเครือข่าย — ตรวจสอบการเชื่อมต่อ
                       LAN
-                </p>
+                    </p>
+                  )}
+                  <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                    <li>
+                      เครื่องลูกล็อกอินด้วย PIN ของพนักงานแต่ละคน และขายภายใต้
+                      <span className="font-medium text-foreground">
+                        กะรวมกะเดียวกัน
+                      </span>{" "}
+                      (เปิด/ปิดกะจากเครื่องใดเครื่องหนึ่ง)
+                    </li>
+                    <li>
+                      ใบเสร็จพิมพ์ผ่านเบราว์เซอร์ของแต่ละเครื่อง
+                      (เลือกเครื่องพิมพ์ของเครื่องนั้นตอนกดพิมพ์)
+                    </li>
+                    <li>
+                      ครั้งแรก Windows อาจถามอนุญาต Firewall ให้กด Allow —
+                      ถ้าเชื่อมไม่ได้ให้รัน CMD แบบ Administrator:{" "}
+                      <code className="rounded bg-muted px-1">
+                        netsh advfirewall firewall add rule name=&quot;POS
+                        Pump&quot; dir=in action=allow protocol=TCP localport=
+                        {lanInfo?.port ?? 3210}
+                      </code>
+                    </li>
+                    <li>
+                      ใช้เฉพาะใน LAN ที่เชื่อถือได้เท่านั้น — เครื่องใน LAN
+                      ทุกเครื่องเข้าถึงระบบได้ผ่านหน้าล็อกอิน
+                    </li>
+                  </ul>
+                </div>
               )}
-              <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground">
-                <li>
-                  เครื่องลูกล็อกอินด้วย PIN ของพนักงานแต่ละคน และขายภายใต้
-                  <span className="font-medium text-foreground">
-                    กะรวมกะเดียวกัน
-                  </span>{" "}
-                  (เปิด/ปิดกะจากเครื่องใดเครื่องหนึ่ง)
-                </li>
-                <li>
-                  ใบเสร็จพิมพ์ผ่านเบราว์เซอร์ของแต่ละเครื่อง
-                  (เลือกเครื่องพิมพ์ของเครื่องนั้นตอนกดพิมพ์)
-                </li>
-                <li>
-                  ครั้งแรก Windows อาจถามอนุญาต Firewall ให้กด Allow —
-                  ถ้าเชื่อมไม่ได้ให้รัน CMD แบบ Administrator:{" "}
-                  <code className="rounded bg-muted px-1">
-                    netsh advfirewall firewall add rule name=&quot;POS
-                    Pump&quot; dir=in action=allow protocol=TCP localport=
-                    {lanInfo?.port ?? 3210}
-                  </code>
-                </li>
-                <li>
-                  ใช้เฉพาะใน LAN ที่เชื่อถือได้เท่านั้น — เครื่องใน LAN
-                  ทุกเครื่องเข้าถึงระบบได้ผ่านหน้าล็อกอิน
-                </li>
-              </ul>
-            </div>
-          )}
-          <div>
-            <Button
-              disabled={!isAdmin || saveSettings.isPending}
-              onClick={saveAll}
-            >
-              <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
-              {!isAdmin && "(เฉพาะแอดมิน)"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              <div>
+                <Button
+                  disabled={!isAdmin || saveSettings.isPending}
+                  onClick={saveAll}
+                >
+                  <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
+                  {!isAdmin && "(เฉพาะแอดมิน)"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="products" className="mt-0">
-      {/* สินค้าและราคา */}
-      <Card>
-        <CardHeader className="pb-2 flex-row items-center justify-between">
-          <CardTitle className="font-heading text-base flex items-center gap-2">
-            <Fuel className="w-4 h-4" /> สินค้า & ราคา
-          </CardTitle>
-          {isAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
+          {/* สินค้าและราคา */}
+          <Card>
+            <CardHeader className="pb-2 flex-row items-center justify-between">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Fuel className="w-4 h-4" /> สินค้า & ราคา
+              </CardTitle>
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
                   onClick={() => {
                     saveProduct.reset();
                     createProduct.reset();
@@ -1527,27 +1572,27 @@ export default function Settings() {
                     setInitialEditP(null);
                     setEditP({ ...emptyProduct });
                   }}
-            >
-              <Plus className="w-4 h-4 mr-1" /> เพิ่มสินค้า
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>รหัส</TableHead>
-                <TableHead>สินค้า</TableHead>
-                <TableHead>หมวด</TableHead>
-                <TableHead className="text-right">ทุน</TableHead>
-                <TableHead className="text-right">ราคาขาย</TableHead>
-                <TableHead className="text-right">สต๊อก</TableHead>
-                <TableHead>สถานะ</TableHead>
-                {isAdmin && <TableHead></TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(products ?? []).map(p => (
+                >
+                  <Plus className="w-4 h-4 mr-1" /> เพิ่มสินค้า
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>รหัส</TableHead>
+                    <TableHead>สินค้า</TableHead>
+                    <TableHead>หมวด</TableHead>
+                    <TableHead className="text-right">ทุน</TableHead>
+                    <TableHead className="text-right">ราคาขาย</TableHead>
+                    <TableHead className="text-right">สต๊อก</TableHead>
+                    <TableHead>สถานะ</TableHead>
+                    {isAdmin && <TableHead></TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(products ?? []).map(p => (
                     <TableRow
                       key={p.id}
                       className={!p.active ? "opacity-50" : ""}
@@ -1555,48 +1600,48 @@ export default function Settings() {
                       <TableCell className="font-mono text-xs">
                         {p.code}
                       </TableCell>
-                  <TableCell>
-                    {p.name}{" "}
-                    <span className="text-xs text-muted-foreground">
-                      ({p.unit})
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {categoryLabel[p.category]}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ฿{fmtMoney(p.cost)}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold text-primary">
-                    ฿{fmtMoney(p.price)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {p.category === "fuel" ? "-" : `${fmtNum(p.stockQty)}`}
-                  </TableCell>
-                  <TableCell>
-                    {p.active ? (
-                      <Badge variant="secondary">ขายอยู่</Badge>
-                    ) : (
-                      <Badge variant="destructive">ปิดขาย</Badge>
-                    )}
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="ประวัติเปลี่ยนราคา"
-                          onClick={() => setHistP(p)}
-                        >
-                          <History className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="แก้ไข"
+                      <TableCell>
+                        {p.name}{" "}
+                        <span className="text-xs text-muted-foreground">
+                          ({p.unit})
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {categoryLabel[p.category]}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(p.cost)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold text-primary">
+                        ฿{fmtMoney(p.price)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.category === "fuel" ? "-" : `${fmtNum(p.stockQty)}`}
+                      </TableCell>
+                      <TableCell>
+                        {p.active ? (
+                          <Badge variant="secondary">ขายอยู่</Badge>
+                        ) : (
+                          <Badge variant="destructive">ปิดขาย</Badge>
+                        )}
+                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title="ประวัติเปลี่ยนราคา"
+                              onClick={() => setHistP(p)}
+                            >
+                              <History className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              title="แก้ไข"
                               onClick={() => {
                                 saveProduct.reset();
                                 createProduct.reset();
@@ -1604,6 +1649,293 @@ export default function Settings() {
                                 setInitialEditP(p);
                                 setEditP(p);
                               }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive"
+                              disabled={deleteProduct.isPending}
+                              onClick={async () => {
+                                if (
+                                  await confirmAction(
+                                    `ยืนยันลบสินค้า "${p.name}"? (ประวัติขายเก่ายังคงอยู่)`
+                                  )
+                                ) {
+                                  deleteProduct.mutate({ id: p.id });
+                                }
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="people" className="mt-0 space-y-5">
+          {isAdmin && (
+            <Card className="border-violet-200/70 bg-gradient-to-br from-white to-violet-50/40">
+              <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="font-heading flex items-center gap-2 text-base">
+                    <UsersRound className="size-4 text-violet-600" />{" "}
+                    กลุ่มสิทธิ์ผู้ใช้
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    กำหนดเมนูครั้งเดียว แล้วนำพนักงานหลายคนเข้าใช้กลุ่มเดียวกัน
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setEditAccessGroup({
+                      name: "",
+                      description: "",
+                      role: "cashier",
+                      menuPermissions: getRoleMenuPermissions("cashier"),
+                    })
+                  }
+                >
+                  <Plus className="mr-1 size-4" /> เพิ่มกลุ่ม
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {(accessGroups ?? []).map(group => (
+                    <div
+                      key={group.id}
+                      className="rounded-2xl border bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold">
+                            {group.name}
+                          </div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {group.description || "ไม่มีรายละเอียด"}
+                          </div>
+                        </div>
+                        <Badge variant="secondary">
+                          {roleLabel[group.role] ?? group.role}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                        <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
+                          {group.menuPermissions.length} เมนู
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                          {group.memberCount} คน
+                        </span>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-1 border-t pt-2">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8"
+                          onClick={() =>
+                            setEditAccessGroup({
+                              id: group.id,
+                              name: group.name,
+                              description: group.description,
+                              role: group.role,
+                              menuPermissions: [...group.menuPermissions],
+                            })
+                          }
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8 text-destructive"
+                          disabled={deleteAccessGroup.isPending}
+                          onClick={async () => {
+                            if (
+                              await confirmAction(
+                                `ยืนยันลบกลุ่ม "${group.name}"? สมาชิก ${group.memberCount} คนจะกลับไปใช้สิทธิ์รายบุคคล`
+                              )
+                            ) {
+                              deleteAccessGroup.mutate({ id: group.id });
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {isAdmin && (
+            <Card>
+              <CardHeader className="flex-row items-center justify-between pb-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 font-heading text-base">
+                    <Store className="size-4" /> สาขา
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    สินค้า สต็อก ยอดขาย กะ เอกสาร
+                    และการตั้งค่าจะแยกจากกันตามสาขา
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowBranch(true)}
+                >
+                  <Plus className="mr-1 size-4" /> เพิ่มสาขา
+                </Button>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {(allBranches ?? []).map(branch => (
+                  <div
+                    key={branch.id}
+                    className="rounded-xl border bg-white px-4 py-3 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={branch.active ? "default" : "secondary"}
+                          >
+                            {branch.code}
+                          </Badge>
+                          {branch.id === staff?.branch.id && (
+                            <span className="text-xs font-medium text-violet-600">
+                              กำลังใช้งาน
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2 truncate font-medium">
+                          {branch.name}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {branch.address || "ยังไม่ได้ระบุที่อยู่"}
+                        </div>
+                      </div>
+                      <Switch
+                        checked={branch.active}
+                        disabled={
+                          updateBranch.isPending ||
+                          (branch.active && branch.id === staff?.branch.id)
+                        }
+                        onCheckedChange={active =>
+                          updateBranch.mutate({ id: branch.id, active })
+                        }
+                        aria-label={`สถานะสาขา ${branch.name}`}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* พนักงาน */}
+          <Card>
+            <CardHeader className="pb-2 flex-row items-center justify-between">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <UserCog className="w-4 h-4" /> พนักงาน
+              </CardTitle>
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowStaff(true)}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> เพิ่ม
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(staffList ?? []).map(s => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between border rounded-lg px-3 py-2"
+                >
+                  <div>
+                    <div className="text-sm font-medium">
+                      {s.name}{" "}
+                      {!s.active && (
+                        <span className="text-xs text-destructive">
+                          (ปิดใช้งาน)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      @{s.username}
+                    </div>
+                    {isAdmin && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
+                        <span>
+                          ใช้งานได้{" "}
+                          {
+                            staffMenuPermissions(
+                              s.role,
+                              "menuPermissions" in s
+                                ? s.menuPermissions
+                                : undefined
+                            ).length
+                          }{" "}
+                          เมนู
+                        </span>
+                        <StaffGroupBadge
+                          groupId={
+                            "accessGroupId" in s ? s.accessGroupId : undefined
+                          }
+                          groups={accessGroups ?? []}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Badge
+                      variant={s.role === "admin" ? "default" : "secondary"}
+                    >
+                      {roleLabel[s.role] ?? s.role}
+                    </Badge>
+                    {isAdmin && (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            setEditS({
+                              id: s.id,
+                              username: s.username,
+                              name: s.name,
+                              role: s.role,
+                              accessGroupId:
+                                "accessGroupId" in s &&
+                                typeof s.accessGroupId === "number"
+                                  ? s.accessGroupId
+                                  : null,
+                              password: "",
+                              menuPermissions: staffMenuPermissions(
+                                s.role,
+                                "menuPermissions" in s
+                                  ? s.menuPermissions
+                                  : undefined
+                              ),
+                              branchIds:
+                                "branchIds" in s && Array.isArray(s.branchIds)
+                                  ? s.branchIds
+                                  : [],
+                            });
+                          }}
                         >
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -1611,286 +1943,72 @@ export default function Settings() {
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8 text-destructive"
-                          disabled={deleteProduct.isPending}
+                          disabled={deleteStaff.isPending}
                           onClick={async () => {
                             if (
                               await confirmAction(
-                                `ยืนยันลบสินค้า "${p.name}"? (ประวัติขายเก่ายังคงอยู่)`
+                                `ยืนยันลบพนักงาน "${s.name}"?`
                               )
-                            ) {
-                              deleteProduct.mutate({ id: p.id });
-                            }
+                            )
+                              deleteStaff.mutate({ id: s.id });
                           }}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
-                      </div>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-        </TabsContent>
-
-        <TabsContent value="people" className="mt-0 space-y-5">
-      {isAdmin && (
-        <Card className="border-violet-200/70 bg-gradient-to-br from-white to-violet-50/40">
-          <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="font-heading flex items-center gap-2 text-base">
-                <UsersRound className="size-4 text-violet-600" />{" "}
-                กลุ่มสิทธิ์ผู้ใช้
-              </CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                กำหนดเมนูครั้งเดียว แล้วนำพนักงานหลายคนเข้าใช้กลุ่มเดียวกัน
-              </p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                setEditAccessGroup({
-                  name: "",
-                  description: "",
-                  role: "cashier",
-                  menuPermissions: getRoleMenuPermissions("cashier"),
-                })
-              }
-            >
-              <Plus className="mr-1 size-4" /> เพิ่มกลุ่ม
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {(accessGroups ?? []).map(group => (
-                <div
-                  key={group.id}
-                  className="rounded-2xl border bg-white p-4 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
-                        {group.name}
-                      </div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {group.description || "ไม่มีรายละเอียด"}
-                      </div>
-                    </div>
-                    <Badge variant="secondary">
-                      {roleLabel[group.role] ?? group.role}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                    <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
-                      {group.menuPermissions.length} เมนู
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-                      {group.memberCount} คน
-                    </span>
-                  </div>
-                  <div className="mt-3 flex justify-end gap-1 border-t pt-2">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-8"
-                      onClick={() =>
-                        setEditAccessGroup({
-                          id: group.id,
-                          name: group.name,
-                          description: group.description,
-                          role: group.role,
-                          menuPermissions: [...group.menuPermissions],
-                        })
-                      }
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="size-8 text-destructive"
-                      disabled={deleteAccessGroup.isPending}
-                      onClick={async () => {
-                        if (
-                          await confirmAction(
-                            `ยืนยันลบกลุ่ม "${group.name}"? สมาชิก ${group.memberCount} คนจะกลับไปใช้สิทธิ์รายบุคคล`
-                          )
-                        ) {
-                          deleteAccessGroup.mutate({ id: group.id });
-                        }
-                      }}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {isAdmin && (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between pb-2">
-            <div>
-              <CardTitle className="flex items-center gap-2 font-heading text-base">
-                <Store className="size-4" /> สาขา
+        <TabsContent value="rewards" className="mt-0">
+          {/* ของรางวัล */}
+          <Card>
+            <CardHeader className="pb-2 flex-row items-center justify-between">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Gift className="w-4 h-4" /> ของรางวัล
               </CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                    สินค้า สต็อก ยอดขาย กะ เอกสาร
-                    และการตั้งค่าจะแยกจากกันตามสาขา
-              </p>
-            </div>
+              {isAdmin && (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setShowBranch(true)}
+                  onClick={() =>
+                    setEditR({ name: "", pointsRequired: 100, stock: 10 })
+                  }
                 >
-              <Plus className="mr-1 size-4" /> เพิ่มสาขา
-            </Button>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(allBranches ?? []).map(branch => (
-              <div
-                key={branch.id}
-                className="rounded-xl border bg-white px-4 py-3 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                          <Badge
-                            variant={branch.active ? "default" : "secondary"}
-                          >
-                        {branch.code}
-                      </Badge>
-                      {branch.id === staff?.branch.id && (
-                        <span className="text-xs font-medium text-violet-600">
-                          กำลังใช้งาน
-                        </span>
-                      )}
+                  <Plus className="w-4 h-4 mr-1" /> เพิ่ม
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(rewards ?? []).map(r => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between border rounded-lg px-3 py-2"
+                >
+                  <div>
+                    <div className="text-sm font-medium">{r.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {r.pointsRequired} แต้ม · คงเหลือ {r.stock}
                     </div>
-                        <div className="mt-2 truncate font-medium">
-                          {branch.name}
-                        </div>
-                    <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {branch.address || "ยังไม่ได้ระบุที่อยู่"}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={branch.active}
-                    disabled={
-                      updateBranch.isPending ||
-                      (branch.active && branch.id === staff?.branch.id)
-                    }
-                    onCheckedChange={active =>
-                      updateBranch.mutate({ id: branch.id, active })
-                    }
-                    aria-label={`สถานะสาขา ${branch.name}`}
-                  />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-        {/* พนักงาน */}
-        <Card>
-          <CardHeader className="pb-2 flex-row items-center justify-between">
-            <CardTitle className="font-heading text-base flex items-center gap-2">
-              <UserCog className="w-4 h-4" /> พนักงาน
-            </CardTitle>
-            {isAdmin && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowStaff(true)}
-              >
-                <Plus className="w-4 h-4 mr-1" /> เพิ่ม
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {(staffList ?? []).map(s => (
-              <div
-                key={s.id}
-                className="flex items-center justify-between border rounded-lg px-3 py-2"
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {s.name}{" "}
-                    {!s.active && (
-                      <span className="text-xs text-destructive">
-                        (ปิดใช้งาน)
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    @{s.username}
                   </div>
                   {isAdmin && (
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
-                      <span>
-                        ใช้งานได้{" "}
-                        {
-                          staffMenuPermissions(
-                            s.role,
-                            "menuPermissions" in s
-                              ? s.menuPermissions
-                              : undefined
-                          ).length
-                        }{" "}
-                        เมนู
-                      </span>
-                      <StaffGroupBadge
-                        groupId={
-                          "accessGroupId" in s ? s.accessGroupId : undefined
-                        }
-                        groups={accessGroups ?? []}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-1">
-                    <Badge
-                      variant={s.role === "admin" ? "default" : "secondary"}
-                    >
-                    {roleLabel[s.role] ?? s.role}
-                  </Badge>
-                  {isAdmin && (
-                    <>
+                    <div className="flex gap-1">
                       <Button
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => {
-                          setEditS({
-                            id: s.id,
-                            username: s.username,
-                            name: s.name,
-                            role: s.role,
-                            accessGroupId:
-                              "accessGroupId" in s &&
-                              typeof s.accessGroupId === "number"
-                                ? s.accessGroupId
-                                : null,
-                            password: "",
-                            menuPermissions: staffMenuPermissions(
-                              s.role,
-                              "menuPermissions" in s
-                                ? s.menuPermissions
-                                : undefined
-                            ),
-                            branchIds:
-                              "branchIds" in s && Array.isArray(s.branchIds)
-                                ? s.branchIds
-                                : [],
-                          });
-                        }}
+                        onClick={() =>
+                          setEditR({
+                            id: r.id,
+                            name: r.name,
+                            pointsRequired: r.pointsRequired,
+                            stock: r.stock,
+                          })
+                        }
                       >
                         <Pencil className="w-4 h-4" />
                       </Button>
@@ -1898,152 +2016,208 @@ export default function Settings() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 text-destructive"
-                        disabled={deleteStaff.isPending}
+                        disabled={deleteReward.isPending}
                         onClick={async () => {
                           if (
                             await confirmAction(
-                              `ยืนยันลบพนักงาน "${s.name}"?`
+                              `ยืนยันลบของรางวัล "${r.name}"?`
                             )
                           )
-                            deleteStaff.mutate({ id: s.id });
+                            deleteReward.mutate({ id: r.id });
                         }}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
-                    </>
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-        </TabsContent>
-
-        <TabsContent value="rewards" className="mt-0">
-        {/* ของรางวัล */}
-        <Card>
-          <CardHeader className="pb-2 flex-row items-center justify-between">
-            <CardTitle className="font-heading text-base flex items-center gap-2">
-              <Gift className="w-4 h-4" /> ของรางวัล
-            </CardTitle>
-            {isAdmin && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setEditR({ name: "", pointsRequired: 100, stock: 10 })
-                }
-              >
-                <Plus className="w-4 h-4 mr-1" /> เพิ่ม
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {(rewards ?? []).map(r => (
-              <div
-                key={r.id}
-                className="flex items-center justify-between border rounded-lg px-3 py-2"
-              >
-                <div>
-                  <div className="text-sm font-medium">{r.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {r.pointsRequired} แต้ม · คงเหลือ {r.stock}
-                  </div>
-                </div>
-                {isAdmin && (
-                  <div className="flex gap-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8"
-                      onClick={() =>
-                        setEditR({
-                          id: r.id,
-                          name: r.name,
-                          pointsRequired: r.pointsRequired,
-                          stock: r.stock,
-                        })
-                      }
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-destructive"
-                      disabled={deleteReward.isPending}
-                      onClick={async () => {
-                        if (
-                          await confirmAction(
-                            `ยืนยันลบของรางวัล "${r.name}"?`
-                          )
-                        )
-                          deleteReward.mutate({ id: r.id });
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+              ))}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="pumps" className="mt-0">
-      {/* ตู้จ่าย / หัวจ่าย (admin) */}
-      {isAdmin && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="font-heading text-base flex items-center gap-2">
-              <Gauge className="w-4 h-4" /> ตู้จ่าย & หัวจ่าย —
-              ตั้งค่าถังตัดสต๊อก/ชื่อ/มิเตอร์ (admin)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {(pumps ?? []).map(p => (
-              <div key={p.id}>
-                <div className="text-sm font-semibold mb-1.5">{p.name}</div>
-                <div className="space-y-1.5">
-                  {p.nozzles.map(n => (
-                    <div
-                      key={n.id}
-                      className="flex flex-wrap items-center justify-between gap-2 border rounded-lg px-3 py-2"
-                    >
-                      <div>
-                        <div className="text-sm font-medium">{n.label}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {n.product?.name} · ถัง:{" "}
-                          {n.tank?.name ?? "ยังไม่ผูกถัง"}
-                          {" · "}P: ฿{fmtNum(n.currentMoney)} · L:{" "}
-                          {fmtNum(n.currentMeter)}
+          {/* ตู้จ่าย / หัวจ่าย (admin) */}
+          {isAdmin && (
+            <Card>
+              <CardHeader className="gap-3 pb-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="font-heading flex items-center gap-2 text-base">
+                      <Gauge className="h-4 w-4" /> ตู้จ่าย & หัวจ่าย
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      เพิ่ม แก้ไข หรือลบตู้จ่ายและหัวจ่ายของสาขา{" "}
+                      {staff?.branch.name ?? "ปัจจุบัน"}
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => setEditPump({ name: "" })}>
+                    <Plus className="mr-1.5 h-4 w-4" /> เพิ่มตู้จ่าย
+                  </Button>
+                </div>
+                {currentShift && (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    ขณะมีกะเปิดอยู่ ระบบจะไม่อนุญาตให้เพิ่ม ลบ หรือย้ายหัวจ่าย
+                    เพื่อให้ข้อมูลมิเตอร์ของกะตรงกัน
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(pumps ?? []).length === 0 && (
+                  <div className="rounded-xl border border-dashed px-4 py-10 text-center">
+                    <Gauge className="mx-auto mb-3 h-8 w-8 text-muted-foreground/60" />
+                    <p className="text-sm font-medium">ยังไม่มีตู้จ่าย</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      กด “เพิ่มตู้จ่าย” เพื่อเริ่มตั้งค่าหัวจ่าย
+                    </p>
+                  </div>
+                )}
+                {(pumps ?? []).map(p => (
+                  <section
+                    key={p.id}
+                    className="overflow-hidden rounded-xl border bg-card"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/35 px-3 py-2.5 sm:px-4">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+                          <Gauge className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold">{p.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {p.nozzles.length} หัวจ่าย
+                          </div>
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          setEditN({
-                            id: n.id,
-                            label: n.label,
-                            productId: n.productId,
-                            tankId: n.tankId,
-                            meter: n.currentMeter,
-                            money: n.currentMoney,
-                          })
-                        }
-                      >
-                        <Pencil className="w-3.5 h-3.5 mr-1" /> แก้ไข
-                      </Button>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setEditPump({ id: p.id, name: p.name })
+                          }
+                        >
+                          <Pencil className="mr-1 h-3.5 w-3.5" /> แก้ชื่อตู้
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const firstTank = (tanks ?? []).find(tank =>
+                              (products ?? []).some(
+                                product =>
+                                  product.id === tank.productId &&
+                                  product.category === "fuel" &&
+                                  product.active
+                              )
+                            );
+                            const firstFuel = (products ?? []).find(
+                              product =>
+                                product.category === "fuel" && product.active
+                            );
+                            setEditN({
+                              pumpId: p.id,
+                              label: `${p.name} - หัวจ่าย ${p.nozzles.length + 1}`,
+                              productId:
+                                firstTank?.productId ?? firstFuel?.id ?? 0,
+                              tankId: firstTank?.id ?? null,
+                              meter: 0,
+                              money: 0,
+                            });
+                          }}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" /> เพิ่มหัวจ่าย
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={`ลบ ${p.name}`}
+                          disabled={deletePump.isPending}
+                          onClick={async () => {
+                            if (
+                              await confirmAction(
+                                `ลบตู้จ่าย “${p.name}” หรือไม่?${
+                                  p.nozzles.length > 0
+                                    ? " ต้องลบหัวจ่ายในตู้นี้ให้หมดก่อน"
+                                    : ""
+                                }`
+                              )
+                            ) {
+                              deletePump.mutate({ id: p.id });
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+                    <div className="space-y-2 p-3 sm:p-4">
+                      {p.nozzles.length === 0 && (
+                        <div className="rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">
+                          ตู้นี้ยังไม่มีหัวจ่าย
+                        </div>
+                      )}
+                      {p.nozzles.map(n => (
+                        <div
+                          key={n.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">{n.label}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {n.product?.name ?? "ไม่พบชนิดน้ำมัน"} · ถัง:{" "}
+                              {n.tank?.name ?? "ยังไม่ผูกถัง"}
+                              {" · "}P: ฿{fmtNum(n.currentMoney)} · L:{" "}
+                              {fmtNum(n.currentMeter)}
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setEditN({
+                                  id: n.id,
+                                  pumpId: n.pumpId,
+                                  label: n.label,
+                                  productId: n.productId,
+                                  tankId: n.tankId,
+                                  meter: n.currentMeter,
+                                  money: n.currentMoney,
+                                })
+                              }
+                            >
+                              <Pencil className="mr-1 h-3.5 w-3.5" /> แก้ไข
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`ลบ ${n.label}`}
+                              disabled={deleteNozzle.isPending}
+                              onClick={async () => {
+                                if (
+                                  await confirmAction(
+                                    `ลบหัวจ่าย “${n.label}” หรือไม่? หัวจ่ายที่มีประวัติกะแล้วจะไม่สามารถลบได้`
+                                  )
+                                ) {
+                                  deleteNozzle.mutate({ id: n.id });
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="ai" className="mt-0 space-y-5">
@@ -2347,9 +2521,8 @@ export default function Settings() {
                     <div className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       <span>
-                        API Key เป็นข้อมูลแบบเขียนอย่างเดียว
-                        เก็บในตาราง private แยกจากการตั้งค่าทั่วไป
-                        และเปิดจัดการเฉพาะบัญชี admin
+                        API Key เป็นข้อมูลแบบเขียนอย่างเดียว เก็บในตาราง private
+                        แยกจากการตั้งค่าทั่วไป และเปิดจัดการเฉพาะบัญชี admin
                       </span>
                     </div>
                   </>
@@ -2478,8 +2651,8 @@ export default function Settings() {
                               QR ร้านค้าถุงเงิน (แนะนำ)
                             </span>
                             <span className="block text-xs text-muted-foreground">
-                              เงินเข้าบัญชีถุงเงินของร้านโดยตรง
-                              ใช้ QR จากแอปถุงเงิน
+                              เงินเข้าบัญชีถุงเงินของร้านโดยตรง ใช้ QR
+                              จากแอปถุงเงิน
                             </span>
                           </span>
                         </label>
@@ -2520,7 +2693,8 @@ export default function Settings() {
                           placeholder="เบอร์โทร 10 หลัก หรือเลขบัตรประชาชน 13 หลัก"
                         />
                         <p className="text-xs text-muted-foreground">
-                          ระบบจะสร้าง QR พร้อมเพย์จาก ID นี้และล็อกยอดเงินของแต่ละบิล
+                          ระบบจะสร้าง QR พร้อมเพย์จาก ID
+                          นี้และล็อกยอดเงินของแต่ละบิล
                         </p>
                       </div>
                     )}
@@ -2533,7 +2707,9 @@ export default function Settings() {
                           </div>
                           <Badge
                             variant={
-                              paymentConfig?.merchant ? "default" : "destructive"
+                              paymentConfig?.merchant
+                                ? "default"
+                                : "destructive"
                             }
                           >
                             {paymentConfig?.merchant
@@ -2578,11 +2754,7 @@ export default function Settings() {
                           onOpenChange={setTngMerchantEditorOpen}
                         >
                           <CollapsibleTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                            >
+                            <Button type="button" variant="outline" size="sm">
                               {tngMerchantEditorOpen
                                 ? "ซ่อนช่องเปลี่ยน QR"
                                 : paymentConfig?.merchant
@@ -2601,8 +2773,8 @@ export default function Settings() {
                               className="font-mono text-xs"
                             />
                             <p className="text-xs text-muted-foreground">
-                              เซิร์ฟเวอร์จะตรวจโครงสร้างก่อนบันทึก
-                              และใช้ payload นี้ฉีดยอดเงินของแต่ละบิลตอนสร้าง QR
+                              เซิร์ฟเวอร์จะตรวจโครงสร้างก่อนบันทึก และใช้
+                              payload นี้ฉีดยอดเงินของแต่ละบิลตอนสร้าง QR
                               เว้นว่างเพื่อใช้ของเดิม
                             </p>
                           </CollapsibleContent>
@@ -2631,9 +2803,7 @@ export default function Settings() {
                         type="password"
                         autoComplete="new-password"
                         value={tngApiSecret}
-                        onChange={event =>
-                          setTngApiSecret(event.target.value)
-                        }
+                        onChange={event => setTngApiSecret(event.target.value)}
                         placeholder={
                           paymentConfig?.apiSecretConfigured
                             ? "เว้นว่างเพื่อใช้ Secret เดิม"
@@ -2641,8 +2811,8 @@ export default function Settings() {
                         }
                       />
                       <p className="text-xs text-muted-foreground">
-                        ใช้ตรวจสลิปโอนเงินที่แคชเชียร์สแกนจากลูกค้า
-                        ระบบไม่แสดง Secret เดิมกลับมาที่หน้าเว็บ
+                        ใช้ตรวจสลิปโอนเงินที่แคชเชียร์สแกนจากลูกค้า ระบบไม่แสดง
+                        Secret เดิมกลับมาที่หน้าเว็บ
                         และจะเข้ารหัสก่อนบันทึกลงฐานข้อมูล
                         {paymentConfig?.apiKeySource === "environment"
                           ? " · ขณะนี้ใช้ Secret สำรองจาก .env"
@@ -2758,8 +2928,8 @@ export default function Settings() {
                           </div>
                         ) : (
                           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                            ยังไม่มี token — กด &quot;สร้าง token&quot;
-                            แล้วนำ URL และ token ไปตั้งในแอปแจ้งเงินเข้า
+                            ยังไม่มี token — กด &quot;สร้าง token&quot; แล้วนำ
+                            URL และ token ไปตั้งในแอปแจ้งเงินเข้า
                           </div>
                         )}
                       </div>
@@ -2853,226 +3023,226 @@ Content-Type: application/json
         </TabsContent>
 
         <TabsContent value="database" className="mt-0">
-      {/* ฐานข้อมูลและ Backup (admin) */}
-      {isAdmin && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="font-heading text-base flex items-center gap-2">
-              <Database className="w-4 h-4" /> ฐานข้อมูลและการสำรองข้อมูล
-              (admin)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-medium">
-                    <ShieldCheck className="h-4 w-4 text-emerald-600" />{" "}
-                    Supabase Backup
-                  </div>
-                  <Badge variant="secondary">
-                    แผน {dbInfo?.supabasePlan ?? "Pro"}
-                  </Badge>
-                </div>
-                <p className="text-sm">สำรองอัตโนมัติรายวันโดย Supabase</p>
-                <p className="text-xs text-muted-foreground">
+          {/* ฐานข้อมูลและ Backup (admin) */}
+          {isAdmin && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-base flex items-center gap-2">
+                  <Database className="w-4 h-4" /> ฐานข้อมูลและการสำรองข้อมูล
+                  (admin)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-medium">
+                        <ShieldCheck className="h-4 w-4 text-emerald-600" />{" "}
+                        Supabase Backup
+                      </div>
+                      <Badge variant="secondary">
+                        แผน {dbInfo?.supabasePlan ?? "Pro"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm">สำรองอัตโนมัติรายวันโดย Supabase</p>
+                    <p className="text-xs text-muted-foreground">
                       กู้คืนย้อนหลังได้{" "}
                       {dbInfo?.supabaseDailyRetentionDays ?? 7} วัน
-                </p>
-              </div>
-
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-medium">
-                    <Cloud className="h-4 w-4 text-sky-600" /> Private GCS
+                    </p>
                   </div>
-                  <Badge
-                    variant={
-                      dbInfo?.offsiteConfigured ? "default" : "destructive"
-                    }
-                  >
-                    {dbInfo?.offsiteConfigured
-                      ? "พร้อมใช้งาน"
-                      : "ยังไม่ตั้งค่า"}
-                  </Badge>
-                </div>
-                <p className="text-sm">
-                  สำรอง Logical Backup{" "}
-                  {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
-                </p>
-                <p className="break-all text-xs text-muted-foreground">
+
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Cloud className="h-4 w-4 text-sky-600" /> Private GCS
+                      </div>
+                      <Badge
+                        variant={
+                          dbInfo?.offsiteConfigured ? "default" : "destructive"
+                        }
+                      >
+                        {dbInfo?.offsiteConfigured
+                          ? "พร้อมใช้งาน"
+                          : "ยังไม่ตั้งค่า"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm">
+                      สำรอง Logical Backup{" "}
+                      {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
+                    </p>
+                    <p className="break-all text-xs text-muted-foreground">
                       {dbInfo?.offsiteBucket ||
                         "Private bucket กำลังรอการตั้งค่า"}
-                </p>
-                <p className="text-xs text-muted-foreground">
+                    </p>
+                    <p className="text-xs text-muted-foreground">
                       เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35} วัน
                       · รายเดือน {dbInfo?.offsiteMonthlyRetentionDays ?? 370}{" "}
                       วัน
-                </p>
-              </div>
-            </div>
+                    </p>
+                  </div>
+                </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={() => backupNow.mutate()}
-                disabled={!dbInfo?.offsiteConfigured || backupNow.isPending}
-              >
-                <Database className="mr-1.5 h-4 w-4" />
-                {backupNow.isPending
-                  ? "กำลังสำรองข้อมูล..."
-                  : "สำรองข้อมูลตอนนี้"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void refetchDbInfo()}
-                disabled={dbInfoFetching}
-              >
-                <RefreshCw
-                  className={`mr-1.5 h-4 w-4 ${dbInfoFetching ? "animate-spin" : ""}`}
-                />
-                ตรวจสอบสถานะ
-              </Button>
-              <Button asChild type="button" variant="outline">
-                <a
-                  href={
-                    dbInfo?.supabaseDashboardUrl ??
-                    "https://supabase.com/dashboard"
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  เปิด Supabase Backups
-                </a>
-              </Button>
-            </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => backupNow.mutate()}
+                    disabled={!dbInfo?.offsiteConfigured || backupNow.isPending}
+                  >
+                    <Database className="mr-1.5 h-4 w-4" />
+                    {backupNow.isPending
+                      ? "กำลังสำรองข้อมูล..."
+                      : "สำรองข้อมูลตอนนี้"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void refetchDbInfo()}
+                    disabled={dbInfoFetching}
+                  >
+                    <RefreshCw
+                      className={`mr-1.5 h-4 w-4 ${dbInfoFetching ? "animate-spin" : ""}`}
+                    />
+                    ตรวจสอบสถานะ
+                  </Button>
+                  <Button asChild type="button" variant="outline">
+                    <a
+                      href={
+                        dbInfo?.supabaseDashboardUrl ??
+                        "https://supabase.com/dashboard"
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      เปิด Supabase Backups
+                    </a>
+                  </Button>
+                </div>
 
-            {dbInfo?.backupListError && (
-              <p className="text-sm text-destructive">
-                {dbInfo.backupListError}
-              </p>
-            )}
+                {dbInfo?.backupListError && (
+                  <p className="text-sm text-destructive">
+                    {dbInfo.backupListError}
+                  </p>
+                )}
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">
                       ไฟล์สำรองนอกระบบล่าสุด
                     </p>
-                <span className="text-xs text-muted-foreground">
-                  ลิงก์ดาวน์โหลดมีอายุ 15 นาที
-                </span>
-              </div>
-              {dbInfo?.backups.length ? (
-                <div className="overflow-x-auto rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>วันที่สำรอง</TableHead>
-                        <TableHead>ประเภท</TableHead>
-                        <TableHead>ขนาด</TableHead>
-                        <TableHead>SHA-256</TableHead>
-                        <TableHead className="text-right">จัดการ</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {dbInfo.backups.slice(0, 12).map(backup => (
-                        <TableRow key={backup.objectName}>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {fmtDateTime(backup.createdAt)}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {backupTriggerLabel(backup.trigger)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {fmtFileSize(backup.sizeBytes)}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {backup.sha256
-                              ? `${backup.sha256.slice(0, 12)}…`
-                              : "—"}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap justify-end gap-1.5">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  void downloadBackup(backup.objectName)
-                                }
-                                disabled={
-                                  downloadingBackup === backup.objectName
-                                }
-                              >
-                                <Download className="mr-1 h-3.5 w-3.5" />
-                                {downloadingBackup === backup.objectName
-                                  ? "กำลังเตรียม..."
-                                  : "ดาวน์โหลด"}
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
+                    <span className="text-xs text-muted-foreground">
+                      ลิงก์ดาวน์โหลดมีอายุ 15 นาที
+                    </span>
+                  </div>
+                  {dbInfo?.backups.length ? (
+                    <div className="overflow-x-auto rounded-lg border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>วันที่สำรอง</TableHead>
+                            <TableHead>ประเภท</TableHead>
+                            <TableHead>ขนาด</TableHead>
+                            <TableHead>SHA-256</TableHead>
+                            <TableHead className="text-right">จัดการ</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {dbInfo.backups.slice(0, 12).map(backup => (
+                            <TableRow key={backup.objectName}>
+                              <TableCell className="whitespace-nowrap text-sm">
+                                {fmtDateTime(backup.createdAt)}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">
+                                  {backupTriggerLabel(backup.trigger)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-sm">
+                                {fmtFileSize(backup.sizeBytes)}
+                              </TableCell>
+                              <TableCell className="font-mono text-xs">
+                                {backup.sha256
+                                  ? `${backup.sha256.slice(0, 12)}…`
+                                  : "—"}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap justify-end gap-1.5">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      void downloadBackup(backup.objectName)
+                                    }
+                                    disabled={
+                                      downloadingBackup === backup.objectName
+                                    }
+                                  >
+                                    <Download className="mr-1 h-3.5 w-3.5" />
+                                    {downloadingBackup === backup.objectName
+                                      ? "กำลังเตรียม..."
+                                      : "ดาวน์โหลด"}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
                                     onClick={() =>
                                       setRestoreBackupTarget(backup)
                                     }
-                              >
-                                <History className="mr-1 h-3.5 w-3.5" />
-                                Restore
-                              </Button>
-                              {backup.trigger === "manual" ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-destructive hover:text-destructive"
-                                  title={
-                                    dbInfo.offsiteDeleteEnabled
-                                      ? "ลบ Manual Backup"
-                                      : "ระบบ Cloud ใช้ Supabase Managed Backups"
-                                  }
-                                  disabled={!dbInfo.offsiteDeleteEnabled}
-                                  onClick={() => {
-                                    setDeleteBackupTarget(backup);
-                                    setDeleteBackupConfirmation("");
-                                  }}
-                                >
-                                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                  ลบ
-                                </Button>
-                              ) : (
-                                <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
-                                  ลบตาม Lifecycle
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                                  >
+                                    <History className="mr-1 h-3.5 w-3.5" />
+                                    Restore
+                                  </Button>
+                                  {backup.trigger === "manual" ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-destructive hover:text-destructive"
+                                      title={
+                                        dbInfo.offsiteDeleteEnabled
+                                          ? "ลบ Manual Backup"
+                                          : "ระบบ Cloud ใช้ Supabase Managed Backups"
+                                      }
+                                      disabled={!dbInfo.offsiteDeleteEnabled}
+                                      onClick={() => {
+                                        setDeleteBackupTarget(backup);
+                                        setDeleteBackupConfirmation("");
+                                      }}
+                                    >
+                                      <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                      ลบ
+                                    </Button>
+                                  ) : (
+                                    <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
+                                      ลบตาม Lifecycle
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
+                      “สำรองข้อมูลตอนนี้”
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
-                  “สำรองข้อมูลตอนนี้”
-                </div>
-              )}
-            </div>
 
-            <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="text-xs">
-                {dbInfo?.managedRestoreMessage ??
-                  "การกู้คืนต้องทำลงฐานทดสอบก่อนตรวจสอบและสลับการเชื่อมต่อ ห้ามกู้ทับฐาน production โดยตรง"}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p className="text-xs">
+                    {dbInfo?.managedRestoreMessage ??
+                      "การกู้คืนต้องทำลงฐานทดสอบก่อนตรวจสอบและสลับการเชื่อมต่อ ห้ามกู้ทับฐาน production โดยตรง"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -3696,7 +3866,9 @@ Content-Type: application/json
                   </span>
                 </div>
                 <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
-                  {editAccessGroup?.id ? "แก้ไขกลุ่มสิทธิ์" : "เพิ่มกลุ่มสิทธิ์"}
+                  {editAccessGroup?.id
+                    ? "แก้ไขกลุ่มสิทธิ์"
+                    : "เพิ่มกลุ่มสิทธิ์"}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
                   สมาชิกทุกคนในกลุ่มจะเห็นและเข้าใช้งานเฉพาะเมนูที่เปิดไว้
@@ -3902,7 +4074,10 @@ Content-Type: application/json
                     className="bg-white"
                     value={newBranch.address}
                     onChange={event =>
-                      setNewBranch({ ...newBranch, address: event.target.value })
+                      setNewBranch({
+                        ...newBranch,
+                        address: event.target.value,
+                      })
                     }
                     rows={2}
                   />
@@ -4291,7 +4466,70 @@ Content-Type: application/json
         </DialogContent>
       </Dialog>
 
-      {/* Dialog แก้ไขหัวจ่าย */}
+      {/* Dialog เพิ่ม/แก้ไขตู้จ่าย */}
+      <Dialog open={!!editPump} onOpenChange={o => !o && setEditPump(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editPump?.id ? "แก้ไขตู้จ่าย" : "เพิ่มตู้จ่าย"}
+            </DialogTitle>
+            <DialogDescription>
+              ตั้งชื่อที่พนักงานเห็นในหน้ากะ เช่น “ตู้จ่าย 1”
+            </DialogDescription>
+          </DialogHeader>
+          {editPump && (
+            <div className="space-y-2 py-2">
+              <Label htmlFor="pump-name">ชื่อตู้จ่าย</Label>
+              <Input
+                id="pump-name"
+                autoFocus
+                maxLength={100}
+                placeholder="เช่น ตู้จ่าย 1"
+                value={editPump.name}
+                onChange={e =>
+                  setEditPump({ ...editPump, name: e.target.value })
+                }
+                onKeyDown={e => {
+                  if (e.key !== "Enter" || !editPump.name.trim()) return;
+                  if (editPump.id) {
+                    updatePump.mutate({
+                      id: editPump.id,
+                      name: editPump.name.trim(),
+                    });
+                  } else {
+                    createPump.mutate({ name: editPump.name.trim() });
+                  }
+                }}
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              className="w-full sm:w-auto"
+              disabled={
+                !editPump?.name.trim() ||
+                createPump.isPending ||
+                updatePump.isPending
+              }
+              onClick={() => {
+                if (!editPump) return;
+                if (editPump.id) {
+                  updatePump.mutate({
+                    id: editPump.id,
+                    name: editPump.name.trim(),
+                  });
+                } else {
+                  createPump.mutate({ name: editPump.name.trim() });
+                }
+              }}
+            >
+              {editPump?.id ? "บันทึก" : "เพิ่มตู้จ่าย"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog เพิ่ม/แก้ไขหัวจ่าย */}
       <Dialog open={!!editN} onOpenChange={o => !o && setEditN(null)}>
         <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
           <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
@@ -4308,10 +4546,10 @@ Content-Type: application/json
                   </span>
                 </div>
                 <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
-                  แก้ไขหัวจ่าย
+                  {editN?.id ? "แก้ไขหัวจ่าย" : "เพิ่มหัวจ่าย"}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  ปรับชื่อหัวจ่าย ถังที่ตัดสต๊อก และค่ามิเตอร์สะสม
+                  กำหนดตู้จ่าย ชนิดน้ำมัน ถังที่ตัดสต๊อก และค่ามิเตอร์สะสม
                 </DialogDescription>
               </div>
             </div>
@@ -4335,6 +4573,28 @@ Content-Type: application/json
                 <div className="grid gap-4 p-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-slate-700">
+                      ตู้จ่าย
+                    </Label>
+                    <Select
+                      value={String(editN.pumpId)}
+                      onValueChange={v =>
+                        setEditN({ ...editN, pumpId: Number(v) })
+                      }
+                    >
+                      <SelectTrigger className="w-full bg-white">
+                        <SelectValue placeholder="เลือกตู้จ่าย" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(pumps ?? []).map(pump => (
+                          <SelectItem key={pump.id} value={String(pump.id)}>
+                            {pump.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">
                       ชื่อหัวจ่าย
                     </Label>
                     <Input
@@ -4350,7 +4610,11 @@ Content-Type: application/json
                       ชนิดน้ำมันที่จ่าย
                     </Label>
                     <Select
-                      value={String(editN.productId)}
+                      value={
+                        editN.productId > 0
+                          ? String(editN.productId)
+                          : undefined
+                      }
                       onValueChange={v => {
                         const productId = Number(v);
                         const firstTank = (tanks ?? []).find(
@@ -4364,7 +4628,7 @@ Content-Type: application/json
                       }}
                     >
                       <SelectTrigger className="w-full bg-white">
-                        <SelectValue />
+                        <SelectValue placeholder="เลือกชนิดน้ำมัน" />
                       </SelectTrigger>
                       <SelectContent>
                         {(products ?? [])
@@ -4457,21 +4721,38 @@ Content-Type: application/json
             <Button
               className="w-full"
               disabled={
-                !editN?.label || editN.tankId == null || updateNozzle.isPending
+                !editN?.label.trim() ||
+                !editN.pumpId ||
+                !editN.productId ||
+                editN.tankId == null ||
+                createNozzle.isPending ||
+                updateNozzle.isPending
               }
-              onClick={() =>
-                editN &&
-                updateNozzle.mutate({
-                  id: editN.id,
-                  label: editN.label,
-                  productId: editN.productId,
-                  tankId: editN.tankId!,
-                  meter: editN.meter,
-                  money: editN.money,
-                })
-              }
+              onClick={() => {
+                if (!editN || editN.tankId == null) return;
+                if (editN.id) {
+                  updateNozzle.mutate({
+                    id: editN.id,
+                    pumpId: editN.pumpId,
+                    label: editN.label.trim(),
+                    productId: editN.productId,
+                    tankId: editN.tankId,
+                    meter: editN.meter,
+                    money: editN.money,
+                  });
+                } else {
+                  createNozzle.mutate({
+                    pumpId: editN.pumpId,
+                    label: editN.label.trim(),
+                    productId: editN.productId,
+                    tankId: editN.tankId,
+                    meter: editN.meter,
+                    money: editN.money,
+                  });
+                }
+              }}
             >
-              บันทึก
+              {editN?.id ? "บันทึก" : "เพิ่มหัวจ่าย"}
             </Button>
           </DialogFooter>
         </DialogContent>
