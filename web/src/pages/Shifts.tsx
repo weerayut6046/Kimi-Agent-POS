@@ -53,16 +53,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
 import CashDenomCounter from "@/components/CashDenomCounter";
+import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
 import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -876,6 +872,17 @@ export default function Shifts() {
       ),
     [pumps]
   );
+  const meterScanTargets = useMemo(
+    () =>
+      currentShift?.readings.map(reading => ({
+        nozzleId: reading.nozzleId,
+        label: reading.nozzle?.label ?? `หัวจ่าย #${reading.nozzleId}`,
+        pumpName: reading.pump?.name ?? "ไม่ทราบตู้",
+        openMeter: Number(reading.openMeter),
+        openMoney: Number(reading.openMoney),
+      })) ?? [],
+    [currentShift]
+  );
 
   const historyReadingPreview = getHistoryReadingPreview(
     historyReadings,
@@ -979,699 +986,749 @@ export default function Shifts() {
         </TabsList>
 
         <TabsContent value="current" className="mt-0 space-y-5">
-      {/* ============ เปิดกะ ============ */}
-      {!currentShift && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="font-heading flex items-center gap-2">
-              <PlayCircle className="w-5 h-5 text-green-600" /> เปิดกะใหม่ —
-              บันทึกมิเตอร์ตั้งต้น (L และ P)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              พนักงาน: <b>{staff?.name}</b> · ระบบดึงเลขมิเตอร์ล่าสุดมาให้แล้ว
-              ตรวจสอบหน้าตู้จ่ายอีกครั้งก่อนกดเปิดกะ (<b>L</b> = ลิตรสะสม,{" "}
-              <b>P</b> = ยอดเงินสะสม บาท)
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {nozzleList.map(n => (
-                <div key={n.id} className="border rounded-xl p-3 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-sm">{n.label}</span>
-                    <Badge variant="secondary">{n.product?.name}</Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-24">
-                      P ตั้งต้น (บาท)
-                    </span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={openVals[n.id]?.p ?? String(n.currentMoney)}
-                      onChange={e =>
-                        setOpenVals(m => ({
-                          ...m,
-                          [n.id]: { ...m[n.id], p: e.target.value },
-                        }))
-                      }
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-24">
-                      L ตั้งต้น (ลิตร)
-                    </span>
-                    <Input
-                      type="number"
-                      step="0.001"
-                      value={openVals[n.id]?.l ?? String(n.currentMeter)}
-                      onChange={e =>
-                        setOpenVals(m => ({
-                          ...m,
-                          [n.id]: { ...m[n.id], l: e.target.value },
-                        }))
-                      }
-                      className="h-9"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex max-w-md flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:gap-3">
-              <span className="text-sm font-medium sm:whitespace-nowrap">
-                เงินทอนเริ่มกะ (บาท)
-              </span>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0.00"
-                value={floatVal}
-                onChange={e => setFloatVal(e.target.value)}
-                className="h-9"
-              />
-            </div>
-            <Button
-              className="w-full sm:w-auto h-11"
-              disabled={openShift.isPending || nozzleList.length === 0}
-              onClick={() =>
-                openShift.mutate({
-                  staffId: staff?.id,
-                  staffName: staff?.name ?? "",
-                  openingFloat: Number(floatVal) || 0,
-                  readings: nozzleList.map(n => ({
-                    nozzleId: n.id,
-                    openMeter: Number(openVals[n.id]?.l ?? n.currentMeter),
-                    openMoney: Number(openVals[n.id]?.p ?? n.currentMoney),
-                  })),
-                })
-              }
-            >
-              <PlayCircle className="w-5 h-5 mr-2" /> เปิดกะ
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ============ ปิดกะ ============ */}
-      {currentShift && (
-        <Card className="border-green-300">
-          <CardHeader>
-            <CardTitle className="font-heading flex items-center gap-2 flex-wrap">
-              <StopCircle className="w-5 h-5 text-destructive" /> ปิดกะ —
-              บันทึกมิเตอร์ปลายทาง (L และ P)
-              <Badge className="bg-green-600 hover:bg-green-600">
-                <Clock className="w-3 h-3 mr-1" /> เปิดโดย{" "}
-                {currentShift.staffName} เมื่อ{" "}
-                {fmtDateTime(currentShift.openedAt)}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {hasPriceChangeDuringShift && (
-              <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
-                  ราคาเปิดกะ”
-                  จึงเป็นเพียงค่าประมาณและไม่ควรตีความส่วนต่างเป็นเงินขาดทันที
-                  ให้ตรวจเลขมิเตอร์ P/L ที่หน้าตู้เป็นหลัก โดยใช้มิเตอร์ P
-                  เป็นยอดเงินจริงและมิเตอร์ L เป็นจำนวนลิตรที่ขาย
-                </div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {currentShift.readings.map(r => {
-                const cl = Number(closeVals[r.nozzleId]?.l);
-                const cp = Number(closeVals[r.nozzleId]?.p);
-                const liters =
-                  cl && cl >= r.openMeter ? r3(cl - r.openMeter) : null;
-                const money =
-                  cp && cp >= r.openMoney ? r2(cp - r.openMoney) : null;
-                const amountL =
-                  liters != null ? r2(liters * r.pricePerLiter) : null;
-                const diff =
-                  money != null && amountL != null ? r2(money - amountL) : null;
-                const effectivePrice =
-                  liters != null && liters > 0 && money != null
-                    ? r2(money / liters)
-                    : null;
-                return (
-                  <div
-                    key={r.nozzleId}
-                    className="border rounded-xl p-3 space-y-2"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-sm">
-                        {r.nozzle?.label}
-                      </span>
-                      {r.priceChangedDuringShift ? (
-                        <Badge className="border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-50">
-                          ฿{fmtMoney(r.pricePerLiter)} → ฿
-                          {fmtMoney(r.currentPrice)}/ล.
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">
-                          ฿{fmtMoney(r.pricePerLiter)}/ล.
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      {r.openMoney > 0 ? (
-                        <span>
-                          P ตั้งต้น:{" "}
-                          <b className="text-foreground">
-                            ฿{fmtNum(r.openMoney)}
-                          </b>
+          {/* ============ เปิดกะ ============ */}
+          {!currentShift && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-heading flex items-center gap-2">
+                  <PlayCircle className="w-5 h-5 text-green-600" /> เปิดกะใหม่ —
+                  บันทึกมิเตอร์ตั้งต้น (L และ P)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  พนักงาน: <b>{staff?.name}</b> ·
+                  ระบบดึงเลขมิเตอร์ล่าสุดมาให้แล้ว
+                  ตรวจสอบหน้าตู้จ่ายอีกครั้งก่อนกดเปิดกะ (<b>L</b> = ลิตรสะสม,{" "}
+                  <b>P</b> = ยอดเงินสะสม บาท)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {nozzleList.map(n => (
+                    <div key={n.id} className="border rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-sm">{n.label}</span>
+                        <Badge variant="secondary">{n.product?.name}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-24">
+                          P ตั้งต้น (บาท)
                         </span>
-                      ) : (
-                        <span className="text-amber-600">
-                          P ตั้งต้น: ไม่มี (กะเก่า)
-                        </span>
-                      )}
-                      <span>
-                        L ตั้งต้น:{" "}
-                        <b className="text-foreground">{fmtNum(r.openMeter)}</b>
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-24">
-                        P ปิดกะ (บาท)
-                      </span>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="เลขเงินปลายทาง"
-                        value={closeVals[r.nozzleId]?.p ?? ""}
-                        onChange={e =>
-                          setCloseVals(m => ({
-                            ...m,
-                            [r.nozzleId]: {
-                              ...m[r.nozzleId],
-                              p: e.target.value,
-                            },
-                          }))
-                        }
-                        className="h-9"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground w-24">
-                        L ปิดกะ (ลิตร)
-                      </span>
-                      <Input
-                        type="number"
-                        step="0.001"
-                        placeholder="เลขลิตรปลายทาง"
-                        value={closeVals[r.nozzleId]?.l ?? ""}
-                        onChange={e =>
-                          setCloseVals(m => ({
-                            ...m,
-                            [r.nozzleId]: {
-                              ...m[r.nozzleId],
-                              l: e.target.value,
-                            },
-                          }))
-                        }
-                        className="h-9"
-                      />
-                    </div>
-                    {liters != null && (
-                      <div
-                        className={`text-xs rounded-lg px-2 py-1.5 flex flex-wrap justify-between gap-1 ${
-                          r.priceChangedDuringShift
-                            ? "bg-amber-50"
-                            : "bg-blue-50"
-                        }`}
-                      >
-                        <span>
-                          ขาย <b>{fmtNum(liters)} ล.</b>
-                        </span>
-                        <span>
-                          {r.priceChangedDuringShift
-                            ? "คาดจากราคาเปิดกะ"
-                            : "จากลิตร"}
-                          : <b>฿{fmtMoney(amountL ?? 0)}</b>
-                        </span>
-                        {money != null && (
-                          <span>
-                            จาก P: <b>฿{fmtMoney(money)}</b>
-                          </span>
-                        )}
-                        {r.priceChangedDuringShift &&
-                          effectivePrice != null && (
-                            <span>
-                              ราคาเฉลี่ยจาก P:{" "}
-                              <b>฿{fmtMoney(effectivePrice)}/ล.</b>
-                            </span>
-                          )}
-                        <MeterDiffBadge
-                          diff={diff}
-                          priceChangedDuringShift={r.priceChangedDuringShift}
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={openVals[n.id]?.p ?? String(n.currentMoney)}
+                          onChange={e =>
+                            setOpenVals(m => ({
+                              ...m,
+                              [n.id]: { ...m[n.id], p: e.target.value },
+                            }))
+                          }
+                          className="h-9"
                         />
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-              <div>
-                <div className="text-xs text-muted-foreground">
-                  เงินทอน ฿{fmtMoney(currentShift.cash.openingFloat)}
-                  {" + "}ขายเงินสด ฿{fmtMoney(currentShift.cash.cashSales)}
-                  {" + "}ชำระหนี้เงินสด ฿
-                  {fmtMoney(currentShift.cash.cashDebtPayments)}
-                  {" − "}ค่าใช้จ่าย ฿{fmtMoney(currentShift.cash.expensesTotal)}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-24">
+                          L ตั้งต้น (ลิตร)
+                        </span>
+                        <Input
+                          type="number"
+                          step="0.001"
+                          value={openVals[n.id]?.l ?? String(n.currentMeter)}
+                          onChange={e =>
+                            setOpenVals(m => ({
+                              ...m,
+                              [n.id]: { ...m[n.id], l: e.target.value },
+                            }))
+                          }
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="font-heading text-xl font-semibold text-amber-700">
-                  ควรมี ฿{fmtMoney(currentShift.cash.expectedCash)}
-                </div>
-              </div>
-              {hasCounts && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">
-                    นับได้ <b>฿{fmtMoney(countedTotal)}</b>
-                    {Number(transferVal) > 0 && (
-                      <span className="text-muted-foreground">
-                        {" "}
-                        (+โอน ฿{fmtMoney(Number(transferVal))} = ฿
-                        {fmtMoney(r2(countedTotal + Number(transferVal)))})
-                      </span>
-                    )}
+                <div className="flex max-w-md flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:gap-3">
+                  <span className="text-sm font-medium sm:whitespace-nowrap">
+                    เงินทอนเริ่มกะ (บาท)
                   </span>
-                  <DiffBadge
-                    diff={r2(
-                      countedTotal +
-                        (Number(transferVal) || 0) -
-                        currentShift.cash.expectedCash
-                    )}
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={floatVal}
+                    onChange={e => setFloatVal(e.target.value)}
+                    className="h-9"
                   />
                 </div>
-              )}
-            </div>
+                <Button
+                  className="w-full sm:w-auto h-11"
+                  disabled={openShift.isPending || nozzleList.length === 0}
+                  onClick={() =>
+                    openShift.mutate({
+                      staffId: staff?.id,
+                      staffName: staff?.name ?? "",
+                      openingFloat: Number(floatVal) || 0,
+                      readings: nozzleList.map(n => ({
+                        nozzleId: n.id,
+                        openMeter: Number(openVals[n.id]?.l ?? n.currentMeter),
+                        openMoney: Number(openVals[n.id]?.p ?? n.currentMoney),
+                      })),
+                    })
+                  }
+                >
+                  <PlayCircle className="w-5 h-5 mr-2" /> เปิดกะ
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
-            {/* นับเงินสดแยกแบงก์/เหรียญ + ยอดเงินโอน */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="border rounded-xl p-3 space-y-2 sm:w-fit">
-                <div className="font-medium text-sm">
-                  นับเงินสดในลิ้นชัก (แยกแบงก์/เหรียญ)
+          {/* ============ ปิดกะ ============ */}
+          {currentShift && (
+            <Card className="border-green-300">
+              <CardHeader>
+                <CardTitle className="font-heading flex items-center gap-2 flex-wrap">
+                  <StopCircle className="w-5 h-5 text-destructive" /> ปิดกะ —
+                  บันทึกมิเตอร์ปลายทาง (L และ P)
+                  <Badge className="bg-green-600 hover:bg-green-600">
+                    <Clock className="w-3 h-3 mr-1" /> เปิดโดย{" "}
+                    {currentShift.staffName} เมื่อ{" "}
+                    {fmtDateTime(currentShift.openedAt)}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
+                  <ShiftMeterImageScanner
+                    shiftId={currentShift.id}
+                    targets={meterScanTargets}
+                    onApply={values => {
+                      setCloseVals(current => {
+                        const next = { ...current };
+                        for (const [nozzleId, reading] of Object.entries(
+                          values
+                        )) {
+                          const id = Number(nozzleId);
+                          next[id] = {
+                            ...next[id],
+                            ...reading,
+                          };
+                        }
+                        return next;
+                      });
+                      setErr("");
+                    }}
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    เลือกภาพ L/P ของหลายตู้พร้อมกันได้
+                    และตรวจเลขทุกค่าก่อนเติมลงช่องด้านล่าง
+                  </p>
                 </div>
-                <CashDenomCounter value={cashCounts} onChange={setCashCounts} />
-              </div>
-              <div className="border rounded-xl p-3 space-y-2 self-start">
-                <div className="font-medium text-sm">
-                  ยอดเงินที่ลูกค้าโอน (บาท)
-                </div>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="ยอดโอนเข้าบัญชีร้าน"
-                  value={transferVal}
-                  onChange={e => setTransferVal(e.target.value)}
-                  className="h-9"
-                />
-              </div>
-            </div>
-
-            {closePreview && closePreview.filled && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    รวมลิตรที่ขาย
-                  </div>
-                  <div className="font-heading text-xl font-semibold">
-                    {fmtNum(closePreview.liters)} ลิตร
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    ยอดจากลิตร ×{" "}
-                    {hasPriceChangeDuringShift ? "ราคาเปิดกะ (ประมาณ)" : "ราคา"}
-                  </div>
-                  <div className="font-heading text-xl font-semibold text-primary">
-                    ฿{fmtMoney(closePreview.amountL)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">
-                    ยอดจากมิเตอร์เงิน (P)
-                  </div>
-                  <div className="font-heading text-xl font-semibold text-indigo-600">
-                    ฿{fmtMoney(closePreview.money)}
-                  </div>
-                </div>
-                {(hasCounts || transferVal) && (
-                  <div>
-                    <div className="text-xs text-muted-foreground">
-                      รวมเงินที่นับได้ (สด + โอน)
-                    </div>
-                    <div className="font-heading text-xl font-semibold text-green-700">
-                      ฿{fmtMoney(r2(countedTotal + (Number(transferVal) || 0)))}
+                {hasPriceChangeDuringShift && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
+                      ราคาเปิดกะ”
+                      จึงเป็นเพียงค่าประมาณและไม่ควรตีความส่วนต่างเป็นเงินขาดทันที
+                      ให้ตรวจเลขมิเตอร์ P/L ที่หน้าตู้เป็นหลัก โดยใช้มิเตอร์ P
+                      เป็นยอดเงินจริงและมิเตอร์ L เป็นจำนวนลิตรที่ขาย
                     </div>
                   </div>
                 )}
-                <div className="ml-auto">
-                  <MeterDiffBadge
-                    diff={closePreview.diff}
-                    priceChangedDuringShift={hasPriceChangeDuringShift}
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {currentShift.readings.map(r => {
+                    const cl = Number(closeVals[r.nozzleId]?.l);
+                    const cp = Number(closeVals[r.nozzleId]?.p);
+                    const liters =
+                      cl && cl >= r.openMeter ? r3(cl - r.openMeter) : null;
+                    const money =
+                      cp && cp >= r.openMoney ? r2(cp - r.openMoney) : null;
+                    const amountL =
+                      liters != null ? r2(liters * r.pricePerLiter) : null;
+                    const diff =
+                      money != null && amountL != null
+                        ? r2(money - amountL)
+                        : null;
+                    const effectivePrice =
+                      liters != null && liters > 0 && money != null
+                        ? r2(money / liters)
+                        : null;
+                    return (
+                      <div
+                        key={r.nozzleId}
+                        className="border rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-sm">
+                            {r.nozzle?.label}
+                          </span>
+                          {r.priceChangedDuringShift ? (
+                            <Badge className="border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                              ฿{fmtMoney(r.pricePerLiter)} → ฿
+                              {fmtMoney(r.currentPrice)}/ล.
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              ฿{fmtMoney(r.pricePerLiter)}/ล.
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          {r.openMoney > 0 ? (
+                            <span>
+                              P ตั้งต้น:{" "}
+                              <b className="text-foreground">
+                                ฿{fmtNum(r.openMoney)}
+                              </b>
+                            </span>
+                          ) : (
+                            <span className="text-amber-600">
+                              P ตั้งต้น: ไม่มี (กะเก่า)
+                            </span>
+                          )}
+                          <span>
+                            L ตั้งต้น:{" "}
+                            <b className="text-foreground">
+                              {fmtNum(r.openMeter)}
+                            </b>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-24">
+                            P ปิดกะ (บาท)
+                          </span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="เลขเงินปลายทาง"
+                            value={closeVals[r.nozzleId]?.p ?? ""}
+                            onChange={e =>
+                              setCloseVals(m => ({
+                                ...m,
+                                [r.nozzleId]: {
+                                  ...m[r.nozzleId],
+                                  p: e.target.value,
+                                },
+                              }))
+                            }
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-24">
+                            L ปิดกะ (ลิตร)
+                          </span>
+                          <Input
+                            type="number"
+                            step="0.001"
+                            placeholder="เลขลิตรปลายทาง"
+                            value={closeVals[r.nozzleId]?.l ?? ""}
+                            onChange={e =>
+                              setCloseVals(m => ({
+                                ...m,
+                                [r.nozzleId]: {
+                                  ...m[r.nozzleId],
+                                  l: e.target.value,
+                                },
+                              }))
+                            }
+                            className="h-9"
+                          />
+                        </div>
+                        {liters != null && (
+                          <div
+                            className={`text-xs rounded-lg px-2 py-1.5 flex flex-wrap justify-between gap-1 ${
+                              r.priceChangedDuringShift
+                                ? "bg-amber-50"
+                                : "bg-blue-50"
+                            }`}
+                          >
+                            <span>
+                              ขาย <b>{fmtNum(liters)} ล.</b>
+                            </span>
+                            <span>
+                              {r.priceChangedDuringShift
+                                ? "คาดจากราคาเปิดกะ"
+                                : "จากลิตร"}
+                              : <b>฿{fmtMoney(amountL ?? 0)}</b>
+                            </span>
+                            {money != null && (
+                              <span>
+                                จาก P: <b>฿{fmtMoney(money)}</b>
+                              </span>
+                            )}
+                            {r.priceChangedDuringShift &&
+                              effectivePrice != null && (
+                                <span>
+                                  ราคาเฉลี่ยจาก P:{" "}
+                                  <b>฿{fmtMoney(effectivePrice)}/ล.</b>
+                                </span>
+                              )}
+                            <MeterDiffBadge
+                              diff={diff}
+                              priceChangedDuringShift={
+                                r.priceChangedDuringShift
+                              }
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            )}
 
-            <Button
-              variant="destructive"
-              className="w-full sm:w-auto h-11"
-              disabled={closeShift.isPending || !closePreview?.filled}
-              onClick={() => {
-                // ส่งเฉพาะช่องที่กรอกจริง (จำนวน > 0) — ถ้าไม่ได้นับเลยไม่ส่ง cashCounts (บันทึกเป็น null เหมือนเดิม)
-                const countsPayload = hasCounts
-                  ? Object.fromEntries(
-                      Object.entries(cashCounts)
-                        .map(([k, v]) => [k, Number(v)] as const)
-                        .filter(([, n]) => n > 0)
-                    )
-                  : undefined;
-                closeShift.mutate({
-                  shiftId: currentShift.id,
-                  readings: currentShift.readings.map(r => ({
-                    nozzleId: r.nozzleId,
-                    closeMeter: Number(closeVals[r.nozzleId]?.l),
-                    closeMoney: Number(closeVals[r.nozzleId]?.p),
-                  })),
-                  ...(countsPayload ? { cashCounts: countsPayload } : {}),
-                  ...(transferVal
-                    ? { transferAmount: Number(transferVal) }
-                    : {}),
-                });
-              }}
-            >
-              <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ
-              (หักถังอัตโนมัติ)
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+                {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      เงินทอน ฿{fmtMoney(currentShift.cash.openingFloat)}
+                      {" + "}ขายเงินสด ฿{fmtMoney(currentShift.cash.cashSales)}
+                      {" + "}ชำระหนี้เงินสด ฿
+                      {fmtMoney(currentShift.cash.cashDebtPayments)}
+                      {" − "}ค่าใช้จ่าย ฿
+                      {fmtMoney(currentShift.cash.expensesTotal)}
+                    </div>
+                    <div className="font-heading text-xl font-semibold text-amber-700">
+                      ควรมี ฿{fmtMoney(currentShift.cash.expectedCash)}
+                    </div>
+                  </div>
+                  {hasCounts && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">
+                        นับได้ <b>฿{fmtMoney(countedTotal)}</b>
+                        {Number(transferVal) > 0 && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            (+โอน ฿{fmtMoney(Number(transferVal))} = ฿
+                            {fmtMoney(r2(countedTotal + Number(transferVal)))})
+                          </span>
+                        )}
+                      </span>
+                      <DiffBadge
+                        diff={r2(
+                          countedTotal +
+                            (Number(transferVal) || 0) -
+                            currentShift.cash.expectedCash
+                        )}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* นับเงินสดแยกแบงก์/เหรียญ + ยอดเงินโอน */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="border rounded-xl p-3 space-y-2 sm:w-fit">
+                    <div className="font-medium text-sm">
+                      นับเงินสดในลิ้นชัก (แยกแบงก์/เหรียญ)
+                    </div>
+                    <CashDenomCounter
+                      value={cashCounts}
+                      onChange={setCashCounts}
+                    />
+                  </div>
+                  <div className="border rounded-xl p-3 space-y-2 self-start">
+                    <div className="font-medium text-sm">
+                      ยอดเงินที่ลูกค้าโอน (บาท)
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="ยอดโอนเข้าบัญชีร้าน"
+                      value={transferVal}
+                      onChange={e => setTransferVal(e.target.value)}
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+
+                {closePreview && closePreview.filled && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        รวมลิตรที่ขาย
+                      </div>
+                      <div className="font-heading text-xl font-semibold">
+                        {fmtNum(closePreview.liters)} ลิตร
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        ยอดจากลิตร ×{" "}
+                        {hasPriceChangeDuringShift
+                          ? "ราคาเปิดกะ (ประมาณ)"
+                          : "ราคา"}
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-primary">
+                        ฿{fmtMoney(closePreview.amountL)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        ยอดจากมิเตอร์เงิน (P)
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-indigo-600">
+                        ฿{fmtMoney(closePreview.money)}
+                      </div>
+                    </div>
+                    {(hasCounts || transferVal) && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          รวมเงินที่นับได้ (สด + โอน)
+                        </div>
+                        <div className="font-heading text-xl font-semibold text-green-700">
+                          ฿
+                          {fmtMoney(
+                            r2(countedTotal + (Number(transferVal) || 0))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="ml-auto">
+                      <MeterDiffBadge
+                        diff={closePreview.diff}
+                        priceChangedDuringShift={hasPriceChangeDuringShift}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <Button
+                  variant="destructive"
+                  className="w-full sm:w-auto h-11"
+                  disabled={closeShift.isPending || !closePreview?.filled}
+                  onClick={() => {
+                    // ส่งเฉพาะช่องที่กรอกจริง (จำนวน > 0) — ถ้าไม่ได้นับเลยไม่ส่ง cashCounts (บันทึกเป็น null เหมือนเดิม)
+                    const countsPayload = hasCounts
+                      ? Object.fromEntries(
+                          Object.entries(cashCounts)
+                            .map(([k, v]) => [k, Number(v)] as const)
+                            .filter(([, n]) => n > 0)
+                        )
+                      : undefined;
+                    closeShift.mutate({
+                      shiftId: currentShift.id,
+                      readings: currentShift.readings.map(r => ({
+                        nozzleId: r.nozzleId,
+                        closeMeter: Number(closeVals[r.nozzleId]?.l),
+                        closeMoney: Number(closeVals[r.nozzleId]?.p),
+                      })),
+                      ...(countsPayload ? { cashCounts: countsPayload } : {}),
+                      ...(transferVal
+                        ? { transferAmount: Number(transferVal) }
+                        : {}),
+                    });
+                  }}
+                >
+                  <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ
+                  (หักถังอัตโนมัติ)
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="history" className="mt-0 space-y-5">
-      {/* ============ ประวัติ ============ */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="font-heading text-base">
-            ประวัติการตัดกะ
-          </CardTitle>
-          {isAdmin && (
-            <Button
-              disabled={!pumps}
-              onClick={() => {
-                setNotice("");
-                setErr("");
-                if (nozzleList.length === 0) {
-                  setErr("ไม่พบหัวจ่ายที่เปิดใช้งาน กรุณาตั้งค่าหัวจ่ายก่อน");
-                  return;
-                }
-                setHistoryForm(
-                  newHistoryForm(
-                    nozzleList.map(nozzle => ({
-                      nozzleId: nozzle.id,
-                      label: nozzle.label,
-                      productName: nozzle.product?.name ?? "ไม่ทราบชนิดน้ำมัน",
-                      openMeter: String(nozzle.currentMeter),
-                      closeMeter: "",
-                      openMoney: String(nozzle.currentMoney),
-                      closeMoney: "",
-                      pricePerLiter: nozzle.product?.price ?? 0,
-                    }))
-                  )
-                );
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" /> เพิ่มประวัติ
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isAdmin && (
-            <form
-              className="grid gap-3 rounded-xl border bg-muted/30 p-3 md:grid-cols-[minmax(180px,1fr)_160px_150px_150px_auto_auto]"
-              onSubmit={event => {
-                event.preventDefault();
-                setAppliedHistoryFilters(historyFilters);
-              }}
-            >
-              <Input
-                aria-label="ค้นหาประวัติการตัดกะ"
-                placeholder="ค้นหาชื่อพนักงาน เลขกะ หรือหมายเหตุ"
-                value={historyFilters.q}
-                onChange={event =>
-                  setHistoryFilters({
-                    ...historyFilters,
-                    q: event.target.value,
-                  })
-                }
-              />
-              <Select
-                value={historyFilters.status}
-                onValueChange={(status: HistoryStatusFilter) =>
-                  setHistoryFilters({ ...historyFilters, status })
-                }
-              >
-                <SelectTrigger aria-label="สถานะกะ">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">ทุกสถานะ</SelectItem>
-                  <SelectItem value="closed">ปิดแล้ว</SelectItem>
-                  <SelectItem value="open">เปิดอยู่</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                aria-label="ตั้งแต่วันที่"
-                type="date"
-                value={historyFilters.from}
-                onChange={event =>
-                  setHistoryFilters({
-                    ...historyFilters,
-                    from: event.target.value,
-                  })
-                }
-              />
-              <Input
-                aria-label="ถึงวันที่"
-                type="date"
-                value={historyFilters.to}
-                onChange={event =>
-                  setHistoryFilters({
-                    ...historyFilters,
-                    to: event.target.value,
-                  })
-                }
-              />
-              <Button type="submit" variant="outline">
-                <Search className="mr-2 h-4 w-4" /> ค้นหา
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setHistoryFilters(blankHistoryFilters);
-                  setAppliedHistoryFilters(blankHistoryFilters);
-                }}
-              >
-                ล้าง
-              </Button>
-            </form>
-          )}
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>เปิดกะ</TableHead>
-                  <TableHead>พนักงาน</TableHead>
-                  <TableHead className="text-right">ยอดจาก P</TableHead>
-                  <TableHead className="text-right">ยอดจากลิตร</TableHead>
-                  <TableHead className="text-right">ลิตร</TableHead>
-                  <TableHead>เทียบ</TableHead>
-                  <TableHead className="text-right">ยอด POS</TableHead>
-                  <TableHead className="text-right">เงินทอน</TableHead>
-                  <TableHead className="text-right">เงินสดนับได้</TableHead>
-                  <TableHead>เงินสดต่าง</TableHead>
-                  <TableHead>เงินสดต่างเทียบ P</TableHead>
-                  <TableHead className="text-right">ยอดโอน</TableHead>
-                  <TableHead>สถานะ</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(history ?? []).map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell className="whitespace-nowrap">
-                      {fmtDateTime(s.openedAt)}
-                    </TableCell>
-                    <TableCell>{s.staffName}</TableCell>
-                    <TableCell className="text-right">
-                      ฿{fmtMoney(s.totalMoneyMeter)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      ฿{fmtMoney(s.totalAmount)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {fmtNum(s.totalLiters)}
-                    </TableCell>
-                    <TableCell>
-                      {(s.priceChangedDuringShift ||
-                        (s.status === "closed" && s.totalMoneyMeter > 0)) && (
-                        <MeterDiffBadge
-                          diff={r2(s.totalMoneyMeter - s.totalAmount)}
-                          priceChangedDuringShift={s.priceChangedDuringShift}
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      ฿{fmtMoney(s.posAmount)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.openingFloat > 0
-                        ? `฿${fmtMoney(s.openingFloat)}`
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.countedCash != null
-                        ? `฿${fmtMoney(s.countedCash)}`
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {s.countedCash != null && s.expectedCash != null ? (
-                        <DiffBadge
-                          diff={r2(
-                            s.countedCash +
-                              (s.transferAmount ?? 0) -
-                              s.expectedCash
+          {/* ============ ประวัติ ============ */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <CardTitle className="font-heading text-base">
+                ประวัติการตัดกะ
+              </CardTitle>
+              {isAdmin && (
+                <Button
+                  disabled={!pumps}
+                  onClick={() => {
+                    setNotice("");
+                    setErr("");
+                    if (nozzleList.length === 0) {
+                      setErr(
+                        "ไม่พบหัวจ่ายที่เปิดใช้งาน กรุณาตั้งค่าหัวจ่ายก่อน"
+                      );
+                      return;
+                    }
+                    setHistoryForm(
+                      newHistoryForm(
+                        nozzleList.map(nozzle => ({
+                          nozzleId: nozzle.id,
+                          label: nozzle.label,
+                          productName:
+                            nozzle.product?.name ?? "ไม่ทราบชนิดน้ำมัน",
+                          openMeter: String(nozzle.currentMeter),
+                          closeMeter: "",
+                          openMoney: String(nozzle.currentMoney),
+                          closeMoney: "",
+                          pricePerLiter: nozzle.product?.price ?? 0,
+                        }))
+                      )
+                    );
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> เพิ่มประวัติ
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isAdmin && (
+                <form
+                  className="grid gap-3 rounded-xl border bg-muted/30 p-3 md:grid-cols-[minmax(180px,1fr)_160px_150px_150px_auto_auto]"
+                  onSubmit={event => {
+                    event.preventDefault();
+                    setAppliedHistoryFilters(historyFilters);
+                  }}
+                >
+                  <Input
+                    aria-label="ค้นหาประวัติการตัดกะ"
+                    placeholder="ค้นหาชื่อพนักงาน เลขกะ หรือหมายเหตุ"
+                    value={historyFilters.q}
+                    onChange={event =>
+                      setHistoryFilters({
+                        ...historyFilters,
+                        q: event.target.value,
+                      })
+                    }
+                  />
+                  <Select
+                    value={historyFilters.status}
+                    onValueChange={(status: HistoryStatusFilter) =>
+                      setHistoryFilters({ ...historyFilters, status })
+                    }
+                  >
+                    <SelectTrigger aria-label="สถานะกะ">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ทุกสถานะ</SelectItem>
+                      <SelectItem value="closed">ปิดแล้ว</SelectItem>
+                      <SelectItem value="open">เปิดอยู่</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    aria-label="ตั้งแต่วันที่"
+                    type="date"
+                    value={historyFilters.from}
+                    onChange={event =>
+                      setHistoryFilters({
+                        ...historyFilters,
+                        from: event.target.value,
+                      })
+                    }
+                  />
+                  <Input
+                    aria-label="ถึงวันที่"
+                    type="date"
+                    value={historyFilters.to}
+                    onChange={event =>
+                      setHistoryFilters({
+                        ...historyFilters,
+                        to: event.target.value,
+                      })
+                    }
+                  />
+                  <Button type="submit" variant="outline">
+                    <Search className="mr-2 h-4 w-4" /> ค้นหา
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setHistoryFilters(blankHistoryFilters);
+                      setAppliedHistoryFilters(blankHistoryFilters);
+                    }}
+                  >
+                    ล้าง
+                  </Button>
+                </form>
+              )}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>เปิดกะ</TableHead>
+                      <TableHead>พนักงาน</TableHead>
+                      <TableHead className="text-right">ยอดจาก P</TableHead>
+                      <TableHead className="text-right">ยอดจากลิตร</TableHead>
+                      <TableHead className="text-right">ลิตร</TableHead>
+                      <TableHead>เทียบ</TableHead>
+                      <TableHead className="text-right">ยอด POS</TableHead>
+                      <TableHead className="text-right">เงินทอน</TableHead>
+                      <TableHead className="text-right">เงินสดนับได้</TableHead>
+                      <TableHead>เงินสดต่าง</TableHead>
+                      <TableHead>เงินสดต่างเทียบ P</TableHead>
+                      <TableHead className="text-right">ยอดโอน</TableHead>
+                      <TableHead>สถานะ</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(history ?? []).map(s => (
+                      <TableRow key={s.id}>
+                        <TableCell className="whitespace-nowrap">
+                          {fmtDateTime(s.openedAt)}
+                        </TableCell>
+                        <TableCell>{s.staffName}</TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(s.totalMoneyMeter)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(s.totalAmount)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {fmtNum(s.totalLiters)}
+                        </TableCell>
+                        <TableCell>
+                          {(s.priceChangedDuringShift ||
+                            (s.status === "closed" &&
+                              s.totalMoneyMeter > 0)) && (
+                            <MeterDiffBadge
+                              diff={r2(s.totalMoneyMeter - s.totalAmount)}
+                              priceChangedDuringShift={
+                                s.priceChangedDuringShift
+                              }
+                            />
                           )}
-                        />
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {s.cashDiffP != null ? (
-                        <DiffBadge diff={s.cashDiffP} />
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.transferAmount != null
-                        ? `฿${fmtMoney(s.transferAmount)}`
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {s.status === "open" ? (
-                        <Badge className="bg-green-600 hover:bg-green-600">
-                          เปิดอยู่
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary">ปิดแล้ว</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          title="ดูรายละเอียด"
-                          onClick={() => setDetailId(s.id)}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        {isAdmin && s.status === "closed" && s.closedAt && (
-                          <>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(s.posAmount)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s.openingFloat > 0
+                            ? `฿${fmtMoney(s.openingFloat)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s.countedCash != null
+                            ? `฿${fmtMoney(s.countedCash)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {s.countedCash != null && s.expectedCash != null ? (
+                            <DiffBadge
+                              diff={r2(
+                                s.countedCash +
+                                  (s.transferAmount ?? 0) -
+                                  s.expectedCash
+                              )}
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {s.cashDiffP != null ? (
+                            <DiffBadge diff={s.cashDiffP} />
+                          ) : (
+                            "-"
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s.transferAmount != null
+                            ? `฿${fmtMoney(s.transferAmount)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {s.status === "open" ? (
+                            <Badge className="bg-green-600 hover:bg-green-600">
+                              เปิดอยู่
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">ปิดแล้ว</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
                             <Button
                               size="icon"
                               variant="ghost"
                               className="h-8 w-8"
-                              title="แก้ไขประวัติ"
-                              onClick={() => {
-                                setNotice("");
-                                setErr("");
-                                setHistoryForm({
-                                  id: s.id,
-                                  staffId: s.staffId
-                                    ? String(s.staffId)
-                                    : "manual",
-                                  staffName: s.staffName,
-                                  openedAt: toDateTimeLocal(s.openedAt),
-                                  closedAt: toDateTimeLocal(s.closedAt!),
-                                  totalLiters: String(s.totalLiters),
-                                  totalAmount: String(s.totalAmount),
-                                  totalMoneyMeter: String(s.totalMoneyMeter),
-                                  posAmount: String(s.posAmount),
-                                  openingFloat: String(s.openingFloat),
-                                  countedCash:
-                                    s.countedCash == null
-                                      ? ""
-                                      : String(s.countedCash),
-                                  transferAmount:
-                                    s.transferAmount == null
-                                      ? ""
-                                      : String(s.transferAmount),
-                                  expectedCash:
-                                    s.expectedCash == null
-                                      ? ""
-                                      : String(s.expectedCash),
-                                  note: s.note ?? "",
-                                  readings: null,
-                                });
-                              }}
+                              title="ดูรายละเอียด"
+                              onClick={() => setDetailId(s.id)}
                             >
-                              <Pencil className="h-4 w-4" />
+                              <Eye className="w-4 h-4" />
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
-                              title="ลบประวัติ"
-                              disabled={deleteShiftHistory.isPending}
-                              onClick={async () => {
-                                if (
-                                  await confirmAction(
-                                    `ลบประวัติกะ #${s.id} ของ ${s.staffName}?\n\nรายการขาย รับชำระ และค่าใช้จ่ายจะยังอยู่ แต่จะไม่ผูกกับกะนี้`
-                                  )
-                                ) {
-                                  deleteShiftHistory.mutate({ id: s.id });
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(history ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={14}
-                      className="text-center text-muted-foreground py-8"
-                    >
-                      ยังไม่มีประวัติ
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                            {isAdmin && s.status === "closed" && s.closedAt && (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  title="แก้ไขประวัติ"
+                                  onClick={() => {
+                                    setNotice("");
+                                    setErr("");
+                                    setHistoryForm({
+                                      id: s.id,
+                                      staffId: s.staffId
+                                        ? String(s.staffId)
+                                        : "manual",
+                                      staffName: s.staffName,
+                                      openedAt: toDateTimeLocal(s.openedAt),
+                                      closedAt: toDateTimeLocal(s.closedAt!),
+                                      totalLiters: String(s.totalLiters),
+                                      totalAmount: String(s.totalAmount),
+                                      totalMoneyMeter: String(
+                                        s.totalMoneyMeter
+                                      ),
+                                      posAmount: String(s.posAmount),
+                                      openingFloat: String(s.openingFloat),
+                                      countedCash:
+                                        s.countedCash == null
+                                          ? ""
+                                          : String(s.countedCash),
+                                      transferAmount:
+                                        s.transferAmount == null
+                                          ? ""
+                                          : String(s.transferAmount),
+                                      expectedCash:
+                                        s.expectedCash == null
+                                          ? ""
+                                          : String(s.expectedCash),
+                                      note: s.note ?? "",
+                                      readings: null,
+                                    });
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  title="ลบประวัติ"
+                                  disabled={deleteShiftHistory.isPending}
+                                  onClick={async () => {
+                                    if (
+                                      await confirmAction(
+                                        `ลบประวัติกะ #${s.id} ของ ${s.staffName}?\n\nรายการขาย รับชำระ และค่าใช้จ่ายจะยังอยู่ แต่จะไม่ผูกกับกะนี้`
+                                      )
+                                    ) {
+                                      deleteShiftHistory.mutate({ id: s.id });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {(history ?? []).length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={14}
+                          className="text-center text-muted-foreground py-8"
+                        >
+                          ยังไม่มีประวัติ
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -2237,14 +2294,18 @@ export default function Shifts() {
                             </TableCell>
                             <TableCell className="text-right whitespace-nowrap text-xs">
                               {fmtNum(r.openMeter)} →{" "}
-                              {r.closeMeter != null ? fmtNum(r.closeMeter) : "-"}
+                              {r.closeMeter != null
+                                ? fmtNum(r.closeMeter)
+                                : "-"}
                             </TableCell>
                             <TableCell className="text-right">
                               {r.liters != null ? fmtNum(r.liters) : "-"}
                             </TableCell>
                             <TableCell className="text-right whitespace-nowrap text-xs">
                               {fmtNum(r.openMoney)} →{" "}
-                              {r.closeMoney != null ? fmtNum(r.closeMoney) : "-"}
+                              {r.closeMoney != null
+                                ? fmtNum(r.closeMoney)
+                                : "-"}
                             </TableCell>
                             <TableCell className="text-right">
                               {r.amount != null

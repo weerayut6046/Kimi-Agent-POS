@@ -82,7 +82,7 @@ describe("openShift / closeShift", () => {
     expect(reading.currentPrice).toBe(39.74);
     expect(reading.priceChangedDuringShift).toBe(true);
     expect(
-      reading.priceChangesDuringShift.some(change => change.newPrice === 39.74),
+      reading.priceChangesDuringShift.some(change => change.newPrice === 39.74)
     ).toBe(true);
 
     // คืนราคาเดิมเพื่อให้สถานะร่วมของชุดทดสอบถัดไปคงเดิม
@@ -132,11 +132,44 @@ describe("openShift / closeShift", () => {
     await expect(
       t.caller().pos.closeShift({
         shiftId: cur!.id,
-        readings: [
-          { nozzleId: nz[0]!.id, closeMeter: 0, closeMoney: 99999999 },
-        ],
+        readings: nz.map((nozzle, index) => ({
+          nozzleId: nozzle.id,
+          closeMeter: index === 0 ? 0 : nozzle.currentMeter,
+          closeMoney: index === 0 ? 99999999 : nozzle.currentMoney,
+        })),
       })
     ).rejects.toThrow("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
+  });
+
+  it("ปิดกะต้องส่งมิเตอร์ครบทุกหัวจ่ายและห้ามมีหัวจ่ายซ้ำ", async () => {
+    const cur = await t.caller().pos.currentShift();
+    const nz = await allNozzles();
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId: cur!.id,
+        readings: [
+          {
+            nozzleId: nz[0]!.id,
+            closeMeter: nz[0]!.currentMeter,
+            closeMoney: nz[0]!.currentMoney,
+          },
+        ],
+      })
+    ).rejects.toThrow("กรุณากรอกเลขมิเตอร์ปิดกะให้ครบทุกหัวจ่าย");
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId: cur!.id,
+        readings: nz.map((nozzle, index) => ({
+          nozzleId: index === 1 ? nz[0]!.id : nozzle.id,
+          closeMeter: nozzle.currentMeter,
+          closeMoney: nozzle.currentMoney,
+        })),
+      })
+    ).rejects.toThrow("มีเลขมิเตอร์หัวจ่ายซ้ำ");
+
+    expect((await t.caller().pos.currentShift())?.id).toBe(cur!.id);
   });
 
   it("ปิดกะสำเร็จ: คำนวณลิตร/ยอดเงิน/ยอด P, เทียบยอด POS และหักถัง", async () => {
@@ -148,12 +181,10 @@ describe("openShift / closeShift", () => {
     const water = await t.db.query.products.findFirst({
       where: eq(products.code, "WATER"),
     });
-    await t
-      .caller()
-      .pos.createSale({
-        shiftId: cur!.id,
-        items: [{ productId: water!.id, qty: 2 }],
-      });
+    await t.caller().pos.createSale({
+      shiftId: cur!.id,
+      items: [{ productId: water!.id, qty: 2 }],
+    });
 
     // หัวจ่าย 1 ขายไป 25 ลิตร (25 × 40.74 = 1,018.50) หัวจ่ายอื่นไม่ขาย
     const res = await t.caller().pos.closeShift({
@@ -309,19 +340,15 @@ describe("เงินทอนเริ่มกะและนับเงิ�
       where: eq(products.code, "WATER"),
     });
 
-    await t
-      .caller()
-      .pos.createSale({
-        shiftId: cur!.id,
-        items: [{ productId: water!.id, qty: 2 }],
-      }); // +20 เงินสด
-    await t
-      .caller()
-      .expenses.create({
-        title: "ค่าน้ำแข็ง",
-        amount: 30,
-        staffName: "กะเงินสด",
-      }); // −30
+    await t.caller().pos.createSale({
+      shiftId: cur!.id,
+      items: [{ productId: water!.id, qty: 2 }],
+    }); // +20 เงินสด
+    await t.caller().expenses.create({
+      title: "ค่าน้ำแข็ง",
+      amount: 30,
+      staffName: "กะเงินสด",
+    }); // −30
 
     const after = await t.caller().pos.currentShift();
     expect(after!.cash.cashSales).toBe(20);
