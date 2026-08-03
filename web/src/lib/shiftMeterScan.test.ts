@@ -13,6 +13,8 @@ const targets: MeterNozzleTarget[] = [
     pumpName: "ตู้จ่าย 1",
     openMeter: 0,
     openMoney: 0,
+    pricePerLiter: 40,
+    priceChangedDuringShift: false,
   },
   {
     nozzleId: 12,
@@ -20,6 +22,8 @@ const targets: MeterNozzleTarget[] = [
     pumpName: "ตู้จ่าย 1",
     openMeter: 0,
     openMoney: 0,
+    pricePerLiter: 40,
+    priceChangedDuringShift: false,
   },
   {
     nozzleId: 21,
@@ -27,6 +31,8 @@ const targets: MeterNozzleTarget[] = [
     pumpName: "Pump 2",
     openMeter: 0,
     openMoney: 0,
+    pricePerLiter: 40,
+    priceChangedDuringShift: false,
   },
 ];
 

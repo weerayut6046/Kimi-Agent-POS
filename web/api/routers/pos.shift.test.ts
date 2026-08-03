@@ -43,6 +43,24 @@ describe("openShift / closeShift", () => {
     expect(r1.pricePerLiter).toBe(40.74); // snapshot ราคาตอนเปิดกะ
   });
 
+  it("ป้องกันเลข P ผิดหนึ่งหลักไม่ให้ทำให้ยอดรวมคลาดหลายแสน", async () => {
+    const current = await t.caller().pos.currentShift();
+    const nozzleRows = await allNozzles();
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId: current!.id,
+        readings: nozzleRows.map((nozzle, index) => ({
+          nozzleId: nozzle.id,
+          closeMeter: nozzle.currentMeter + (index === 0 ? 667.39 : 0),
+          closeMoney: nozzle.currentMoney + (index === 0 ? 425_809.4 : 0),
+        })),
+      })
+    ).rejects.toThrow("ยอดมิเตอร์ P");
+
+    expect((await t.caller().pos.currentShift())?.id).toBe(current!.id);
+  });
+
   it("โหมดอ่านในเครื่องป้องกันการส่งภาพไป Gemini ที่ฝั่ง API", async () => {
     const cur = await t.caller().pos.currentShift();
     await t.caller("admin").catalog.updateSettings({

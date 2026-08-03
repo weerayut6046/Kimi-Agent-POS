@@ -59,8 +59,13 @@ import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
 import CashDenomCounter from "@/components/CashDenomCounter";
 import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
-import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
+import {
+  CASH_DENOMINATIONS,
+  sumCashCounts,
+  type CashCounts,
+} from "@contracts/cash";
 import { normalizeMeterOcrMode } from "@contracts/settings";
+import { assessMeterReading } from "@contracts/meterReconciliation";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -88,6 +93,8 @@ type HistoryForm = {
   posAmount: string;
   openingFloat: string;
   countedCash: string;
+  cashCounts: Record<string, string>;
+  cashCountsTouched: boolean;
   transferAmount: string;
   expectedCash: string;
   note: string;
@@ -112,6 +119,49 @@ const blankHistoryFilters: HistoryFilters = {
   to: "",
 };
 
+function historyCashCountsFromStored(value: unknown): Record<string, string> {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const record = parsed as Record<string, unknown>;
+  const result: Record<string, string> = {};
+  for (const denomination of CASH_DENOMINATIONS) {
+    const key = String(denomination);
+    if (!(key in record)) continue;
+    const count = Number(record[key]);
+    if (Number.isInteger(count) && count >= 0) {
+      result[key] = String(count);
+    }
+  }
+  return result;
+}
+
+function historyCashCountsPayload(values: Record<string, string>): {
+  counts: CashCounts | null;
+  valid: boolean;
+} {
+  const counts: CashCounts = {};
+  let hasEntry = false;
+  for (const denomination of CASH_DENOMINATIONS) {
+    const key = String(denomination);
+    const raw = values[key]?.trim();
+    if (!raw) continue;
+    hasEntry = true;
+    const count = Number(raw);
+    if (!Number.isInteger(count) || count < 0) {
+      return { counts: null, valid: false };
+    }
+    counts[key] = count;
+  }
+  return { counts: hasEntry ? counts : null, valid: true };
+}
+
 function toDateTimeLocal(value: Date | string | number) {
   const date = new Date(value);
   const pad = (number: number) => String(number).padStart(2, "0");
@@ -132,6 +182,8 @@ function newHistoryForm(readings: HistoryReadingForm[]): HistoryForm {
     posAmount: "0",
     openingFloat: "0",
     countedCash: "",
+    cashCounts: {},
+    cashCountsTouched: false,
     transferAmount: "",
     expectedCash: "",
     note: "",
@@ -813,6 +865,25 @@ export default function Shifts() {
 
   const submitHistoryForm = () => {
     if (!historyForm) return;
+    const cashCountResult = historyCashCountsPayload(historyForm.cashCounts);
+    if (!cashCountResult.valid) {
+      setErr("จำนวนแบงก์/เหรียญต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป");
+      return;
+    }
+    const countedCash =
+      cashCountResult.counts != null
+        ? sumCashCounts(cashCountResult.counts)
+        : historyForm.cashCountsTouched
+          ? null
+          : historyForm.countedCash === ""
+            ? null
+            : Number(historyForm.countedCash);
+    const cashCounts =
+      cashCountResult.counts != null
+        ? cashCountResult.counts
+        : historyForm.cashCountsTouched
+          ? null
+          : undefined;
     const previewTotals =
       historyForm.readings?.length && historyReadingPreview
         ? historyReadingPreview
@@ -831,8 +902,7 @@ export default function Shifts() {
         previewTotals?.totalMoneyMeter ?? Number(historyForm.totalMoneyMeter),
       posAmount: Number(historyForm.posAmount),
       openingFloat: Number(historyForm.openingFloat),
-      countedCash:
-        historyForm.countedCash === "" ? null : Number(historyForm.countedCash),
+      countedCash,
       transferAmount:
         historyForm.transferAmount === ""
           ? null
@@ -847,6 +917,7 @@ export default function Shifts() {
       updateShiftHistory.mutate({
         id: historyForm.id,
         ...values,
+        ...(cashCounts !== undefined ? { cashCounts } : {}),
         ...(historyForm.readings && historyForm.readings.length > 0
           ? {
               readings: historyForm.readings.map(reading => ({
@@ -860,6 +931,7 @@ export default function Shifts() {
     } else {
       createShiftHistory.mutate({
         ...values,
+        ...(cashCounts !== undefined ? { cashCounts } : {}),
         readings: historyForm.readings?.map(reading => ({
           nozzleId: reading.nozzleId,
           openMeter: Number(reading.openMeter),
@@ -886,6 +958,8 @@ export default function Shifts() {
         pumpName: reading.pump?.name ?? "ไม่ทราบตู้",
         openMeter: Number(reading.openMeter),
         openMoney: Number(reading.openMoney),
+        pricePerLiter: Number(reading.pricePerLiter),
+        priceChangedDuringShift: reading.priceChangedDuringShift,
       })) ?? [],
     [currentShift]
   );
@@ -905,24 +979,49 @@ export default function Shifts() {
     let liters = 0,
       amountL = 0,
       money = 0;
-    let filled = true;
+    let filled = true,
+      valid = true;
+    const implausibleNozzleIds: number[] = [];
     for (const r of currentShift.readings) {
-      const cl = Number(closeVals[r.nozzleId]?.l);
-      const cp = Number(closeVals[r.nozzleId]?.p);
-      if (!closeVals[r.nozzleId]?.l || !closeVals[r.nozzleId]?.p)
+      const closeMeterText = closeVals[r.nozzleId]?.l?.trim();
+      const closeMoneyText = closeVals[r.nozzleId]?.p?.trim();
+      if (!closeMeterText || !closeMoneyText) {
         filled = false;
-      if (cl && cl >= r.openMeter) {
-        liters += cl - r.openMeter;
-        amountL += (cl - r.openMeter) * r.pricePerLiter;
+        continue;
       }
-      if (cp && cp >= r.openMoney) money += cp - r.openMoney;
+      const closeMeter = Number(closeMeterText);
+      const closeMoney = Number(closeMoneyText);
+      if (
+        !Number.isFinite(closeMeter) ||
+        !Number.isFinite(closeMoney) ||
+        closeMeter < r.openMeter ||
+        closeMoney < r.openMoney
+      ) {
+        valid = false;
+        continue;
+      }
+      const assessment = assessMeterReading({
+        openMeter: r.openMeter,
+        closeMeter,
+        openMoney: r.openMoney,
+        closeMoney,
+        pricePerLiter: r.pricePerLiter,
+        priceChangedDuringShift: r.priceChangedDuringShift,
+      });
+      liters += assessment.liters;
+      amountL += assessment.amountFromLiters;
+      money += assessment.moneyFromMeter ?? 0;
+      if (assessment.implausible) {
+        implausibleNozzleIds.push(r.nozzleId);
+      }
     }
     return {
       liters: r3(liters),
       amountL: r2(amountL),
       money: r2(money),
       diff: r2(money - amountL),
-      filled,
+      filled: filled && valid,
+      implausibleNozzleIds,
     };
   }, [closeVals, currentShift]);
 
@@ -1144,18 +1243,32 @@ export default function Shifts() {
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {currentShift.readings.map(r => {
-                    const cl = Number(closeVals[r.nozzleId]?.l);
-                    const cp = Number(closeVals[r.nozzleId]?.p);
-                    const liters =
-                      cl && cl >= r.openMeter ? r3(cl - r.openMeter) : null;
-                    const money =
-                      cp && cp >= r.openMoney ? r2(cp - r.openMoney) : null;
-                    const amountL =
-                      liters != null ? r2(liters * r.pricePerLiter) : null;
-                    const diff =
-                      money != null && amountL != null
-                        ? r2(money - amountL)
+                    const closeMeterText =
+                      closeVals[r.nozzleId]?.l?.trim() ?? "";
+                    const closeMoneyText =
+                      closeVals[r.nozzleId]?.p?.trim() ?? "";
+                    const closeMeter = Number(closeMeterText);
+                    const closeMoney = Number(closeMoneyText);
+                    const assessment =
+                      closeMeterText &&
+                      closeMoneyText &&
+                      Number.isFinite(closeMeter) &&
+                      Number.isFinite(closeMoney) &&
+                      closeMeter >= r.openMeter &&
+                      closeMoney >= r.openMoney
+                        ? assessMeterReading({
+                            openMeter: r.openMeter,
+                            closeMeter,
+                            openMoney: r.openMoney,
+                            closeMoney,
+                            pricePerLiter: r.pricePerLiter,
+                            priceChangedDuringShift: r.priceChangedDuringShift,
+                          })
                         : null;
+                    const liters = assessment?.liters ?? null;
+                    const money = assessment?.moneyFromMeter ?? null;
+                    const amountL = assessment?.amountFromLiters ?? null;
+                    const diff = assessment?.difference ?? null;
                     const effectivePrice =
                       liters != null && liters > 0 && money != null
                         ? r2(money / liters)
@@ -1207,6 +1320,7 @@ export default function Shifts() {
                           <Input
                             type="number"
                             step="0.01"
+                            aria-invalid={assessment?.implausible || undefined}
                             placeholder="เลขเงินปลายทาง"
                             value={closeVals[r.nozzleId]?.p ?? ""}
                             onChange={e =>
@@ -1218,7 +1332,11 @@ export default function Shifts() {
                                 },
                               }))
                             }
-                            className="h-9"
+                            className={`h-9 ${
+                              assessment?.implausible
+                                ? "border-red-500 focus-visible:ring-red-500"
+                                : ""
+                            }`}
                           />
                         </div>
                         <div className="flex items-center gap-2">
@@ -1277,6 +1395,38 @@ export default function Shifts() {
                                 r.priceChangedDuringShift
                               }
                             />
+                          </div>
+                        )}
+                        {assessment?.implausible && (
+                          <div className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                            <div className="flex items-start gap-1.5">
+                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                ค่า P เพิ่ม ฿{fmtMoney(money ?? 0)} แต่ยอดจาก L
+                                × ราคาเป็น ฿{fmtMoney(amountL ?? 0)}
+                                จึงน่าจะมีตัวเลขคลาดเคลื่อน
+                              </span>
+                            </div>
+                            {assessment.suggestedCloseMoney != null && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 self-start border-red-300 bg-white text-red-800 hover:bg-red-100 hover:text-red-900"
+                                onClick={() =>
+                                  setCloseVals(current => ({
+                                    ...current,
+                                    [r.nozzleId]: {
+                                      ...current[r.nozzleId],
+                                      p: String(assessment.suggestedCloseMoney),
+                                    },
+                                  }))
+                                }
+                              >
+                                ใช้ค่า P ที่น่าจะถูก ฿
+                                {fmtNum(assessment.suggestedCloseMoney)}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1374,8 +1524,16 @@ export default function Shifts() {
                       <div className="text-xs text-muted-foreground">
                         ยอดจากมิเตอร์เงิน (P)
                       </div>
-                      <div className="font-heading text-xl font-semibold text-indigo-600">
-                        ฿{fmtMoney(closePreview.money)}
+                      <div
+                        className={`font-heading text-xl font-semibold ${
+                          closePreview.implausibleNozzleIds.length > 0
+                            ? "text-red-600"
+                            : "text-indigo-600"
+                        }`}
+                      >
+                        {closePreview.implausibleNozzleIds.length > 0
+                          ? `รอตรวจสอบ ${closePreview.implausibleNozzleIds.length} ตู้`
+                          : `฿${fmtMoney(closePreview.money)}`}
                       </div>
                     </div>
                     {(hasCounts || transferVal) && (
@@ -1391,20 +1549,45 @@ export default function Shifts() {
                         </div>
                       </div>
                     )}
-                    <div className="ml-auto">
-                      <MeterDiffBadge
-                        diff={closePreview.diff}
-                        priceChangedDuringShift={hasPriceChangeDuringShift}
-                      />
-                    </div>
+                    {closePreview.implausibleNozzleIds.length === 0 && (
+                      <div className="ml-auto">
+                        <MeterDiffBadge
+                          diff={closePreview.diff}
+                          priceChangedDuringShift={hasPriceChangeDuringShift}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {closePreview &&
+                  closePreview.implausibleNozzleIds.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div>
+                        <b>ยังปิดกะไม่ได้:</b> พบยอด P ผิดปกติ{" "}
+                        {closePreview.implausibleNozzleIds.length} ตู้
+                        กรุณาตรวจเลขที่กรอบสีแดงหรือใช้ค่าที่ระบบแนะนำก่อน
+                        ระบบจะไม่ยอมบันทึกยอดที่คลาดเคลื่อนรุนแรงนี้
+                      </div>
+                    </div>
+                  )}
 
                 <Button
                   variant="destructive"
                   className="w-full sm:w-auto h-11"
-                  disabled={closeShift.isPending || !closePreview?.filled}
+                  disabled={
+                    closeShift.isPending ||
+                    !closePreview?.filled ||
+                    closePreview.implausibleNozzleIds.length > 0
+                  }
                   onClick={() => {
+                    if (
+                      !closePreview?.filled ||
+                      closePreview.implausibleNozzleIds.length > 0
+                    ) {
+                      return;
+                    }
                     // ส่งเฉพาะช่องที่กรอกจริง (จำนวน > 0) — ถ้าไม่ได้นับเลยไม่ส่ง cashCounts (บันทึกเป็น null เหมือนเดิม)
                     const countsPayload = hasCounts
                       ? Object.fromEntries(
@@ -1682,6 +1865,10 @@ export default function Shifts() {
                                         s.countedCash == null
                                           ? ""
                                           : String(s.countedCash),
+                                      cashCounts: historyCashCountsFromStored(
+                                        s.cashCounts
+                                      ),
+                                      cashCountsTouched: false,
                                       transferAmount:
                                         s.transferAmount == null
                                           ? ""
@@ -2075,18 +2262,6 @@ export default function Shifts() {
                           }
                         />
                         <HistoryMetricInput
-                          field="countedCash"
-                          label="เงินสดนับได้"
-                          optional
-                          value={historyForm.countedCash}
-                          onChange={value =>
-                            setHistoryForm({
-                              ...historyForm,
-                              countedCash: value,
-                            })
-                          }
-                        />
-                        <HistoryMetricInput
                           field="transferAmount"
                           label="ยอดเงินโอน"
                           optional
@@ -2098,6 +2273,73 @@ export default function Shifts() {
                             })
                           }
                         />
+                      </div>
+                      <div className="border-t border-slate-100 p-4 sm:p-5">
+                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-9 items-center justify-center rounded-xl bg-green-100 text-green-700">
+                              <Banknote className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-900">
+                                นับเงินสดในลิ้นชัก
+                              </h4>
+                              <p className="text-[11px] text-slate-500">
+                                กรอกจำนวนแยกตามชนิดแบงก์และเหรียญ
+                                ระบบจะรวมยอดให้อัตโนมัติ
+                              </p>
+                            </div>
+                          </div>
+                          {(Object.keys(historyForm.cashCounts).length > 0 ||
+                            historyForm.countedCash !== "") && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-slate-600"
+                              onClick={() =>
+                                setHistoryForm({
+                                  ...historyForm,
+                                  countedCash: "",
+                                  cashCounts: {},
+                                  cashCountsTouched: true,
+                                })
+                              }
+                            >
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              ล้างการนับ
+                            </Button>
+                          )}
+                        </div>
+                        {Object.keys(historyForm.cashCounts).length === 0 &&
+                          !historyForm.cashCountsTouched &&
+                          historyForm.countedCash !== "" && (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              รายการเดิมบันทึกเฉพาะยอดรวม ฿
+                              {fmtMoney(Number(historyForm.countedCash))}
+                              โดยไม่มีรายละเอียดแบงก์/เหรียญ
+                              กรอกด้านล่างเพื่อเพิ่มรายละเอียด
+                              หรือปล่อยว่างเพื่อคงยอดเดิม
+                            </div>
+                          )}
+                        <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                          <CashDenomCounter
+                            value={historyForm.cashCounts}
+                            onChange={cashCounts => {
+                              const parsed =
+                                historyCashCountsPayload(cashCounts);
+                              setHistoryForm({
+                                ...historyForm,
+                                cashCounts,
+                                cashCountsTouched: true,
+                                countedCash:
+                                  parsed.valid && parsed.counts != null
+                                    ? String(sumCashCounts(parsed.counts))
+                                    : "",
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                     </section>
                   </>

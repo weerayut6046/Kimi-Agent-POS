@@ -31,6 +31,7 @@ import {
   METER_OCR_MAX_IMAGES_PER_REQUEST,
 } from "@contracts/meterOcr";
 import { normalizeMeterOcrMode } from "@contracts/settings";
+import { assessMeterReading } from "@contracts/meterReconciliation";
 import { env } from "../lib/env";
 import { MeterOcrError, readMeterImages } from "../lib/meterOcr";
 import {
@@ -124,6 +125,10 @@ const shiftHistoryFields = {
   posAmount: z.number().nonnegative(),
   openingFloat: z.number().nonnegative(),
   countedCash: z.number().nonnegative().nullable(),
+  cashCounts: z
+    .record(z.string(), z.number().int().nonnegative())
+    .nullable()
+    .optional(),
   transferAmount: z.number().nonnegative().nullable(),
   expectedCash: z.number().nonnegative().nullable(),
   note: z.string().trim().max(1000).nullable(),
@@ -544,6 +549,59 @@ export const posRouter = createRouter({
       const tankRows = await db.query.fuelTanks.findMany({
         where: eq(fuelTanks.branchId, branchId),
       });
+      const changedProducts = await db
+        .select({ productId: priceChanges.productId })
+        .from(priceChanges)
+        .where(
+          and(
+            eq(priceChanges.branchId, branchId),
+            gte(priceChanges.createdAt, shift.openedAt)
+          )
+        );
+      const changedProductIds = new Set(
+        changedProducts.map(change => change.productId)
+      );
+
+      // Do not allow a shifted/misread P digit to inflate the shift total.
+      // Normal per-sale rounding remains allowed, and a price change during
+      // the shift is exempt because liters x the opening price is approximate.
+      for (const reading of input.readings) {
+        const opening = readings.find(row => row.nozzleId === reading.nozzleId);
+        const nozzle = nozzleRows.find(row => row.id === reading.nozzleId);
+        if (!opening || !nozzle) throw new Error("ไม่พบหัวจ่ายหรือเลขตั้งต้น");
+        if (reading.closeMeter < opening.openMeter) {
+          throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
+        }
+        if (reading.closeMoney < opening.openMoney) {
+          throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
+        }
+        const assessment = assessMeterReading({
+          openMeter: opening.openMeter,
+          closeMeter: reading.closeMeter,
+          openMoney: opening.openMoney,
+          closeMoney: reading.closeMoney,
+          pricePerLiter: opening.pricePerLiter,
+          priceChangedDuringShift: changedProductIds.has(nozzle.productId),
+        });
+        if (!assessment.implausible) continue;
+        const suggestion =
+          assessment.suggestedCloseMoney == null
+            ? ""
+            : " ค่าที่น่าจะถูกคือ " +
+              assessment.suggestedCloseMoney.toLocaleString("th-TH", {
+                maximumFractionDigits: 3,
+              });
+        throw new Error(
+          "ยอดมิเตอร์ P ของ " +
+            nozzle.label +
+            " ผิดปกติ: P เพิ่ม " +
+            assessment.moneyFromMeter?.toLocaleString("th-TH") +
+            " บาท แต่ยอดจากลิตร × ราคาเป็น " +
+            assessment.amountFromLiters.toLocaleString("th-TH") +
+            " บาท กรุณาตรวจเลข P" +
+            suggestion
+        );
+      }
       // คำนวณเงินสดที่ควรมีก่อนเข้า transaction เพื่อลดเวลาถือ lock
       const cash = await shiftCashSummary(db, shift);
 
@@ -731,7 +789,20 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      const { readings: readingValues, ...values } = input;
+      const {
+        readings: readingValues,
+        cashCounts: cashCountValues,
+        ...values
+      } = input;
+      if (cashCountValues != null && !isValidCashCounts(cashCountValues)) {
+        throw new Error("มูลค่าแบงก์/เหรียญไม่ถูกต้อง");
+      }
+      const countedCash =
+        cashCountValues == null
+          ? values.countedCash
+          : sumCashCounts(cashCountValues);
+      const cashCountsJson =
+        cashCountValues == null ? null : JSON.stringify(cashCountValues);
       let totalLiters = r3(values.totalLiters);
       let totalAmount = r2(values.totalAmount);
       let totalMoneyMeter = r2(values.totalMoneyMeter);
@@ -804,8 +875,8 @@ export const posRouter = createRouter({
             totalMoneyMeter,
             posAmount: r2(values.posAmount),
             openingFloat: r2(values.openingFloat),
-            countedCash:
-              values.countedCash == null ? null : r2(values.countedCash),
+            countedCash: countedCash == null ? null : r2(countedCash),
+            cashCounts: cashCountsJson,
             transferAmount:
               values.transferAmount == null ? null : r2(values.transferAmount),
             expectedCash:
@@ -846,7 +917,27 @@ export const posRouter = createRouter({
       if (current.status === "open") {
         throw new Error("แก้ไขกะที่กำลังเปิดไม่ได้ กรุณาปิดกะก่อน");
       }
-      const { id, readings: readingValues, ...values } = input;
+      const {
+        id,
+        readings: readingValues,
+        cashCounts: cashCountValues,
+        ...values
+      } = input;
+      if (cashCountValues != null && !isValidCashCounts(cashCountValues)) {
+        throw new Error("มูลค่าแบงก์/เหรียญไม่ถูกต้อง");
+      }
+      const countedCash =
+        cashCountValues == null
+          ? values.countedCash
+          : sumCashCounts(cashCountValues);
+      const cashCountsJson =
+        cashCountValues === undefined
+          ? values.countedCash !== current.countedCash
+            ? null
+            : current.cashCounts
+          : cashCountValues === null
+            ? null
+            : JSON.stringify(cashCountValues);
       let totalLiters = r3(values.totalLiters);
       let totalAmount = r2(values.totalAmount);
       let totalMoneyMeter = r2(values.totalMoneyMeter);
@@ -925,16 +1016,12 @@ export const posRouter = createRouter({
             totalMoneyMeter,
             posAmount: r2(values.posAmount),
             openingFloat: r2(values.openingFloat),
-            countedCash:
-              values.countedCash == null ? null : r2(values.countedCash),
+            countedCash: countedCash == null ? null : r2(countedCash),
             transferAmount:
               values.transferAmount == null ? null : r2(values.transferAmount),
             expectedCash:
               values.expectedCash == null ? null : r2(values.expectedCash),
-            cashCounts:
-              values.countedCash !== current.countedCash
-                ? null
-                : current.cashCounts,
+            cashCounts: cashCountsJson,
             note: values.note || null,
           })
           .where(and(eq(shifts.id, id), eq(shifts.branchId, branchId)));
