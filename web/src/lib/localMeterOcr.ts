@@ -385,11 +385,19 @@ export function findMainDisplays(
   return best && Number.isFinite(best.score) ? [best.left, best.right] : null;
 }
 
-function otsuThreshold(imageData: ImageData) {
+function otsuThreshold(
+  imageData: ImageData,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+) {
   const histogram = new Uint32Array(256);
-  const pixels = imageData.width * imageData.height;
-  for (let index = 0; index < pixels; index += 1) {
-    histogram[imageData.data[index * 4]!] += 1;
+  const pixels = (x1 - x0) * (y1 - y0);
+  for (let y = y0; y < y1; y += 1) {
+    for (let x = x0; x < x1; x += 1) {
+      histogram[imageData.data[(y * imageData.width + x) * 4]!] += 1;
+    }
   }
 
   let totalIntensity = 0;
@@ -419,12 +427,11 @@ function otsuThreshold(imageData: ImageData) {
       threshold = value;
     }
   }
-  return clamp(threshold + 15, 80, 115);
+  return clamp(threshold + 4, 45, 105);
 }
 
 function roiMask(
   imageData: ImageData,
-  threshold: number,
   left: number,
   top: number,
   right: number,
@@ -440,11 +447,35 @@ function roiMask(
   );
   const width = x1 - x0;
   const height = y1 - y0;
+  const threshold = otsuThreshold(imageData, x0, y0, x1, y1);
+  const integralWidth = width + 1;
+  const integral = new Uint32Array(integralWidth * (height + 1));
+  for (let y = 0; y < height; y += 1) {
+    let rowSum = 0;
+    for (let x = 0; x < width; x += 1) {
+      const sourceOffset = ((y + y0) * imageData.width + x + x0) * 4;
+      rowSum += imageData.data[sourceOffset]!;
+      integral[(y + 1) * integralWidth + x + 1] =
+        integral[y * integralWidth + x + 1]! + rowSum;
+    }
+  }
+  const radius = Math.max(6, Math.round(height * 0.15));
   const mask = new Uint8Array(width * height);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const sourceOffset = ((y + y0) * imageData.width + x + x0) * 4;
-      if (imageData.data[sourceOffset]! < threshold) {
+      const localX0 = Math.max(0, x - radius);
+      const localY0 = Math.max(0, y - radius);
+      const localX1 = Math.min(width, x + radius + 1);
+      const localY1 = Math.min(height, y + radius + 1);
+      const localSum =
+        integral[localY1 * integralWidth + localX1]! -
+        integral[localY0 * integralWidth + localX1]! -
+        integral[localY1 * integralWidth + localX0]! +
+        integral[localY0 * integralWidth + localX0]!;
+      const localMean = localSum / ((localX1 - localX0) * (localY1 - localY0));
+      const red = imageData.data[sourceOffset]!;
+      if (red < localMean - 8 && red < threshold + 18) {
         mask[y * width + x] = 1;
       }
     }
@@ -518,11 +549,14 @@ function segmentDensity(
   return active / ((x1 - x0) * (y1 - y0));
 }
 
-function activeSegments(
+function readSegments(
   mask: Uint8Array,
   width: number,
   height: number
-): Segment[] {
+): {
+  active: Segment[];
+  density: Record<Segment, number>;
+} {
   const density: Record<Segment, number> = {
     a: segmentDensity(mask, width, height, 0.15, 0, 0.85, 0.2),
     g: segmentDensity(mask, width, height, 0.15, 0.4, 0.85, 0.6),
@@ -536,11 +570,22 @@ function activeSegments(
   const maximumVertical = Math.max(density.b, density.c, density.e, density.f);
   const horizontalThreshold = Math.max(0.18, maximumHorizontal * 0.55);
   const verticalThreshold = Math.max(0.18, maximumVertical * 0.45);
-  return (Object.keys(density) as Segment[]).filter(segment =>
-    ["a", "g", "d"].includes(segment)
-      ? density[segment] >= horizontalThreshold
-      : density[segment] >= verticalThreshold
-  );
+  return {
+    active: (Object.keys(density) as Segment[]).filter(segment =>
+      ["a", "g", "d"].includes(segment)
+        ? density[segment] >= horizontalThreshold
+        : density[segment] >= verticalThreshold
+    ),
+    density,
+  };
+}
+
+function activeSegments(
+  mask: Uint8Array,
+  width: number,
+  height: number
+): Segment[] {
+  return readSegments(mask, width, height).active;
 }
 
 function maskBounds(
@@ -651,6 +696,7 @@ function decodeDigits(
     x: number;
     character: string;
     confidence: number;
+    area: number;
   }> = [];
   for (const run of columnRuns(mask, input.width, input.height)) {
     const bounds = runBounds(
@@ -664,7 +710,7 @@ function decodeDigits(
       !bounds ||
       bounds.area < input.height * input.height * 0.008 ||
       bounds.height < input.height * 0.55 ||
-      bounds.width < input.height * 0.09
+      bounds.width < input.height * 0.045
     ) {
       continue;
     }
@@ -674,23 +720,69 @@ function decodeDigits(
         x: bounds.x + bounds.width / 2,
         character: "1",
         confidence: 0.94,
+        area: bounds.area,
       });
       continue;
     }
 
     const digitMask = maskBounds(mask, input.width, bounds);
-    const match = matchSevenSegmentDigit(
-      activeSegments(digitMask.mask, digitMask.width, digitMask.height)
+    const segments = readSegments(
+      digitMask.mask,
+      digitMask.width,
+      digitMask.height
     );
+    let match = matchSevenSegmentDigit(segments.active);
+    const activeKey = segments.active.slice().sort().join("");
+    if (
+      activeKey === "bce" &&
+      segments.density.e >= 0.32 &&
+      segments.density.f < 0.12
+    ) {
+      match = { digit: "2", distance: 0.45 };
+    } else if (
+      activeKey === "abcdefg" &&
+      segments.density.e <
+        Math.max(segments.density.f, segments.density.c) * 0.62
+    ) {
+      match = { digit: "9", distance: 0.45 };
+    } else if (
+      activeKey === "abcd" &&
+      segments.density.g < 0.18 &&
+      segments.density.d < 0.45
+    ) {
+      match = { digit: "7", distance: 0.45 };
+    }
     decoded.push({
       x: bounds.x + bounds.width / 2,
       character: match.digit,
       confidence: clamp(0.96 - match.distance * 0.18, 0.35, 0.96),
+      area: bounds.area,
     });
   }
 
+  decoded.sort((left, right) => left.x - right.x);
+  if (
+    includeDecimal &&
+    decoded.length >= 2 &&
+    decoded[0]!.x < input.height * 0.16 &&
+    decoded[1]!.x - decoded[0]!.x < input.height * 0.55
+  ) {
+    decoded.shift();
+  } else if (!includeDecimal && decoded.length > 2) {
+    const strongest = decoded
+      .slice()
+      .sort((left, right) => right.area - left.area)
+      .slice(0, 2);
+    decoded.splice(0, decoded.length, ...strongest);
+  }
+
   if (decimalX != null) {
-    decoded.push({ x: decimalX, character: ".", confidence: 0.96 });
+    decoded.push({
+      x: decimalX,
+      character: ".",
+      confidence: 0.96,
+      area: 0,
+    });
   }
   decoded.sort((left, right) => left.x - right.x);
   return {
@@ -735,16 +827,13 @@ function decodeMode(input: {
   };
 }
 
-function readScreen(
+export function readMeterScreenImageData(
   imageData: ImageData,
   side: MeterDisplaySide
 ): { screen: MeterImageScanScreen; mode: ModeRead } {
-  const threshold = otsuThreshold(imageData);
-  const main = cropRowsToLongestRun(
-    roiMask(imageData, threshold, 0.02, 0.42, 0.98, 0.98)
-  );
-  const prefix = roiMask(imageData, threshold, 0.5, 0.06, 1, 0.46);
-  const modeMask = roiMask(imageData, threshold, 0.03, 0.06, 0.3, 0.5);
+  const main = cropRowsToLongestRun(roiMask(imageData, 0.02, 0.42, 0.98, 0.98));
+  const prefix = roiMask(imageData, 0.5, 0.06, 1, 0.46);
+  const modeMask = roiMask(imageData, 0.03, 0.06, 0.3, 0.5);
   const mainRead = decodeDigits(main, true);
   const prefixRead = decodeDigits(prefix, false);
   const mode = decodeMode(modeMask);
@@ -757,11 +846,7 @@ function readScreen(
       mainDigits: mainRead.text,
       combinedText: combined?.combinedText ?? null,
       value: combined?.value ?? null,
-      confidence: Math.min(
-        mainRead.confidence,
-        prefixRead.confidence,
-        mode.confidence
-      ),
+      confidence: Math.min(mainRead.confidence, prefixRead.confidence),
       valid: combined != null,
     },
     mode,
@@ -870,11 +955,13 @@ function chooseMode(reads: ModeRead[]) {
   if (!valid.length) return { mode: "unknown" as const, confidence: 0 };
   const agreeing = valid.filter(read => read.mode === valid[0]!.mode);
   if (agreeing.length === valid.length) {
+    const combinedConfidence = agreeing.reduce(
+      (probability, read) => probability * (1 - read.confidence),
+      1
+    );
     return {
       mode: valid[0]!.mode,
-      confidence:
-        agreeing.reduce((sum, read) => sum + read.confidence, 0) /
-        agreeing.length,
+      confidence: clamp(1 - combinedConfidence, 0.25, 0.98),
     };
   }
   return valid.sort((left, right) => right.confidence - left.confidence)[0]!;
@@ -918,11 +1005,11 @@ export async function scanMeterImageLocally(
   }
 
   const pumpNumber = detectPumpNumber(analysisData, displays[0], displays[1]);
-  const left = readScreen(
+  const left = readMeterScreenImageData(
     extractScreenImageData(image, analysisWidth, analysisHeight, displays[0]),
     "left"
   );
-  const right = readScreen(
+  const right = readMeterScreenImageData(
     extractScreenImageData(image, analysisWidth, analysisHeight, displays[1]),
     "right"
   );

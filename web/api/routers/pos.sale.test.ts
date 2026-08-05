@@ -72,6 +72,48 @@ describe("createSale", () => {
     expect((await productByCode("GSH95")).stockQty).toBe(gsh95.stockQty);
   });
 
+  it("สินค้าหมดหรือจำนวนเกินสต๊อกขายไม่ได้และสต๊อกไม่ติดลบ", async () => {
+    await t.caller("admin").catalog.createProduct({
+      code: "SOLD-OUT-TEST",
+      name: "สินค้าหมดทดสอบ",
+      category: "other",
+      unit: "ชิ้น",
+      price: 25,
+      cost: 10,
+      stockQty: 0,
+      lowStockAt: 1,
+    });
+    await t.caller("admin").catalog.createProduct({
+      code: "LIMITED-STOCK-TEST",
+      name: "สินค้าสต๊อกจำกัด",
+      category: "lubricant",
+      unit: "ขวด",
+      price: 100,
+      cost: 60,
+      stockQty: 1,
+      lowStockAt: 1,
+    });
+    const soldOut = await productByCode("SOLD-OUT-TEST");
+    const limited = await productByCode("LIMITED-STOCK-TEST");
+
+    await expect(
+      t.caller().pos.createSale({
+        items: [{ productId: soldOut.id, qty: 1 }],
+      })
+    ).rejects.toThrow("หมดแล้ว ไม่สามารถขายได้");
+    await expect(
+      t.caller().pos.createSale({
+        items: [
+          { productId: limited.id, qty: 0.6 },
+          { productId: limited.id, qty: 0.6 },
+        ],
+      })
+    ).rejects.toThrow("สต๊อก");
+
+    expect((await productByCode("SOLD-OUT-TEST")).stockQty).toBe(0);
+    expect((await productByCode("LIMITED-STOCK-TEST")).stockQty).toBe(1);
+  });
+
   it("ส่วนลดมากกว่ายอดขาย → error", async () => {
     const water = await productByCode("WATER");
     await expect(

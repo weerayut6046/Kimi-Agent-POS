@@ -4,6 +4,7 @@ import {
   CalendarClock,
   Clock,
   ClipboardPenLine,
+  Droplet,
   Fuel,
   Gauge,
   Info,
@@ -728,6 +729,15 @@ export default function Shifts() {
     undefined,
     { trpc: { context: { skipBatch: true } } }
   );
+  // รองรับข้อมูลใน cache หรือ API รุ่นก่อนที่ยังไม่มีฟิลด์น้ำมันเครื่อง
+  const currentLubricants = useMemo(
+    () => currentShift?.lubricants ?? [],
+    [currentShift?.lubricants]
+  );
+  const currentLubricantItems =
+    currentShift?.lubricantSales?.lubricantItems ?? [];
+  const currentLubricantAmount =
+    currentShift?.lubricantSales?.lubricantAmount ?? 0;
   const { data: branchSettings } = trpc.catalog.getSettings.useQuery(
     undefined,
     { enabled: currentShift != null }
@@ -749,6 +759,7 @@ export default function Shifts() {
   const [floatVal, setFloatVal] = useState(""); // เงินทอนเริ่มกะ
   const [cashCounts, setCashCounts] = useState<Record<string, string>>({}); // การนับแบงก์/เหรียญตอนปิดกะ
   const [transferVal, setTransferVal] = useState(""); // ยอดเงินที่ลูกค้าโอน
+  const [lubricantQty, setLubricantQty] = useState<Record<number, string>>({});
   const [detailId, setDetailId] = useState<number | null>(null);
   const [historyFilters, setHistoryFilters] =
     useState<HistoryFilters>(blankHistoryFilters);
@@ -806,32 +817,50 @@ export default function Shifts() {
         }))
       : null);
 
-  const invalidate = () => {
-    utils.pos.currentShift.invalidate();
+  const invalidateRelated = () => {
     utils.pos.shiftHistory.invalidate();
     utils.pos.searchShiftHistory.invalidate();
     utils.pos.shiftDetail.invalidate();
     utils.pos.dashboard.invalidate();
     utils.catalog.listPumps.invalidate();
+    utils.catalog.listProducts.invalidate();
+    utils.catalog.lowStockAlerts.invalidate();
     utils.catalog.listTanks.invalidate();
+  };
+  const invalidate = () => {
+    utils.pos.currentShift.invalidate();
+    invalidateRelated();
   };
 
   const openShift = trpc.pos.openShift.useMutation({
-    onSuccess: () => {
-      invalidate();
+    onSuccess: result => {
+      if (result.shift) {
+        utils.pos.currentShift.setData(undefined, result.shift);
+      } else {
+        // Backend รุ่นก่อนคืนเฉพาะ shiftId — ให้ดึงข้อมูลกะใหม่แทน
+        utils.pos.currentShift.invalidate();
+      }
+      invalidateRelated();
       setErr("");
+      setNotice(`เปิดกะ #${result.shiftId} เรียบร้อยแล้ว`);
       setOpenVals({});
       setFloatVal("");
     },
-    onError: e => setErr(e.message),
+    onError: e => {
+      setNotice("");
+      setErr(e.message);
+    },
   });
   const closeShift = trpc.pos.closeShift.useMutation({
     onSuccess: () => {
-      invalidate();
+      utils.pos.currentShift.setData(undefined, null);
+      invalidateRelated();
       setCloseVals({});
       setCashCounts({});
       setTransferVal("");
+      setLubricantQty({});
       setErr("");
+      setNotice("ปิดกะเรียบร้อยแล้ว");
     },
     onError: e => setErr(e.message),
   });
@@ -1032,6 +1061,31 @@ export default function Shifts() {
       numeric[k] = Number(v) || 0;
     return sumCashCounts(numeric);
   }, [cashCounts]);
+  const lubricantPreview = useMemo(() => {
+    const items = currentLubricants.map(product => {
+      const raw = lubricantQty[product.id]?.trim() ?? "";
+      const qty = raw === "" ? 0 : Number(raw);
+      const valid = Number.isFinite(qty) && qty >= 0 && qty <= product.stockQty;
+      return {
+        product,
+        raw,
+        qty: valid ? r3(qty) : 0,
+        valid,
+        amount: valid ? r2(product.price * qty) : 0,
+      };
+    });
+    return {
+      items,
+      invalid: items.some(item => item.raw !== "" && !item.valid),
+      amount: r2(items.reduce((sum, item) => sum + item.amount, 0)),
+    };
+  }, [currentLubricants, lubricantQty]);
+  const lubricantShiftAmount = r2(
+    currentLubricantAmount + lubricantPreview.amount
+  );
+  const expectedCashPreview = r2(
+    (currentShift?.cash.expectedCash ?? 0) + lubricantPreview.amount
+  );
   const hasCounts = Object.values(cashCounts).some(v => Number(v) > 0);
   const hasPriceChangeDuringShift =
     currentShift?.readings.some(r => r.priceChangedDuringShift) ?? false;
@@ -1181,7 +1235,12 @@ export default function Shifts() {
                     })
                   }
                 >
-                  <PlayCircle className="w-5 h-5 mr-2" /> เปิดกะ
+                  {openShift.isPending ? (
+                    <LoaderCircle className="mr-2 h-5 w-5 animate-spin" />
+                  ) : (
+                    <PlayCircle className="mr-2 h-5 w-5" />
+                  )}
+                  {openShift.isPending ? "กำลังเปิดกะ..." : "เปิดกะ"}
                 </Button>
               </CardContent>
             </Card>
@@ -1434,6 +1493,109 @@ export default function Shifts() {
                   })}
                 </div>
 
+                <div className="overflow-hidden rounded-xl border border-cyan-200 bg-cyan-50/50">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-200 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Droplet className="h-4 w-4 text-cyan-700" />
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          น้ำมันเครื่อง / 2T ที่ขายเพิ่ม
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          กรอกเฉพาะจำนวนที่ยังไม่ได้บันทึกในหน้า POS
+                          ระบบจะคิดราคาปัจจุบันและหักสต๊อกเมื่อปิดกะ
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">
+                        ยอดเพิ่มรอบนี้
+                      </div>
+                      <div className="font-heading text-lg font-semibold text-cyan-800">
+                        ฿{fmtMoney(lubricantPreview.amount)}
+                      </div>
+                    </div>
+                  </div>
+                  {currentLubricants.length > 0 ? (
+                    <div className="grid gap-3 p-4 sm:grid-cols-2">
+                      {lubricantPreview.items.map(item => {
+                        const alreadySold = currentLubricantItems.find(
+                          sold => sold.productId === item.product.id
+                        );
+                        return (
+                          <div
+                            key={item.product.id}
+                            className="rounded-xl border border-cyan-100 bg-white p-3"
+                          >
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-medium">
+                                  {item.product.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  ฿{fmtMoney(item.product.price)}/
+                                  {item.product.unit} · คงเหลือ{" "}
+                                  {fmtNum(item.product.stockQty)}{" "}
+                                  {item.product.unit}
+                                </div>
+                                {alreadySold && (
+                                  <div className="text-xs text-emerald-700">
+                                    ลง POS แล้ว {fmtNum(alreadySold.qty)}{" "}
+                                    {alreadySold.unit}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right text-sm font-semibold text-cyan-800">
+                                ฿{fmtMoney(item.amount)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                aria-label={`จำนวนขายเพิ่ม ${item.product.name}`}
+                                type="number"
+                                min="0"
+                                max={item.product.stockQty}
+                                step="0.001"
+                                placeholder="0"
+                                value={lubricantQty[item.product.id] ?? ""}
+                                aria-invalid={!item.valid || undefined}
+                                onChange={event =>
+                                  setLubricantQty(current => ({
+                                    ...current,
+                                    [item.product.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-9"
+                              />
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {item.product.unit}
+                              </span>
+                            </div>
+                            {!item.valid && item.raw !== "" && (
+                              <div className="mt-1 text-xs text-red-600">
+                                จำนวนต้องไม่เกินสต๊อกคงเหลือ{" "}
+                                {fmtNum(item.product.stockQty)}{" "}
+                                {item.product.unit}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-5 text-sm text-muted-foreground">
+                      ยังไม่มีสินค้าหมวดน้ำมันเครื่อง/2T ที่เปิดใช้งาน
+                    </div>
+                  )}
+                  {currentLubricantAmount > 0 && (
+                    <div className="border-t border-cyan-200 px-4 py-2 text-xs text-cyan-800">
+                      ยอดน้ำมันเครื่องที่ลง POS แล้วในกะนี้ ฿
+                      {fmtMoney(currentLubricantAmount)} ·
+                      หลังรวมรายการเพิ่มเป็น ฿{fmtMoney(lubricantShiftAmount)}
+                    </div>
+                  )}
+                </div>
+
                 {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                   <div>
@@ -1444,9 +1606,15 @@ export default function Shifts() {
                       {fmtMoney(currentShift.cash.cashDebtPayments)}
                       {" − "}ค่าใช้จ่าย ฿
                       {fmtMoney(currentShift.cash.expensesTotal)}
+                      {lubricantPreview.amount > 0 && (
+                        <>
+                          {" + "}น้ำมันเครื่องเพิ่ม ฿
+                          {fmtMoney(lubricantPreview.amount)}
+                        </>
+                      )}
                     </div>
                     <div className="font-heading text-xl font-semibold text-amber-700">
-                      ควรมี ฿{fmtMoney(currentShift.cash.expectedCash)}
+                      ควรมี ฿{fmtMoney(expectedCashPreview)}
                     </div>
                   </div>
                   {hasCounts && (
@@ -1465,7 +1633,7 @@ export default function Shifts() {
                         diff={r2(
                           countedTotal +
                             (Number(transferVal) || 0) -
-                            currentShift.cash.expectedCash
+                            expectedCashPreview
                         )}
                       />
                     </div>
@@ -1536,6 +1704,29 @@ export default function Shifts() {
                           : `฿${fmtMoney(closePreview.money)}`}
                       </div>
                     </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        น้ำมันเครื่อง / 2T
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-cyan-700">
+                        ฿{fmtMoney(lubricantShiftAmount)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        รวมยอดกะ (P + น้ำมันเครื่อง)
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-violet-700">
+                        ฿
+                        {fmtMoney(
+                          r2(
+                            (closePreview.money > 0
+                              ? closePreview.money
+                              : closePreview.amountL) + lubricantShiftAmount
+                          )
+                        )}
+                      </div>
+                    </div>
                     {(hasCounts || transferVal) && (
                       <div>
                         <div className="text-xs text-muted-foreground">
@@ -1579,11 +1770,13 @@ export default function Shifts() {
                   disabled={
                     closeShift.isPending ||
                     !closePreview?.filled ||
+                    lubricantPreview.invalid ||
                     closePreview.implausibleNozzleIds.length > 0
                   }
                   onClick={() => {
                     if (
                       !closePreview?.filled ||
+                      lubricantPreview.invalid ||
                       closePreview.implausibleNozzleIds.length > 0
                     ) {
                       return;
@@ -1607,11 +1800,17 @@ export default function Shifts() {
                       ...(transferVal
                         ? { transferAmount: Number(transferVal) }
                         : {}),
+                      lubricantItems: lubricantPreview.items
+                        .filter(item => item.valid && item.qty > 0)
+                        .map(item => ({
+                          productId: item.product.id,
+                          qty: item.qty,
+                        })),
                     });
                   }}
                 >
                   <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ
-                  (หักถังอัตโนมัติ)
+                  (หักถังและสต๊อกอัตโนมัติ)
                 </Button>
               </CardContent>
             </Card>
@@ -1740,6 +1939,10 @@ export default function Shifts() {
                       <TableHead className="text-right">ยอดจากลิตร</TableHead>
                       <TableHead className="text-right">ลิตร</TableHead>
                       <TableHead>เทียบ</TableHead>
+                      <TableHead className="text-right">
+                        น้ำมันเครื่อง
+                      </TableHead>
+                      <TableHead className="text-right">รวมยอดกะ</TableHead>
                       <TableHead className="text-right">ยอด POS</TableHead>
                       <TableHead className="text-right">เงินทอน</TableHead>
                       <TableHead className="text-right">เงินสดนับได้</TableHead>
@@ -1776,6 +1979,21 @@ export default function Shifts() {
                                 s.priceChangedDuringShift
                               }
                             />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(s.lubricantAmount ?? 0) > 0
+                            ? `฿${fmtMoney(s.lubricantAmount ?? 0)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ฿
+                          {fmtMoney(
+                            r2(
+                              (s.totalMoneyMeter > 0
+                                ? s.totalMoneyMeter
+                                : s.totalAmount) + (s.lubricantAmount ?? 0)
+                            )
                           )}
                         </TableCell>
                         <TableCell className="text-right">
@@ -1911,7 +2129,7 @@ export default function Shifts() {
                     {(history ?? []).length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={14}
+                          colSpan={16}
                           className="text-center text-muted-foreground py-8"
                         >
                           ยังไม่มีประวัติ
@@ -2590,6 +2808,24 @@ export default function Shifts() {
                     <div>
                       ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
                     </div>
+                    <div>
+                      น้ำมันเครื่อง:{" "}
+                      <b>฿{fmtMoney(detail.lubricantAmount ?? 0)}</b>
+                    </div>
+                    <div>
+                      รวมยอดกะ:{" "}
+                      <b>
+                        ฿
+                        {fmtMoney(
+                          r2(
+                            (detail.totalMoneyMeter > 0
+                              ? detail.totalMoneyMeter
+                              : detail.totalAmount) +
+                              (detail.lubricantAmount ?? 0)
+                          )
+                        )}
+                      </b>
+                    </div>
                     {detail.status === "closed" && (
                       <MeterDiffBadge
                         diff={r2(detail.totalMoneyMeter - detail.totalAmount)}
@@ -2599,6 +2835,60 @@ export default function Shifts() {
                   </div>
                 </div>
               </section>
+
+              {(detail.lubricantItems?.length ?? 0) > 0 && (
+                <section className="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm shadow-cyan-100/60">
+                  <div className="flex items-center gap-3 border-b border-cyan-100 bg-cyan-50/70 px-4 py-3">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+                      <Droplet className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        น้ำมันเครื่อง / 2T ของกะ
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        รวมรายการจาก POS และรายการที่บันทึกเพิ่มตอนปิดกะ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>สินค้า</TableHead>
+                          <TableHead className="text-right">จำนวน</TableHead>
+                          <TableHead className="text-right">
+                            ราคาเฉลี่ย
+                          </TableHead>
+                          <TableHead className="text-right">ยอดเงิน</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(detail.lubricantItems ?? []).map(item => (
+                          <TableRow key={item.productId}>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell className="text-right">
+                              {fmtNum(item.qty)} {item.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              ฿
+                              {fmtMoney(
+                                item.qty > 0 ? item.amount / item.qty : 0
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              ฿{fmtMoney(item.amount)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <div className="mt-3 text-right font-heading text-lg font-semibold text-cyan-800">
+                      รวม ฿{fmtMoney(detail.lubricantAmount ?? 0)}
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* กระทบยอดเงินสด */}
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">

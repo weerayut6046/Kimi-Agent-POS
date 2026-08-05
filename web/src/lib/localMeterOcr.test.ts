@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findMainDisplays,
   matchSevenSegmentDigit,
+  readMeterScreenImageData,
   shouldUseGeminiFallback,
   type MeterImageScanResult,
 } from "./localMeterOcr";
@@ -83,6 +84,81 @@ function meterImageData(input: {
   return { width, height, data } as ImageData;
 }
 
+function sevenSegmentScreenData() {
+  const width = 400;
+  const height = 200;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const red = Math.round(122 - (x / width) * 48 + (y / height) * 5);
+      const offset = (y * width + x) * 4;
+      data[offset] = red;
+      data[offset + 1] = red + 18;
+      data[offset + 2] = red + 36;
+      data[offset + 3] = 255;
+    }
+  }
+  const paint = (x: number, y: number, boxWidth: number, boxHeight: number) => {
+    for (let row = y; row < y + boxHeight; row += 1) {
+      for (let column = x; column < x + boxWidth; column += 1) {
+        const offset = (row * width + column) * 4;
+        data[offset] = 18;
+        data[offset + 1] = 27;
+        data[offset + 2] = 38;
+      }
+    }
+  };
+  const drawCharacter = (
+    character: keyof typeof patterns | "L",
+    x: number,
+    y: number,
+    digitWidth: number,
+    digitHeight: number
+  ) => {
+    const thickness = Math.max(4, Math.round(digitWidth * 0.18));
+    const segments =
+      character === "L" ? (["d", "e", "f"] as const) : patterns[character];
+    const verticalHeight = Math.floor(digitHeight / 2) - thickness;
+    const rectangles = {
+      a: [x + thickness, y, digitWidth - thickness * 2, thickness],
+      b: [x + digitWidth - thickness, y + thickness, thickness, verticalHeight],
+      c: [
+        x + digitWidth - thickness,
+        y + Math.floor(digitHeight / 2),
+        thickness,
+        verticalHeight,
+      ],
+      d: [
+        x + thickness,
+        y + digitHeight - thickness,
+        digitWidth - thickness * 2,
+        thickness,
+      ],
+      e: [x, y + Math.floor(digitHeight / 2), thickness, verticalHeight],
+      f: [x, y + thickness, thickness, verticalHeight],
+      g: [
+        x + thickness,
+        y + Math.floor(digitHeight / 2) - Math.floor(thickness / 2),
+        digitWidth - thickness * 2,
+        thickness,
+      ],
+    } satisfies Record<string, [number, number, number, number]>;
+    for (const segment of segments) {
+      paint(...rectangles[segment]);
+    }
+  };
+
+  drawCharacter("L", 25, 20, 34, 62);
+  drawCharacter("4", 260, 20, 36, 62);
+  drawCharacter("2", 330, 20, 36, 62);
+  for (const [index, digit] of [..."024687"].entries()) {
+    drawCharacter(digit as keyof typeof patterns, 18 + index * 60, 101, 40, 82);
+  }
+  paint(246, 175, 7, 7);
+
+  return { width, height, data } as ImageData;
+}
+
 describe("local seven-segment OCR", () => {
   it("maps every standard seven-segment pattern to its digit", () => {
     for (const [digit, segments] of Object.entries(patterns)) {
@@ -138,5 +214,15 @@ describe("local seven-segment OCR", () => {
         })
       )
     ).toBeNull();
+  });
+
+  it("reads seven-segment values across an uneven mobile-photo background", () => {
+    const result = readMeterScreenImageData(sevenSegmentScreenData(), "left");
+
+    expect(result.mode.mode).toBe("L");
+    expect(result.screen.prefixDigits).toBe("42");
+    expect(result.screen.mainDigits).toBe("0246.87");
+    expect(result.screen.combinedText).toBe("420246.87");
+    expect(result.screen.valid).toBe(true);
   });
 });

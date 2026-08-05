@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   GripVertical,
   History,
+  ClipboardCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
@@ -344,14 +345,26 @@ export default function Stock() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-heading">สต๊อก & ถังน้ำมัน</h1>
-        {canManage && (
-          <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link to="/reports/fuel-stock">
-              <ChartNoAxesCombined className="mr-1 size-4" />
-              สรุปรายเดือน / รายปี
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button asChild className="min-w-0 flex-1 sm:flex-none">
+            <Link to="/stock/count">
+              <ClipboardCheck className="mr-1 size-4" />
+              นับสต๊อกผ่านมือถือ
             </Link>
           </Button>
-        )}
+          {canManage && (
+            <Button
+              asChild
+              variant="outline"
+              className="min-w-0 flex-1 sm:flex-none"
+            >
+              <Link to="/reports/fuel-stock">
+                <ChartNoAxesCombined className="mr-1 size-4" />
+                สรุปรายเดือน / รายปี
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
 

@@ -1,11 +1,11 @@
 import { z } from "zod";
-import os from "os";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { mergeSettingDefaults } from "@contracts/settings";
+import { getLanUrls, isPublicCloudRuntime } from "../lib/lan";
 import {
   products,
   pumps,
@@ -20,8 +20,9 @@ import {
 } from "@db/schema";
 
 const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
+const PRODUCT_DISPLAY_ORDER_KEY = "product_display_order";
 
-function parseTankDisplayOrder(value: string | null | undefined): number[] {
+function parseDisplayOrder(value: string | null | undefined): number[] {
   if (!value) return [];
   try {
     const parsed: unknown = JSON.parse(value);
@@ -42,14 +43,85 @@ function parseTankDisplayOrder(value: string | null | undefined): number[] {
 export const catalogRouter = createRouter({
   // ---------- สินค้า ----------
   listProducts: publicQuery.query(async ({ ctx }) => {
-    const rows = await getDb().query.products.findMany({
-      where: eq(products.branchId, ctx.staff.branchId),
-      orderBy: (p, { asc }) => [asc(p.category), asc(p.id)],
+    const db = getDb();
+    const [rows, savedOrder] = await Promise.all([
+      db.query.products.findMany({
+        where: eq(products.branchId, ctx.staff.branchId),
+        orderBy: (p, { asc }) => [asc(p.category), asc(p.id)],
+      }),
+      db.query.settings.findFirst({
+        where: and(
+          eq(settings.branchId, ctx.staff.branchId),
+          eq(settings.key, PRODUCT_DISPLAY_ORDER_KEY)
+        ),
+      }),
+    ]);
+    const displayIndex = new Map(
+      parseDisplayOrder(savedOrder?.value).map((productId, index) => [
+        productId,
+        index,
+      ])
+    );
+    const defaultIndex = new Map(
+      rows.map((product, index) => [product.id, index])
+    );
+    rows.sort((a, b) => {
+      const savedA = displayIndex.get(a.id);
+      const savedB = displayIndex.get(b.id);
+      if (savedA != null && savedB != null) return savedA - savedB;
+      if (savedA != null) return -1;
+      if (savedB != null) return 1;
+      return (defaultIndex.get(a.id) ?? 0) - (defaultIndex.get(b.id) ?? 0);
     });
     return ctx.staff.role === "cashier"
       ? rows.map(product => ({ ...product, cost: 0 }))
       : rows;
   }),
+
+  reorderProducts: adminQuery
+    .input(
+      z.object({
+        productIds: z.array(z.number().int().positive()).min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const productIds = [...new Set(input.productIds)];
+      if (productIds.length !== input.productIds.length) {
+        throw new Error("ลำดับสินค้ามีรายการซ้ำ กรุณาลองใหม่");
+      }
+
+      const db = getDb();
+      const currentProducts = await db.query.products.findMany({
+        where: eq(products.branchId, ctx.staff.branchId),
+        columns: { id: true },
+      });
+      const currentIds = new Set(currentProducts.map(product => product.id));
+      if (
+        productIds.length !== currentIds.size ||
+        productIds.some(productId => !currentIds.has(productId))
+      ) {
+        throw new Error("รายการสินค้ามีการเปลี่ยนแปลง กรุณารีเฟรชแล้วลองใหม่");
+      }
+
+      await db
+        .insert(settings)
+        .values({
+          branchId: ctx.staff.branchId,
+          key: PRODUCT_DISPLAY_ORDER_KEY,
+          value: JSON.stringify(productIds),
+        })
+        .onConflictDoUpdate({
+          target: [settings.branchId, settings.key],
+          set: { value: JSON.stringify(productIds) },
+        });
+      logAudit({
+        action: "reorder_products",
+        ...actorFromReq(ctx.req),
+        detail: `จัดลำดับสินค้า: ${productIds.join(" → ")}`,
+        refType: "product",
+      });
+      return { ok: true, productIds };
+    }),
 
   createProduct: adminQuery
     .input(
@@ -531,7 +603,7 @@ export const catalogRouter = createRouter({
         firstNozzleByTank.set(nozzle.tankId, nozzle.id);
       }
     }
-    const displayOrder = parseTankDisplayOrder(savedOrder?.value);
+    const displayOrder = parseDisplayOrder(savedOrder?.value);
     const displayIndex = new Map(
       displayOrder.map((tankId, index) => [tankId, index])
     );
@@ -957,7 +1029,7 @@ export const catalogRouter = createRouter({
   lanInfo: anonymousQuery.query(async () => {
     // LAN discovery is a local-development legacy feature. Never disclose
     // container interface addresses from the public cloud endpoint.
-    if (process.env.NODE_ENV === "production") {
+    if (isPublicCloudRuntime()) {
       return { enabled: false, port: 0, urls: [] as string[] };
     }
     const db = getDb();
@@ -972,20 +1044,7 @@ export const catalogRouter = createRouter({
       // ตาราง settings ยังไม่พร้อม — ถือว่าปิด
     }
     const port = parseInt(process.env.PORT || "3000");
-    const urls: string[] = [];
-    // ข้าม adapter เสมือน (WSL/Hyper-V/Docker/VM) — IP พวกนี้เครื่องอื่นใน LAN เข้าไม่ได้
-    const VIRTUAL_ADAPTER =
-      /vethernet|wsl|hyper-v|docker|vmware|virtualbox|loopback|pseudo/i;
-    for (const [name, infos] of Object.entries(os.networkInterfaces())) {
-      if (VIRTUAL_ADAPTER.test(name)) continue;
-      for (const info of infos ?? []) {
-        // family อาจเป็น "IPv4" (string) หรือ 4 (number) แล้วแต่ runtime — รองรับทั้งสองรูปแบบ
-        const fam = String(info.family);
-        if ((fam === "IPv4" || fam === "4") && !info.internal) {
-          urls.push(`http://${info.address}:${port}`);
-        }
-      }
-    }
+    const urls = getLanUrls(port);
     return { enabled, port, urls };
   }),
 

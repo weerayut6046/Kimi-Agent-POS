@@ -1,11 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
-import {
-  paymentSettings,
-  paymentSessions,
-  products,
-  sales,
-} from "@db/schema";
+import { paymentSettings, paymentSessions, products, sales } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 import { crc16Ccitt } from "../lib/promptpay";
 import {
@@ -16,10 +11,7 @@ import {
   verifySlipWithClient,
   type SlipReceiverPolicy,
 } from "./sessionService";
-import {
-  createMockSlip2GoClient,
-  Slip2GoError,
-} from "./slip2go-client";
+import { createMockSlip2GoClient, Slip2GoError } from "./slip2go-client";
 
 const PROMPTPAY_POLICY: SlipReceiverPolicy = {
   kind: "slip2go",
@@ -94,6 +86,67 @@ const slipOf = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("finalizeThungngernSession — idempotency", () => {
+  it("ไม่สร้าง session เมื่อสินค้าหมด และไม่ปิดบิลหากสต๊อกหมดภายหลัง", async () => {
+    const [product] = await t.db
+      .insert(products)
+      .values({
+        branchId: 1,
+        code: "TNG-STOCK-TEST",
+        name: "สินค้าถุงเงินทดสอบ",
+        category: "other",
+        unit: "ชิ้น",
+        price: 50,
+        cost: 20,
+        stockQty: 1,
+        lowStockAt: 1,
+      })
+      .returning();
+
+    await t.db
+      .update(products)
+      .set({ stockQty: 0 })
+      .where(eq(products.id, product!.id));
+    await expect(
+      computeSaleSnapshot(
+        t.db,
+        1,
+        {
+          staffName: "ทดสอบ",
+          items: [{ productId: product!.id, qty: 1 }],
+          discount: 0,
+          pointsToRedeem: 0,
+        },
+        {}
+      )
+    ).rejects.toThrow("หมดแล้ว ไม่สามารถขายได้");
+
+    await t.db
+      .update(products)
+      .set({ stockQty: 1 })
+      .where(eq(products.id, product!.id));
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบ",
+        items: [{ productId: product!.id, qty: 1 }],
+        discount: 0,
+        pointsToRedeem: 0,
+      },
+      {}
+    );
+    const session = await startThungngernSession(t.db, 1, snapshot);
+    await t.db
+      .update(products)
+      .set({ stockQty: 0 })
+      .where(eq(products.id, product!.id));
+
+    await expect(
+      finalizeThungngernSession(t.db, 1, session.id, "manual")
+    ).rejects.toThrow("หมดแล้ว ไม่สามารถขายได้");
+    expect((await storedSession(session.id))?.status).toBe("pending");
+  });
+
   it("ปิด session และสร้างบิล QR ถุงเงินครั้งเดียว แม้ถูกเรียกซ้ำ (สลิป/ปุ่มยืนยันเองพร้อมกัน)", async () => {
     const session = await makeSession();
     const before = await saleCount();
@@ -222,7 +275,14 @@ describe("verifySlipWithClient — สแกนสลิปยืนยันบ
     const { client: clientA } = createMockSlip2GoClient({
       verifySlip: slipOf({ transRef: "SLIP-TX-DUP", amount: 20 }),
     });
-    await verifySlipWithClient(t.db, 1, first.id, PROMPTPAY_POLICY, clientA, "QR-A");
+    await verifySlipWithClient(
+      t.db,
+      1,
+      first.id,
+      PROMPTPAY_POLICY,
+      clientA,
+      "QR-A"
+    );
 
     // บิลใหม่ยอดเดียวกัน — ลูกค้าเอาสลิปใบเดิมมาใช้ซ้ำ
     const second = await makeSession(2);
@@ -230,7 +290,14 @@ describe("verifySlipWithClient — สแกนสลิปยืนยันบ
       verifySlip: slipOf({ transRef: "SLIP-TX-DUP", amount: 20 }),
     });
     await expect(
-      verifySlipWithClient(t.db, 1, second.id, PROMPTPAY_POLICY, clientB, "QR-B")
+      verifySlipWithClient(
+        t.db,
+        1,
+        second.id,
+        PROMPTPAY_POLICY,
+        clientB,
+        "QR-B"
+      )
     ).rejects.toThrow("ถูกใช้ยืนยันบิลอื่น");
     expect((await storedSession(second.id))?.status).toBe("pending");
   });
@@ -282,11 +349,7 @@ describe("verifySlipWithClient — สแกนสลิปยืนยันบ
   it("สลิปซ้ำตามระบบ Slip2Go (checkDuplicate) → ข้อความเตือนสลิปซ้ำ", async () => {
     const session = await makeSession(2);
     const { client } = createMockSlip2GoClient({
-      verifySlip: new Slip2GoError(
-        "this slip is duplicated",
-        "400201",
-        400
-      ),
+      verifySlip: new Slip2GoError("this slip is duplicated", "400201", 400),
     });
     await expect(
       verifySlipWithClient(t.db, 1, session.id, PROMPTPAY_POLICY, client, "QR")
@@ -314,7 +377,14 @@ describe("verifySlipWithClient — โหมด merchant (QR ร้านค้�
         receiverProxyAccount: "2214117056022000909",
       }),
     });
-    await verifySlipWithClient(t.db, 1, session.id, MERCHANT_POLICY, client, "QR");
+    await verifySlipWithClient(
+      t.db,
+      1,
+      session.id,
+      MERCHANT_POLICY,
+      client,
+      "QR"
+    );
     expect(getLastVerifyInput()?.checkReceiver).toEqual([]);
   });
 
@@ -430,7 +500,8 @@ describe("payments router — startThungngern / sessionStatus / verifySlip guard
     await expect(
       caller.payments.verifySlip({
         sessionId: started.sessionId,
-        qrCode: "00020101021129370016A000000677010111011300668123456785802TH5303764540610.006304ABCD",
+        qrCode:
+          "00020101021129370016A000000677010111011300668123456785802TH5303764540610.006304ABCD",
       })
     ).rejects.toThrow("ยังตั้งค่าการตรวจสลิปไม่ครบ");
     // session ต้องยัง pending — ยกเลิกทิ้งได้ปกติ
@@ -483,9 +554,9 @@ describe("payments router — startThungngern / sessionStatus / verifySlip guard
       expect(started.payload).toContain("540520.00");
       expect(started.payload).toMatch(/6304[0-9A-F]{4}$/);
       const body = started.payload.slice(0, -4);
-      expect(
-        crc16Ccitt(body).toString(16).toUpperCase().padStart(4, "0")
-      ).toBe(started.payload.slice(-4));
+      expect(crc16Ccitt(body).toString(16).toUpperCase().padStart(4, "0")).toBe(
+        started.payload.slice(-4)
+      );
       await caller.payments.cancelSession({ sessionId: started.sessionId });
     } finally {
       await t.db

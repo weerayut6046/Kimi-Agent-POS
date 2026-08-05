@@ -255,6 +255,7 @@ export const authRouter = createRouter({
           receipt_next_no: "1",
           tax_invoice_next_no: "1",
           tank_display_order: "",
+          product_display_order: "",
         };
         await tx.insert(settings).values(
           Object.entries(settingMap).map(([key, value]) => ({

@@ -26,7 +26,7 @@ const tankOf = async (code: string) => {
 describe("openShift / closeShift", () => {
   it("เปิดกะบันทึกมิเตอร์ตั้งต้นและราคาต่อลิตรของแต่ละหัวจ่าย", async () => {
     const nz = await allNozzles();
-    const { shiftId } = await t.caller().pos.openShift({
+    const { shiftId, shift } = await t.caller().pos.openShift({
       staffName: "สมชาย",
       readings: nz.map(n => ({
         nozzleId: n.id,
@@ -37,7 +37,14 @@ describe("openShift / closeShift", () => {
 
     const cur = await t.caller().pos.currentShift();
     expect(cur!.id).toBe(shiftId);
+    expect(shift.id).toBe(shiftId);
+    expect(shift.staffName).toBe("สมชาย");
+    expect(shift.cash.expectedCash).toBe(0);
+    expect(shift.readings).toHaveLength(4);
     expect(cur!.readings).toHaveLength(4);
+    expect(cur!.lubricants.some(product => product.code === "LUBE-MC")).toBe(
+      true
+    );
     const r1 = cur!.readings.find(r => r.nozzleId === nz[0]!.id)!;
     expect(r1.openMeter).toBe(152340.5);
     expect(r1.pricePerLiter).toBe(40.74); // snapshot ราคาตอนเปิดกะ
@@ -213,6 +220,42 @@ describe("openShift / closeShift", () => {
     expect((await t.caller().pos.currentShift())?.id).toBe(cur!.id);
   });
 
+  it("รับเฉพาะน้ำมันเครื่องที่เปิดใช้งานและจำนวนไม่เกินสต๊อก", async () => {
+    const cur = await t.caller().pos.currentShift();
+    const nz = await allNozzles();
+    const readings = nz.map(nozzle => ({
+      nozzleId: nozzle.id,
+      closeMeter: nozzle.currentMeter,
+      closeMoney: nozzle.currentMoney,
+    }));
+    const water = await t.db.query.products.findFirst({
+      where: eq(products.code, "WATER"),
+    });
+    const lubricant = await t.db.query.products.findFirst({
+      where: eq(products.code, "LUBE-MC"),
+    });
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId: cur!.id,
+        readings,
+        lubricantItems: [{ productId: water!.id, qty: 1 }],
+      })
+    ).rejects.toThrow("ไม่พบสินค้าน้ำมันเครื่องที่เปิดใช้งาน");
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId: cur!.id,
+        readings,
+        lubricantItems: [
+          { productId: lubricant!.id, qty: lubricant!.stockQty + 1 },
+        ],
+      })
+    ).rejects.toThrow("สต๊อก");
+
+    expect((await t.caller().pos.currentShift())?.id).toBe(cur!.id);
+  });
+
   it("ปิดกะสำเร็จ: คำนวณลิตร/ยอดเงิน/ยอด P, เทียบยอด POS และหักถัง", async () => {
     const cur = await t.caller().pos.currentShift();
     const nz = await allNozzles();
@@ -222,6 +265,10 @@ describe("openShift / closeShift", () => {
     const water = await t.db.query.products.findFirst({
       where: eq(products.code, "WATER"),
     });
+    const lubricant = await t.db.query.products.findFirst({
+      where: eq(products.code, "LUBE-MC"),
+    });
+    const lubricantStockBefore = lubricant!.stockQty;
     await t.caller().pos.createSale({
       shiftId: cur!.id,
       items: [{ productId: water!.id, qty: 2 }],
@@ -237,23 +284,35 @@ describe("openShift / closeShift", () => {
       })),
       countedCash: 700,
       transferAmount: 318.5,
+      lubricantItems: [{ productId: lubricant!.id, qty: 2 }],
     });
 
     expect(res.totalLiters).toBe(25);
     expect(res.totalAmount).toBe(1018.5);
     expect(res.totalMoneyMeter).toBe(1018.5);
+    expect(res.lubricantAmount).toBe(290);
     expect(res.diff).toBe(0); // P เท่ากับ ลิตร × ราคา
 
     // กะปิดแล้ว + ยอด POS ในกะ + ยอดเงินสดนับได้/ยอดโอนที่บันทึกตอนปิดกะ
     const hist = await t.caller().pos.shiftHistory();
     const closed = hist.find(s => s.id === cur!.id)!;
     expect(closed.status).toBe("closed");
-    expect(closed.posAmount).toBe(20);
+    expect(closed.posAmount).toBe(310);
+    expect(closed.lubricantAmount).toBe(290);
+    expect(closed.expectedCash).toBe(310);
     expect(closed.countedCash).toBe(700);
     expect(closed.transferAmount).toBe(318.5);
     expect(closed.priceChangedDuringShift).toBe(true);
 
     const detail = await t.caller().pos.shiftDetail({ id: cur!.id });
+    expect(detail.lubricantAmount).toBe(290);
+    expect(detail.lubricantItems).toEqual([
+      expect.objectContaining({
+        productId: lubricant!.id,
+        qty: 2,
+        amount: 290,
+      }),
+    ]);
     expect(detail.priceChangedDuringShift).toBe(true);
     expect(
       detail.readings.find(reading => reading.product?.code === "GSH95")
@@ -265,6 +324,11 @@ describe("openShift / closeShift", () => {
     expect((await tankOf("GSH95"))!.currentLiters).toBe(
       tankBefore.currentLiters - 25
     );
+    expect(
+      (await t.db.query.products.findFirst({
+        where: eq(products.id, lubricant!.id),
+      }))!.stockQty
+    ).toBe(lubricantStockBefore - 2);
 
     // ไม่มีกะเปิดค้าง
     expect(await t.caller().pos.currentShift()).toBeNull();

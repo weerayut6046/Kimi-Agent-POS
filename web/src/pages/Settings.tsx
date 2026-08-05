@@ -1,4 +1,22 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   Settings as SettingsIcon,
   Store,
@@ -29,6 +47,7 @@ import {
   BellRing,
   Eye,
   EyeOff,
+  GripVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
@@ -116,6 +135,70 @@ const emptyProduct = {
   stockQty: 0,
   lowStockAt: 0,
 };
+
+const INTERNAL_SETTING_KEYS = new Set([
+  "product_display_order",
+  "tank_display_order",
+]);
+
+function SortableProductRow({
+  id,
+  label,
+  active,
+  enabled,
+  saving,
+  children,
+}: {
+  id: number;
+  label: string;
+  active: boolean;
+  enabled: boolean;
+  saving: boolean;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled: !enabled || saving });
+
+  return (
+    <TableRow
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 30 : undefined,
+        position: isDragging ? "relative" : undefined,
+      }}
+      className={`${!active ? "opacity-50" : ""} ${
+        isDragging ? "bg-background shadow-lg" : ""
+      }`}
+    >
+      {enabled && (
+        <TableCell className="w-12 px-2">
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            disabled={saving}
+            className="grid size-8 touch-none place-items-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground active:cursor-grabbing disabled:cursor-wait disabled:opacity-50 md:cursor-grab"
+            aria-label={`ลากเพื่อย้ายตำแหน่ง ${label}`}
+            title="กดค้างแล้วลากเพื่อสลับตำแหน่ง"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="size-4" />
+          </button>
+        </TableCell>
+      )}
+      {children}
+    </TableRow>
+  );
+}
 
 function fmtFileSize(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
@@ -432,6 +515,15 @@ export default function Settings() {
   } = trpc.catalog.getSettings.useQuery();
   const { data: shopLogo } = trpc.catalog.getShopLogo.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
+  const productSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
   const { data: publicStaffList } = trpc.auth.listStaff.useQuery();
   const { data: staffAccessList } = trpc.auth.listStaffAccess.useQuery(
     undefined,
@@ -799,6 +891,33 @@ export default function Settings() {
     },
     onError: () => setMsg(""),
   });
+  const reorderProducts = trpc.catalog.reorderProducts.useMutation();
+
+  const handleProductDragEnd = async ({ active, over }: DragEndEvent) => {
+    if (!isAdmin || !over || active.id === over.id || !products) return;
+    const oldIndex = products.findIndex(product => product.id === active.id);
+    const newIndex = products.findIndex(product => product.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const previous = products;
+    const next = arrayMove(products, oldIndex, newIndex);
+    utils.catalog.listProducts.setData(undefined, next);
+    setErr("");
+    try {
+      await reorderProducts.mutateAsync({
+        productIds: next.map(product => product.id),
+      });
+      await utils.catalog.listProducts.invalidate();
+      ok("บันทึกลำดับสินค้าแล้ว");
+    } catch (error) {
+      utils.catalog.listProducts.setData(undefined, previous);
+      fail(
+        error instanceof Error
+          ? error.message
+          : "บันทึกลำดับสินค้าไม่สำเร็จ กรุณาลองใหม่"
+      );
+    }
+  };
   const createStaff = trpc.auth.createStaff.useMutation({
     onSuccess: () => {
       utils.auth.listStaff.invalidate();
@@ -1015,7 +1134,9 @@ export default function Settings() {
   const saveAll = () => {
     const entries = Object.entries(form)
       .filter(
-        ([k, v]) => !COUNTER_KEYS.includes(k) || v !== (settingMap?.[k] ?? "")
+        ([k, v]) =>
+          !INTERNAL_SETTING_KEYS.has(k) &&
+          (!COUNTER_KEYS.includes(k) || v !== (settingMap?.[k] ?? ""))
       )
       .map(([key, value]) => ({ key, value }));
     if (logoData !== null) entries.push({ key: "shop_logo", value: logoData });
@@ -1558,9 +1679,18 @@ export default function Settings() {
           {/* สินค้าและราคา */}
           <Card>
             <CardHeader className="pb-2 flex-row items-center justify-between">
-              <CardTitle className="font-heading text-base flex items-center gap-2">
-                <Fuel className="w-4 h-4" /> สินค้า & ราคา
-              </CardTitle>
+              <div>
+                <CardTitle className="font-heading text-base flex items-center gap-2">
+                  <Fuel className="w-4 h-4" /> สินค้า & ราคา
+                </CardTitle>
+                {isAdmin && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {reorderProducts.isPending
+                      ? "กำลังบันทึกลำดับสินค้า..."
+                      : "กดค้างที่ปุ่มจับ แล้วลากเพื่อสลับตำแหน่งสินค้า"}
+                  </p>
+                )}
+              </div>
               {isAdmin && (
                 <Button
                   size="sm"
@@ -1578,104 +1708,126 @@ export default function Settings() {
               )}
             </CardHeader>
             <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>รหัส</TableHead>
-                    <TableHead>สินค้า</TableHead>
-                    <TableHead>หมวด</TableHead>
-                    <TableHead className="text-right">ทุน</TableHead>
-                    <TableHead className="text-right">ราคาขาย</TableHead>
-                    <TableHead className="text-right">สต๊อก</TableHead>
-                    <TableHead>สถานะ</TableHead>
-                    {isAdmin && <TableHead></TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(products ?? []).map(p => (
-                    <TableRow
-                      key={p.id}
-                      className={!p.active ? "opacity-50" : ""}
-                    >
-                      <TableCell className="font-mono text-xs">
-                        {p.code}
-                      </TableCell>
-                      <TableCell>
-                        {p.name}{" "}
-                        <span className="text-xs text-muted-foreground">
-                          ({p.unit})
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {categoryLabel[p.category]}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ฿{fmtMoney(p.cost)}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-primary">
-                        ฿{fmtMoney(p.price)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {p.category === "fuel" ? "-" : `${fmtNum(p.stockQty)}`}
-                      </TableCell>
-                      <TableCell>
-                        {p.active ? (
-                          <Badge variant="secondary">ขายอยู่</Badge>
-                        ) : (
-                          <Badge variant="destructive">ปิดขาย</Badge>
+              <DndContext
+                sensors={productSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleProductDragEnd}
+              >
+                <SortableContext
+                  items={(products ?? []).map(product => product.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {isAdmin && (
+                          <TableHead className="w-12">
+                            <span className="sr-only">ย้ายตำแหน่ง</span>
+                          </TableHead>
                         )}
-                      </TableCell>
-                      {isAdmin && (
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              title="ประวัติเปลี่ยนราคา"
-                              onClick={() => setHistP(p)}
-                            >
-                              <History className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              title="แก้ไข"
-                              onClick={() => {
-                                saveProduct.reset();
-                                createProduct.reset();
-                                setErr("");
-                                setInitialEditP(p);
-                                setEditP(p);
-                              }}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-destructive"
-                              disabled={deleteProduct.isPending}
-                              onClick={async () => {
-                                if (
-                                  await confirmAction(
-                                    `ยืนยันลบสินค้า "${p.name}"? (ประวัติขายเก่ายังคงอยู่)`
-                                  )
-                                ) {
-                                  deleteProduct.mutate({ id: p.id });
-                                }
-                              }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        <TableHead>รหัส</TableHead>
+                        <TableHead>สินค้า</TableHead>
+                        <TableHead>หมวด</TableHead>
+                        <TableHead className="text-right">ทุน</TableHead>
+                        <TableHead className="text-right">ราคาขาย</TableHead>
+                        <TableHead className="text-right">สต๊อก</TableHead>
+                        <TableHead>สถานะ</TableHead>
+                        {isAdmin && <TableHead></TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(products ?? []).map(p => (
+                        <SortableProductRow
+                          key={p.id}
+                          id={p.id}
+                          label={p.name}
+                          active={p.active}
+                          enabled={isAdmin}
+                          saving={reorderProducts.isPending}
+                        >
+                          <TableCell className="font-mono text-xs">
+                            {p.code}
+                          </TableCell>
+                          <TableCell>
+                            {p.name}{" "}
+                            <span className="text-xs text-muted-foreground">
+                              ({p.unit})
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {categoryLabel[p.category]}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            ฿{fmtMoney(p.cost)}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-primary">
+                            ฿{fmtMoney(p.price)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {p.category === "fuel"
+                              ? "-"
+                              : `${fmtNum(p.stockQty)}`}
+                          </TableCell>
+                          <TableCell>
+                            {p.active ? (
+                              <Badge variant="secondary">ขายอยู่</Badge>
+                            ) : (
+                              <Badge variant="destructive">ปิดขาย</Badge>
+                            )}
+                          </TableCell>
+                          {isAdmin && (
+                            <TableCell>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  title="ประวัติเปลี่ยนราคา"
+                                  onClick={() => setHistP(p)}
+                                >
+                                  <History className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  title="แก้ไข"
+                                  onClick={() => {
+                                    saveProduct.reset();
+                                    createProduct.reset();
+                                    setErr("");
+                                    setInitialEditP(p);
+                                    setEditP(p);
+                                  }}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-destructive"
+                                  disabled={deleteProduct.isPending}
+                                  onClick={async () => {
+                                    if (
+                                      await confirmAction(
+                                        `ยืนยันลบสินค้า "${p.name}"? (ประวัติขายเก่ายังคงอยู่)`
+                                      )
+                                    ) {
+                                      deleteProduct.mutate({ id: p.id });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
+                        </SortableProductRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </SortableContext>
+              </DndContext>
             </CardContent>
           </Card>
         </TabsContent>
