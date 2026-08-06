@@ -357,6 +357,108 @@ export const products = posSchema
   )
   .enableRLS();
 
+// ============ รอบนับสต๊อกสินค้าผ่านมือถือ ============
+export const stockCountSessions = posSchema
+  .table(
+    "stock_count_sessions",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      name: text("name").notNull(),
+      scope: text("scope", {
+        enum: ["all", "lubricant", "other"],
+      })
+        .notNull()
+        .default("all"),
+      status: text("status", {
+        enum: ["counting", "completed", "cancelled"],
+      })
+        .notNull()
+        .default("counting"),
+      startedById: integer("started_by_id").references(() => staffUsers.id, {
+        onDelete: "set null",
+      }),
+      startedByName: text("started_by_name").notNull().default(""),
+      completedById: integer("completed_by_id").references(
+        () => staffUsers.id,
+        { onDelete: "set null" }
+      ),
+      completedByName: text("completed_by_name"),
+      note: text("note"),
+      startedAt: timestamp("started_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      completedAt: timestamp("completed_at", { withTimezone: true }),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("stockcountsession_branch_idx").on(t.branchId),
+      statusIdx: index("stockcountsession_status_idx").on(t.status),
+      startedIdx: index("stockcountsession_started_idx").on(t.startedAt),
+      oneOpenPerBranch: uniqueIndex("stockcountsession_open_branch_unique")
+        .on(t.branchId)
+        .where(sql`${t.status} = 'counting'`),
+    })
+  )
+  .enableRLS();
+
+export const stockCountItems = posSchema
+  .table(
+    "stock_count_items",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      sessionId: integer("session_id")
+        .notNull()
+        .references(() => stockCountSessions.id, { onDelete: "cascade" }),
+      productId: integer("product_id").references(() => products.id, {
+        onDelete: "set null",
+      }),
+      productCode: text("product_code").notNull(),
+      productName: text("product_name").notNull(),
+      category: text("category", {
+        enum: ["lubricant", "other"],
+      }).notNull(),
+      unit: text("unit").notNull().default("ชิ้น"),
+      expectedQty: numeric("expected_qty", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      }).notNull(),
+      countedQty: numeric("counted_qty", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      }),
+      countedById: integer("counted_by_id").references(() => staffUsers.id, {
+        onDelete: "set null",
+      }),
+      countedByName: text("counted_by_name"),
+      countedAt: timestamp("counted_at", { withTimezone: true }),
+      note: text("note"),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("stockcountitem_branch_idx").on(t.branchId),
+      sessionIdx: index("stockcountitem_session_idx").on(t.sessionId),
+      productIdx: index("stockcountitem_product_idx").on(t.productId),
+      sessionProductUnique: uniqueIndex(
+        "stockcountitem_session_product_unique"
+      ).on(t.sessionId, t.productId),
+    })
+  )
+  .enableRLS();
+
 // ============ ตู้จ่าย & หัวจ่าย ============
 export const pumps = posSchema
   .table(
@@ -1286,6 +1388,8 @@ export type WorkSchedule = typeof workSchedules.$inferSelect;
 export type EmployeeProfile = typeof employeeProfiles.$inferSelect;
 export type PayrollRecord = typeof payrollRecords.$inferSelect;
 export type Product = typeof products.$inferSelect;
+export type StockCountSession = typeof stockCountSessions.$inferSelect;
+export type StockCountItem = typeof stockCountItems.$inferSelect;
 export type Pump = typeof pumps.$inferSelect;
 export type Nozzle = typeof nozzles.$inferSelect;
 export type Shift = typeof shifts.$inferSelect;

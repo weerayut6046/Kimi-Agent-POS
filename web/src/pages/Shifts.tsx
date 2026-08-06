@@ -4,6 +4,7 @@ import {
   CalendarClock,
   Clock,
   ClipboardPenLine,
+  Droplet,
   Fuel,
   Gauge,
   Info,
@@ -59,8 +60,13 @@ import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, cashDenomLabel } from "@/lib/format";
 import CashDenomCounter from "@/components/CashDenomCounter";
 import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
-import { CASH_DENOMINATIONS, sumCashCounts } from "@contracts/cash";
+import {
+  CASH_DENOMINATIONS,
+  sumCashCounts,
+  type CashCounts,
+} from "@contracts/cash";
 import { normalizeMeterOcrMode } from "@contracts/settings";
+import { assessMeterReading } from "@contracts/meterReconciliation";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -88,6 +94,8 @@ type HistoryForm = {
   posAmount: string;
   openingFloat: string;
   countedCash: string;
+  cashCounts: Record<string, string>;
+  cashCountsTouched: boolean;
   transferAmount: string;
   expectedCash: string;
   note: string;
@@ -112,6 +120,49 @@ const blankHistoryFilters: HistoryFilters = {
   to: "",
 };
 
+function historyCashCountsFromStored(value: unknown): Record<string, string> {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const record = parsed as Record<string, unknown>;
+  const result: Record<string, string> = {};
+  for (const denomination of CASH_DENOMINATIONS) {
+    const key = String(denomination);
+    if (!(key in record)) continue;
+    const count = Number(record[key]);
+    if (Number.isInteger(count) && count >= 0) {
+      result[key] = String(count);
+    }
+  }
+  return result;
+}
+
+function historyCashCountsPayload(values: Record<string, string>): {
+  counts: CashCounts | null;
+  valid: boolean;
+} {
+  const counts: CashCounts = {};
+  let hasEntry = false;
+  for (const denomination of CASH_DENOMINATIONS) {
+    const key = String(denomination);
+    const raw = values[key]?.trim();
+    if (!raw) continue;
+    hasEntry = true;
+    const count = Number(raw);
+    if (!Number.isInteger(count) || count < 0) {
+      return { counts: null, valid: false };
+    }
+    counts[key] = count;
+  }
+  return { counts: hasEntry ? counts : null, valid: true };
+}
+
 function toDateTimeLocal(value: Date | string | number) {
   const date = new Date(value);
   const pad = (number: number) => String(number).padStart(2, "0");
@@ -132,6 +183,8 @@ function newHistoryForm(readings: HistoryReadingForm[]): HistoryForm {
     posAmount: "0",
     openingFloat: "0",
     countedCash: "",
+    cashCounts: {},
+    cashCountsTouched: false,
     transferAmount: "",
     expectedCash: "",
     note: "",
@@ -676,6 +729,15 @@ export default function Shifts() {
     undefined,
     { trpc: { context: { skipBatch: true } } }
   );
+  // รองรับข้อมูลใน cache หรือ API รุ่นก่อนที่ยังไม่มีฟิลด์น้ำมันเครื่อง
+  const currentLubricants = useMemo(
+    () => currentShift?.lubricants ?? [],
+    [currentShift?.lubricants]
+  );
+  const currentLubricantItems =
+    currentShift?.lubricantSales?.lubricantItems ?? [];
+  const currentLubricantAmount =
+    currentShift?.lubricantSales?.lubricantAmount ?? 0;
   const { data: branchSettings } = trpc.catalog.getSettings.useQuery(
     undefined,
     { enabled: currentShift != null }
@@ -697,6 +759,7 @@ export default function Shifts() {
   const [floatVal, setFloatVal] = useState(""); // เงินทอนเริ่มกะ
   const [cashCounts, setCashCounts] = useState<Record<string, string>>({}); // การนับแบงก์/เหรียญตอนปิดกะ
   const [transferVal, setTransferVal] = useState(""); // ยอดเงินที่ลูกค้าโอน
+  const [lubricantQty, setLubricantQty] = useState<Record<number, string>>({});
   const [detailId, setDetailId] = useState<number | null>(null);
   const [historyFilters, setHistoryFilters] =
     useState<HistoryFilters>(blankHistoryFilters);
@@ -754,32 +817,50 @@ export default function Shifts() {
         }))
       : null);
 
-  const invalidate = () => {
-    utils.pos.currentShift.invalidate();
+  const invalidateRelated = () => {
     utils.pos.shiftHistory.invalidate();
     utils.pos.searchShiftHistory.invalidate();
     utils.pos.shiftDetail.invalidate();
     utils.pos.dashboard.invalidate();
     utils.catalog.listPumps.invalidate();
+    utils.catalog.listProducts.invalidate();
+    utils.catalog.lowStockAlerts.invalidate();
     utils.catalog.listTanks.invalidate();
+  };
+  const invalidate = () => {
+    utils.pos.currentShift.invalidate();
+    invalidateRelated();
   };
 
   const openShift = trpc.pos.openShift.useMutation({
-    onSuccess: () => {
-      invalidate();
+    onSuccess: result => {
+      if (result.shift) {
+        utils.pos.currentShift.setData(undefined, result.shift);
+      } else {
+        // Backend รุ่นก่อนคืนเฉพาะ shiftId — ให้ดึงข้อมูลกะใหม่แทน
+        utils.pos.currentShift.invalidate();
+      }
+      invalidateRelated();
       setErr("");
+      setNotice(`เปิดกะ #${result.shiftId} เรียบร้อยแล้ว`);
       setOpenVals({});
       setFloatVal("");
     },
-    onError: e => setErr(e.message),
+    onError: e => {
+      setNotice("");
+      setErr(e.message);
+    },
   });
   const closeShift = trpc.pos.closeShift.useMutation({
     onSuccess: () => {
-      invalidate();
+      utils.pos.currentShift.setData(undefined, null);
+      invalidateRelated();
       setCloseVals({});
       setCashCounts({});
       setTransferVal("");
+      setLubricantQty({});
       setErr("");
+      setNotice("ปิดกะเรียบร้อยแล้ว");
     },
     onError: e => setErr(e.message),
   });
@@ -813,6 +894,25 @@ export default function Shifts() {
 
   const submitHistoryForm = () => {
     if (!historyForm) return;
+    const cashCountResult = historyCashCountsPayload(historyForm.cashCounts);
+    if (!cashCountResult.valid) {
+      setErr("จำนวนแบงก์/เหรียญต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป");
+      return;
+    }
+    const countedCash =
+      cashCountResult.counts != null
+        ? sumCashCounts(cashCountResult.counts)
+        : historyForm.cashCountsTouched
+          ? null
+          : historyForm.countedCash === ""
+            ? null
+            : Number(historyForm.countedCash);
+    const cashCounts =
+      cashCountResult.counts != null
+        ? cashCountResult.counts
+        : historyForm.cashCountsTouched
+          ? null
+          : undefined;
     const previewTotals =
       historyForm.readings?.length && historyReadingPreview
         ? historyReadingPreview
@@ -831,8 +931,7 @@ export default function Shifts() {
         previewTotals?.totalMoneyMeter ?? Number(historyForm.totalMoneyMeter),
       posAmount: Number(historyForm.posAmount),
       openingFloat: Number(historyForm.openingFloat),
-      countedCash:
-        historyForm.countedCash === "" ? null : Number(historyForm.countedCash),
+      countedCash,
       transferAmount:
         historyForm.transferAmount === ""
           ? null
@@ -847,6 +946,7 @@ export default function Shifts() {
       updateShiftHistory.mutate({
         id: historyForm.id,
         ...values,
+        ...(cashCounts !== undefined ? { cashCounts } : {}),
         ...(historyForm.readings && historyForm.readings.length > 0
           ? {
               readings: historyForm.readings.map(reading => ({
@@ -860,6 +960,7 @@ export default function Shifts() {
     } else {
       createShiftHistory.mutate({
         ...values,
+        ...(cashCounts !== undefined ? { cashCounts } : {}),
         readings: historyForm.readings?.map(reading => ({
           nozzleId: reading.nozzleId,
           openMeter: Number(reading.openMeter),
@@ -886,6 +987,8 @@ export default function Shifts() {
         pumpName: reading.pump?.name ?? "ไม่ทราบตู้",
         openMeter: Number(reading.openMeter),
         openMoney: Number(reading.openMoney),
+        pricePerLiter: Number(reading.pricePerLiter),
+        priceChangedDuringShift: reading.priceChangedDuringShift,
       })) ?? [],
     [currentShift]
   );
@@ -905,24 +1008,49 @@ export default function Shifts() {
     let liters = 0,
       amountL = 0,
       money = 0;
-    let filled = true;
+    let filled = true,
+      valid = true;
+    const implausibleNozzleIds: number[] = [];
     for (const r of currentShift.readings) {
-      const cl = Number(closeVals[r.nozzleId]?.l);
-      const cp = Number(closeVals[r.nozzleId]?.p);
-      if (!closeVals[r.nozzleId]?.l || !closeVals[r.nozzleId]?.p)
+      const closeMeterText = closeVals[r.nozzleId]?.l?.trim();
+      const closeMoneyText = closeVals[r.nozzleId]?.p?.trim();
+      if (!closeMeterText || !closeMoneyText) {
         filled = false;
-      if (cl && cl >= r.openMeter) {
-        liters += cl - r.openMeter;
-        amountL += (cl - r.openMeter) * r.pricePerLiter;
+        continue;
       }
-      if (cp && cp >= r.openMoney) money += cp - r.openMoney;
+      const closeMeter = Number(closeMeterText);
+      const closeMoney = Number(closeMoneyText);
+      if (
+        !Number.isFinite(closeMeter) ||
+        !Number.isFinite(closeMoney) ||
+        closeMeter < r.openMeter ||
+        closeMoney < r.openMoney
+      ) {
+        valid = false;
+        continue;
+      }
+      const assessment = assessMeterReading({
+        openMeter: r.openMeter,
+        closeMeter,
+        openMoney: r.openMoney,
+        closeMoney,
+        pricePerLiter: r.pricePerLiter,
+        priceChangedDuringShift: r.priceChangedDuringShift,
+      });
+      liters += assessment.liters;
+      amountL += assessment.amountFromLiters;
+      money += assessment.moneyFromMeter ?? 0;
+      if (assessment.implausible) {
+        implausibleNozzleIds.push(r.nozzleId);
+      }
     }
     return {
       liters: r3(liters),
       amountL: r2(amountL),
       money: r2(money),
       diff: r2(money - amountL),
-      filled,
+      filled: filled && valid,
+      implausibleNozzleIds,
     };
   }, [closeVals, currentShift]);
 
@@ -933,6 +1061,31 @@ export default function Shifts() {
       numeric[k] = Number(v) || 0;
     return sumCashCounts(numeric);
   }, [cashCounts]);
+  const lubricantPreview = useMemo(() => {
+    const items = currentLubricants.map(product => {
+      const raw = lubricantQty[product.id]?.trim() ?? "";
+      const qty = raw === "" ? 0 : Number(raw);
+      const valid = Number.isFinite(qty) && qty >= 0 && qty <= product.stockQty;
+      return {
+        product,
+        raw,
+        qty: valid ? r3(qty) : 0,
+        valid,
+        amount: valid ? r2(product.price * qty) : 0,
+      };
+    });
+    return {
+      items,
+      invalid: items.some(item => item.raw !== "" && !item.valid),
+      amount: r2(items.reduce((sum, item) => sum + item.amount, 0)),
+    };
+  }, [currentLubricants, lubricantQty]);
+  const lubricantShiftAmount = r2(
+    currentLubricantAmount + lubricantPreview.amount
+  );
+  const expectedCashPreview = r2(
+    (currentShift?.cash.expectedCash ?? 0) + lubricantPreview.amount
+  );
   const hasCounts = Object.values(cashCounts).some(v => Number(v) > 0);
   const hasPriceChangeDuringShift =
     currentShift?.readings.some(r => r.priceChangedDuringShift) ?? false;
@@ -1082,7 +1235,12 @@ export default function Shifts() {
                     })
                   }
                 >
-                  <PlayCircle className="w-5 h-5 mr-2" /> เปิดกะ
+                  {openShift.isPending ? (
+                    <LoaderCircle className="mr-2 h-5 w-5 animate-spin" />
+                  ) : (
+                    <PlayCircle className="mr-2 h-5 w-5" />
+                  )}
+                  {openShift.isPending ? "กำลังเปิดกะ..." : "เปิดกะ"}
                 </Button>
               </CardContent>
             </Card>
@@ -1144,18 +1302,32 @@ export default function Shifts() {
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {currentShift.readings.map(r => {
-                    const cl = Number(closeVals[r.nozzleId]?.l);
-                    const cp = Number(closeVals[r.nozzleId]?.p);
-                    const liters =
-                      cl && cl >= r.openMeter ? r3(cl - r.openMeter) : null;
-                    const money =
-                      cp && cp >= r.openMoney ? r2(cp - r.openMoney) : null;
-                    const amountL =
-                      liters != null ? r2(liters * r.pricePerLiter) : null;
-                    const diff =
-                      money != null && amountL != null
-                        ? r2(money - amountL)
+                    const closeMeterText =
+                      closeVals[r.nozzleId]?.l?.trim() ?? "";
+                    const closeMoneyText =
+                      closeVals[r.nozzleId]?.p?.trim() ?? "";
+                    const closeMeter = Number(closeMeterText);
+                    const closeMoney = Number(closeMoneyText);
+                    const assessment =
+                      closeMeterText &&
+                      closeMoneyText &&
+                      Number.isFinite(closeMeter) &&
+                      Number.isFinite(closeMoney) &&
+                      closeMeter >= r.openMeter &&
+                      closeMoney >= r.openMoney
+                        ? assessMeterReading({
+                            openMeter: r.openMeter,
+                            closeMeter,
+                            openMoney: r.openMoney,
+                            closeMoney,
+                            pricePerLiter: r.pricePerLiter,
+                            priceChangedDuringShift: r.priceChangedDuringShift,
+                          })
                         : null;
+                    const liters = assessment?.liters ?? null;
+                    const money = assessment?.moneyFromMeter ?? null;
+                    const amountL = assessment?.amountFromLiters ?? null;
+                    const diff = assessment?.difference ?? null;
                     const effectivePrice =
                       liters != null && liters > 0 && money != null
                         ? r2(money / liters)
@@ -1207,6 +1379,7 @@ export default function Shifts() {
                           <Input
                             type="number"
                             step="0.01"
+                            aria-invalid={assessment?.implausible || undefined}
                             placeholder="เลขเงินปลายทาง"
                             value={closeVals[r.nozzleId]?.p ?? ""}
                             onChange={e =>
@@ -1218,7 +1391,11 @@ export default function Shifts() {
                                 },
                               }))
                             }
-                            className="h-9"
+                            className={`h-9 ${
+                              assessment?.implausible
+                                ? "border-red-500 focus-visible:ring-red-500"
+                                : ""
+                            }`}
                           />
                         </div>
                         <div className="flex items-center gap-2">
@@ -1279,9 +1456,144 @@ export default function Shifts() {
                             />
                           </div>
                         )}
+                        {assessment?.implausible && (
+                          <div className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                            <div className="flex items-start gap-1.5">
+                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                              <span>
+                                ค่า P เพิ่ม ฿{fmtMoney(money ?? 0)} แต่ยอดจาก L
+                                × ราคาเป็น ฿{fmtMoney(amountL ?? 0)}
+                                จึงน่าจะมีตัวเลขคลาดเคลื่อน
+                              </span>
+                            </div>
+                            {assessment.suggestedCloseMoney != null && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 self-start border-red-300 bg-white text-red-800 hover:bg-red-100 hover:text-red-900"
+                                onClick={() =>
+                                  setCloseVals(current => ({
+                                    ...current,
+                                    [r.nozzleId]: {
+                                      ...current[r.nozzleId],
+                                      p: String(assessment.suggestedCloseMoney),
+                                    },
+                                  }))
+                                }
+                              >
+                                ใช้ค่า P ที่น่าจะถูก ฿
+                                {fmtNum(assessment.suggestedCloseMoney)}
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-cyan-200 bg-cyan-50/50">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-200 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <Droplet className="h-4 w-4 text-cyan-700" />
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          น้ำมันเครื่อง / 2T ที่ขายเพิ่ม
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          กรอกเฉพาะจำนวนที่ยังไม่ได้บันทึกในหน้า POS
+                          ระบบจะคิดราคาปัจจุบันและหักสต๊อกเมื่อปิดกะ
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-500">
+                        ยอดเพิ่มรอบนี้
+                      </div>
+                      <div className="font-heading text-lg font-semibold text-cyan-800">
+                        ฿{fmtMoney(lubricantPreview.amount)}
+                      </div>
+                    </div>
+                  </div>
+                  {currentLubricants.length > 0 ? (
+                    <div className="grid gap-3 p-4 sm:grid-cols-2">
+                      {lubricantPreview.items.map(item => {
+                        const alreadySold = currentLubricantItems.find(
+                          sold => sold.productId === item.product.id
+                        );
+                        return (
+                          <div
+                            key={item.product.id}
+                            className="rounded-xl border border-cyan-100 bg-white p-3"
+                          >
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-medium">
+                                  {item.product.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  ฿{fmtMoney(item.product.price)}/
+                                  {item.product.unit} · คงเหลือ{" "}
+                                  {fmtNum(item.product.stockQty)}{" "}
+                                  {item.product.unit}
+                                </div>
+                                {alreadySold && (
+                                  <div className="text-xs text-emerald-700">
+                                    ลง POS แล้ว {fmtNum(alreadySold.qty)}{" "}
+                                    {alreadySold.unit}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right text-sm font-semibold text-cyan-800">
+                                ฿{fmtMoney(item.amount)}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                aria-label={`จำนวนขายเพิ่ม ${item.product.name}`}
+                                type="number"
+                                min="0"
+                                max={item.product.stockQty}
+                                step="0.001"
+                                placeholder="0"
+                                value={lubricantQty[item.product.id] ?? ""}
+                                aria-invalid={!item.valid || undefined}
+                                onChange={event =>
+                                  setLubricantQty(current => ({
+                                    ...current,
+                                    [item.product.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-9"
+                              />
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {item.product.unit}
+                              </span>
+                            </div>
+                            {!item.valid && item.raw !== "" && (
+                              <div className="mt-1 text-xs text-red-600">
+                                จำนวนต้องไม่เกินสต๊อกคงเหลือ{" "}
+                                {fmtNum(item.product.stockQty)}{" "}
+                                {item.product.unit}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-5 text-sm text-muted-foreground">
+                      ยังไม่มีสินค้าหมวดน้ำมันเครื่อง/2T ที่เปิดใช้งาน
+                    </div>
+                  )}
+                  {currentLubricantAmount > 0 && (
+                    <div className="border-t border-cyan-200 px-4 py-2 text-xs text-cyan-800">
+                      ยอดน้ำมันเครื่องที่ลง POS แล้วในกะนี้ ฿
+                      {fmtMoney(currentLubricantAmount)} ·
+                      หลังรวมรายการเพิ่มเป็น ฿{fmtMoney(lubricantShiftAmount)}
+                    </div>
+                  )}
                 </div>
 
                 {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
@@ -1294,9 +1606,15 @@ export default function Shifts() {
                       {fmtMoney(currentShift.cash.cashDebtPayments)}
                       {" − "}ค่าใช้จ่าย ฿
                       {fmtMoney(currentShift.cash.expensesTotal)}
+                      {lubricantPreview.amount > 0 && (
+                        <>
+                          {" + "}น้ำมันเครื่องเพิ่ม ฿
+                          {fmtMoney(lubricantPreview.amount)}
+                        </>
+                      )}
                     </div>
                     <div className="font-heading text-xl font-semibold text-amber-700">
-                      ควรมี ฿{fmtMoney(currentShift.cash.expectedCash)}
+                      ควรมี ฿{fmtMoney(expectedCashPreview)}
                     </div>
                   </div>
                   {hasCounts && (
@@ -1315,7 +1633,7 @@ export default function Shifts() {
                         diff={r2(
                           countedTotal +
                             (Number(transferVal) || 0) -
-                            currentShift.cash.expectedCash
+                            expectedCashPreview
                         )}
                       />
                     </div>
@@ -1374,8 +1692,39 @@ export default function Shifts() {
                       <div className="text-xs text-muted-foreground">
                         ยอดจากมิเตอร์เงิน (P)
                       </div>
-                      <div className="font-heading text-xl font-semibold text-indigo-600">
-                        ฿{fmtMoney(closePreview.money)}
+                      <div
+                        className={`font-heading text-xl font-semibold ${
+                          closePreview.implausibleNozzleIds.length > 0
+                            ? "text-red-600"
+                            : "text-indigo-600"
+                        }`}
+                      >
+                        {closePreview.implausibleNozzleIds.length > 0
+                          ? `รอตรวจสอบ ${closePreview.implausibleNozzleIds.length} ตู้`
+                          : `฿${fmtMoney(closePreview.money)}`}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        น้ำมันเครื่อง / 2T
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-cyan-700">
+                        ฿{fmtMoney(lubricantShiftAmount)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">
+                        รวมยอดกะ (P + น้ำมันเครื่อง)
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-violet-700">
+                        ฿
+                        {fmtMoney(
+                          r2(
+                            (closePreview.money > 0
+                              ? closePreview.money
+                              : closePreview.amountL) + lubricantShiftAmount
+                          )
+                        )}
                       </div>
                     </div>
                     {(hasCounts || transferVal) && (
@@ -1391,20 +1740,47 @@ export default function Shifts() {
                         </div>
                       </div>
                     )}
-                    <div className="ml-auto">
-                      <MeterDiffBadge
-                        diff={closePreview.diff}
-                        priceChangedDuringShift={hasPriceChangeDuringShift}
-                      />
-                    </div>
+                    {closePreview.implausibleNozzleIds.length === 0 && (
+                      <div className="ml-auto">
+                        <MeterDiffBadge
+                          diff={closePreview.diff}
+                          priceChangedDuringShift={hasPriceChangeDuringShift}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {closePreview &&
+                  closePreview.implausibleNozzleIds.length > 0 && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div>
+                        <b>ยังปิดกะไม่ได้:</b> พบยอด P ผิดปกติ{" "}
+                        {closePreview.implausibleNozzleIds.length} ตู้
+                        กรุณาตรวจเลขที่กรอบสีแดงหรือใช้ค่าที่ระบบแนะนำก่อน
+                        ระบบจะไม่ยอมบันทึกยอดที่คลาดเคลื่อนรุนแรงนี้
+                      </div>
+                    </div>
+                  )}
 
                 <Button
                   variant="destructive"
                   className="w-full sm:w-auto h-11"
-                  disabled={closeShift.isPending || !closePreview?.filled}
+                  disabled={
+                    closeShift.isPending ||
+                    !closePreview?.filled ||
+                    lubricantPreview.invalid ||
+                    closePreview.implausibleNozzleIds.length > 0
+                  }
                   onClick={() => {
+                    if (
+                      !closePreview?.filled ||
+                      lubricantPreview.invalid ||
+                      closePreview.implausibleNozzleIds.length > 0
+                    ) {
+                      return;
+                    }
                     // ส่งเฉพาะช่องที่กรอกจริง (จำนวน > 0) — ถ้าไม่ได้นับเลยไม่ส่ง cashCounts (บันทึกเป็น null เหมือนเดิม)
                     const countsPayload = hasCounts
                       ? Object.fromEntries(
@@ -1424,11 +1800,17 @@ export default function Shifts() {
                       ...(transferVal
                         ? { transferAmount: Number(transferVal) }
                         : {}),
+                      lubricantItems: lubricantPreview.items
+                        .filter(item => item.valid && item.qty > 0)
+                        .map(item => ({
+                          productId: item.product.id,
+                          qty: item.qty,
+                        })),
                     });
                   }}
                 >
                   <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ
-                  (หักถังอัตโนมัติ)
+                  (หักถังและสต๊อกอัตโนมัติ)
                 </Button>
               </CardContent>
             </Card>
@@ -1557,6 +1939,10 @@ export default function Shifts() {
                       <TableHead className="text-right">ยอดจากลิตร</TableHead>
                       <TableHead className="text-right">ลิตร</TableHead>
                       <TableHead>เทียบ</TableHead>
+                      <TableHead className="text-right">
+                        น้ำมันเครื่อง
+                      </TableHead>
+                      <TableHead className="text-right">รวมยอดกะ</TableHead>
                       <TableHead className="text-right">ยอด POS</TableHead>
                       <TableHead className="text-right">เงินทอน</TableHead>
                       <TableHead className="text-right">เงินสดนับได้</TableHead>
@@ -1593,6 +1979,21 @@ export default function Shifts() {
                                 s.priceChangedDuringShift
                               }
                             />
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {(s.lubricantAmount ?? 0) > 0
+                            ? `฿${fmtMoney(s.lubricantAmount ?? 0)}`
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ฿
+                          {fmtMoney(
+                            r2(
+                              (s.totalMoneyMeter > 0
+                                ? s.totalMoneyMeter
+                                : s.totalAmount) + (s.lubricantAmount ?? 0)
+                            )
                           )}
                         </TableCell>
                         <TableCell className="text-right">
@@ -1682,6 +2083,10 @@ export default function Shifts() {
                                         s.countedCash == null
                                           ? ""
                                           : String(s.countedCash),
+                                      cashCounts: historyCashCountsFromStored(
+                                        s.cashCounts
+                                      ),
+                                      cashCountsTouched: false,
                                       transferAmount:
                                         s.transferAmount == null
                                           ? ""
@@ -1724,7 +2129,7 @@ export default function Shifts() {
                     {(history ?? []).length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={14}
+                          colSpan={16}
                           className="text-center text-muted-foreground py-8"
                         >
                           ยังไม่มีประวัติ
@@ -2075,18 +2480,6 @@ export default function Shifts() {
                           }
                         />
                         <HistoryMetricInput
-                          field="countedCash"
-                          label="เงินสดนับได้"
-                          optional
-                          value={historyForm.countedCash}
-                          onChange={value =>
-                            setHistoryForm({
-                              ...historyForm,
-                              countedCash: value,
-                            })
-                          }
-                        />
-                        <HistoryMetricInput
                           field="transferAmount"
                           label="ยอดเงินโอน"
                           optional
@@ -2098,6 +2491,73 @@ export default function Shifts() {
                             })
                           }
                         />
+                      </div>
+                      <div className="border-t border-slate-100 p-4 sm:p-5">
+                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex size-9 items-center justify-center rounded-xl bg-green-100 text-green-700">
+                              <Banknote className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-900">
+                                นับเงินสดในลิ้นชัก
+                              </h4>
+                              <p className="text-[11px] text-slate-500">
+                                กรอกจำนวนแยกตามชนิดแบงก์และเหรียญ
+                                ระบบจะรวมยอดให้อัตโนมัติ
+                              </p>
+                            </div>
+                          </div>
+                          {(Object.keys(historyForm.cashCounts).length > 0 ||
+                            historyForm.countedCash !== "") && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-slate-600"
+                              onClick={() =>
+                                setHistoryForm({
+                                  ...historyForm,
+                                  countedCash: "",
+                                  cashCounts: {},
+                                  cashCountsTouched: true,
+                                })
+                              }
+                            >
+                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                              ล้างการนับ
+                            </Button>
+                          )}
+                        </div>
+                        {Object.keys(historyForm.cashCounts).length === 0 &&
+                          !historyForm.cashCountsTouched &&
+                          historyForm.countedCash !== "" && (
+                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              รายการเดิมบันทึกเฉพาะยอดรวม ฿
+                              {fmtMoney(Number(historyForm.countedCash))}
+                              โดยไม่มีรายละเอียดแบงก์/เหรียญ
+                              กรอกด้านล่างเพื่อเพิ่มรายละเอียด
+                              หรือปล่อยว่างเพื่อคงยอดเดิม
+                            </div>
+                          )}
+                        <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                          <CashDenomCounter
+                            value={historyForm.cashCounts}
+                            onChange={cashCounts => {
+                              const parsed =
+                                historyCashCountsPayload(cashCounts);
+                              setHistoryForm({
+                                ...historyForm,
+                                cashCounts,
+                                cashCountsTouched: true,
+                                countedCash:
+                                  parsed.valid && parsed.counts != null
+                                    ? String(sumCashCounts(parsed.counts))
+                                    : "",
+                              });
+                            }}
+                          />
+                        </div>
                       </div>
                     </section>
                   </>
@@ -2348,6 +2808,24 @@ export default function Shifts() {
                     <div>
                       ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
                     </div>
+                    <div>
+                      น้ำมันเครื่อง:{" "}
+                      <b>฿{fmtMoney(detail.lubricantAmount ?? 0)}</b>
+                    </div>
+                    <div>
+                      รวมยอดกะ:{" "}
+                      <b>
+                        ฿
+                        {fmtMoney(
+                          r2(
+                            (detail.totalMoneyMeter > 0
+                              ? detail.totalMoneyMeter
+                              : detail.totalAmount) +
+                              (detail.lubricantAmount ?? 0)
+                          )
+                        )}
+                      </b>
+                    </div>
                     {detail.status === "closed" && (
                       <MeterDiffBadge
                         diff={r2(detail.totalMoneyMeter - detail.totalAmount)}
@@ -2357,6 +2835,60 @@ export default function Shifts() {
                   </div>
                 </div>
               </section>
+
+              {(detail.lubricantItems?.length ?? 0) > 0 && (
+                <section className="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm shadow-cyan-100/60">
+                  <div className="flex items-center gap-3 border-b border-cyan-100 bg-cyan-50/70 px-4 py-3">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+                      <Droplet className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        น้ำมันเครื่อง / 2T ของกะ
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        รวมรายการจาก POS และรายการที่บันทึกเพิ่มตอนปิดกะ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>สินค้า</TableHead>
+                          <TableHead className="text-right">จำนวน</TableHead>
+                          <TableHead className="text-right">
+                            ราคาเฉลี่ย
+                          </TableHead>
+                          <TableHead className="text-right">ยอดเงิน</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(detail.lubricantItems ?? []).map(item => (
+                          <TableRow key={item.productId}>
+                            <TableCell>{item.name}</TableCell>
+                            <TableCell className="text-right">
+                              {fmtNum(item.qty)} {item.unit}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              ฿
+                              {fmtMoney(
+                                item.qty > 0 ? item.amount / item.qty : 0
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              ฿{fmtMoney(item.amount)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <div className="mt-3 text-right font-heading text-lg font-semibold text-cyan-800">
+                      รวม ฿{fmtMoney(detail.lubricantAmount ?? 0)}
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* กระทบยอดเงินสด */}
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">

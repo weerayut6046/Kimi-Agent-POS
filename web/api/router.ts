@@ -13,6 +13,7 @@ import { auditRouter } from "./routers/audit";
 import { workforceRouter } from "./routers/workforce";
 import { assistantRouter } from "./routers/assistant";
 import { paymentsRouter } from "./routers/payments";
+import { stockCountRouter } from "./routers/stockCount";
 
 export const appRouter = createRouter({
   ping: anonymousQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -30,6 +31,7 @@ export const appRouter = createRouter({
   audit: auditRouter,
   workforce: workforceRouter,
   assistant: assistantRouter,
+  stockCount: stockCountRouter,
 });
 
 export type AppRouter = typeof appRouter;

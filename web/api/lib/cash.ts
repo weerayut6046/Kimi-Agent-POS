@@ -10,6 +10,7 @@ import {
 import type { getDb } from "../queries/connection";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
 export interface ShiftCashSummary {
   openingFloat: number;
@@ -139,6 +140,93 @@ export interface ShiftCashMeterColumns {
   cashExpectedP: number | null;
   /** (นับได้ + ยอดโอน) − cashExpectedP */
   cashDiffP: number | null;
+}
+
+export interface ShiftLubricantSaleItem {
+  productId: number;
+  name: string;
+  unit: string;
+  qty: number;
+  amount: number;
+}
+
+export interface ShiftLubricantSalesSummary {
+  lubricantAmount: number;
+  lubricantItems: ShiftLubricantSaleItem[];
+}
+
+/**
+ * รวมน้ำมันเครื่อง/2T ที่ขายผ่านบิล completed แยกตามกะและสินค้า
+ * ใช้ทั้งรายการที่ขายจาก POS และรายการสรุปที่บันทึกเพิ่มตอนปิดกะ
+ */
+export async function shiftLubricantSalesSummaries(
+  db: ReturnType<typeof getDb>,
+  branchId: number,
+  shiftIds: number[]
+): Promise<Map<number, ShiftLubricantSalesSummary>> {
+  const result = new Map<number, ShiftLubricantSalesSummary>();
+  if (shiftIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      shiftId: sales.shiftId,
+      productId: products.id,
+      name: products.name,
+      unit: products.unit,
+      qty: sql<number>`coalesce(sum(${saleItems.qty}),0)`.mapWith(Number),
+      amount: sql<number>`coalesce(sum(${saleItems.amount}),0)`.mapWith(Number),
+    })
+    .from(saleItems)
+    .innerJoin(sales, eq(sales.id, saleItems.saleId))
+    .innerJoin(products, eq(products.id, saleItems.productId))
+    .where(
+      and(
+        eq(saleItems.branchId, branchId),
+        eq(sales.branchId, branchId),
+        inArray(sales.shiftId, shiftIds),
+        eq(sales.status, "completed"),
+        eq(products.category, "lubricant")
+      )
+    )
+    .groupBy(sales.shiftId, products.id, products.name, products.unit);
+
+  for (const row of rows) {
+    if (row.shiftId == null) continue;
+    const current = result.get(row.shiftId) ?? {
+      lubricantAmount: 0,
+      lubricantItems: [],
+    };
+    current.lubricantItems.push({
+      productId: row.productId,
+      name: row.name,
+      unit: row.unit,
+      qty: r3(row.qty),
+      amount: r2(row.amount),
+    });
+    current.lubricantAmount = r2(current.lubricantAmount + row.amount);
+    result.set(row.shiftId, current);
+  }
+
+  return result;
+}
+
+export async function attachShiftLubricantSales<T extends { id: number }>(
+  db: ReturnType<typeof getDb>,
+  branchId: number,
+  rows: T[]
+): Promise<Array<T & ShiftLubricantSalesSummary>> {
+  const summaries = await shiftLubricantSalesSummaries(
+    db,
+    branchId,
+    rows.map(row => row.id)
+  );
+  return rows.map(row => ({
+    ...row,
+    ...(summaries.get(row.id) ?? {
+      lubricantAmount: 0,
+      lubricantItems: [],
+    }),
+  }));
 }
 
 /**

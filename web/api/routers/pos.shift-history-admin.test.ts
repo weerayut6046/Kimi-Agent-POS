@@ -81,6 +81,61 @@ describe("admin จัดการประวัติการตัดกะ"
     expect(byId.map(row => row.id)).toContain(shiftId);
   });
 
+  it("admin เพิ่ม แก้ไข และล้างการนับเงินสดแยกแบงก์/เหรียญได้", async () => {
+    const created = await t.caller("admin", 1).pos.createShiftHistory({
+      ...historyInput,
+      staffName: "กะนับเงินย้อนหลัง",
+      countedCash: 1,
+      cashCounts: { "1000": 2, "500": 1, "0.5": 3 },
+    });
+
+    let stored = await t.db.query.shifts.findFirst({
+      where: eq(shifts.id, created.id),
+    });
+    expect(stored).toMatchObject({
+      countedCash: 2501.5,
+      cashCounts: JSON.stringify({ "1000": 2, "500": 1, "0.5": 3 }),
+    });
+    expect(
+      (await t.caller("admin").pos.shiftDetail({ id: created.id })).cashCounts
+    ).toEqual({ "1000": 2, "500": 1, "0.5": 3 });
+
+    await t.caller("admin", 1).pos.updateShiftHistory({
+      id: created.id,
+      ...historyInput,
+      countedCash: 9999,
+      cashCounts: { "100": 3, "20": 2, "0.25": 4 },
+    });
+    stored = await t.db.query.shifts.findFirst({
+      where: eq(shifts.id, created.id),
+    });
+    expect(stored).toMatchObject({
+      countedCash: 341,
+      cashCounts: JSON.stringify({ "100": 3, "20": 2, "0.25": 4 }),
+    });
+
+    await t.caller("admin", 1).pos.updateShiftHistory({
+      id: created.id,
+      ...historyInput,
+      countedCash: null,
+      cashCounts: null,
+    });
+    stored = await t.db.query.shifts.findFirst({
+      where: eq(shifts.id, created.id),
+    });
+    expect(stored).toMatchObject({
+      countedCash: null,
+      cashCounts: null,
+    });
+
+    await expect(
+      t.caller("admin", 1).pos.createShiftHistory({
+        ...historyInput,
+        cashCounts: { "7": 1 },
+      })
+    ).rejects.toThrow("มูลค่าแบงก์/เหรียญไม่ถูกต้อง");
+  });
+
   it("เพิ่มประวัติพร้อมเลขเปิด-ปิดรายหัวจ่ายและคำนวณยอดรวม", async () => {
     const nozzleRows = (await t.db.query.nozzles.findMany()).filter(
       nozzle => nozzle.active

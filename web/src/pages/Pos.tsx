@@ -175,6 +175,30 @@ export default function Pos() {
     () => (products ?? []).filter(p => p.active && p.category === tab),
     [products, tab]
   );
+  const productById = useMemo(
+    () => new Map((products ?? []).map(product => [product.id, product])),
+    [products]
+  );
+  const sellableProductCount = activeProducts.filter(
+    product => product.category === "fuel" || product.stockQty > 0
+  ).length;
+  const cartStockIssue = useMemo(() => {
+    if (!products) return null;
+    for (const line of cart) {
+      const current = productById.get(line.product.id);
+      if (!current || !current.active) {
+        return `${line.product.name} ไม่พร้อมขายแล้ว กรุณานำออกจากบิล`;
+      }
+      if (current.category === "fuel") continue;
+      if (current.stockQty <= 0) {
+        return `${current.name} หมดแล้ว ไม่สามารถขายได้`;
+      }
+      if (line.qty > current.stockQty) {
+        return `สต๊อก ${current.name} ไม่พอ (เหลือ ${fmtNum(current.stockQty)} ${current.unit})`;
+      }
+    }
+    return null;
+  }, [cart, productById, products]);
 
   const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
   const redeemDiscount = pointsToRedeem * pointValue;
@@ -216,6 +240,18 @@ export default function Pos() {
       : null;
 
   const addToCart = (p: Product, qty: number) => {
+    const existingQty = cart.find(line => line.product.id === p.id)?.qty ?? 0;
+    if (p.category !== "fuel") {
+      if (p.stockQty <= 0) {
+        setErr(`${p.name} หมดแล้ว ไม่สามารถขายได้`);
+        return;
+      }
+      if (existingQty + qty > p.stockQty) {
+        setErr(`สต๊อก ${p.name} ไม่พอ (เหลือ ${fmtNum(p.stockQty)} ${p.unit})`);
+        return;
+      }
+    }
+    setErr("");
     setCart(c => {
       const i = c.findIndex(l => l.product.id === p.id);
       if (i >= 0) {
@@ -230,16 +266,27 @@ export default function Pos() {
     });
   };
 
-  const setQty = (id: number, qty: number) =>
+  const setQty = (id: number, qty: number) => {
+    const product = productById.get(id);
+    let nextQty = qty;
+    if (product && product.category !== "fuel" && qty > product.stockQty) {
+      nextQty = product.stockQty;
+      setErr(
+        product.stockQty <= 0
+          ? `${product.name} หมดแล้ว ไม่สามารถขายได้`
+          : `สต๊อก ${product.name} ไม่พอ (เหลือ ${fmtNum(product.stockQty)} ${product.unit})`
+      );
+    }
     setCart(c =>
       c
         .map(l =>
           l.product.id === id
-            ? { ...l, qty: Math.max(0, Math.round(qty * 100) / 100) }
+            ? { ...l, qty: Math.max(0, Math.round(nextQty * 100) / 100) }
             : l
         )
         .filter(l => l.qty > 0)
     );
+  };
 
   const addFuel = () => {
     if (!fuelDialog) return;
@@ -255,6 +302,21 @@ export default function Pos() {
   };
 
   const finishSale = (result: DesktopReceipt) => {
+    const soldLines = cart;
+    utils.catalog.listProducts.setData(undefined, current =>
+      current?.map(product => {
+        if (product.category === "fuel") return product;
+        const soldQty = soldLines.find(
+          line => line.product.id === product.id
+        )?.qty;
+        if (!soldQty) return product;
+        return {
+          ...product,
+          stockQty:
+            Math.round(Math.max(0, product.stockQty - soldQty) * 1000) / 1000,
+        };
+      })
+    );
     setReceipt(result);
     setCart([]);
     setMember(null);
@@ -284,7 +346,9 @@ export default function Pos() {
     }
     utils.pos.dashboard.invalidate();
     utils.pos.salesHistory.invalidate();
-    utils.catalog.listProducts.invalidate();
+    if (syncStatus?.online !== false) {
+      utils.catalog.listProducts.invalidate();
+    }
     utils.credit.summary.invalidate();
     if (member) utils.membership.listMembers.invalidate();
   };
@@ -295,7 +359,10 @@ export default function Pos() {
         sale: r.sale as ReceiptData["sale"],
         items: r.items,
       }),
-    onError: e => setErr(e.message),
+    onError: e => {
+      setErr(e.message);
+      utils.catalog.listProducts.invalidate();
+    },
   });
   const startThungngern = trpc.payments.startThungngern.useMutation({
     onSuccess: r => {
@@ -307,7 +374,10 @@ export default function Pos() {
         expiresAt: r.expiresAt,
       });
     },
-    onError: e => setErr(e.message),
+    onError: e => {
+      setErr(e.message);
+      utils.catalog.listProducts.invalidate();
+    },
   });
   const salePending =
     createSale.isPending || desktopSalePending || startThungngern.isPending;
@@ -332,6 +402,10 @@ export default function Pos() {
 
   const checkout = async () => {
     if (cart.length === 0) return;
+    if (cartStockIssue) {
+      setErr(cartStockIssue);
+      return;
+    }
     if (payMethod === "cash" && receivedNum < total) {
       setErr("จำนวนเงินรับไม่พอ");
       return;
@@ -437,7 +511,7 @@ export default function Pos() {
                   พร้อมขาย
                 </div>
                 <div className="mt-0.5 text-sm font-bold text-cyan-200 number-display">
-                  {activeProducts.length} รายการ
+                  {sellableProductCount} รายการ
                 </div>
               </div>
               {currentShift ? (
@@ -485,10 +559,13 @@ export default function Pos() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
           {activeProducts.map(p => {
             const tone = productTone(p.code, p.category);
+            const soldOut = p.category !== "fuel" && p.stockQty <= 0;
             return (
               <button
                 key={p.id}
                 type="button"
+                disabled={soldOut}
+                aria-label={soldOut ? `${p.name} หมดแล้ว` : p.name}
                 onClick={() => {
                   if (p.category === "fuel") {
                     setFuelDialog(p);
@@ -498,7 +575,7 @@ export default function Pos() {
                     addToCart(p, 1);
                   }
                 }}
-                className="spotlight-card group relative min-h-[142px] overflow-hidden rounded-[20px] border border-white/90 bg-white/80 p-3 text-left shadow-[0_10px_30px_rgba(39,33,88,0.07)] ring-1 ring-slate-200/60 backdrop-blur-md transition-all duration-300 hover:-translate-y-1.5 hover:scale-[1.015] hover:border-violet-200 hover:shadow-[0_20px_46px_rgba(75,57,170,0.16)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-500/20 active:translate-y-0 active:scale-[0.99] sm:min-h-[156px] sm:p-4"
+                className={`spotlight-card group relative min-h-[142px] overflow-hidden rounded-[20px] border border-white/90 bg-white/80 p-3 text-left shadow-[0_10px_30px_rgba(39,33,88,0.07)] ring-1 ring-slate-200/60 backdrop-blur-md transition-all duration-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-500/20 sm:min-h-[156px] sm:p-4 ${soldOut ? "cursor-not-allowed grayscale opacity-60" : "hover:-translate-y-1.5 hover:scale-[1.015] hover:border-violet-200 hover:shadow-[0_20px_46px_rgba(75,57,170,0.16)] active:translate-y-0 active:scale-[0.99]"}`}
               >
                 <span
                   className={`pointer-events-none absolute inset-0 bg-gradient-to-br opacity-70 ${tone.wash}`}
@@ -516,11 +593,17 @@ export default function Pos() {
                       <Package className="size-[18px]" />
                     )}
                   </div>
-                  <span
-                    className={`relative rounded-lg px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wide ring-1 ring-black/[0.03] ${tone.code}`}
-                  >
-                    {p.code}
-                  </span>
+                  {soldOut ? (
+                    <span className="relative rounded-lg bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700 ring-1 ring-red-200">
+                      หมดแล้ว
+                    </span>
+                  ) : (
+                    <span
+                      className={`relative rounded-lg px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wide ring-1 ring-black/[0.03] ${tone.code}`}
+                    >
+                      {p.code}
+                    </span>
+                  )}
                 </div>
                 <div className="relative min-h-10 text-sm font-semibold leading-snug text-slate-800">
                   {p.name}
@@ -533,8 +616,10 @@ export default function Pos() {
                     </span>
                   </div>
                   {p.category !== "fuel" && (
-                    <span className="text-[10px] text-slate-400">
-                      เหลือ {fmtNum(p.stockQty)}
+                    <span
+                      className={`text-[10px] ${soldOut ? "font-bold text-red-600" : "text-slate-400"}`}
+                    >
+                      {soldOut ? "หมดแล้ว" : `เหลือ ${fmtNum(p.stockQty)}`}
                     </span>
                   )}
                   {p.category === "fuel" && (
@@ -679,61 +764,75 @@ export default function Pos() {
                     </p>
                   </div>
                 )}
-                {cart.map(l => (
-                  <div
-                    key={l.product.id}
-                    className="rounded-2xl border border-white bg-gradient-to-br from-white to-violet-50/35 p-3 text-sm shadow-sm ring-1 ring-slate-200/70 transition-all hover:border-violet-200 hover:shadow-md"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold text-slate-800">
-                          {l.product.name}
+                {cart.map(l => {
+                  const currentProduct = productById.get(l.product.id);
+                  const availableStock = currentProduct?.stockQty ?? 0;
+                  const soldOut =
+                    l.product.category !== "fuel" && availableStock <= 0;
+                  const atStockLimit =
+                    l.product.category !== "fuel" && l.qty >= availableStock;
+                  return (
+                    <div
+                      key={l.product.id}
+                      className="rounded-2xl border border-white bg-gradient-to-br from-white to-violet-50/35 p-3 text-sm shadow-sm ring-1 ring-slate-200/70 transition-all hover:border-violet-200 hover:shadow-md"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-semibold text-slate-800">
+                            {l.product.name}
+                            {soldOut && (
+                              <Badge className="ml-2 bg-red-100 text-red-700 hover:bg-red-100">
+                                หมดแล้ว
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-xs text-slate-400">
+                            ฿{fmtMoney(l.product.price)} / {l.product.unit}
+                          </div>
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-400">
-                          ฿{fmtMoney(l.product.price)} / {l.product.unit}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`ลบ ${l.product.name}`}
-                        onClick={() =>
-                          setCart(c =>
-                            c.filter(x => x.product.id !== l.product.id)
-                          )
-                        }
-                        className="grid size-7 place-items-center rounded-md text-slate-300 hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="flex items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
                         <button
                           type="button"
-                          aria-label="ลดจำนวน"
-                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700"
-                          onClick={() => setQty(l.product.id, l.qty - 1)}
+                          aria-label={`ลบ ${l.product.name}`}
+                          onClick={() =>
+                            setCart(c =>
+                              c.filter(x => x.product.id !== l.product.id)
+                            )
+                          }
+                          className="grid size-7 place-items-center rounded-md text-slate-300 hover:bg-red-50 hover:text-red-600"
                         >
-                          <Minus className="size-3.5" />
-                        </button>
-                        <span className="min-w-[74px] border-x border-slate-200 px-2 text-center text-xs font-semibold number-display">
-                          {fmtNum(l.qty)} {l.product.unit}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label="เพิ่มจำนวน"
-                          className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700"
-                          onClick={() => setQty(l.product.id, l.qty + 1)}
-                        >
-                          <Plus className="size-3.5" />
+                          <Trash2 className="size-4" />
                         </button>
                       </div>
-                      <div className="font-heading font-bold text-slate-900 number-display">
-                        ฿{fmtMoney(l.qty * l.product.price)}
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <div className="flex items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                          <button
+                            type="button"
+                            aria-label="ลดจำนวน"
+                            className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700"
+                            onClick={() => setQty(l.product.id, l.qty - 1)}
+                          >
+                            <Minus className="size-3.5" />
+                          </button>
+                          <span className="min-w-[74px] border-x border-slate-200 px-2 text-center text-xs font-semibold number-display">
+                            {fmtNum(l.qty)} {l.product.unit}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label="เพิ่มจำนวน"
+                            disabled={atStockLimit}
+                            className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-violet-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                            onClick={() => setQty(l.product.id, l.qty + 1)}
+                          >
+                            <Plus className="size-3.5" />
+                          </button>
+                        </div>
+                        <div className="font-heading font-bold text-slate-900 number-display">
+                          ฿{fmtMoney(l.qty * l.product.price)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <Separator className="bg-slate-200" />
@@ -992,7 +1091,16 @@ export default function Pos() {
                 </div>
               )}
 
-              {err && (
+              {cartStockIssue && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700"
+                >
+                  <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                  {cartStockIssue}
+                </div>
+              )}
+              {err && err !== cartStockIssue && (
                 <div
                   role="alert"
                   className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
@@ -1002,7 +1110,9 @@ export default function Pos() {
               )}
               <Button
                 className="shine-button h-14 w-full justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-5 text-base font-heading shadow-[0_16px_34px_rgba(88,70,220,0.28)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500"
-                disabled={cart.length === 0 || salePending}
+                disabled={
+                  cart.length === 0 || salePending || Boolean(cartStockIssue)
+                }
                 onClick={() => void checkout()}
               >
                 <span>

@@ -15,6 +15,7 @@ import {
   createDatabaseBackup,
 } from "./lib/databaseBackup";
 import { handleIncomingPaymentRequest } from "./payments/incomingPaymentHttp";
+import { getLanUrls, isPublicCloudRuntime } from "./lib/lan";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -127,6 +128,16 @@ app.post("/api/payments/incoming", async c => {
   const response = await handleIncomingPaymentRequest(c.req.raw);
   response.headers.set("Cache-Control", "no-store");
   return response;
+});
+app.get("/api/lan-info", c => {
+  c.header("Cache-Control", "no-store");
+  if (isPublicCloudRuntime()) {
+    return c.json({ port: 0, urls: [] as string[], reachable: false });
+  }
+  const port = parseInt(process.env.PORT || "3000");
+  const reachable =
+    env.isProduction || process.env.BIND_HOST?.trim() === "0.0.0.0";
+  return c.json({ port, urls: getLanUrls(port), reachable });
 });
 app.use("/api/trpc/*", async c => {
   const response = await fetchRequestHandler({

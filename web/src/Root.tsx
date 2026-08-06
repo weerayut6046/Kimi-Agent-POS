@@ -13,6 +13,10 @@ export default function Root() {
       !staff &&
       window.location.pathname !== "/login"
     ) {
+      const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (returnTo.startsWith("/") && !returnTo.startsWith("//")) {
+        window.sessionStorage.setItem("pos:return-to", returnTo);
+      }
       window.history.replaceState(null, "", "/login");
     }
   }, [isCheckingSession, staff]);

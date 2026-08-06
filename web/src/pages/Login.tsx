@@ -67,6 +67,16 @@ export default function Login() {
   const finishLogin = async (activePassword: string) => {
     await signInStaffWithPassword(username, activePassword);
     const staff = await utils.auth.currentStaff.fetch();
+    const returnTo = window.sessionStorage.getItem("pos:return-to");
+    window.sessionStorage.removeItem("pos:return-to");
+    if (
+      returnTo &&
+      returnTo.startsWith("/") &&
+      !returnTo.startsWith("//") &&
+      returnTo !== "/login"
+    ) {
+      window.history.replaceState(null, "", returnTo);
+    }
     await login(staff);
   };
 

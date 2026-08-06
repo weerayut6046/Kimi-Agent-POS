@@ -202,6 +202,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/shifts": () => import("@/pages/Shifts"),
   "/workforce": () => import("@/pages/Workforce"),
   "/stock": () => import("@/pages/Stock"),
+  "/stock/count": () => import("@/pages/StockCount"),
   "/members": () => import("@/pages/Members"),
   "/customers": () => import("@/pages/Customers"),
   "/debts": () => import("@/pages/Debts"),

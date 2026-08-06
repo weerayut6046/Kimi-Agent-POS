@@ -16,6 +16,7 @@ import {
   type MeterDisplaySide,
 } from "@contracts/meterOcr";
 import type { MeterOcrMode } from "@contracts/settings";
+import { assessMeterReading } from "@contracts/meterReconciliation";
 import { trpc } from "@/providers/trpc";
 import {
   scanMeterImageLocally,
@@ -176,8 +177,41 @@ export default function ShiftMeterImageScanner({
         problems.set(row.id, `มีค่า ${row.mode} ของหัวจ่ายนี้ซ้ำ`);
       }
     }
+    for (const target of targets) {
+      const literRows = reviewRows.filter(
+        row => row.nozzleId === target.nozzleId && row.mode === "L"
+      );
+      const moneyRows = reviewRows.filter(
+        row => row.nozzleId === target.nozzleId && row.mode === "P"
+      );
+      if (literRows.length !== 1 || moneyRows.length !== 1) continue;
+      const literRow = literRows[0]!;
+      const moneyRow = moneyRows[0]!;
+      if (problems.has(literRow.id) || problems.has(moneyRow.id)) continue;
+      const closeMeter = Number(literRow.value);
+      const closeMoney = Number(moneyRow.value);
+      if (!Number.isFinite(closeMeter) || !Number.isFinite(closeMoney))
+        continue;
+      const assessment = assessMeterReading({
+        openMeter: target.openMeter,
+        closeMeter,
+        openMoney: target.openMoney,
+        closeMoney,
+        pricePerLiter: target.pricePerLiter,
+        priceChangedDuringShift: target.priceChangedDuringShift,
+      });
+      if (!assessment.implausible) continue;
+      const suggestion =
+        assessment.suggestedCloseMoney == null
+          ? ""
+          : ` ค่าที่น่าจะเป็นคือ ${assessment.suggestedCloseMoney.toLocaleString("th-TH", { maximumFractionDigits: 3 })}`;
+      problems.set(
+        moneyRow.id,
+        `ยอด P เพิ่ม ${assessment.moneyFromMeter?.toLocaleString("th-TH")} บาท แต่ยอดจาก L × ราคาเป็น ${assessment.amountFromLiters.toLocaleString("th-TH")} บาท คลาดเคลื่อนมากผิดปกติ กรุณาตรวจเลข P${suggestion}`
+      );
+    }
     return problems;
-  }, [reviewRows, targetById]);
+  }, [reviewRows, targetById, targets]);
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList?.length) return;

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import {
   members,
   paymentSessions,
@@ -25,6 +25,7 @@ import {
 } from "./slip2go-client";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
 /** session รอชำระมีอายุ 5 นาที — QR ล็อกยอดจึงไม่ควรค้างนานกว่านั้น */
 export const THUNGNGERN_SESSION_TTL_MS = 5 * 60 * 1000;
@@ -66,6 +67,25 @@ export async function computeSaleSnapshot(
     if (!p || !p.active) throw new Error("ไม่พบสินค้าบางรายการ");
     return { product: p, qty: it.qty, amount: r2(p.price * it.qty) };
   });
+  const requestedStock = new Map<number, number>();
+  for (const line of lines) {
+    if (line.product.category === "fuel") continue;
+    requestedStock.set(
+      line.product.id,
+      r3((requestedStock.get(line.product.id) ?? 0) + line.qty)
+    );
+  }
+  for (const [productId, qty] of requestedStock) {
+    const product = prodRows.find(row => row.id === productId)!;
+    if (product.stockQty <= 0) {
+      throw new Error(`${product.name} หมดแล้ว ไม่สามารถขายได้`);
+    }
+    if (qty > product.stockQty) {
+      throw new Error(
+        `สต๊อก ${product.name} ไม่พอ (เหลือ ${product.stockQty} ${product.unit})`
+      );
+    }
+  }
   const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
 
   const vatRate = Number(settingMap.vat_rate ?? "7");
@@ -214,10 +234,32 @@ async function insertSaleFromSnapshot(
   for (const l of snapshot.items) {
     // หักสต๊อกเฉพาะสินค้าที่ไม่ใช่น้ำมัน (น้ำมันหักผ่านมิเตอร์ตอนปิดกะ)
     if (l.category !== "fuel") {
-      await tx
+      const updated = await tx
         .update(products)
         .set({ stockQty: sql`${products.stockQty} - ${l.qty}` })
-        .where(and(eq(products.id, l.productId), eq(products.branchId, branchId)));
+        .where(
+          and(
+            eq(products.id, l.productId),
+            eq(products.branchId, branchId),
+            gte(products.stockQty, l.qty)
+          )
+        )
+        .returning({ stockQty: products.stockQty });
+      if (!updated[0]) {
+        const current = await tx.query.products.findFirst({
+          columns: { stockQty: true, unit: true },
+          where: and(
+            eq(products.id, l.productId),
+            eq(products.branchId, branchId)
+          ),
+        });
+        if (!current || current.stockQty <= 0) {
+          throw new Error(`${l.name} หมดแล้ว ไม่สามารถขายได้`);
+        }
+        throw new Error(
+          `สต๊อก ${l.name} ไม่พอ (เหลือ ${current.stockQty} ${current.unit})`
+        );
+      }
     }
   }
 
@@ -372,8 +414,10 @@ export function receiverConditionFromPromptPayId(
   promptpayId: string
 ): Slip2GoReceiverCondition {
   const digits = promptpayId.replace(/\D/g, "");
-  if (digits.length === 10) return { accountType: "02001", accountNumber: digits };
-  if (digits.length === 13) return { accountType: "02003", accountNumber: digits };
+  if (digits.length === 10)
+    return { accountType: "02001", accountNumber: digits };
+  if (digits.length === 13)
+    return { accountType: "02003", accountNumber: digits };
   throw new Error(
     "PromptPay ID ที่ตั้งค่าไว้ไม่ถูกต้อง (ต้องเป็นเบอร์โทร 10 หลัก หรือเลข 13 หลัก)"
   );

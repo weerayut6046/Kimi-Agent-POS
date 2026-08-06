@@ -13,6 +13,7 @@ const Layout = lazy(() => import("@/components/Layout"));
 const Pos = lazy(() => import("@/pages/Pos"));
 const Shifts = lazy(() => import("@/pages/Shifts"));
 const Stock = lazy(() => import("@/pages/Stock"));
+const StockCount = lazy(() => import("@/pages/StockCount"));
 const Members = lazy(() => import("@/pages/Members"));
 const Customers = lazy(() => import("@/pages/Customers"));
 const Debts = lazy(() => import("@/pages/Debts"));
@@ -121,6 +122,22 @@ export default function App() {
             element={
               <MenuRoute permission="stock">
                 <Stock />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/stock/count"
+            element={
+              <MenuRoute permission="stock">
+                <StockCount />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/stock/count/:sessionId"
+            element={
+              <MenuRoute permission="stock">
+                <StockCount />
               </MenuRoute>
             }
           />

@@ -9,6 +9,8 @@ export type MeterNozzleTarget = {
   pumpName: string;
   openMeter: number;
   openMoney: number;
+  pricePerLiter: number;
+  priceChangedDuringShift: boolean;
 };
 
 export type PreparedMeterImage = {
