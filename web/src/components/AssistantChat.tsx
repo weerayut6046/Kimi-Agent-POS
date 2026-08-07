@@ -285,7 +285,7 @@ export default function AssistantChat() {
         <button
           type="button"
           aria-label="เปิดผู้ช่วย AI"
-          className="group fixed bottom-[calc(5.4rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-13 items-center gap-2 rounded-2xl border border-white/80 bg-gradient-to-br from-violet-600 via-indigo-600 to-cyan-600 px-4 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(79,70,229,0.38)] ring-1 ring-violet-300/40 transition hover:-translate-y-1 hover:shadow-[0_22px_55px_rgba(79,70,229,0.48)] lg:bottom-6 lg:right-7"
+          className="assistant-chat-trigger group fixed bottom-[calc(5.4rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-13 items-center gap-2 rounded-2xl border border-white/80 bg-gradient-to-br from-violet-600 via-indigo-600 to-cyan-600 px-4 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(79,70,229,0.38)] ring-1 ring-violet-300/40 transition hover:-translate-y-1 hover:shadow-[0_22px_55px_rgba(79,70,229,0.48)] lg:bottom-6 lg:right-7"
         >
           <span className="relative grid size-8 place-items-center rounded-xl bg-white/15">
             <Sparkles className="size-[18px] transition-transform group-hover:rotate-12 group-hover:scale-110" />
