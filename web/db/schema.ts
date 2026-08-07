@@ -668,6 +668,16 @@ export const sales = posSchema
         .default(sql`pos.default_branch_id()`)
         .references(() => branches.id, { onDelete: "restrict" }),
       receiptNo: text("receipt_no").notNull(),
+      transactionType: text("transaction_type", {
+        enum: ["sale", "return"],
+      })
+        .notNull()
+        .default("sale"),
+      originalSaleId: integer("original_sale_id").references(
+        (): AnyPgColumn => sales.id,
+        { onDelete: "restrict" }
+      ),
+      returnReason: text("return_reason"),
       shiftId: integer("shift_id").references(() => shifts.id, {
         onDelete: "set null",
       }),
@@ -737,6 +747,10 @@ export const sales = posSchema
       memberIdx: index("sales_member_idx").on(t.memberId),
       customerIdx: index("sales_customer_idx").on(t.customerId),
       statusIdx: index("sales_status_idx").on(t.status),
+      transactionTypeIdx: index("sales_transaction_type_idx").on(
+        t.transactionType
+      ),
+      originalSaleIdx: index("sales_original_sale_idx").on(t.originalSaleId),
     })
   )
   .enableRLS();
@@ -753,6 +767,10 @@ export const saleItems = posSchema
       saleId: integer("sale_id")
         .notNull()
         .references(() => sales.id, { onDelete: "cascade" }),
+      originalSaleItemId: integer("original_sale_item_id").references(
+        (): AnyPgColumn => saleItems.id,
+        { onDelete: "restrict" }
+      ),
       productId: integer("product_id").references(() => products.id, {
         onDelete: "set null",
       }),
@@ -778,6 +796,9 @@ export const saleItems = posSchema
       branchIdx: index("saleitem_branch_idx").on(t.branchId),
       saleIdx: index("sale_idx").on(t.saleId),
       productIdx: index("saleitem_product_idx").on(t.productId),
+      originalSaleItemIdx: index("saleitem_original_item_idx").on(
+        t.originalSaleItemId
+      ),
     })
   )
   .enableRLS();

@@ -65,6 +65,7 @@ export const taxInvoiceRouter = createRouter({
           eq(sales.branchId, ctx.staff.branchId),
           isNull(taxInvoices.id),
           eq(sales.status, "completed"),
+          eq(sales.transactionType, "sale"),
         ),
       )
       .orderBy(desc(sales.createdAt))
@@ -111,6 +112,8 @@ export const taxInvoiceRouter = createRouter({
       });
       if (!sale) throw new Error("ไม่พบบิล");
       if (sale.status !== "completed") throw new Error("บิลถูกยกเลิกแล้ว ไม่สามารถออกใบกำกับภาษีได้");
+      if (sale.transactionType !== "sale")
+        throw new Error("เอกสารคืนสินค้าไม่สามารถออกใบกำกับภาษีขายได้");
 
       const customer = {
         customerName: input.customerName,

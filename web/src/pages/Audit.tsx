@@ -23,6 +23,7 @@ import { fmtDateTime } from "@/lib/format";
 /** label ภาษาไทยของ action — ถ้าไม่รู้จักแสดง action ดิบ */
 const actionLabel: Record<string, string> = {
   void_sale: "ยกเลิกบิล",
+  return_sale: "คืนสินค้า",
   update_sale: "แก้ไขบิล",
   delete_sale: "ลบบิล",
   adjust_points: "ปรับแต้ม",
