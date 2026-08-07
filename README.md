@@ -166,6 +166,9 @@ npm run audit:serve  # production build ที่ http://127.0.0.1:3000
 │   ├── scripts/       # dev launcher, pack-exe.mjs และ publish-gcs.mjs
 │   └── electron-builder.yml
 ├── PROJECT.md         # ภาพรวมโครงการ สถาปัตยกรรม และ release workflow
+├── PRD.md             # PRD ที่สะท้อนระบบที่ทำงานอยู่จริง (baseline)
+├── docs/PRD-v3-fuelone.md        # PRD v3 — สถาปัตยกรรมเป้าหมาย 3 ชั้น (ยังไม่ได้ทำ)
+├── docs/prd-v3-gap-analysis.md   # ช่องว่างระหว่าง PRD v3 กับโค้ดปัจจุบัน + ลำดับงานที่เสนอ
 ├── plan.md            # แผนระบบทั้งหมด
 ├── plan-desktop.md    # แผนเฉพาะ Desktop
 ├── dist/              # build outputs (ไม่ commit)
