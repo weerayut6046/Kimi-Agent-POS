@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import {
   Fuel,
@@ -1141,27 +1142,30 @@ export default function Pos() {
                 {cartPanel}
               </SheetContent>
             </Sheet>
-            {cart.length > 0 && !mobileCartOpen && (
-              <Button
-                type="button"
-                onClick={() => setMobileCartOpen(true)}
-                className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-4 text-white shadow-[0_18px_42px_rgba(65,49,175,0.35)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500 lg:hidden"
-                aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
-              >
-                <span className="flex items-center gap-2">
-                  <span className="relative grid size-9 place-items-center rounded-xl bg-white/10">
-                    <ShoppingBasket className="size-5" />
-                    <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 text-white">
-                      {cart.length}
+            {cart.length > 0 &&
+              !mobileCartOpen &&
+              createPortal(
+                <Button
+                  type="button"
+                  onClick={() => setMobileCartOpen(true)}
+                  className="mobile-pos-cart-trigger fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-4 text-white shadow-[0_18px_42px_rgba(65,49,175,0.35)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500 lg:hidden"
+                  aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="relative grid size-9 place-items-center rounded-xl bg-white/10">
+                      <ShoppingBasket className="size-5" />
+                      <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 text-white">
+                        {cart.length}
+                      </span>
                     </span>
+                    ดูรายการขาย
                   </span>
-                  ดูรายการขาย
-                </span>
-                <span className="flex items-center gap-2 font-heading text-base number-display">
-                  ฿{fmtMoney(total)} <ArrowRight className="size-4" />
-                </span>
-              </Button>
-            )}
+                  <span className="flex items-center gap-2 font-heading text-base number-display">
+                    ฿{fmtMoney(total)} <ArrowRight className="size-4" />
+                  </span>
+                </Button>,
+                document.body
+              )}
           </>
         );
       })()}

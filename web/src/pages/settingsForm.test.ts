@@ -2,10 +2,34 @@ import { describe, expect, it } from "vitest";
 import {
   createInitialSettingsForm,
   createProductUpdatePatch,
+  resolveManagedBackupHealth,
   staffMutationErrorMessage,
   staffPasswordValidationMessage,
   type EditableProductValues,
 } from "./settingsForm";
+
+describe("resolveManagedBackupHealth", () => {
+  it("falls back safely when an older Edge Function omits backup health", () => {
+    expect(resolveManagedBackupHealth(undefined)).toEqual({
+      status: "unverified",
+      message:
+        "API รุ่นนี้ยังไม่ส่งสถานะ Backup กรุณา Deploy Supabase Edge Function รุ่นล่าสุด",
+      latestBackupAt: null,
+      pitrEnabled: null,
+    });
+  });
+
+  it("preserves backup health returned by the current API", () => {
+    const health = {
+      status: "healthy" as const,
+      message: "Managed Backup ล่าสุดเสร็จสมบูรณ์",
+      latestBackupAt: new Date("2026-08-08T01:00:00.000Z"),
+      pitrEnabled: true,
+    };
+
+    expect(resolveManagedBackupHealth(health)).toBe(health);
+  });
+});
 
 describe("createInitialSettingsForm", () => {
   it("แสดงข้อมูลทันทีเมื่อ getSettings ถูก cache ไว้ก่อนเข้าหน้า Settings", () => {

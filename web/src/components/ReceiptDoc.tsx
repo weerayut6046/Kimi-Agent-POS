@@ -15,6 +15,9 @@ type ReceiptSale = {
   pointsRedeemed?: number;
   memberName?: string | null;
   customerName?: string | null;
+  transactionType?: "sale" | "return";
+  originalReceiptNo?: string | null;
+  returnReason?: string | null;
 };
 
 type ReceiptItem = { name: string; qty: number; unit: string; unitPrice: number; amount: number };
@@ -38,6 +41,7 @@ function MoneyRow({ label, value, bold }: { label: string; value: string; bold?:
 
 /** ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ (แบบใบเสร็จม้วน) — ใช้ร่วมกันหน้า POS และหน้าประวัติการขาย */
 export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Props) {
+  const isReturn = sale.transactionType === "return";
   return (
     <div className="text-sm font-mono">
       {/* หัวใบเสร็จ — กึ่งกลางทั้งหมด */}
@@ -49,13 +53,18 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
         </div>
         {settingMap?.shop_address && <div className="text-xs whitespace-pre-line">{settingMap.shop_address}</div>}
         <div className="text-xs">โทร. {settingMap?.shop_phone}</div>
-        <div className="font-bold pt-1">ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ</div>
+        <div className="font-bold pt-1">
+          {isReturn ? "ใบรับคืนสินค้า/ใบคืนเงิน" : "ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ"}
+        </div>
         <div className="text-xs">เลขประจำตัวผู้เสียภาษี {settingMap?.tax_id}</div>
       </div>
 
       {/* ข้อมูลบิล */}
       <div className="mt-2 text-xs space-y-0.5">
         <div>บิลเลขที่ : {sale.receiptNo}</div>
+        {isReturn && sale.originalReceiptNo && (
+          <div>อ้างอิงบิล : {sale.originalReceiptNo}</div>
+        )}
         <div>วันที่ : {fmtDateTimeTH(sale.createdAt)}</div>
         {staffName && <div>พนักงาน : {staffName}</div>}
         {sale.memberName && <div>สมาชิก : {sale.memberName}</div>}
@@ -78,8 +87,12 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
                 {it.name}
                 <span className="block text-xs">฿{fmtMoney(it.unitPrice)}/{it.unit}</span>
               </td>
-              <td className="py-0.5 text-center whitespace-nowrap">{fmtNum(it.qty)}</td>
-              <td className="py-0.5 text-right whitespace-nowrap">{fmtMoney(it.amount)}</td>
+              <td className="py-0.5 text-center whitespace-nowrap">
+                {fmtNum(isReturn ? Math.abs(it.qty) : it.qty)}
+              </td>
+              <td className="py-0.5 text-right whitespace-nowrap">
+                {fmtMoney(isReturn ? Math.abs(it.amount) : it.amount)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -87,16 +100,35 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
 
       {/* ยอดรวม */}
       <div className="mt-1 pt-1 border-t border-black space-y-0.5">
-        <MoneyRow label="รวม" value={fmtMoney(sale.subtotal)} />
-        {sale.discount > 0 && <MoneyRow label="ส่วนลด" value={fmtMoney(sale.discount)} bold />}
-        <MoneyRow label="ยอดเงินสุทธิ" value={fmtMoney(sale.total)} bold />
-        <MoneyRow label={`ภาษีมูลค่าเพิ่ม ${fmtNum(sale.vatRate)}% (รวมใน)`} value={fmtMoney(sale.vatAmount)} />
+        <MoneyRow
+          label={isReturn ? "มูลค่าสินค้าคืน" : "รวม"}
+          value={fmtMoney(isReturn ? Math.abs(sale.subtotal) : sale.subtotal)}
+        />
+        {(isReturn ? sale.discount < 0 : sale.discount > 0) && (
+          <MoneyRow
+            label={isReturn ? "หักส่วนลดตามบิลเดิม" : "ส่วนลด"}
+            value={fmtMoney(Math.abs(sale.discount))}
+            bold
+          />
+        )}
+        <MoneyRow
+          label={isReturn ? "ยอดคืนเงิน" : "ยอดเงินสุทธิ"}
+          value={fmtMoney(isReturn ? Math.abs(sale.total) : sale.total)}
+          bold
+        />
+        <MoneyRow
+          label={`ภาษีมูลค่าเพิ่ม ${fmtNum(sale.vatRate)}% (รวมใน)`}
+          value={fmtMoney(isReturn ? Math.abs(sale.vatAmount) : sale.vatAmount)}
+        />
       </div>
 
       {/* การชำระเงิน */}
       <div className="mt-1 pt-1 border-t border-black space-y-0.5 text-xs">
-        <MoneyRow label="ชำระโดย" value={paymentLabel[sale.paymentMethod] ?? sale.paymentMethod} />
-        {sale.paymentMethod === "cash" && (
+        <MoneyRow
+          label={isReturn ? "คืนเงินโดย" : "ชำระโดย"}
+          value={paymentLabel[sale.paymentMethod] ?? sale.paymentMethod}
+        />
+        {sale.paymentMethod === "cash" && !isReturn && (
           <>
             <MoneyRow label="รับเงิน" value={fmtMoney(sale.received)} />
             <MoneyRow label="เงินทอน" value={fmtMoney(sale.changeAmt)} />
@@ -104,14 +136,23 @@ export function ReceiptDoc({ sale, items, settingMap, staffName, logoUrl }: Prop
         )}
         {(sale.pointsEarned ?? 0) > 0 && <MoneyRow label="แต้มที่ได้รับ" value={`+${sale.pointsEarned}`} />}
         {(sale.pointsRedeemed ?? 0) > 0 && <MoneyRow label="แต้มที่ใช้" value={`-${sale.pointsRedeemed}`} />}
+        {isReturn && (sale.pointsRedeemed ?? 0) < 0 && (
+          <MoneyRow label="คืนแต้มที่เคยใช้" value={`+${Math.abs(sale.pointsRedeemed ?? 0)}`} />
+        )}
+        {isReturn && (sale.pointsEarned ?? 0) < 0 && (
+          <MoneyRow label="หักแต้มที่เคยได้รับ" value={`-${Math.abs(sale.pointsEarned ?? 0)}`} />
+        )}
       </div>
 
       {/* หมายเหตุท้ายใบเสร็จ */}
       <div className="mt-2 text-xs space-y-0.5">
+        {isReturn && sale.returnReason && <div>เหตุผลคืนสินค้า: {sale.returnReason}</div>}
         <div>* ราคานี้รวมภาษีมูลค่าเพิ่มแล้ว</div>
-        <div>** ต้องการใบกำกับภาษีเต็มรูป โปรดแจ้งเจ้าหน้าที่พร้อมใบเสร็จฉบับนี้</div>
+        {!isReturn && <div>** ต้องการใบกำกับภาษีเต็มรูป โปรดแจ้งเจ้าหน้าที่พร้อมใบเสร็จฉบับนี้</div>}
       </div>
-      <div className="text-center text-xs mt-2">ขอบคุณที่ใช้บริการ</div>
+      <div className="text-center text-xs mt-2">
+        {isReturn ? "ดำเนินการคืนสินค้าเรียบร้อยแล้ว" : "ขอบคุณที่ใช้บริการ"}
+      </div>
     </div>
   );
 }

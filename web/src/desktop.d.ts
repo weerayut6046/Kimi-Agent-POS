@@ -3,6 +3,7 @@
 import type {
   DesktopSaleRequest,
   DesktopSaleResult,
+  DesktopOfflineRecoveryResult,
   DesktopSyncStatus,
 } from "@contracts/offline";
 
@@ -14,7 +15,9 @@ declare global {
       /** เลขเวอร์ชันของแอป desktop — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
       getAppVersion(): Promise<string>;
       getSyncStatus(): Promise<DesktopSyncStatus>;
-      retrySync(): Promise<DesktopSyncStatus>;
+      retrySync(staffToken?: string): Promise<DesktopSyncStatus>;
+      exportOfflineRecovery(): Promise<DesktopOfflineRecoveryResult>;
+      importOfflineRecovery(): Promise<DesktopOfflineRecoveryResult>;
       createSale(request: DesktopSaleRequest): Promise<DesktopSaleResult>;
       onSyncStatus(callback: (status: DesktopSyncStatus) => void): () => void;
       /** พิมพ์เงียบเข้าเครื่องพิมพ์ default ของ Windows (Chromium render — ไทยถูกเสมอ) — html คือเอกสารเต็มพร้อม stylesheet, page ขนาดกระดาษหน่วยไมครอน */

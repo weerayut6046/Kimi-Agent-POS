@@ -63,6 +63,7 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
   if (
     path === "pos.salesHistory" ||
     path === "pos.saleDetail" ||
+    path === "pos.returnSale" ||
     path === "pos.updateSale" ||
     path === "pos.voidSale"
   ) {

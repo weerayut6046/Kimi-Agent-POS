@@ -23,9 +23,25 @@ function required(name: string): string {
   return value ?? "";
 }
 
+export function projectRefFromSupabaseUrl(value: string | undefined): string {
+  if (!value) return "";
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    const suffix = ".supabase.co";
+    if (!hostname.endsWith(suffix)) return "";
+    const projectRef = hostname.slice(0, -suffix.length);
+    return /^[a-z0-9]+$/.test(projectRef) ? projectRef : "";
+  } catch {
+    return "";
+  }
+}
+
 const databaseUrl = runtimeValue("SUPABASE_DB_URL") || required("DATABASE_URL");
+const supabaseUrl = runtimeValue("SUPABASE_URL") ?? "";
 const supabaseProjectRef =
-  runtimeValue("SUPABASE_PROJECT_REF") ||
+  runtimeValue("PUMPPOS_PROJECT_REF")?.trim() ||
+  projectRefFromSupabaseUrl(supabaseUrl) ||
+  runtimeValue("SUPABASE_PROJECT_REF")?.trim() ||
   (() => {
     try {
       return (
@@ -59,7 +75,7 @@ export const env = {
   databaseUrl,
   supabaseProjectRef,
   supabaseUrl:
-    runtimeValue("SUPABASE_URL") ||
+    supabaseUrl ||
     (supabaseProjectRef ? `https://${supabaseProjectRef}.supabase.co` : ""),
   supabasePublishableKey:
     runtimeValue("SUPABASE_PUBLISHABLE_KEY") ||
@@ -73,6 +89,10 @@ export const env = {
   // it avoids an Auth network request while still cryptographically verifying
   // every asymmetric access token.
   supabaseJwks: runtimeValue("SUPABASE_JWKS") ?? "",
+  // Fine-grained Management API token (permission: backups_read) สำหรับอ่าน
+  // สถานะ Managed Backup เท่านั้น ห้ามส่งค่านี้ไป browser หรือใช้ token แบบ write.
+  supabaseManagementAccessToken:
+    runtimeValue("PUMPPOS_MANAGEMENT_ACCESS_TOKEN") ?? "",
   gcsBackupBucket: runtimeValue("GCS_BACKUP_BUCKET") ?? "",
   gcsBackupProjectId: runtimeValue("GCS_BACKUP_PROJECT_ID") ?? "",
   gcsBackupCredentialsBase64:
