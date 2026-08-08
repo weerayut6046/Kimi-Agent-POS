@@ -8,15 +8,21 @@ import {
   type ReactNode,
 } from "react";
 import type { DesktopSyncStatus } from "@contracts/offline";
+import type { DesktopOfflineRecoveryResult } from "@contracts/offline";
+import { currentSupabaseAccessToken } from "@/lib/supabase";
 
 type DesktopSyncContextValue = {
   status: DesktopSyncStatus | null;
   retry: () => Promise<void>;
+  exportRecovery: () => Promise<DesktopOfflineRecoveryResult | null>;
+  importRecovery: () => Promise<DesktopOfflineRecoveryResult | null>;
 };
 
 const DesktopSyncContext = createContext<DesktopSyncContextValue>({
   status: null,
   retry: async () => undefined,
+  exportRecovery: async () => null,
+  importRecovery: async () => null,
 });
 
 export function DesktopSyncProvider({ children }: { children: ReactNode }) {
@@ -44,11 +50,30 @@ export function DesktopSyncProvider({ children }: { children: ReactNode }) {
     setStatus(current =>
       current ? { ...current, syncing: true, lastError: null } : current
     );
-    const next = await window.posDesktop.retrySync();
+    const token = (await currentSupabaseAccessToken()) ?? undefined;
+    const next = await window.posDesktop.retrySync(token);
     setStatus(next);
   }, []);
 
-  const value = useMemo(() => ({ status, retry }), [status, retry]);
+  const exportRecovery = useCallback(async () => {
+    if (!window.posDesktop) return null;
+    return window.posDesktop.exportOfflineRecovery();
+  }, []);
+
+  const importRecovery = useCallback(async () => {
+    if (!window.posDesktop) return null;
+    const result = await window.posDesktop.importOfflineRecovery();
+    if (!result.canceled) {
+      const token = (await currentSupabaseAccessToken()) ?? undefined;
+      setStatus(await window.posDesktop.retrySync(token));
+    }
+    return result;
+  }, []);
+
+  const value = useMemo(
+    () => ({ status, retry, exportRecovery, importRecovery }),
+    [status, retry, exportRecovery, importRecovery]
+  );
   return (
     <DesktopSyncContext.Provider value={value}>
       {children}

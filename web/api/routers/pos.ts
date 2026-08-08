@@ -182,6 +182,10 @@ const shiftHistoryUpdateInput = z
 const shiftHistorySearchInput = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["open", "closed"]).optional(),
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+    .optional(),
   from: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -192,6 +196,28 @@ const shiftHistorySearchInput = z.object({
     .optional(),
   limit: z.number().int().positive().max(500).default(200),
 });
+
+const shiftHistoryListInput = z
+  .object({
+    month: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .optional(),
+    limit: z.number().int().positive().max(500).default(200),
+  })
+  .optional();
+
+function bangkokMonthRange(monthKey?: string) {
+  const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
+  const currentBangkok = new Date(Date.now() + bangkokOffsetMs);
+  const [year, month] = monthKey
+    ? monthKey.split("-").map(Number)
+    : [currentBangkok.getUTCFullYear(), currentBangkok.getUTCMonth() + 1];
+  return {
+    start: new Date(Date.UTC(year!, month! - 1, 1) - bangkokOffsetMs),
+    end: new Date(Date.UTC(year!, month!, 1) - bangkokOffsetMs),
+  };
+}
 
 const historyShifts = alias(shifts, "history_shifts");
 
@@ -899,20 +925,29 @@ export const posRouter = createRouter({
       };
     }),
 
-  shiftHistory: publicQuery.query(async ({ ctx }) => {
-    const db = getDb();
-    const rows = await db
-      .select(shiftHistorySelection)
-      .from(historyShifts)
-      .where(eq(historyShifts.branchId, ctx.staff.branchId))
-      .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
-      .limit(50);
-    return attachShiftLubricantSales(
-      db,
-      ctx.staff.branchId,
-      await attachShiftCashMeter(db, ctx.staff.branchId, rows)
-    );
-  }),
+  shiftHistory: publicQuery
+    .input(shiftHistoryListInput)
+    .query(async ({ input, ctx }) => {
+      const db = getDb();
+      const period = bangkokMonthRange(input?.month);
+      const rows = await db
+        .select(shiftHistorySelection)
+        .from(historyShifts)
+        .where(
+          and(
+            eq(historyShifts.branchId, ctx.staff.branchId),
+            gte(historyShifts.openedAt, period.start),
+            lt(historyShifts.openedAt, period.end)
+          )
+        )
+        .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
+        .limit(input?.limit ?? 200);
+      return attachShiftLubricantSales(
+        db,
+        ctx.staff.branchId,
+        await attachShiftCashMeter(db, ctx.staff.branchId, rows)
+      );
+    }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
   searchShiftHistory: adminQuery
@@ -931,12 +966,16 @@ export const posRouter = createRouter({
         );
       }
       if (input.status) conditions.push(eq(historyShifts.status, input.status));
-      if (input.from) {
+      if (input.month) {
+        const period = bangkokMonthRange(input.month);
+        conditions.push(gte(historyShifts.openedAt, period.start));
+        conditions.push(lt(historyShifts.openedAt, period.end));
+      } else if (input.from) {
         conditions.push(
           gte(historyShifts.openedAt, new Date(`${input.from}T00:00:00`))
         );
       }
-      if (input.to) {
+      if (!input.month && input.to) {
         const exclusiveEnd = new Date(`${input.to}T00:00:00`);
         exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
         conditions.push(lt(historyShifts.openedAt, exclusiveEnd));
@@ -1941,10 +1980,15 @@ export const posRouter = createRouter({
           )
           .min(1)
           .refine(
-            rows => new Set(rows.map(row => row.saleItemId)).size === rows.length,
+            rows =>
+              new Set(rows.map(row => row.saleItemId)).size === rows.length,
             "มีรายการสินค้าซ้ำ กรุณารวมจำนวนก่อนคืน"
           ),
-        reason: z.string().trim().min(3, "กรุณาระบุเหตุผลการคืนสินค้า").max(500),
+        reason: z
+          .string()
+          .trim()
+          .min(3, "กรุณาระบุเหตุผลการคืนสินค้า")
+          .max(500),
         refundMethod: z.enum(["cash", "qr", "card", "credit", "thungngern"]),
       })
     )
@@ -2409,7 +2453,9 @@ export const posRouter = createRouter({
           ),
         });
         if (returnCreatedWhileWaiting)
-          throw new Error("บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้");
+          throw new Error(
+            "บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้"
+          );
         await tx
           .update(sales)
           .set({

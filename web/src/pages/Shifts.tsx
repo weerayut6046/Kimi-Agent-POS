@@ -67,6 +67,7 @@ import {
 } from "@contracts/cash";
 import { normalizeMeterOcrMode } from "@contracts/settings";
 import { assessMeterReading } from "@contracts/meterReconciliation";
+import { bangkokMonthKey } from "@/lib/bangkokMonth";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -78,8 +79,7 @@ type HistoryStatusFilter = "all" | "open" | "closed";
 type HistoryFilters = {
   q: string;
   status: HistoryStatusFilter;
-  from: string;
-  to: string;
+  month: string;
 };
 
 type HistoryForm = {
@@ -113,12 +113,28 @@ type HistoryReadingForm = {
   pricePerLiter: number;
 };
 
-const blankHistoryFilters: HistoryFilters = {
-  q: "",
-  status: "all",
-  from: "",
-  to: "",
-};
+function currentBangkokMonth() {
+  const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
+  return new Date(Date.now() + bangkokOffsetMs).toISOString().slice(0, 7);
+}
+
+function defaultHistoryFilters(): HistoryFilters {
+  return {
+    q: "",
+    status: "all",
+    month: currentBangkokMonth(),
+  };
+}
+
+function historyMonthLabel(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!year || !month) return monthKey;
+  return new Intl.DateTimeFormat("th-TH", {
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Bangkok",
+  }).format(new Date(Date.UTC(year, month - 1, 15)));
+}
 
 function historyCashCountsFromStored(value: unknown): Record<string, string> {
   let parsed: unknown = value;
@@ -746,10 +762,6 @@ export default function Shifts() {
   const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
     enabled: currentShift === null,
   });
-  const { data: publicHistory } = trpc.pos.shiftHistory.useQuery(undefined, {
-    enabled: loadSecondaryData && !isAdmin,
-  });
-
   const [openVals, setOpenVals] = useState<
     Record<number, { l?: string; p?: string }>
   >({});
@@ -761,10 +773,11 @@ export default function Shifts() {
   const [transferVal, setTransferVal] = useState(""); // ยอดเงินที่ลูกค้าโอน
   const [lubricantQty, setLubricantQty] = useState<Record<number, string>>({});
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [historyFilters, setHistoryFilters] =
-    useState<HistoryFilters>(blankHistoryFilters);
+  const [historyFilters, setHistoryFilters] = useState<HistoryFilters>(
+    defaultHistoryFilters
+  );
   const [appliedHistoryFilters, setAppliedHistoryFilters] =
-    useState<HistoryFilters>(blankHistoryFilters);
+    useState<HistoryFilters>(defaultHistoryFilters);
   const [historyForm, setHistoryForm] = useState<HistoryForm | null>(null);
   const [notice, setNotice] = useState("");
   const [err, setErr] = useState("");
@@ -776,8 +789,7 @@ export default function Shifts() {
         appliedHistoryFilters.status === "all"
           ? undefined
           : appliedHistoryFilters.status,
-      from: appliedHistoryFilters.from || undefined,
-      to: appliedHistoryFilters.to || undefined,
+      month: appliedHistoryFilters.month,
       limit: 200,
     }),
     [appliedHistoryFilters]
@@ -786,10 +798,21 @@ export default function Shifts() {
     adminHistoryInput,
     { enabled: loadSecondaryData && isAdmin }
   );
+  const { data: publicHistory } = trpc.pos.shiftHistory.useQuery(
+    { month: appliedHistoryFilters.month, limit: 200 },
+    { enabled: loadSecondaryData && !isAdmin }
+  );
   const { data: staffUsers = [] } = trpc.auth.listStaff.useQuery(undefined, {
     enabled: loadSecondaryData && isAdmin,
   });
-  const history = isAdmin ? adminHistory : publicHistory;
+  const historyResponse = isAdmin ? adminHistory : publicHistory;
+  const history = useMemo(
+    () =>
+      historyResponse?.filter(
+        shift => bangkokMonthKey(shift.openedAt) === appliedHistoryFilters.month
+      ),
+    [appliedHistoryFilters.month, historyResponse]
+  );
 
   const { data: detail } = trpc.pos.shiftDetail.useQuery(
     { id: detailId! },
@@ -1858,77 +1881,84 @@ export default function Shifts() {
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              {isAdmin && (
-                <form
-                  className="grid gap-3 rounded-xl border bg-muted/30 p-3 md:grid-cols-[minmax(180px,1fr)_160px_150px_150px_auto_auto]"
-                  onSubmit={event => {
-                    event.preventDefault();
-                    setAppliedHistoryFilters(historyFilters);
+              <form
+                className={`grid gap-3 rounded-xl border bg-muted/30 p-3 ${
+                  isAdmin
+                    ? "md:grid-cols-[minmax(180px,1fr)_160px_180px_auto_auto]"
+                    : "sm:grid-cols-[minmax(180px,1fr)_auto_auto]"
+                }`}
+                onSubmit={event => {
+                  event.preventDefault();
+                  setAppliedHistoryFilters(historyFilters);
+                }}
+              >
+                {isAdmin && (
+                  <>
+                    <Input
+                      aria-label="ค้นหาประวัติการตัดกะ"
+                      placeholder="ค้นหาชื่อพนักงาน เลขกะ หรือหมายเหตุ"
+                      value={historyFilters.q}
+                      onChange={event =>
+                        setHistoryFilters({
+                          ...historyFilters,
+                          q: event.target.value,
+                        })
+                      }
+                    />
+                    <Select
+                      value={historyFilters.status}
+                      onValueChange={(status: HistoryStatusFilter) =>
+                        setHistoryFilters({ ...historyFilters, status })
+                      }
+                    >
+                      <SelectTrigger aria-label="สถานะกะ">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">ทุกสถานะ</SelectItem>
+                        <SelectItem value="closed">ปิดแล้ว</SelectItem>
+                        <SelectItem value="open">เปิดอยู่</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
+                <div className="space-y-1.5">
+                  <Label htmlFor="shift-history-month" className="sr-only">
+                    เดือนและปี
+                  </Label>
+                  <Input
+                    id="shift-history-month"
+                    aria-label="เลือกเดือนและปีของประวัติการตัดกะ"
+                    type="month"
+                    required
+                    value={historyFilters.month}
+                    onChange={event =>
+                      setHistoryFilters({
+                        ...historyFilters,
+                        month: event.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <Button type="submit" variant="outline">
+                  <Search className="mr-2 h-4 w-4" /> ค้นหา
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    const defaults = defaultHistoryFilters();
+                    setHistoryFilters(defaults);
+                    setAppliedHistoryFilters(defaults);
                   }}
                 >
-                  <Input
-                    aria-label="ค้นหาประวัติการตัดกะ"
-                    placeholder="ค้นหาชื่อพนักงาน เลขกะ หรือหมายเหตุ"
-                    value={historyFilters.q}
-                    onChange={event =>
-                      setHistoryFilters({
-                        ...historyFilters,
-                        q: event.target.value,
-                      })
-                    }
-                  />
-                  <Select
-                    value={historyFilters.status}
-                    onValueChange={(status: HistoryStatusFilter) =>
-                      setHistoryFilters({ ...historyFilters, status })
-                    }
-                  >
-                    <SelectTrigger aria-label="สถานะกะ">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">ทุกสถานะ</SelectItem>
-                      <SelectItem value="closed">ปิดแล้ว</SelectItem>
-                      <SelectItem value="open">เปิดอยู่</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    aria-label="ตั้งแต่วันที่"
-                    type="date"
-                    value={historyFilters.from}
-                    onChange={event =>
-                      setHistoryFilters({
-                        ...historyFilters,
-                        from: event.target.value,
-                      })
-                    }
-                  />
-                  <Input
-                    aria-label="ถึงวันที่"
-                    type="date"
-                    value={historyFilters.to}
-                    onChange={event =>
-                      setHistoryFilters({
-                        ...historyFilters,
-                        to: event.target.value,
-                      })
-                    }
-                  />
-                  <Button type="submit" variant="outline">
-                    <Search className="mr-2 h-4 w-4" /> ค้นหา
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setHistoryFilters(blankHistoryFilters);
-                      setAppliedHistoryFilters(blankHistoryFilters);
-                    }}
-                  >
-                    ล้าง
-                  </Button>
-                </form>
-              )}
+                  เดือนปัจจุบัน
+                </Button>
+              </form>
+              <p className="text-xs text-muted-foreground">
+                กำลังแสดงข้อมูลเดือน{" "}
+                {historyMonthLabel(appliedHistoryFilters.month)}
+              </p>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>

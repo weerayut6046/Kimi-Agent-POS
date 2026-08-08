@@ -36,12 +36,12 @@ PumpPOS production ย้าย backend cloud จาก Railway ไป Supabase 
 
 ตั้งค่าผ่าน Supabase secret manager เท่านั้น ห้าม commit หรือฝังใน frontend:
 
-| Name | Purpose |
-| --- | --- |
-| `APP_ID` | application namespace |
-| `APP_SECRET` | เข้ารหัส secret ของ AI settings; ใช้ random อย่างน้อย 32 bytes |
-| `ALLOWED_ORIGINS` | รายการ origin ที่อนุญาตแบบ exact match |
-| `SUPABASE_PROJECT_REF` | project ref สำหรับลิงก์และ metadata |
+| Name                  | Purpose                                                                       |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `APP_ID`              | application namespace                                                         |
+| `APP_SECRET`          | เข้ารหัส secret ของ AI settings; ใช้ random อย่างน้อย 32 bytes                |
+| `ALLOWED_ORIGINS`     | รายการ origin ที่อนุญาตแบบ exact match                                        |
+| `PUMPPOS_PROJECT_REF` | ไม่จำเป็นสำหรับ Hosted Edge; ตั้งเฉพาะเมื่อ `SUPABASE_URL` เป็น custom domain |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` และ
 `SUPABASE_DB_URL` เป็น runtime secrets ที่ Supabase จัดให้ ห้ามคัดลอกไป

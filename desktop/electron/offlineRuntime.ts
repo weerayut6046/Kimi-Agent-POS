@@ -43,6 +43,15 @@ type PersistedState = {
   lastSyncedAt: string | null;
 };
 
+type OfflineRecoverySnapshot = {
+  kind: "pumppos-offline-sales-recovery";
+  version: 1;
+  exportedAt: string;
+  sourceDeviceId: string;
+  receiptCounter: number;
+  queue: QueuedSale[];
+};
+
 type RuntimeOptions = {
   dataDir: string;
   staticDir: string;
@@ -69,6 +78,54 @@ function newState(): PersistedState {
     queue: [],
     lastSyncedAt: null,
   };
+}
+
+function isQueuedSale(value: unknown): value is QueuedSale {
+  if (!value || typeof value !== "object") return false;
+  const sale = value as Partial<QueuedSale>;
+  return (
+    typeof sale.receiptNo === "string" &&
+    sale.receiptNo.startsWith("OFF-") &&
+    typeof sale.createdAt === "string" &&
+    Number.isFinite(new Date(sale.createdAt).getTime()) &&
+    Boolean(sale.remoteInput) &&
+    typeof sale.remoteInput === "object" &&
+    Boolean(sale.localReceipt) &&
+    typeof sale.localReceipt === "object" &&
+    typeof sale.attempts === "number" &&
+    Number.isInteger(sale.attempts) &&
+    sale.attempts >= 0 &&
+    (sale.lastError === null || typeof sale.lastError === "string") &&
+    (sale.staffToken === undefined || typeof sale.staffToken === "string")
+  );
+}
+
+function parseRecoverySnapshot(serialized: string): OfflineRecoverySnapshot {
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw new Error("ไฟล์กู้ภัยมีรูปแบบไม่ถูกต้อง");
+  }
+  if (!value || typeof value !== "object") {
+    throw new Error("ไฟล์กู้ภัยมีรูปแบบไม่ถูกต้อง");
+  }
+  const snapshot = value as Partial<OfflineRecoverySnapshot>;
+  if (
+    snapshot.kind !== "pumppos-offline-sales-recovery" ||
+    snapshot.version !== 1 ||
+    typeof snapshot.exportedAt !== "string" ||
+    typeof snapshot.sourceDeviceId !== "string" ||
+    typeof snapshot.receiptCounter !== "number" ||
+    !Number.isSafeInteger(snapshot.receiptCounter) ||
+    snapshot.receiptCounter < 0 ||
+    !Array.isArray(snapshot.queue) ||
+    snapshot.queue.length > 10_000 ||
+    !snapshot.queue.every(isQueuedSale)
+  ) {
+    throw new Error("ไฟล์กู้ภัยไม่สมบูรณ์หรือเป็นเวอร์ชันที่ไม่รองรับ");
+  }
+  return snapshot as OfflineRecoverySnapshot;
 }
 
 export function buildOfflineReceipt(
@@ -165,6 +222,47 @@ export class DesktopOfflineRuntime {
     };
   }
 
+  createRecoverySnapshot(): string {
+    if (this.state.queue.length === 0) {
+      throw new Error("ไม่มีบิลออฟไลน์รอซิงก์สำหรับส่งออก");
+    }
+    const snapshot: OfflineRecoverySnapshot = {
+      kind: "pumppos-offline-sales-recovery",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      sourceDeviceId: this.state.deviceId,
+      receiptCounter: this.state.receiptCounter,
+      queue: this.state.queue,
+    };
+    return JSON.stringify(snapshot);
+  }
+
+  importRecoverySnapshot(serialized: string): {
+    importedCount: number;
+    pendingCount: number;
+  } {
+    const snapshot = parseRecoverySnapshot(serialized);
+    const existingReceiptNumbers = new Set(
+      this.state.queue.map(sale => sale.receiptNo)
+    );
+    const imported = snapshot.queue.filter(
+      sale => !existingReceiptNumbers.has(sale.receiptNo)
+    );
+    this.state.queue.push(...imported);
+    if (snapshot.sourceDeviceId === this.state.deviceId) {
+      this.state.receiptCounter = Math.max(
+        this.state.receiptCounter,
+        snapshot.receiptCounter
+      );
+    }
+    this.saveState();
+    this.emitStatus();
+    return {
+      importedCount: imported.length,
+      pendingCount: this.state.queue.length,
+    };
+  }
+
   async start(): Promise<string> {
     if (this.server) throw new Error("Desktop offline server already started");
     this.server = createServer((req, res) => {
@@ -242,7 +340,11 @@ export class DesktopOfflineRuntime {
     }
   }
 
-  async retrySync(): Promise<DesktopSyncStatus> {
+  async retrySync(staffToken?: string): Promise<DesktopSyncStatus> {
+    if (staffToken && this.state.queue.length > 0) {
+      for (const queued of this.state.queue) queued.staffToken = staffToken;
+      this.saveState();
+    }
     await this.syncPending();
     return this.getStatus();
   }

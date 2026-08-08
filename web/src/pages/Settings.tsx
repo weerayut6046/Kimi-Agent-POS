@@ -45,6 +45,8 @@ import {
   KeyRound,
   Wallet,
   BellRing,
+  CheckCircle2,
+  ClipboardCheck,
   Eye,
   EyeOff,
   GripVertical,
@@ -80,6 +82,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Collapsible,
@@ -89,6 +92,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
+import { useDesktopSync } from "@/hooks/useDesktopSync";
 import {
   fmtMoney,
   fmtNum,
@@ -99,6 +103,7 @@ import {
 import {
   createInitialSettingsForm,
   createProductUpdatePatch,
+  resolveManagedBackupHealth,
   staffMutationErrorMessage,
   staffPasswordValidationMessage,
   type EditableProductValues,
@@ -139,6 +144,7 @@ const emptyProduct = {
 const INTERNAL_SETTING_KEYS = new Set([
   "product_display_order",
   "tank_display_order",
+  "backup_restore_drill_v1",
 ]);
 
 function SortableProductRow({
@@ -220,6 +226,71 @@ type BackupSelection = {
   sha256: string;
   trigger: "manual" | "scheduled" | "monthly";
 };
+
+type RestoreDrillCheckKey =
+  "login" | "dashboard" | "shifts" | "sales" | "stock" | "credit" | "audit";
+
+type RestoreDrillForm = {
+  performedAt: string;
+  result: "passed" | "failed";
+  rpoMinutes: string;
+  rtoMinutes: string;
+  targetProject: string;
+  backupReference: string;
+  notes: string;
+  checks: Record<RestoreDrillCheckKey, boolean>;
+};
+
+const RESTORE_DRILL_CHECKS: Array<{
+  key: RestoreDrillCheckKey;
+  label: string;
+}> = [
+  { key: "login", label: "เข้าสู่ระบบ" },
+  { key: "dashboard", label: "Dashboard และยอดรวม" },
+  { key: "shifts", label: "ข้อมูลกะ" },
+  { key: "sales", label: "รายการขาย" },
+  { key: "stock", label: "สต๊อกสินค้าและถังน้ำมัน" },
+  { key: "credit", label: "ลูกหนี้และเครดิต" },
+  { key: "audit", label: "Audit log" },
+];
+
+function dateTimeLocalValue(date = new Date()): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function initialRestoreDrillForm(): RestoreDrillForm {
+  return {
+    performedAt: dateTimeLocalValue(),
+    result: "passed",
+    rpoMinutes: "",
+    rtoMinutes: "",
+    targetProject: "",
+    backupReference: "",
+    notes: "",
+    checks: {
+      login: false,
+      dashboard: false,
+      shifts: false,
+      sales: false,
+      stock: false,
+      credit: false,
+      audit: false,
+    },
+  };
+}
+
+function restoreDrillIsOverdue(
+  performedAt: string | undefined,
+  cadenceDays: number
+): boolean {
+  if (!performedAt) return true;
+  const performed = new Date(performedAt).getTime();
+  return (
+    !Number.isFinite(performed) ||
+    Date.now() - performed > cadenceDays * 24 * 60 * 60 * 1_000
+  );
+}
 
 type AiProvider = "ollama" | "deepseek";
 
@@ -500,6 +571,11 @@ function StaffAccessSelector({
 export default function Settings() {
   const confirmAction = useAppConfirm();
   const { staff } = useStaff();
+  const {
+    status: desktopSyncStatus,
+    exportRecovery,
+    importRecovery,
+  } = useDesktopSync();
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
@@ -631,6 +707,10 @@ export default function Settings() {
   const [deleteBackupTarget, setDeleteBackupTarget] =
     useState<BackupSelection | null>(null);
   const [deleteBackupConfirmation, setDeleteBackupConfirmation] = useState("");
+  const [restoreDrillOpen, setRestoreDrillOpen] = useState(false);
+  const [restoreDrillForm, setRestoreDrillForm] = useState<RestoreDrillForm>(
+    initialRestoreDrillForm
+  );
   const [aiProvider, setAiProvider] = useState<AiProvider>(
     () => aiConfig?.provider ?? "ollama"
   );
@@ -1086,6 +1166,10 @@ export default function Settings() {
   } = trpc.dbadmin.dbInfo.useQuery(undefined, {
     enabled: isAdmin,
   });
+  const managedBackupHealth =
+    dbInfo === undefined
+      ? undefined
+      : resolveManagedBackupHealth(dbInfo.managedBackupHealth);
   const backupNow = trpc.dbadmin.backup.useMutation({
     onSuccess: async result => {
       await refetchDbInfo();
@@ -1103,6 +1187,15 @@ export default function Settings() {
           ? `ลบ ${result.backup.fileName} แล้ว — ${result.backup.warning}`
           : `ลบไฟล์สำรอง ${result.backup.fileName} แล้ว`
       );
+    },
+    onError: e => fail(e.message),
+  });
+  const recordRestoreDrill = trpc.dbadmin.recordRestoreDrill.useMutation({
+    onSuccess: async () => {
+      setRestoreDrillOpen(false);
+      setRestoreDrillForm(initialRestoreDrillForm());
+      await refetchDbInfo();
+      ok("บันทึกหลักฐานการซ้อมกู้คืนแล้ว");
     },
     onError: e => fail(e.message),
   });
@@ -3201,6 +3294,39 @@ Content-Type: application/json
                       กู้คืนย้อนหลังได้{" "}
                       {dbInfo?.supabaseDailyRetentionDays ?? 7} วัน
                     </p>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border bg-background/70 p-2.5">
+                      {managedBackupHealth?.status === "healthy" ? (
+                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                      )}
+                      <div className="min-w-0 text-xs">
+                        <p className="font-medium">
+                          {managedBackupHealth?.status === "healthy"
+                            ? "สถานะปกติ"
+                            : managedBackupHealth?.status === "error"
+                              ? "ตรวจสถานะไม่สำเร็จ"
+                              : managedBackupHealth?.status === "warning"
+                                ? "ต้องตรวจสอบ"
+                                : "ยังไม่ได้ตรวจยืนยัน"}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {managedBackupHealth?.message ??
+                            "กำลังตรวจสอบสถานะ Backup"}
+                        </p>
+                        {managedBackupHealth?.latestBackupAt && (
+                          <p className="mt-1 text-muted-foreground">
+                            ล่าสุด{" "}
+                            {fmtDateTime(managedBackupHealth.latestBackupAt)}
+                          </p>
+                        )}
+                        {managedBackupHealth?.pitrEnabled && (
+                          <Badge variant="outline" className="mt-1.5">
+                            PITR เปิดใช้งาน
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="rounded-lg border bg-muted/20 p-3">
@@ -3210,40 +3336,201 @@ Content-Type: application/json
                       </div>
                       <Badge
                         variant={
-                          dbInfo?.offsiteConfigured ? "default" : "destructive"
+                          dbInfo?.offsiteConfigured
+                            ? "default"
+                            : dbInfo?.offsiteAvailable
+                              ? "destructive"
+                              : "secondary"
                         }
                       >
                         {dbInfo?.offsiteConfigured
                           ? "พร้อมใช้งาน"
-                          : "ยังไม่ตั้งค่า"}
+                          : dbInfo?.offsiteAvailable
+                            ? "ยังไม่ตั้งค่า"
+                            : "ไม่ได้ใช้ใน Edge"}
                       </Badge>
                     </div>
-                    <p className="text-sm">
-                      สำรอง Logical Backup{" "}
-                      {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
-                    </p>
-                    <p className="break-all text-xs text-muted-foreground">
-                      {dbInfo?.offsiteBucket ||
-                        "Private bucket กำลังรอการตั้งค่า"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35} วัน
-                      · รายเดือน {dbInfo?.offsiteMonthlyRetentionDays ?? 370}{" "}
-                      วัน
+                    {dbInfo?.offsiteAvailable !== false ? (
+                      <>
+                        <p className="text-sm">
+                          สำรอง Logical Backup{" "}
+                          {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
+                        </p>
+                        <p className="break-all text-xs text-muted-foreground">
+                          {dbInfo?.offsiteBucket ||
+                            "Private bucket กำลังรอการตั้งค่า"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35}{" "}
+                          วัน · รายเดือน{" "}
+                          {dbInfo?.offsiteMonthlyRetentionDays ?? 370} วัน
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Production ใช้ Supabase Managed Backup โดยตรง หากต้องการ
+                        Off-site copy ต้องรัน worker ภายนอก Edge runtime
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {isDesktop && (
+                  <div className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-blue-950 sm:flex-row sm:items-center dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-100">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">
+                        ไฟล์กู้ภัยบิลออฟไลน์ในเครื่องนี้
+                      </p>
+                      <p className="text-xs opacity-80">
+                        {desktopSyncStatus?.pendingCount
+                          ? `มี ${desktopSyncStatus.pendingCount} บิลรอซิงก์ สามารถส่งออกเป็นไฟล์เข้ารหัสก่อนอัปเดตหรือซ่อมระบบ และนำกลับมาใช้ด้วยบัญชี Windows เดิม`
+                          : "ไม่มีบิลค้าง สามารถนำเข้าไฟล์กู้ภัยเดิมได้เมื่อจำเป็น"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!desktopSyncStatus?.pendingCount}
+                        onClick={() =>
+                          void exportRecovery()
+                            .then(result => {
+                              if (result && !result.canceled) {
+                                ok(`บันทึกไฟล์กู้ภัยแล้ว: ${result.fileName}`);
+                              }
+                            })
+                            .catch(error =>
+                              fail(
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error)
+                              )
+                            )
+                        }
+                      >
+                        <Download className="mr-1.5 size-4" /> ส่งออก
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void importRecovery()
+                            .then(result => {
+                              if (result && !result.canceled) {
+                                ok(
+                                  result.importedCount > 0
+                                    ? `นำเข้า ${result.importedCount} บิลแล้ว ระบบจะซิงก์ให้อัตโนมัติ`
+                                    : "ไฟล์นี้ไม่มีบิลใหม่ที่ต้องนำเข้า"
+                                );
+                              }
+                            })
+                            .catch(error =>
+                              fail(
+                                error instanceof Error
+                                  ? error.message
+                                  : String(error)
+                              )
+                            )
+                        }
+                      >
+                        <History className="mr-1.5 size-4" /> นำเข้า
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/10 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-medium">
+                        <ClipboardCheck className="size-4 text-blue-600" />
+                        Restore drill
+                      </div>
+                      <Badge
+                        variant={
+                          dbInfo?.lastRestoreDrill?.result === "passed" &&
+                          !restoreDrillIsOverdue(
+                            dbInfo.lastRestoreDrill.performedAt,
+                            dbInfo.restoreDrillCadenceDays
+                          )
+                            ? "default"
+                            : "secondary"
+                        }
+                      >
+                        {dbInfo?.lastRestoreDrill
+                          ? restoreDrillIsOverdue(
+                              dbInfo.lastRestoreDrill.performedAt,
+                              dbInfo.restoreDrillCadenceDays
+                            )
+                            ? "เกินกำหนด"
+                            : dbInfo.lastRestoreDrill.result === "passed"
+                              ? "ผ่าน"
+                              : "ไม่ผ่าน"
+                          : "ยังไม่มีหลักฐาน"}
+                      </Badge>
+                    </div>
+                    {dbInfo?.lastRestoreDrill ? (
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p>
+                          ซ้อมล่าสุด{" "}
+                          {fmtDateTime(dbInfo.lastRestoreDrill.performedAt)}
+                        </p>
+                        <p>
+                          RPO {dbInfo.lastRestoreDrill.rpoMinutes} นาที · RTO{" "}
+                          {dbInfo.lastRestoreDrill.rtoMinutes} นาที
+                        </p>
+                        <p className="break-all">
+                          ฐานทดสอบ: {dbInfo.lastRestoreDrill.targetProject}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-amber-700">
+                        ควรซ้อมกู้คืนและบันทึกผลอย่างน้อยทุก{" "}
+                        {dbInfo?.restoreDrillCadenceDays ?? 90} วัน
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                    <div className="flex items-center gap-2 font-medium">
+                      <AlertTriangle className="size-4" />{" "}
+                      ขอบเขตข้อมูลที่ต้องสำรองแยก
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed">
+                      Database Backup ไม่รวมไฟล์จริงใน Supabase Storage
+                      และการตั้งค่า Edge Functions, Auth, Realtime หรือ API keys
+                      ต้องมีสำเนาและ runbook แยกต่างหาก
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {dbInfo?.offsiteAvailable !== false && (
+                    <Button
+                      type="button"
+                      onClick={() => backupNow.mutate()}
+                      disabled={
+                        !dbInfo?.offsiteConfigured || backupNow.isPending
+                      }
+                    >
+                      <Database className="mr-1.5 h-4 w-4" />
+                      {backupNow.isPending
+                        ? "กำลังสำรองข้อมูล..."
+                        : "สำรองข้อมูลตอนนี้"}
+                    </Button>
+                  )}
                   <Button
                     type="button"
-                    onClick={() => backupNow.mutate()}
-                    disabled={!dbInfo?.offsiteConfigured || backupNow.isPending}
+                    variant="outline"
+                    onClick={() => {
+                      setRestoreDrillForm(initialRestoreDrillForm());
+                      setRestoreDrillOpen(true);
+                    }}
                   >
-                    <Database className="mr-1.5 h-4 w-4" />
-                    {backupNow.isPending
-                      ? "กำลังสำรองข้อมูล..."
-                      : "สำรองข้อมูลตอนนี้"}
+                    <ClipboardCheck className="mr-1.5 size-4" />
+                    บันทึกผลซ้อมกู้คืน
                   </Button>
                   <Button
                     type="button"
@@ -3276,114 +3563,118 @@ Content-Type: application/json
                   </p>
                 )}
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium">
-                      ไฟล์สำรองนอกระบบล่าสุด
-                    </p>
-                    <span className="text-xs text-muted-foreground">
-                      ลิงก์ดาวน์โหลดมีอายุ 15 นาที
-                    </span>
-                  </div>
-                  {dbInfo?.backups.length ? (
-                    <div className="overflow-x-auto rounded-lg border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>วันที่สำรอง</TableHead>
-                            <TableHead>ประเภท</TableHead>
-                            <TableHead>ขนาด</TableHead>
-                            <TableHead>SHA-256</TableHead>
-                            <TableHead className="text-right">จัดการ</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {dbInfo.backups.slice(0, 12).map(backup => (
-                            <TableRow key={backup.objectName}>
-                              <TableCell className="whitespace-nowrap text-sm">
-                                {fmtDateTime(backup.createdAt)}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline">
-                                  {backupTriggerLabel(backup.trigger)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="whitespace-nowrap text-sm">
-                                {fmtFileSize(backup.sizeBytes)}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {backup.sha256
-                                  ? `${backup.sha256.slice(0, 12)}…`
-                                  : "—"}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-wrap justify-end gap-1.5">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      void downloadBackup(backup.objectName)
-                                    }
-                                    disabled={
-                                      downloadingBackup === backup.objectName
-                                    }
-                                  >
-                                    <Download className="mr-1 h-3.5 w-3.5" />
-                                    {downloadingBackup === backup.objectName
-                                      ? "กำลังเตรียม..."
-                                      : "ดาวน์โหลด"}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() =>
-                                      setRestoreBackupTarget(backup)
-                                    }
-                                  >
-                                    <History className="mr-1 h-3.5 w-3.5" />
-                                    Restore
-                                  </Button>
-                                  {backup.trigger === "manual" ? (
+                {dbInfo?.offsiteAvailable !== false && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        ไฟล์สำรองนอกระบบล่าสุด
+                      </p>
+                      <span className="text-xs text-muted-foreground">
+                        ลิงก์ดาวน์โหลดมีอายุ 15 นาที
+                      </span>
+                    </div>
+                    {dbInfo?.backups.length ? (
+                      <div className="overflow-x-auto rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>วันที่สำรอง</TableHead>
+                              <TableHead>ประเภท</TableHead>
+                              <TableHead>ขนาด</TableHead>
+                              <TableHead>SHA-256</TableHead>
+                              <TableHead className="text-right">
+                                จัดการ
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {dbInfo.backups.slice(0, 12).map(backup => (
+                              <TableRow key={backup.objectName}>
+                                <TableCell className="whitespace-nowrap text-sm">
+                                  {fmtDateTime(backup.createdAt)}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline">
+                                    {backupTriggerLabel(backup.trigger)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap text-sm">
+                                  {fmtFileSize(backup.sizeBytes)}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {backup.sha256
+                                    ? `${backup.sha256.slice(0, 12)}…`
+                                    : "—"}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap justify-end gap-1.5">
                                     <Button
                                       type="button"
                                       size="sm"
                                       variant="outline"
-                                      className="text-destructive hover:text-destructive"
-                                      title={
-                                        dbInfo.offsiteDeleteEnabled
-                                          ? "ลบ Manual Backup"
-                                          : "ระบบ Cloud ใช้ Supabase Managed Backups"
+                                      onClick={() =>
+                                        void downloadBackup(backup.objectName)
                                       }
-                                      disabled={!dbInfo.offsiteDeleteEnabled}
-                                      onClick={() => {
-                                        setDeleteBackupTarget(backup);
-                                        setDeleteBackupConfirmation("");
-                                      }}
+                                      disabled={
+                                        downloadingBackup === backup.objectName
+                                      }
                                     >
-                                      <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                      ลบ
+                                      <Download className="mr-1 h-3.5 w-3.5" />
+                                      {downloadingBackup === backup.objectName
+                                        ? "กำลังเตรียม..."
+                                        : "ดาวน์โหลด"}
                                     </Button>
-                                  ) : (
-                                    <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
-                                      ลบตาม Lifecycle
-                                    </span>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
-                      “สำรองข้อมูลตอนนี้”
-                    </div>
-                  )}
-                </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() =>
+                                        setRestoreBackupTarget(backup)
+                                      }
+                                    >
+                                      <History className="mr-1 h-3.5 w-3.5" />
+                                      Restore
+                                    </Button>
+                                    {backup.trigger === "manual" ? (
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-destructive hover:text-destructive"
+                                        title={
+                                          dbInfo.offsiteDeleteEnabled
+                                            ? "ลบ Manual Backup"
+                                            : "ระบบ Cloud ใช้ Supabase Managed Backups"
+                                        }
+                                        disabled={!dbInfo.offsiteDeleteEnabled}
+                                        onClick={() => {
+                                          setDeleteBackupTarget(backup);
+                                          setDeleteBackupConfirmation("");
+                                        }}
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        ลบ
+                                      </Button>
+                                    ) : (
+                                      <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
+                                        ลบตาม Lifecycle
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                        ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
+                        “สำรองข้อมูลตอนนี้”
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -3397,6 +3688,227 @@ Content-Type: application/json
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={restoreDrillOpen}
+        onOpenChange={open => {
+          if (!recordRestoreDrill.isPending) setRestoreDrillOpen(open);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="size-5 text-blue-600" />
+              บันทึกผลซ้อมกู้คืนฐานข้อมูล
+            </DialogTitle>
+            <DialogDescription>
+              บันทึกเฉพาะการกู้คืนลง Supabase project ทดสอบ
+              ห้ามใช้ขั้นตอนนี้กู้ทับ production โดยตรง
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="restore-drill-at">วันเวลาที่ซ้อม</Label>
+              <Input
+                id="restore-drill-at"
+                type="datetime-local"
+                value={restoreDrillForm.performedAt}
+                max={dateTimeLocalValue()}
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    performedAt: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>ผลการซ้อม</Label>
+              <Select
+                value={restoreDrillForm.result}
+                disabled={recordRestoreDrill.isPending}
+                onValueChange={value =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    result: value as "passed" | "failed",
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="passed">ผ่าน</SelectItem>
+                  <SelectItem value="failed">ไม่ผ่าน</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="restore-drill-rpo">RPO จริง (นาที)</Label>
+              <Input
+                id="restore-drill-rpo"
+                type="number"
+                min="0"
+                max="10080"
+                value={restoreDrillForm.rpoMinutes}
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    rpoMinutes: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="restore-drill-rto">RTO จริง (นาที)</Label>
+              <Input
+                id="restore-drill-rto"
+                type="number"
+                min="1"
+                max="10080"
+                value={restoreDrillForm.rtoMinutes}
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    rtoMinutes: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="restore-drill-project">
+                Supabase project ทดสอบ
+              </Label>
+              <Input
+                id="restore-drill-project"
+                value={restoreDrillForm.targetProject}
+                placeholder="เช่น restore-drill-20260808"
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    targetProject: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="restore-drill-backup">Backup/Restore point</Label>
+              <Input
+                id="restore-drill-backup"
+                value={restoreDrillForm.backupReference}
+                placeholder="วันที่ เวลา หรือรหัส Backup ที่ใช้"
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    backupReference: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <fieldset className="space-y-2 rounded-lg border p-3 sm:col-span-2">
+              <legend className="px-1 text-sm font-medium">
+                ผลตรวจความถูกต้องหลัง Restore
+              </legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {RESTORE_DRILL_CHECKS.map(item => (
+                  <label
+                    key={item.key}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm"
+                  >
+                    <Checkbox
+                      checked={restoreDrillForm.checks[item.key]}
+                      disabled={recordRestoreDrill.isPending}
+                      onCheckedChange={checked =>
+                        setRestoreDrillForm(current => ({
+                          ...current,
+                          checks: {
+                            ...current.checks,
+                            [item.key]: checked === true,
+                          },
+                        }))
+                      }
+                    />
+                    {item.label}
+                  </label>
+                ))}
+              </div>
+              {restoreDrillForm.result === "passed" &&
+                !Object.values(restoreDrillForm.checks).every(Boolean) && (
+                  <p className="text-xs text-amber-700">
+                    ผล “ผ่าน” ต้องตรวจครบทุกข้อ
+                  </p>
+                )}
+            </fieldset>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="restore-drill-notes">หมายเหตุ</Label>
+              <Textarea
+                id="restore-drill-notes"
+                value={restoreDrillForm.notes}
+                maxLength={1000}
+                placeholder="ปัญหาที่พบ ผลตรวจตัวอย่าง หรือขั้นตอนที่ต้องแก้ไข"
+                disabled={recordRestoreDrill.isPending}
+                onChange={event =>
+                  setRestoreDrillForm(current => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={recordRestoreDrill.isPending}
+              onClick={() => setRestoreDrillOpen(false)}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                recordRestoreDrill.isPending ||
+                !restoreDrillForm.performedAt ||
+                !restoreDrillForm.targetProject.trim() ||
+                !restoreDrillForm.backupReference.trim() ||
+                !Number.isFinite(Number(restoreDrillForm.rpoMinutes)) ||
+                Number(restoreDrillForm.rpoMinutes) < 0 ||
+                !Number.isFinite(Number(restoreDrillForm.rtoMinutes)) ||
+                Number(restoreDrillForm.rtoMinutes) < 1 ||
+                (restoreDrillForm.result === "passed" &&
+                  !Object.values(restoreDrillForm.checks).every(Boolean))
+              }
+              onClick={() =>
+                recordRestoreDrill.mutate({
+                  performedAt: new Date(
+                    restoreDrillForm.performedAt
+                  ).toISOString(),
+                  result: restoreDrillForm.result,
+                  rpoMinutes: Number(restoreDrillForm.rpoMinutes),
+                  rtoMinutes: Number(restoreDrillForm.rtoMinutes),
+                  targetProject: restoreDrillForm.targetProject,
+                  backupReference: restoreDrillForm.backupReference,
+                  notes: restoreDrillForm.notes,
+                  checks: restoreDrillForm.checks,
+                })
+              }
+            >
+              <Save className="mr-1.5 size-4" />
+              {recordRestoreDrill.isPending ? "กำลังบันทึก..." : "บันทึกผล"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Restore ทำได้ผ่านฐานทดสอบเท่านั้น */}
       <Dialog

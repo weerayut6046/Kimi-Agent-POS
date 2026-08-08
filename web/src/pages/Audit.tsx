@@ -98,6 +98,7 @@ const actionLabel: Record<string, string> = {
   delete_staff: "ลบพนักงาน",
   restore_db: "กู้คืนฐานข้อมูล",
   restore_upload: "กู้คืนจากอัปโหลด",
+  record_restore_drill: "บันทึกผลซ้อมกู้คืน",
   create_expense: "เพิ่มค่าใช้จ่าย",
   update_expense: "แก้ค่าใช้จ่าย",
   remove_expense: "ลบค่าใช้จ่าย",

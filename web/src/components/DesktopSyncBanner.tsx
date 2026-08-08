@@ -1,9 +1,10 @@
-import { CloudUpload, RefreshCw, WifiOff } from "lucide-react";
+import { CloudUpload, Download, RefreshCw, WifiOff } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useDesktopSync } from "@/hooks/useDesktopSync";
 
 export function DesktopSyncBanner() {
-  const { status, retry } = useDesktopSync();
+  const { status, retry, exportRecovery } = useDesktopSync();
   if (!status || (status.online && status.pendingCount === 0)) return null;
 
   const offline = !status.online;
@@ -37,6 +38,34 @@ export function DesktopSyncBanner() {
             </span>
           )}
         </div>
+        {status.pendingCount > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={status.syncing}
+            onClick={() =>
+              void exportRecovery()
+                .then(result => {
+                  if (result && !result.canceled) {
+                    toast.success("บันทึกไฟล์กู้ภัยแบบเข้ารหัสแล้ว", {
+                      description: result.fileName ?? undefined,
+                    });
+                  }
+                })
+                .catch(error =>
+                  toast.error("ส่งออกไฟล์กู้ภัยไม่สำเร็จ", {
+                    description:
+                      error instanceof Error ? error.message : String(error),
+                  })
+                )
+            }
+            className="hidden h-8 shrink-0 border-current bg-white/60 sm:inline-flex"
+          >
+            <Download className="mr-1.5 size-3.5" />
+            ไฟล์กู้ภัย
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"

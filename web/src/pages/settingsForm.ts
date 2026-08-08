@@ -5,6 +5,32 @@ export function createInitialSettingsForm(
   return { ...(settingMap ?? {}) };
 }
 
+export type ManagedBackupHealthView = {
+  status: "healthy" | "warning" | "error" | "unverified";
+  message: string;
+  latestBackupAt: Date | string | null;
+  pitrEnabled: boolean | null;
+};
+
+/**
+ * A newly deployed frontend can briefly talk to an older Edge Function whose
+ * dbInfo response does not contain managedBackupHealth yet. Keep Settings
+ * usable during that rolling-deployment window and explain the missing data.
+ */
+export function resolveManagedBackupHealth(
+  health: ManagedBackupHealthView | null | undefined
+): ManagedBackupHealthView {
+  return (
+    health ?? {
+      status: "unverified",
+      message:
+        "API รุ่นนี้ยังไม่ส่งสถานะ Backup กรุณา Deploy Supabase Edge Function รุ่นล่าสุด",
+      latestBackupAt: null,
+      pitrEnabled: null,
+    }
+  );
+}
+
 export const STAFF_PASSWORD_MIN_LENGTH = 10;
 export const STAFF_PASSWORD_MAX_LENGTH = 128;
 
