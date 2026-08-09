@@ -120,6 +120,13 @@
       "when": 1786056256782,
       "tag": "0016_early_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786277978749,
+      "tag": "0017_late_sharon_carter",
+      "breakpoints": true
     }
   ]
 }

@@ -315,6 +315,7 @@ export const products = posSchema
         .references(() => branches.id, { onDelete: "restrict" }),
       code: text("code").notNull(), // GSH95, GSH91, DB7, 2T-xxx
       name: text("name").notNull(),
+      imageUrl: text("image_url"),
       category: text("category", {
         enum: ["fuel", "lubricant", "other"],
       }).notNull(),
