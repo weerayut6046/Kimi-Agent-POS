@@ -1401,6 +1401,100 @@ export const assistantActionProposals = posSchema
   )
   .enableRLS();
 
+// ============ เหตุการณ์ความปลอดภัย (rule-based detection) ============
+export const securityEvents = posSchema
+  .table(
+    "security_events",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      category: text("category", {
+        enum: ["auth", "data_tampering", "permission", "vulnerability", "system"],
+      }).notNull(),
+      severity: text("severity", {
+        enum: ["info", "warning", "critical"],
+      }).notNull(),
+      rule: text("rule").notNull(),
+      title: text("title").notNull().default(""),
+      detail: jsonb("detail")
+        .$type<Record<string, unknown>>()
+        .notNull()
+        .default({}),
+      actorId: integer("actor_id").references(() => staffUsers.id, {
+        onDelete: "set null",
+      }),
+      actorName: text("actor_name").notNull().default(""),
+      status: text("status", {
+        enum: ["new", "acknowledged", "resolved"],
+      })
+        .notNull()
+        .default("new"),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("security_event_branch_idx").on(t.branchId),
+      severityIdx: index("security_event_severity_idx").on(t.severity),
+      statusIdx: index("security_event_status_idx").on(t.status),
+      createdIdx: index("security_event_created_idx").on(t.createdAt),
+    })
+  )
+  .enableRLS();
+
+// ============ ประวัติความพยายาม login (เก็บชั่วคราวเพื่อตรวจ brute force) ============
+export const loginAttempts = posSchema
+  .table(
+    "login_attempts",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      username: text("username").notNull().default(""),
+      success: boolean("success").notNull().default(false),
+      ip: text("ip").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      usernameCreatedIdx: index("login_attempt_username_created_idx").on(
+        t.username,
+        t.createdAt
+      ),
+      ipCreatedIdx: index("login_attempt_ip_created_idx").on(t.ip, t.createdAt),
+    })
+  )
+  .enableRLS();
+
+// ============ รายงานวิเคราะห์ความปลอดภัยจาก AI ============
+export const securityReports = posSchema
+  .table(
+    "security_reports",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      windowDays: integer("window_days").notNull().default(7),
+      eventCount: integer("event_count").notNull().default(0),
+      answer: text("answer").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("security_report_branch_idx").on(t.branchId),
+    })
+  )
+  .enableRLS();
+
 // ============ Types ============
 export type Branch = typeof branches.$inferSelect;
 export type StaffBranch = typeof staffBranches.$inferSelect;
@@ -1434,5 +1528,8 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type AssistantSetting = typeof assistantSettings.$inferSelect;
 export type AssistantActionProposal =
   typeof assistantActionProposals.$inferSelect;
+export type SecurityEvent = typeof securityEvents.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type SecurityReport = typeof securityReports.$inferSelect;
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type PaymentSession = typeof paymentSessions.$inferSelect;

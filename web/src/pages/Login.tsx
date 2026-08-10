@@ -54,6 +54,7 @@ export default function Login() {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const { login } = useStaff();
   const utils = trpc.useUtils();
+  const reportAttempt = trpc.auth.reportLoginAttempt.useMutation();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
   useEffect(() => {
@@ -80,13 +81,21 @@ export default function Login() {
     await login(staff);
   };
 
+  // รายงานความพยายาม login แบบ fire-and-forget — ไม่ส่งรหัสผ่าน
+  // และไม่ขัดขวาง flow/UX การเข้าสู่ระบบ (ล้มเหลวให้เงียบไว้)
+  const reportLoginAttempt = (success: boolean) => {
+    reportAttempt.mutate({ username, success });
+  };
+
   const submitLogin = async () => {
     setError("");
     setIsSubmitting(true);
     preloadAuthenticatedApp();
     try {
       await finishLogin(password);
+      reportLoginAttempt(true);
     } catch (loginError) {
+      reportLoginAttempt(false);
       setError(
         loginError instanceof Error
           ? loginError.message

@@ -51,6 +51,7 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
   if (path.startsWith("reports.")) return "reports";
   if (path.startsWith("taxInvoice.")) return "tax_invoices";
   if (path.startsWith("audit.")) return "audit";
+  if (path.startsWith("security.")) return "security";
   if (path.startsWith("workforce.")) return "workforce";
   if (path.startsWith("stockCount.")) return "stock";
   if (
