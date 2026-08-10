@@ -315,6 +315,7 @@ export const products = posSchema
         .references(() => branches.id, { onDelete: "restrict" }),
       code: text("code").notNull(), // GSH95, GSH91, DB7, 2T-xxx
       name: text("name").notNull(),
+      imageUrl: text("image_url"),
       category: text("category", {
         enum: ["fuel", "lubricant", "other"],
       }).notNull(),
@@ -668,6 +669,16 @@ export const sales = posSchema
         .default(sql`pos.default_branch_id()`)
         .references(() => branches.id, { onDelete: "restrict" }),
       receiptNo: text("receipt_no").notNull(),
+      transactionType: text("transaction_type", {
+        enum: ["sale", "return"],
+      })
+        .notNull()
+        .default("sale"),
+      originalSaleId: integer("original_sale_id").references(
+        (): AnyPgColumn => sales.id,
+        { onDelete: "restrict" }
+      ),
+      returnReason: text("return_reason"),
       shiftId: integer("shift_id").references(() => shifts.id, {
         onDelete: "set null",
       }),
@@ -737,6 +748,10 @@ export const sales = posSchema
       memberIdx: index("sales_member_idx").on(t.memberId),
       customerIdx: index("sales_customer_idx").on(t.customerId),
       statusIdx: index("sales_status_idx").on(t.status),
+      transactionTypeIdx: index("sales_transaction_type_idx").on(
+        t.transactionType
+      ),
+      originalSaleIdx: index("sales_original_sale_idx").on(t.originalSaleId),
     })
   )
   .enableRLS();
@@ -753,6 +768,10 @@ export const saleItems = posSchema
       saleId: integer("sale_id")
         .notNull()
         .references(() => sales.id, { onDelete: "cascade" }),
+      originalSaleItemId: integer("original_sale_item_id").references(
+        (): AnyPgColumn => saleItems.id,
+        { onDelete: "restrict" }
+      ),
       productId: integer("product_id").references(() => products.id, {
         onDelete: "set null",
       }),
@@ -778,6 +797,9 @@ export const saleItems = posSchema
       branchIdx: index("saleitem_branch_idx").on(t.branchId),
       saleIdx: index("sale_idx").on(t.saleId),
       productIdx: index("saleitem_product_idx").on(t.productId),
+      originalSaleItemIdx: index("saleitem_original_item_idx").on(
+        t.originalSaleItemId
+      ),
     })
   )
   .enableRLS();
@@ -1379,6 +1401,100 @@ export const assistantActionProposals = posSchema
   )
   .enableRLS();
 
+// ============ เหตุการณ์ความปลอดภัย (rule-based detection) ============
+export const securityEvents = posSchema
+  .table(
+    "security_events",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      category: text("category", {
+        enum: ["auth", "data_tampering", "permission", "vulnerability", "system"],
+      }).notNull(),
+      severity: text("severity", {
+        enum: ["info", "warning", "critical"],
+      }).notNull(),
+      rule: text("rule").notNull(),
+      title: text("title").notNull().default(""),
+      detail: jsonb("detail")
+        .$type<Record<string, unknown>>()
+        .notNull()
+        .default({}),
+      actorId: integer("actor_id").references(() => staffUsers.id, {
+        onDelete: "set null",
+      }),
+      actorName: text("actor_name").notNull().default(""),
+      status: text("status", {
+        enum: ["new", "acknowledged", "resolved"],
+      })
+        .notNull()
+        .default("new"),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("security_event_branch_idx").on(t.branchId),
+      severityIdx: index("security_event_severity_idx").on(t.severity),
+      statusIdx: index("security_event_status_idx").on(t.status),
+      createdIdx: index("security_event_created_idx").on(t.createdAt),
+    })
+  )
+  .enableRLS();
+
+// ============ ประวัติความพยายาม login (เก็บชั่วคราวเพื่อตรวจ brute force) ============
+export const loginAttempts = posSchema
+  .table(
+    "login_attempts",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      username: text("username").notNull().default(""),
+      success: boolean("success").notNull().default(false),
+      ip: text("ip").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      usernameCreatedIdx: index("login_attempt_username_created_idx").on(
+        t.username,
+        t.createdAt
+      ),
+      ipCreatedIdx: index("login_attempt_ip_created_idx").on(t.ip, t.createdAt),
+    })
+  )
+  .enableRLS();
+
+// ============ รายงานวิเคราะห์ความปลอดภัยจาก AI ============
+export const securityReports = posSchema
+  .table(
+    "security_reports",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      windowDays: integer("window_days").notNull().default(7),
+      eventCount: integer("event_count").notNull().default(0),
+      answer: text("answer").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchIdx: index("security_report_branch_idx").on(t.branchId),
+    })
+  )
+  .enableRLS();
+
 // ============ Types ============
 export type Branch = typeof branches.$inferSelect;
 export type StaffBranch = typeof staffBranches.$inferSelect;
@@ -1412,5 +1528,8 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type AssistantSetting = typeof assistantSettings.$inferSelect;
 export type AssistantActionProposal =
   typeof assistantActionProposals.$inferSelect;
+export type SecurityEvent = typeof securityEvents.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type SecurityReport = typeof securityReports.$inferSelect;
 export type PaymentSetting = typeof paymentSettings.$inferSelect;
 export type PaymentSession = typeof paymentSessions.$inferSelect;

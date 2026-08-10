@@ -25,6 +25,7 @@ const TankReconciliation = lazy(() => import("@/pages/TankReconciliation"));
 const TaxInvoices = lazy(() => import("@/pages/TaxInvoices"));
 const Documents = lazy(() => import("@/pages/Documents"));
 const Audit = lazy(() => import("@/pages/Audit"));
+const Security = lazy(() => import("@/pages/Security"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Workforce = lazy(() => import("@/pages/Workforce"));
 
@@ -226,6 +227,14 @@ export default function App() {
             element={
               <MenuRoute permission="audit">
                 <Audit />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/security"
+            element={
+              <MenuRoute permission="security">
+                <Security />
               </MenuRoute>
             }
           />

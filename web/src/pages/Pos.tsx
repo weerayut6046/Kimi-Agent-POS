@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import {
   Fuel,
@@ -23,12 +24,24 @@ import {
   ArrowRight,
   Sparkles,
   Wallet,
+  ScanBarcode,
+  CloudDownload,
+  Loader2,
+  Globe2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +83,37 @@ import type {
 type CartLine = { product: Product; qty: number };
 
 type ReceiptData = DesktopReceipt;
+
+type ExternalProductCandidate = {
+  provider: "open_facts";
+  providerLabel:
+    | "Open Food Facts"
+    | "Open Beauty Facts"
+    | "Open Pet Food Facts"
+    | "Open Products Facts";
+  barcode: string;
+  name: string;
+  brand: string;
+  quantity: string;
+  productType: "food" | "beauty" | "petfood" | "product" | "unknown";
+  imageUrl: string | null;
+  sourceUrl: string;
+};
+
+type ExternalLookup = {
+  barcode: string;
+  product: ExternalProductCandidate | null;
+};
+
+type ExternalProductDraft = {
+  name: string;
+  category: "lubricant" | "other";
+  unit: string;
+  price: string;
+  cost: string;
+  stockQty: string;
+  lowStockAt: string;
+};
 
 const paymentIcons = {
   cash: Banknote,
@@ -121,6 +165,11 @@ function productTone(code: string, category: string) {
   };
 }
 
+function releasePageFocus() {
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement) activeElement.blur();
+}
+
 export default function Pos() {
   const { staff } = useStaff();
   const { status: syncStatus } = useDesktopSync();
@@ -153,6 +202,18 @@ export default function Pos() {
   const [desktopSalePending, setDesktopSalePending] = useState(false);
   const [thungngernSession, setThungngernSession] =
     useState<ThungngernSession | null>(null);
+  const [barcode, setBarcode] = useState("");
+  const [barcodeLookupPending, setBarcodeLookupPending] = useState(false);
+  const [externalLookup, setExternalLookup] = useState<ExternalLookup | null>(
+    null
+  );
+  const [externalDraft, setExternalDraft] =
+    useState<ExternalProductDraft | null>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const externalProductNameInputRef = useRef<HTMLInputElement>(null);
+  const externalDialogCloseButtonRef = useRef<HTMLButtonElement>(null);
+  const fuelValueInputRef = useRef<HTMLInputElement>(null);
+  const barcodeLookupHandlerRef = useRef<(code: string) => void>(() => {});
 
   const { data: thungngernStatus } = trpc.payments.thungngernStatus.useQuery();
 
@@ -265,6 +326,138 @@ export default function Pos() {
       return [...c, { product: p, qty }];
     });
   };
+
+  const importExternalProduct = trpc.catalog.importExternalProduct.useMutation({
+    onSuccess: product => {
+      utils.catalog.listProducts.setData(undefined, current =>
+        current ? [...current, product] : [product]
+      );
+      setTab(product.category);
+      addToCart(product, 1);
+      setExternalLookup(null);
+      setExternalDraft(null);
+      setBarcode("");
+      void utils.catalog.listProducts.invalidate();
+    },
+  });
+
+  const lookupBarcode = async (rawBarcode: string) => {
+    const code = rawBarcode.trim();
+    if (code.length < 3 || barcodeLookupPending || externalLookup) return;
+    if (!products) {
+      setErr("กำลังโหลดข้อมูลสินค้า กรุณาลองยิงบาร์โค้ดอีกครั้ง");
+      return;
+    }
+
+    const localProduct = products.find(
+      product =>
+        product.code.toLocaleUpperCase("en-US") ===
+        code.toLocaleUpperCase("en-US")
+    );
+    if (localProduct) {
+      if (!localProduct.active) {
+        setErr(
+          `${localProduct.name} ถูกปิดการขาย กรุณาให้ผู้ดูแลเปิดใช้งานสินค้า`
+        );
+        return;
+      }
+      setTab(localProduct.category);
+      setBarcode("");
+      if (localProduct.category === "fuel") {
+        releasePageFocus();
+        setFuelDialog(localProduct);
+        setFuelMode("baht");
+        setFuelValue("");
+      } else {
+        addToCart(localProduct, 1);
+        setTimeout(() => barcodeInputRef.current?.focus(), 0);
+      }
+      return;
+    }
+
+    if (syncStatus?.online === false) {
+      setErr("ไม่พบสินค้าในเครื่อง และต้องออนไลน์เพื่อค้นหาจากฐานภายนอก");
+      return;
+    }
+    if (!/^\d{8,14}$/.test(code)) {
+      setErr("บาร์โค้ดสำหรับค้นหาออนไลน์ต้องเป็นตัวเลข 8–14 หลัก");
+      return;
+    }
+
+    setErr("");
+    setBarcodeLookupPending(true);
+    try {
+      const product = await utils.catalog.searchExternalProduct.fetch({
+        barcode: code,
+      });
+      setExternalDraft(
+        product
+          ? {
+              name: product.name,
+              category: "other",
+              unit: "ชิ้น",
+              price: "",
+              cost: "",
+              stockQty: "1",
+              lowStockAt: "0",
+            }
+          : null
+      );
+      importExternalProduct.reset();
+      releasePageFocus();
+      setExternalLookup({ barcode: code, product });
+    } catch (error) {
+      setErr(
+        error instanceof Error
+          ? error.message
+          : "ค้นหาสินค้าจากฐานภายนอกไม่สำเร็จ"
+      );
+    } finally {
+      setBarcodeLookupPending(false);
+    }
+  };
+
+  useEffect(() => {
+    barcodeLookupHandlerRef.current = code => {
+      void lookupBarcode(code);
+    };
+  });
+
+  // เครื่องยิงบาร์โค้ดทั่วไปส่งตัวอักษรต่อกันอย่างรวดเร็วแล้วปิดท้ายด้วย Enter
+  // จับจากทั้งหน้าเพื่อให้ยิงต่อได้แม้เพิ่งแตะการ์ดสินค้า โดยไม่แย่ง input อื่น
+  useEffect(() => {
+    let buffer = "";
+    let lastKeyAt = 0;
+    const handleScannerKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      if (event.key === "Enter") {
+        if (buffer.length >= 3 && now - lastKeyAt <= 180) {
+          event.preventDefault();
+          const scanned = buffer;
+          buffer = "";
+          barcodeLookupHandlerRef.current(scanned);
+        } else {
+          buffer = "";
+        }
+        return;
+      }
+
+      if (!/^[0-9A-Za-z._-]$/.test(event.key)) return;
+      buffer = now - lastKeyAt <= 100 ? `${buffer}${event.key}` : event.key;
+      lastKeyAt = now;
+    };
+
+    window.addEventListener("keydown", handleScannerKey);
+    return () => window.removeEventListener("keydown", handleScannerKey);
+  }, []);
 
   const setQty = (id: number, qty: number) => {
     const product = productById.get(id);
@@ -534,6 +727,48 @@ export default function Pos() {
           </div>
         </div>
 
+        <form
+          className="rounded-2xl border border-violet-100/80 bg-white/85 p-3 shadow-[0_12px_32px_rgba(49,39,118,0.08)] backdrop-blur-xl"
+          onSubmit={event => {
+            event.preventDefault();
+            void lookupBarcode(barcode);
+          }}
+        >
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <ScanBarcode className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-violet-500" />
+              <Input
+                ref={barcodeInputRef}
+                value={barcode}
+                onChange={event => setBarcode(event.target.value)}
+                autoFocus
+                autoComplete="off"
+                aria-label="ยิงบาร์โค้ดหรือกรอกรหัสสินค้า"
+                placeholder="ยิงบาร์โค้ด หรือพิมพ์รหัสสินค้าแล้วกด Enter"
+                className="h-14 border-slate-200 bg-white pl-11 font-mono text-base shadow-inner focus-visible:ring-violet-500/25"
+              />
+            </div>
+            <Button
+              type="submit"
+              className="h-14 shrink-0 rounded-xl px-4"
+              disabled={
+                !products || barcode.trim().length < 3 || barcodeLookupPending
+              }
+            >
+              {barcodeLookupPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Search className="size-4" />
+              )}
+              <span className="hidden sm:inline">ค้นหา</span>
+            </Button>
+          </div>
+          <p className="mt-2 px-1 text-[11px] text-slate-500">
+            ถ้าไม่พบในสาขา ระบบจะค้นหาจาก Open Food Facts
+            บนอินเทอร์เน็ตให้อัตโนมัติ
+          </p>
+        </form>
+
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="grid h-14 w-full grid-cols-3 rounded-2xl bg-white/70 p-1.5 shadow-[0_12px_30px_rgba(41,34,98,0.08)] ring-1 ring-slate-200/60 backdrop-blur-xl">
             <TabsTrigger value="fuel" className="h-full gap-2">
@@ -568,6 +803,7 @@ export default function Pos() {
                 aria-label={soldOut ? `${p.name} หมดแล้ว` : p.name}
                 onClick={() => {
                   if (p.category === "fuel") {
+                    releasePageFocus();
                     setFuelDialog(p);
                     setFuelMode("baht");
                     setFuelValue("");
@@ -585,9 +821,18 @@ export default function Pos() {
                 />
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div
-                    className={`relative grid size-10 place-items-center rounded-xl shadow-inner ring-1 ring-white transition-all duration-300 group-hover:-rotate-6 group-hover:scale-110 ${tone.icon}`}
+                    className={`relative grid size-10 place-items-center overflow-hidden rounded-xl shadow-inner ring-1 ring-white transition-all duration-300 group-hover:-rotate-6 group-hover:scale-110 ${tone.icon}`}
                   >
-                    {p.category === "fuel" ? (
+                    {p.imageUrl ? (
+                      <img
+                        src={p.imageUrl}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="size-full bg-white object-contain"
+                      />
+                    ) : p.category === "fuel" ? (
                       <Fuel className="size-[18px]" />
                     ) : (
                       <Package className="size-[18px]" />
@@ -1141,36 +1386,380 @@ export default function Pos() {
                 {cartPanel}
               </SheetContent>
             </Sheet>
-            {cart.length > 0 && !mobileCartOpen && (
-              <Button
-                type="button"
-                onClick={() => setMobileCartOpen(true)}
-                className="fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-4 text-white shadow-[0_18px_42px_rgba(65,49,175,0.35)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500 lg:hidden"
-                aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
-              >
-                <span className="flex items-center gap-2">
-                  <span className="relative grid size-9 place-items-center rounded-xl bg-white/10">
-                    <ShoppingBasket className="size-5" />
-                    <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 text-white">
-                      {cart.length}
+            {cart.length > 0 &&
+              !mobileCartOpen &&
+              createPortal(
+                <Button
+                  type="button"
+                  onClick={() => setMobileCartOpen(true)}
+                  className="mobile-pos-cart-trigger fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-4 text-white shadow-[0_18px_42px_rgba(65,49,175,0.35)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500 lg:hidden"
+                  aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="relative grid size-9 place-items-center rounded-xl bg-white/10">
+                      <ShoppingBasket className="size-5" />
+                      <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] leading-4 text-white">
+                        {cart.length}
+                      </span>
                     </span>
+                    ดูรายการขาย
                   </span>
-                  ดูรายการขาย
-                </span>
-                <span className="flex items-center gap-2 font-heading text-base number-display">
-                  ฿{fmtMoney(total)} <ArrowRight className="size-4" />
-                </span>
-              </Button>
-            )}
+                  <span className="flex items-center gap-2 font-heading text-base number-display">
+                    ฿{fmtMoney(total)} <ArrowRight className="size-4" />
+                  </span>
+                </Button>,
+                document.body
+              )}
           </>
         );
       })()}
+
+      {/* ผลค้นหาสินค้าจากฐานข้อมูลภายนอก */}
+      <Dialog
+        open={!!externalLookup}
+        onOpenChange={open => {
+          if (!open) {
+            setExternalLookup(null);
+            setExternalDraft(null);
+            importExternalProduct.reset();
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-lg gap-0 overflow-hidden p-0"
+          aria-describedby={undefined}
+          onOpenAutoFocus={event => {
+            event.preventDefault();
+            (
+              externalProductNameInputRef.current ??
+              externalDialogCloseButtonRef.current
+            )?.focus();
+          }}
+          onCloseAutoFocus={event => {
+            event.preventDefault();
+            barcodeInputRef.current?.focus();
+          }}
+        >
+          <DialogHeader className="bg-gradient-to-br from-[#17143a] via-[#282263] to-[#15505d] px-6 py-5 text-left text-white">
+            <div className="flex items-center gap-3">
+              <div className="grid size-11 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/15">
+                <Globe2 className="size-5 text-cyan-200" />
+              </div>
+              <div>
+                <DialogTitle className="font-heading text-lg text-white">
+                  ผลค้นหาจากอินเทอร์เน็ต
+                </DialogTitle>
+                <p className="mt-0.5 font-mono text-xs text-white/55">
+                  บาร์โค้ด {externalLookup?.barcode}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="max-h-[65vh] space-y-4 overflow-y-auto bg-slate-50 p-5">
+            {externalLookup?.product && externalDraft ? (
+              <>
+                <div className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  {externalLookup.product.imageUrl ? (
+                    <img
+                      src={externalLookup.product.imageUrl}
+                      alt={externalLookup.product.name}
+                      className="size-20 shrink-0 rounded-xl bg-white object-contain ring-1 ring-slate-200"
+                    />
+                  ) : (
+                    <div className="grid size-20 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-400 ring-1 ring-slate-200">
+                      <Package className="size-7" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold leading-snug text-slate-900">
+                      {externalLookup.product.name}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-500">
+                      {externalLookup.product.brand && (
+                        <span>{externalLookup.product.brand}</span>
+                      )}
+                      {externalLookup.product.quantity && (
+                        <span>· {externalLookup.product.quantity}</span>
+                      )}
+                    </div>
+                    <a
+                      href={externalLookup.product.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-violet-700 hover:underline"
+                    >
+                      ข้อมูลจาก {externalLookup.product.providerLabel}
+                      <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label
+                      htmlFor="external-product-name"
+                      className="text-xs font-semibold text-slate-600"
+                    >
+                      ชื่อสินค้า
+                    </label>
+                    <Input
+                      ref={externalProductNameInputRef}
+                      id="external-product-name"
+                      value={externalDraft.name}
+                      onChange={event =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          name: event.target.value,
+                        })
+                      }
+                      className="h-11 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-600">
+                      หมวดสินค้า
+                    </label>
+                    <Select
+                      value={externalDraft.category}
+                      onValueChange={value =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          category: value as "lubricant" | "other",
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-11 w-full bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="other">สินค้าอื่น</SelectItem>
+                        <SelectItem value="lubricant">
+                          2T / น้ำมันเครื่อง
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="external-product-unit"
+                      className="text-xs font-semibold text-slate-600"
+                    >
+                      หน่วยนับ
+                    </label>
+                    <Input
+                      id="external-product-unit"
+                      value={externalDraft.unit}
+                      onChange={event =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          unit: event.target.value,
+                        })
+                      }
+                      className="h-11 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="external-product-price"
+                      className="text-xs font-semibold text-slate-600"
+                    >
+                      ราคาขาย
+                    </label>
+                    <Input
+                      id="external-product-price"
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      value={externalDraft.price}
+                      onChange={event =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          price: event.target.value,
+                        })
+                      }
+                      placeholder="0.00"
+                      className="h-11 bg-white text-right number-display"
+                    />
+                  </div>
+
+                  {staff?.role !== "cashier" && (
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="external-product-cost"
+                        className="text-xs font-semibold text-slate-600"
+                      >
+                        ต้นทุน
+                      </label>
+                      <Input
+                        id="external-product-cost"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={externalDraft.cost}
+                        onChange={event =>
+                          setExternalDraft({
+                            ...externalDraft,
+                            cost: event.target.value,
+                          })
+                        }
+                        placeholder="0.00"
+                        className="h-11 bg-white text-right number-display"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="external-product-stock"
+                      className="text-xs font-semibold text-slate-600"
+                    >
+                      สต๊อกเริ่มต้น
+                    </label>
+                    <Input
+                      id="external-product-stock"
+                      type="number"
+                      min={1}
+                      step="1"
+                      value={externalDraft.stockQty}
+                      onChange={event =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          stockQty: event.target.value,
+                        })
+                      }
+                      className="h-11 bg-white text-right number-display"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="external-product-low-stock"
+                      className="text-xs font-semibold text-slate-600"
+                    >
+                      แจ้งเตือนเมื่อต่ำกว่า
+                    </label>
+                    <Input
+                      id="external-product-low-stock"
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={externalDraft.lowStockAt}
+                      onChange={event =>
+                        setExternalDraft({
+                          ...externalDraft,
+                          lowStockAt: event.target.value,
+                        })
+                      }
+                      className="h-11 bg-white text-right number-display"
+                    />
+                  </div>
+                </div>
+
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+                  ข้อมูลภายนอกอาจจัดทำโดยผู้ใช้ กรุณาตรวจสอบชื่อและขนาดสินค้า
+                  ก่อนบันทึก ข้อมูล Open Food Facts ใช้ภายใต้ ODbL
+                  และรูปภาพใช้ภายใต้ CC BY-SA
+                </p>
+
+                <Button
+                  type="button"
+                  className="h-12 w-full rounded-xl"
+                  disabled={
+                    importExternalProduct.isPending ||
+                    !externalDraft.name.trim() ||
+                    !externalDraft.unit.trim() ||
+                    Number(externalDraft.price) < 0.01 ||
+                    Number(externalDraft.cost || 0) < 0 ||
+                    Number(externalDraft.stockQty) < 1 ||
+                    Number(externalDraft.lowStockAt || 0) < 0
+                  }
+                  onClick={() =>
+                    importExternalProduct.mutate({
+                      barcode: externalLookup.barcode,
+                      name: externalDraft.name,
+                      category: externalDraft.category,
+                      unit: externalDraft.unit,
+                      price: Number(externalDraft.price),
+                      cost:
+                        staff?.role === "cashier"
+                          ? 0
+                          : Number(externalDraft.cost) || 0,
+                      stockQty: Number(externalDraft.stockQty),
+                      lowStockAt: Number(externalDraft.lowStockAt) || 0,
+                      imageUrl: externalLookup.product?.imageUrl ?? null,
+                    })
+                  }
+                >
+                  {importExternalProduct.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <CloudDownload className="size-4" />
+                  )}
+                  เพิ่มเข้าร้านและใส่ตะกร้า
+                </Button>
+              </>
+            ) : (
+              <div className="py-8 text-center">
+                <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-slate-200 text-slate-500">
+                  <Package className="size-6" />
+                </div>
+                <h3 className="mt-4 font-semibold text-slate-800">
+                  ไม่พบสินค้านี้ใน Open Food Facts
+                </h3>
+                <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-slate-500">
+                  กรุณาตรวจสอบบาร์โค้ด
+                  หรือให้ผู้ดูแลเพิ่มสินค้าใหม่จากหน้าตั้งค่า
+                </p>
+              </div>
+            )}
+
+            {importExternalProduct.error && (
+              <div
+                role="alert"
+                className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                {importExternalProduct.error.message}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-slate-200 bg-white p-4">
+            <Button
+              ref={externalDialogCloseButtonRef}
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setExternalLookup(null);
+                setExternalDraft(null);
+                importExternalProduct.reset();
+              }}
+              disabled={importExternalProduct.isPending}
+            >
+              ปิด
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog เติมน้ำมัน */}
       <Dialog open={!!fuelDialog} onOpenChange={o => !o && setFuelDialog(null)}>
         <DialogContent
           className="max-w-md gap-0 overflow-hidden p-0"
           aria-describedby={undefined}
+          onOpenAutoFocus={event => {
+            event.preventDefault();
+            fuelValueInputRef.current?.focus();
+          }}
+          onCloseAutoFocus={event => {
+            event.preventDefault();
+            barcodeInputRef.current?.focus();
+          }}
         >
           <DialogHeader>
             <div className="relative overflow-hidden border-b border-white/10 bg-gradient-to-br from-[#17143a] via-[#282263] to-[#15505d] px-6 py-5 text-white">
@@ -1235,11 +1824,11 @@ export default function Pos() {
                 {fuelMode === "baht" ? "จำนวนเงิน (บาท)" : "ปริมาณ (ลิตร)"}
               </label>
               <Input
+                ref={fuelValueInputRef}
                 id="fuel-value"
                 type="number"
                 min={0}
                 step="0.01"
-                autoFocus
                 placeholder="0.00"
                 value={fuelValue}
                 onChange={e => setFuelValue(e.target.value)}

@@ -149,4 +149,66 @@ describe("buildOfflineReceipt", () => {
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });
+
+  it("ส่งออกและนำเข้าคิวกู้ภัยโดยไม่สร้างบิลซ้ำ", async () => {
+    const sourceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "pos-offline-source-")
+    );
+    const targetDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "pos-offline-target-")
+    );
+    try {
+      const request: DesktopSaleRequest = {
+        input: {
+          staffName: "พนักงานทดสอบ",
+          items: [{ productId: 1, qty: 1 }],
+          discount: 0,
+          paymentMethod: "cash",
+          received: 20,
+          pointsToRedeem: 0,
+        },
+        lines: [
+          {
+            productId: 1,
+            name: "น้ำดื่ม",
+            unit: "ขวด",
+            unitPrice: 10,
+            category: "other",
+            qty: 1,
+          },
+        ],
+        context: {
+          vatRate: 7,
+          pointEarnPerBaht: 25,
+          pointRedeemValue: 1,
+          memberName: null,
+          customerName: null,
+        },
+      };
+      const source = new DesktopOfflineRuntime({
+        dataDir: sourceDir,
+        staticDir: sourceDir,
+        remoteOrigin: "http://127.0.0.1:1",
+      });
+      await source.createSale(request);
+      const snapshot = source.createRecoverySnapshot();
+
+      const target = new DesktopOfflineRuntime({
+        dataDir: targetDir,
+        staticDir: targetDir,
+        remoteOrigin: "http://127.0.0.1:1",
+      });
+      expect(target.importRecoverySnapshot(snapshot)).toEqual({
+        importedCount: 1,
+        pendingCount: 1,
+      });
+      expect(target.importRecoverySnapshot(snapshot)).toEqual({
+        importedCount: 0,
+        pendingCount: 1,
+      });
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
 });

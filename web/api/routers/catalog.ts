@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, ne, sql } from "drizzle-orm";
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { lookupExternalProduct } from "../lib/externalProductLookup";
+import { persistExternalProductImage } from "../lib/productImageStorage";
 import { mergeSettingDefaults } from "@contracts/settings";
 import { getLanUrls, isPublicCloudRuntime } from "../lib/lan";
 import {
@@ -38,6 +40,14 @@ function parseDisplayOrder(value: string | null | undefined): number[] {
   } catch {
     return [];
   }
+}
+
+function duplicateProductError(active: boolean): Error {
+  return new Error(
+    active
+      ? "สินค้านี้มีอยู่ในสาขาแล้ว กรุณายิงบาร์โค้ดอีกครั้ง"
+      : "สินค้านี้มีอยู่แล้วแต่ถูกปิดการขาย กรุณาให้ผู้ดูแลเปิดใช้งาน"
+  );
 }
 
 export const catalogRouter = createRouter({
@@ -77,6 +87,100 @@ export const catalogRouter = createRouter({
       ? rows.map(product => ({ ...product, cost: 0 }))
       : rows;
   }),
+
+  searchExternalProduct: publicQuery
+    .input(
+      z.object({
+        barcode: z
+          .string()
+          .trim()
+          .regex(/^\d{8,14}$/, {
+            message: "บาร์โค้ดสำหรับค้นหาออนไลน์ต้องเป็นตัวเลข 8–14 หลัก",
+          }),
+      })
+    )
+    .query(({ input }) => lookupExternalProduct(input.barcode)),
+
+  importExternalProduct: publicQuery
+    .input(
+      z.object({
+        barcode: z
+          .string()
+          .trim()
+          .regex(/^\d{8,14}$/),
+        name: z.string().trim().min(1).max(200),
+        category: z.enum(["lubricant", "other"]).default("other"),
+        unit: z.string().trim().min(1).max(30).default("ชิ้น"),
+        price: z.number().min(0.01).max(10_000_000),
+        cost: z.number().nonnegative().max(10_000_000).default(0),
+        stockQty: z.number().min(1).max(1_000_000),
+        lowStockAt: z.number().nonnegative().max(1_000_000).default(0),
+        imageUrl: z.string().url().max(2_048).nullable().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const existingBeforeUpload = await db.query.products.findFirst({
+        where: and(
+          eq(products.branchId, ctx.staff.branchId),
+          ilike(products.code, input.barcode)
+        ),
+        columns: { active: true },
+      });
+      if (existingBeforeUpload) {
+        throw duplicateProductError(existingBeforeUpload.active);
+      }
+
+      // Download outside the DB transaction so a slow image host never keeps
+      // row/table locks open. The helper falls back to the validated source URL.
+      const imageUrl = await persistExternalProductImage({
+        imageUrl: input.imageUrl,
+        branchId: ctx.staff.branchId,
+        barcode: input.barcode,
+      });
+      const created = await db.transaction(async tx => {
+        const existing = await tx.query.products.findFirst({
+          where: and(
+            eq(products.branchId, ctx.staff.branchId),
+            ilike(products.code, input.barcode)
+          ),
+          columns: { id: true, active: true },
+        });
+        if (existing) {
+          throw duplicateProductError(existing.active);
+        }
+
+        const [inserted] = await tx
+          .insert(products)
+          .values({
+            branchId: ctx.staff.branchId,
+            code: input.barcode,
+            name: input.name,
+            imageUrl,
+            category: input.category,
+            unit: input.unit,
+            price: input.price,
+            cost: ctx.staff.role === "cashier" ? 0 : input.cost,
+            stockQty: input.stockQty,
+            lowStockAt: input.lowStockAt,
+            active: true,
+          })
+          .returning();
+        if (!inserted) throw new Error("เพิ่มสินค้าเข้าระบบไม่สำเร็จ");
+        return inserted;
+      });
+
+      const actor = actorFromReq(ctx.req);
+      logAudit({
+        action: "import_product_from_external_catalog",
+        ...actor,
+        detail: `เพิ่มสินค้าจาก Open Facts ${created.code} ${created.name} ราคา ${created.price.toFixed(2)} บาท สต๊อกเริ่มต้น ${input.stockQty} ${created.unit}`,
+        refType: "product",
+        refId: created.id,
+      });
+
+      return ctx.staff.role === "cashier" ? { ...created, cost: 0 } : created;
+    }),
 
   reorderProducts: adminQuery
     .input(

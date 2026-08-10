@@ -18,6 +18,10 @@ describe("dbadmin backup policy", () => {
     expect(info.provider).toBe("supabase");
     expect(info.supabasePlan).toBe("Pro");
     expect(info.supabaseDailyRetentionDays).toBe(7);
+    expect(info.backupMode).toBe("managed-only");
+    expect(info.managedBackupHealth.status).toBe("unverified");
+    expect(info.storageObjectsIncluded).toBe(false);
+    expect(info.offsiteAvailable).toBe(true);
     expect(info.offsiteConfigured).toBe(false);
     expect(info.offsiteDeleteEnabled).toBe(false);
     expect(info.backups).toEqual([]);
@@ -25,6 +29,65 @@ describe("dbadmin backup policy", () => {
     await expect(t.caller("cashier").dbadmin.dbInfo()).rejects.toThrow(
       "สิทธิ์ไม่เพียงพอ"
     );
+  });
+
+  it("บันทึกหลักฐาน restore drill และบังคับ checklist เมื่อระบุว่าผ่าน", async () => {
+    const performedAt = new Date(Date.now() - 60 * 60 * 1_000).toISOString();
+    const checks = {
+      login: true,
+      dashboard: true,
+      shifts: true,
+      sales: true,
+      stock: true,
+      credit: true,
+      audit: true,
+    };
+    const result = await t.caller("admin").dbadmin.recordRestoreDrill({
+      performedAt,
+      result: "passed",
+      rpoMinutes: 20,
+      rtoMinutes: 45,
+      targetProject: "restore-drill-20260808",
+      backupReference: "Supabase daily 2026-08-08",
+      notes: "ตรวจยอดขายและสต๊อกตัวอย่างแล้ว",
+      checks,
+    });
+
+    expect(result.record.result).toBe("passed");
+    const info = await t.caller("admin").dbadmin.dbInfo();
+    expect(info.lastRestoreDrill).toMatchObject({
+      result: "passed",
+      rpoMinutes: 20,
+      rtoMinutes: 45,
+      targetProject: "restore-drill-20260808",
+      checks,
+    });
+
+    await expect(
+      t.caller("admin").dbadmin.recordRestoreDrill({
+        performedAt,
+        result: "passed",
+        rpoMinutes: 20,
+        rtoMinutes: 45,
+        targetProject: "restore-drill-incomplete",
+        backupReference: "backup-1",
+        notes: "",
+        checks: { ...checks, audit: false },
+      })
+    ).rejects.toThrow("รายการสำคัญครบทุกข้อ");
+
+    await expect(
+      t.caller("cashier").dbadmin.recordRestoreDrill({
+        performedAt,
+        result: "failed",
+        rpoMinutes: 20,
+        rtoMinutes: 45,
+        targetProject: "restore-drill-denied",
+        backupReference: "backup-1",
+        notes: "",
+        checks: { ...checks, audit: false },
+      })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
   });
 
   it("ไม่อนุญาตให้กู้คืนทับ production", async () => {

@@ -17,6 +17,7 @@ export const MENU_PERMISSION_KEYS = [
   "tax_invoices",
   "documents",
   "audit",
+  "security",
   "settings",
 ] as const;
 
@@ -78,6 +79,12 @@ export const MENU_PERMISSION_DEFINITIONS: readonly MenuPermissionDefinition[] =
     },
     { key: "audit", path: "/audit", label: "บันทึกการใช้งาน", group: "system" },
     {
+      key: "security",
+      path: "/security",
+      label: "ความปลอดภัย",
+      group: "system",
+    },
+    {
       key: "settings",
       path: "/settings",
       label: "ตั้งค่าระบบ",
@@ -95,9 +102,11 @@ export const MENU_PERMISSION_GROUP_LABELS: Record<MenuPermissionGroup, string> =
 
 const ROLE_MENU_KEYS: Record<StaffRole, readonly MenuPermissionKey[]> = {
   admin: MENU_PERMISSION_KEYS,
-  manager: MENU_PERMISSION_KEYS.filter(key => key !== "audit"),
+  manager: MENU_PERMISSION_KEYS.filter(
+    key => key !== "audit" && key !== "security"
+  ),
   cashier: MENU_PERMISSION_KEYS.filter(
-    key => key !== "documents" && key !== "audit"
+    key => key !== "documents" && key !== "audit" && key !== "security"
   ),
 };
 

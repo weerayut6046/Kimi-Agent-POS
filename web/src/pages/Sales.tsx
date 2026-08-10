@@ -12,6 +12,7 @@ import {
   Pencil,
   Trash2,
   UserRound,
+  RotateCcw,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,7 @@ import { useStaff } from "@/hooks/useStaff";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printReceiptElement, parseReceiptPaper } from "@/lib/printDoc";
-import { fmtMoney, fmtDateTime, paymentLabel } from "@/lib/format";
+import { fmtMoney, fmtNum, fmtDateTime, paymentLabel } from "@/lib/format";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -66,6 +67,8 @@ type SaleRow = {
   discount: number;
   total: number;
   status: "completed" | "voided";
+  transactionType: "sale" | "return";
+  returnStatus: "none" | "partial" | "full";
 };
 
 export default function Sales() {
@@ -96,6 +99,7 @@ export default function Sales() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [editSale, setEditSale] = useState<SaleRow | null>(null);
+  const [returnSaleId, setReturnSaleId] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [err, setErr] = useState("");
 
@@ -199,7 +203,12 @@ export default function Sales() {
                   className={s.status === "voided" ? "opacity-50" : ""}
                 >
                   <TableCell className="font-mono text-xs">
-                    {s.receiptNo}
+                    <div>{s.receiptNo}</div>
+                    {s.transactionType === "return" && s.originalReceiptNo && (
+                      <div className="mt-0.5 font-sans text-[10px] text-muted-foreground">
+                        อ้างอิง {s.originalReceiptNo}
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {fmtDateTime(s.createdAt)}
@@ -213,6 +222,12 @@ export default function Sales() {
                   <TableCell>
                     {s.status === "voided" ? (
                       <Badge variant="destructive">ยกเลิก</Badge>
+                    ) : s.transactionType === "return" ? (
+                      <Badge variant="outline">คืนสินค้า</Badge>
+                    ) : s.returnStatus === "full" ? (
+                      <Badge variant="secondary">คืนครบแล้ว</Badge>
+                    ) : s.returnStatus === "partial" ? (
+                      <Badge variant="secondary">คืนบางส่วน</Badge>
                     ) : (
                       <Badge variant="secondary">สำเร็จ</Badge>
                     )}
@@ -227,7 +242,11 @@ export default function Sales() {
                       >
                         <Eye className="w-4 h-4" />
                       </Button>
-                      {canManage && s.status === "completed" && (
+                      {canManage &&
+                        s.status === "completed" &&
+                        s.transactionType !== "return" &&
+                        s.returnStatus !== "partial" &&
+                        s.returnStatus !== "full" && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -295,10 +314,14 @@ export default function Sales() {
                   </span>
                 </div>
                 <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
-                  ใบเสร็จ {detail?.sale.receiptNo}
+                  {detail?.sale.transactionType === "return"
+                    ? `เอกสารคืนสินค้า ${detail.sale.receiptNo}`
+                    : `ใบเสร็จ ${detail?.sale.receiptNo}`}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  ตรวจสอบรายละเอียดใบเสร็จ พิมพ์ซ้ำ หรือออกใบกำกับภาษีเต็มรูป
+                  {detail?.sale.transactionType === "return"
+                    ? `อ้างอิงบิล ${detail.originalSale?.receiptNo ?? "-"}`
+                    : "ตรวจสอบรายละเอียดใบเสร็จ พิมพ์ซ้ำ หรือคืนสินค้าในบิล"}
                 </DialogDescription>
               </div>
             </div>
@@ -314,6 +337,7 @@ export default function Sales() {
                           ...detail.sale,
                           memberName: detail.memberName,
                           customerName: detail.customerName,
+                          originalReceiptNo: detail.originalSale?.receiptNo,
                         }}
                         items={detail.items}
                         settingMap={settingMap}
@@ -324,7 +348,7 @@ export default function Sales() {
                   </div>
                 </section>
               </div>
-              <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
+              <DialogFooter className="shrink-0 flex-wrap border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -338,7 +362,8 @@ export default function Sales() {
                 >
                   <Printer className="w-4 h-4 mr-2" /> พิมพ์
                 </Button>
-                {detail.sale.status === "completed" && (
+                {detail.sale.status === "completed" &&
+                  detail.sale.transactionType !== "return" && (
                   <Button
                     variant="outline"
                     onClick={() => setTaxSaleId(detail.sale.id)}
@@ -346,6 +371,18 @@ export default function Sales() {
                     <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
                   </Button>
                 )}
+                {detail.sale.status === "completed" &&
+                  detail.sale.transactionType !== "return" &&
+                  canManage &&
+                  detail.returnStatus !== "full" &&
+                  detail.items.some(item => item.qty > 0) && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setReturnSaleId(detail.sale.id)}
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" /> คืนสินค้า
+                    </Button>
+                  )}
                 {detail.sale.status === "completed" && isAdmin && (
                   <Button
                     variant="destructive"
@@ -353,7 +390,9 @@ export default function Sales() {
                     onClick={async () => {
                       if (
                         await confirmAction(
-                          "ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)"
+                          detail.sale.transactionType === "return"
+                            ? "ยืนยันยกเลิกเอกสารคืนสินค้านี้? (ระบบจะหักสต๊อกและย้อนแต้มกลับ)"
+                            : "ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)"
                         )
                       ) {
                         voidMut.mutate({ id: detail.sale.id });
@@ -380,6 +419,18 @@ export default function Sales() {
         />
       )}
 
+      {returnSaleId != null && (
+        <ReturnSaleDialog
+          saleId={returnSaleId}
+          onClose={() => setReturnSaleId(null)}
+          onReturned={returnReceiptId => {
+            invalidate();
+            setReturnSaleId(null);
+            setDetailId(returnReceiptId);
+          }}
+        />
+      )}
+
       {/* เพิ่มบิลย้อนหลัง (admin/manager) */}
       {addOpen && (
         <AddSaleDialog
@@ -395,6 +446,291 @@ export default function Sales() {
       {/* ใบกำกับภาษีเต็มรูป */}
       <TaxInvoiceDialog saleId={taxSaleId} onClose={() => setTaxSaleId(null)} />
     </div>
+  );
+}
+
+// ============ คืนสินค้าบางรายการโดยอ้างอิงบิลเดิม ============
+function ReturnSaleDialog({
+  saleId,
+  onClose,
+  onReturned,
+}: {
+  saleId: number;
+  onClose: () => void;
+  onReturned: (returnReceiptId: number) => void;
+}) {
+  const utils = trpc.useUtils();
+  const {
+    data: detail,
+    isLoading,
+    isFetching,
+    isError,
+    error: detailError,
+    refetch,
+  } = trpc.pos.saleDetail.useQuery(
+    { id: saleId },
+    { refetchOnMount: "always" }
+  );
+  const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [quantities, setQuantities] = useState<Record<number, string>>({});
+  const [reason, setReason] = useState("");
+  const [refundMethod, setRefundMethod] = useState<PayMethod | null>(null);
+  const [err, setErr] = useState("");
+
+  const methodOptions = PAY_METHODS.filter(method => {
+    if ((settingMap?.[`pay_${method}_enabled`] ?? "1") === "0") return false;
+    if (method === "credit" && !detail?.sale.customerId) return false;
+    return true;
+  });
+
+  const originalMethod = detail?.sale.paymentMethod as PayMethod | undefined;
+  const effectiveRefundMethod =
+    refundMethod ??
+    (originalMethod && methodOptions.includes(originalMethod)
+      ? originalMethod
+      : (methodOptions[0] ?? null));
+
+  const returnableItems = detail?.returnableItems ?? [];
+  const selectedLines = returnableItems
+    .filter(item => selected[item.id] && item.returnable)
+    .map(item => ({ item, qty: Number(quantities[item.id] ?? "0") }))
+    .filter(line => line.qty > 0 && line.qty <= line.item.returnableQty + 0.0001);
+  const selectedGross = r2(
+    selectedLines.reduce(
+      (sum, line) => sum + (line.item.amount * line.qty) / line.item.qty,
+      0
+    )
+  );
+  const estimatedRefund = r2(
+    detail && detail.sale.subtotal > 0
+      ? (selectedGross * detail.sale.total) / detail.sale.subtotal
+      : 0
+  );
+  const invalidSelectedQty = returnableItems.some(item => {
+    if (!selected[item.id]) return false;
+    const qty = Number(quantities[item.id] ?? "0");
+    return !(qty > 0) || qty > item.returnableQty + 0.0001;
+  });
+  const canSubmit =
+    selectedLines.length > 0 &&
+    !invalidSelectedQty &&
+    reason.trim().length >= 3 &&
+    effectiveRefundMethod != null &&
+    methodOptions.includes(effectiveRefundMethod);
+
+  const returnMut = trpc.pos.returnSale.useMutation({
+    onSuccess: result => {
+      utils.pos.saleDetail.invalidate({ id: saleId });
+      utils.pos.salesHistory.invalidate();
+      utils.pos.dashboard.invalidate();
+      utils.catalog.listProducts.invalidate();
+      utils.membership.listMembers.invalidate();
+      onReturned(result.sale.id);
+    },
+    onError: error => setErr(error.message),
+  });
+
+  const toggleItem = (id: number, checked: boolean, maxQty: number) => {
+    setSelected(current => ({ ...current, [id]: checked }));
+    setQuantities(current => ({
+      ...current,
+      [id]: checked ? (current[id] ?? String(maxQty)) : (current[id] ?? ""),
+    }));
+    setErr("");
+  };
+
+  return (
+    <Dialog open onOpenChange={open => !open && onClose()}>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white">
+        <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-amber-950 to-orange-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
+          <div className="relative flex items-center gap-3.5">
+            <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10">
+              <RotateCcw className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-orange-200">
+                Product return
+              </div>
+              <DialogTitle className="font-heading text-xl font-bold text-white">
+                คืนสินค้าในบิล {detail?.sale.receiptNo ?? ""}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-xs text-orange-100/80 sm:text-sm">
+                เลือกรายการและจำนวนที่ลูกค้านำมาคืน ระบบจะคืนสต๊อกและปรับแต้มให้อัตโนมัติ
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+          {isLoading || (isFetching && returnableItems.length === 0) ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              กำลังโหลดรายการสินค้าล่าสุด...
+            </p>
+          ) : isError ? (
+            <div className="space-y-3 py-8 text-center">
+              <p className="text-sm text-destructive">
+                {detailError.message || "โหลดรายการสินค้าไม่สำเร็จ"}
+              </p>
+              <Button variant="outline" onClick={() => refetch()}>
+                โหลดใหม่
+              </Button>
+            </div>
+          ) : returnableItems.length === 0 ? (
+            <div className="space-y-3 py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                ไม่พบรายการสินค้าในบิลนี้
+              </p>
+              <Button variant="outline" onClick={() => refetch()}>
+                โหลดรายการใหม่
+              </Button>
+            </div>
+          ) : (
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10"></TableHead>
+                    <TableHead>สินค้า</TableHead>
+                    <TableHead className="text-right">ซื้อ</TableHead>
+                    <TableHead className="text-right">คืนแล้ว</TableHead>
+                    <TableHead className="w-32 text-right">คืนครั้งนี้</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {returnableItems.map(item => (
+                    <TableRow key={item.id} className={!item.returnable ? "opacity-55" : ""}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label={`เลือกคืน ${item.name}`}
+                          checked={Boolean(selected[item.id])}
+                          disabled={!item.returnable}
+                          onChange={event =>
+                            toggleItem(item.id, event.target.checked, item.returnableQty)
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{item.name}</div>
+                        {item.productCategory === "fuel" && (
+                          <div className="text-[11px] text-muted-foreground">
+                            ไม่รองรับการคืนน้ำมันเชื้อเพลิง
+                          </div>
+                        )}
+                        {item.productCategory !== "fuel" && item.returnableQty <= 0 && (
+                          <div className="text-[11px] text-muted-foreground">คืนครบแล้ว</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {fmtNum(item.qty)} {item.unit}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {fmtNum(item.returnedQty)} {item.unit}
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={item.returnableQty}
+                          step="any"
+                          className="h-8 text-right"
+                          disabled={!selected[item.id] || !item.returnable}
+                          value={quantities[item.id] ?? ""}
+                          onChange={event => {
+                            setQuantities(current => ({
+                              ...current,
+                              [item.id]: event.target.value,
+                            }));
+                            setErr("");
+                          }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>วิธีคืนเงิน</Label>
+              <Select
+                value={effectiveRefundMethod ?? undefined}
+                onValueChange={value => setRefundMethod(value as PayMethod)}
+              >
+                <SelectTrigger className="w-full bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {methodOptions.map(method => (
+                    <SelectItem key={method} value={method}>
+                      {paymentLabel[method]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>เหตุผลการคืนสินค้า</Label>
+              <Input
+                maxLength={500}
+                placeholder="เช่น สินค้าชำรุด / ซื้อผิดรุ่น"
+                className="bg-white"
+                value={reason}
+                onChange={event => {
+                  setReason(event.target.value);
+                  setErr("");
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-orange-900">ยอดคืนโดยประมาณ</span>
+              <span className="text-xl font-bold text-orange-950">
+                ฿{fmtMoney(estimatedRefund)}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] text-orange-700">
+              คำนวณตามสัดส่วนส่วนลดของบิลเดิม ยอดจริงจะยืนยันโดยระบบอีกครั้ง
+            </p>
+          </div>
+          {invalidSelectedQty && (
+            <p className="text-sm text-destructive">จำนวนคืนต้องมากกว่า 0 และไม่เกินจำนวนที่คืนได้</p>
+          )}
+          {err && <p className="text-sm text-destructive">{err}</p>}
+        </div>
+
+        <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-5">
+          <Button variant="outline" onClick={onClose}>
+            ยกเลิก
+          </Button>
+          <Button
+            disabled={!canSubmit || returnMut.isPending}
+            onClick={() => {
+              if (!detail || !effectiveRefundMethod) return;
+              setErr("");
+              returnMut.mutate({
+                saleId: detail.sale.id,
+                items: selectedLines.map(line => ({
+                  saleItemId: line.item.id,
+                  qty: line.qty,
+                })),
+                reason: reason.trim(),
+                refundMethod: effectiveRefundMethod,
+              });
+            }}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            {returnMut.isPending ? "กำลังคืนสินค้า..." : "ยืนยันคืนสินค้า"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

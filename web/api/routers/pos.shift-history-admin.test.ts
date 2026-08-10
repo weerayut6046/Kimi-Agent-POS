@@ -81,6 +81,31 @@ describe("admin จัดการประวัติการตัดกะ"
     expect(byId.map(row => row.id)).toContain(shiftId);
   });
 
+  it("แสดงเฉพาะเดือนที่เลือกตามเวลาไทยสำหรับทุกสิทธิ์", async () => {
+    const [{ id: augustShiftId }] = await t.db
+      .insert(shifts)
+      .values({
+        staffName: "กะต้นเดือนสิงหาคม",
+        openedAt: new Date("2026-07-31T18:00:00Z"),
+        closedAt: new Date("2026-07-31T19:00:00Z"),
+        status: "closed",
+      })
+      .returning({ id: shifts.id });
+
+    const july = await t
+      .caller("manager")
+      .pos.shiftHistory({ month: "2026-07", limit: 200 });
+    expect(july.map(row => row.id)).toContain(shiftId);
+    expect(july.map(row => row.id)).not.toContain(augustShiftId);
+
+    const august = await t.caller("admin").pos.searchShiftHistory({
+      month: "2026-08",
+      limit: 200,
+    });
+    expect(august.map(row => row.id)).toContain(augustShiftId);
+    expect(august.map(row => row.id)).not.toContain(shiftId);
+  });
+
   it("admin เพิ่ม แก้ไข และล้างการนับเงินสดแยกแบงก์/เหรียญได้", async () => {
     const created = await t.caller("admin", 1).pos.createShiftHistory({
       ...historyInput,

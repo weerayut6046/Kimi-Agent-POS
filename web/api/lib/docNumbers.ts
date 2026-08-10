@@ -6,6 +6,7 @@ type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0
 
 const KEYS = {
   receipt: { prefix: "receipt_prefix", next: "receipt_next_no", defaultPrefix: "R" },
+  return_receipt: { prefix: "return_prefix", next: "return_next_no", defaultPrefix: "RT" },
   tax_invoice: { prefix: "tax_invoice_prefix", next: "tax_invoice_next_no", defaultPrefix: "T" },
   debt_payment: { prefix: "debt_payment_prefix", next: "debt_payment_next_no", defaultPrefix: "P" },
 } as const;

@@ -182,6 +182,10 @@ const shiftHistoryUpdateInput = z
 const shiftHistorySearchInput = z.object({
   q: z.string().trim().max(100).optional(),
   status: z.enum(["open", "closed"]).optional(),
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+    .optional(),
   from: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -192,6 +196,28 @@ const shiftHistorySearchInput = z.object({
     .optional(),
   limit: z.number().int().positive().max(500).default(200),
 });
+
+const shiftHistoryListInput = z
+  .object({
+    month: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+      .optional(),
+    limit: z.number().int().positive().max(500).default(200),
+  })
+  .optional();
+
+function bangkokMonthRange(monthKey?: string) {
+  const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
+  const currentBangkok = new Date(Date.now() + bangkokOffsetMs);
+  const [year, month] = monthKey
+    ? monthKey.split("-").map(Number)
+    : [currentBangkok.getUTCFullYear(), currentBangkok.getUTCMonth() + 1];
+  return {
+    start: new Date(Date.UTC(year!, month! - 1, 1) - bangkokOffsetMs),
+    end: new Date(Date.UTC(year!, month!, 1) - bangkokOffsetMs),
+  };
+}
 
 const historyShifts = alias(shifts, "history_shifts");
 
@@ -899,20 +925,29 @@ export const posRouter = createRouter({
       };
     }),
 
-  shiftHistory: publicQuery.query(async ({ ctx }) => {
-    const db = getDb();
-    const rows = await db
-      .select(shiftHistorySelection)
-      .from(historyShifts)
-      .where(eq(historyShifts.branchId, ctx.staff.branchId))
-      .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
-      .limit(50);
-    return attachShiftLubricantSales(
-      db,
-      ctx.staff.branchId,
-      await attachShiftCashMeter(db, ctx.staff.branchId, rows)
-    );
-  }),
+  shiftHistory: publicQuery
+    .input(shiftHistoryListInput)
+    .query(async ({ input, ctx }) => {
+      const db = getDb();
+      const period = bangkokMonthRange(input?.month);
+      const rows = await db
+        .select(shiftHistorySelection)
+        .from(historyShifts)
+        .where(
+          and(
+            eq(historyShifts.branchId, ctx.staff.branchId),
+            gte(historyShifts.openedAt, period.start),
+            lt(historyShifts.openedAt, period.end)
+          )
+        )
+        .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
+        .limit(input?.limit ?? 200);
+      return attachShiftLubricantSales(
+        db,
+        ctx.staff.branchId,
+        await attachShiftCashMeter(db, ctx.staff.branchId, rows)
+      );
+    }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
   searchShiftHistory: adminQuery
@@ -931,12 +966,16 @@ export const posRouter = createRouter({
         );
       }
       if (input.status) conditions.push(eq(historyShifts.status, input.status));
-      if (input.from) {
+      if (input.month) {
+        const period = bangkokMonthRange(input.month);
+        conditions.push(gte(historyShifts.openedAt, period.start));
+        conditions.push(lt(historyShifts.openedAt, period.end));
+      } else if (input.from) {
         conditions.push(
           gte(historyShifts.openedAt, new Date(`${input.from}T00:00:00`))
         );
       }
-      if (input.to) {
+      if (!input.month && input.to) {
         const exclusiveEnd = new Date(`${input.to}T00:00:00`);
         exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
         conditions.push(lt(historyShifts.openedAt, exclusiveEnd));
@@ -1709,9 +1748,74 @@ export const posRouter = createRouter({
         .orderBy(desc(sales.createdAt))
         .limit(input?.limit ?? 200);
       const memberRows = await db.query.members.findMany();
+      const originalIds = rows
+        .filter(row => row.transactionType === "sale")
+        .map(row => row.id);
+      const completedReturns =
+        originalIds.length > 0
+          ? await db
+              .select()
+              .from(sales)
+              .where(
+                and(
+                  eq(sales.branchId, ctx.staff.branchId),
+                  eq(sales.transactionType, "return"),
+                  eq(sales.status, "completed"),
+                  inArray(sales.originalSaleId, originalIds)
+                )
+              )
+          : [];
+      const returnedByOriginal = new Map<number, number>();
+      for (const returned of completedReturns) {
+        if (returned.originalSaleId == null) continue;
+        returnedByOriginal.set(
+          returned.originalSaleId,
+          r2(
+            (returnedByOriginal.get(returned.originalSaleId) ?? 0) -
+              returned.total
+          )
+        );
+      }
+      const referencedOriginalIds = [
+        ...new Set(
+          rows
+            .map(row => row.originalSaleId)
+            .filter((id): id is number => id != null)
+        ),
+      ];
+      const referencedOriginals =
+        referencedOriginalIds.length > 0
+          ? await db
+              .select({ id: sales.id, receiptNo: sales.receiptNo })
+              .from(sales)
+              .where(
+                and(
+                  eq(sales.branchId, ctx.staff.branchId),
+                  inArray(sales.id, referencedOriginalIds)
+                )
+              )
+          : [];
+      const originalReceiptById = new Map(
+        referencedOriginals.map(row => [row.id, row.receiptNo])
+      );
       return rows.map(s => ({
         ...s,
         memberName: memberRows.find(m => m.id === s.memberId)?.name ?? null,
+        originalReceiptNo:
+          s.originalSaleId == null
+            ? null
+            : (originalReceiptById.get(s.originalSaleId) ?? null),
+        returnedTotal:
+          s.transactionType === "sale"
+            ? (returnedByOriginal.get(s.id) ?? 0)
+            : 0,
+        returnStatus:
+          s.transactionType !== "sale" ||
+          (returnedByOriginal.get(s.id) ?? 0) <= 0
+            ? ("none" as const)
+            : (returnedByOriginal.get(s.id) ?? 0) >= s.total - 0.009
+              ? ("full" as const)
+              : ("partial" as const),
       }));
     }),
 
@@ -1740,11 +1844,480 @@ export const posRouter = createRouter({
             where: eq(customers.id, sale.customerId),
           })
         : null;
+      if (sale.transactionType === "return") {
+        const originalSale = sale.originalSaleId
+          ? await db.query.sales.findFirst({
+              where: and(
+                eq(sales.id, sale.originalSaleId),
+                eq(sales.branchId, branchId)
+              ),
+            })
+          : null;
+        return {
+          sale,
+          items,
+          memberName: member?.name ?? null,
+          customerName: customer?.name ?? null,
+          originalSale,
+          returns: [],
+          returnableItems: [],
+          returnedTotal: 0,
+          returnStatus: "none" as const,
+        };
+      }
+
+      const returnRows = await db
+        .select()
+        .from(sales)
+        .where(
+          and(
+            eq(sales.branchId, branchId),
+            eq(sales.transactionType, "return"),
+            eq(sales.originalSaleId, sale.id)
+          )
+        )
+        .orderBy(desc(sales.createdAt));
+      const completedReturnRows = returnRows.filter(
+        row => row.status === "completed"
+      );
+      const completedReturnIds = completedReturnRows.map(row => row.id);
+      const returnedItems =
+        completedReturnIds.length > 0
+          ? await db
+              .select()
+              .from(saleItems)
+              .where(
+                and(
+                  eq(saleItems.branchId, branchId),
+                  inArray(saleItems.saleId, completedReturnIds)
+                )
+              )
+          : [];
+      const productIds = [
+        ...new Set(
+          items
+            .map(item => item.productId)
+            .filter((id): id is number => id != null)
+        ),
+      ];
+      const productRows =
+        productIds.length > 0
+          ? await db
+              .select({ id: products.id, category: products.category })
+              .from(products)
+              .where(
+                and(
+                  eq(products.branchId, branchId),
+                  inArray(products.id, productIds)
+                )
+              )
+          : [];
+      const categoryByProductId = new Map(
+        productRows.map(row => [row.id, row.category])
+      );
+      const returnedQtyByItemId = new Map<number, number>();
+      for (const returnedItem of returnedItems) {
+        if (returnedItem.originalSaleItemId == null) continue;
+        returnedQtyByItemId.set(
+          returnedItem.originalSaleItemId,
+          r3(
+            (returnedQtyByItemId.get(returnedItem.originalSaleItemId) ?? 0) -
+              returnedItem.qty
+          )
+        );
+      }
+      const returnableItems = items.map(item => {
+        const returnedQty = returnedQtyByItemId.get(item.id) ?? 0;
+        const returnableQty = r3(Math.max(0, item.qty - returnedQty));
+        const productCategory =
+          item.productId == null
+            ? null
+            : (categoryByProductId.get(item.productId) ?? null);
+        return {
+          ...item,
+          returnedQty,
+          returnableQty,
+          productCategory,
+          returnable: productCategory !== "fuel" && returnableQty > 0,
+        };
+      });
+      const returnedTotal = r2(
+        completedReturnRows.reduce((sum, row) => sum - row.total, 0)
+      );
+      const eligibleItems = returnableItems.filter(
+        item => item.productCategory !== "fuel"
+      );
+      const returnStatus =
+        returnedTotal <= 0
+          ? ("none" as const)
+          : eligibleItems.length > 0 &&
+              eligibleItems.every(item => item.returnableQty <= 0)
+            ? ("full" as const)
+            : ("partial" as const);
       return {
         sale,
         items,
         memberName: member?.name ?? null,
         customerName: customer?.name ?? null,
+        originalSale: null,
+        returns: returnRows,
+        returnableItems,
+        returnedTotal,
+        returnStatus,
+      };
+    }),
+
+  returnSale: managerQuery
+    .input(
+      z.object({
+        saleId: z.number().int().positive(),
+        items: z
+          .array(
+            z.object({
+              saleItemId: z.number().int().positive(),
+              qty: z.number().positive().max(1_000_000_000),
+            })
+          )
+          .min(1)
+          .refine(
+            rows =>
+              new Set(rows.map(row => row.saleItemId)).size === rows.length,
+            "มีรายการสินค้าซ้ำ กรุณารวมจำนวนก่อนคืน"
+          ),
+        reason: z
+          .string()
+          .trim()
+          .min(3, "กรุณาระบุเหตุผลการคืนสินค้า")
+          .max(500),
+        refundMethod: z.enum(["cash", "qr", "card", "credit", "thungngern"]),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const settingMap = await getSettingMap(db, branchId);
+      if ((settingMap[`pay_${input.refundMethod}_enabled`] ?? "1") === "0") {
+        throw new Error("ช่องทางคืนเงินนี้ถูกปิดใช้งานโดยผู้ดูแล");
+      }
+
+      const returnId = await db.transaction(async tx => {
+        const [originalSale] = await tx
+          .select()
+          .from(sales)
+          .where(and(eq(sales.id, input.saleId), eq(sales.branchId, branchId)))
+          .for("update");
+        if (!originalSale) throw new Error("ไม่พบบิลต้นฉบับ");
+        if (originalSale.transactionType !== "sale")
+          throw new Error("ต้องคืนสินค้าจากบิลขายต้นฉบับเท่านั้น");
+        if (originalSale.status !== "completed")
+          throw new Error("บิลนี้ถูกยกเลิกแล้ว ไม่สามารถคืนสินค้าได้");
+        if (input.refundMethod === "credit" && !originalSale.customerId)
+          throw new Error("คืนเข้ายอดเครดิตได้เฉพาะบิลขายเชื่อเท่านั้น");
+
+        const originalItems = await tx
+          .select()
+          .from(saleItems)
+          .where(
+            and(
+              eq(saleItems.saleId, originalSale.id),
+              eq(saleItems.branchId, branchId)
+            )
+          )
+          .for("update");
+        const requestedByItemId = new Map(
+          input.items.map(row => [row.saleItemId, r3(row.qty)])
+        );
+        const selectedItems = originalItems.filter(item =>
+          requestedByItemId.has(item.id)
+        );
+        if (selectedItems.length !== input.items.length)
+          throw new Error("มีสินค้าที่ไม่ได้อยู่ในบิลต้นฉบับ");
+
+        const productIds = [
+          ...new Set(
+            selectedItems
+              .map(item => item.productId)
+              .filter((id): id is number => id != null)
+          ),
+        ];
+        const productRows =
+          productIds.length > 0
+            ? await tx
+                .select()
+                .from(products)
+                .where(
+                  and(
+                    eq(products.branchId, branchId),
+                    inArray(products.id, productIds)
+                  )
+                )
+            : [];
+        const productById = new Map(productRows.map(row => [row.id, row]));
+        for (const item of selectedItems) {
+          const product =
+            item.productId == null ? null : productById.get(item.productId);
+          if (product?.category === "fuel")
+            throw new Error("ไม่รองรับการคืนสินค้าประเภทน้ำมันเชื้อเพลิง");
+        }
+
+        const completedReturns = await tx
+          .select()
+          .from(sales)
+          .where(
+            and(
+              eq(sales.branchId, branchId),
+              eq(sales.transactionType, "return"),
+              eq(sales.originalSaleId, originalSale.id),
+              eq(sales.status, "completed")
+            )
+          );
+        const completedReturnIds = completedReturns.map(row => row.id);
+        const priorReturnItems =
+          completedReturnIds.length > 0
+            ? await tx
+                .select()
+                .from(saleItems)
+                .where(
+                  and(
+                    eq(saleItems.branchId, branchId),
+                    inArray(saleItems.saleId, completedReturnIds)
+                  )
+                )
+            : [];
+        const priorQtyByItemId = new Map<number, number>();
+        const priorGrossByItemId = new Map<number, number>();
+        for (const item of priorReturnItems) {
+          if (item.originalSaleItemId == null) continue;
+          priorQtyByItemId.set(
+            item.originalSaleItemId,
+            r3((priorQtyByItemId.get(item.originalSaleItemId) ?? 0) - item.qty)
+          );
+          priorGrossByItemId.set(
+            item.originalSaleItemId,
+            r2(
+              (priorGrossByItemId.get(item.originalSaleItemId) ?? 0) -
+                item.amount
+            )
+          );
+        }
+
+        const returnLines = selectedItems.map(item => {
+          const qty = requestedByItemId.get(item.id)!;
+          const priorQty = priorQtyByItemId.get(item.id) ?? 0;
+          const remainingQty = r3(Math.max(0, item.qty - priorQty));
+          if (qty > remainingQty + 0.0001) {
+            throw new Error(
+              `คืน ${item.name} เกินจำนวนที่เหลือ (คืนได้อีก ${remainingQty} ${item.unit})`
+            );
+          }
+          const priorGross = priorGrossByItemId.get(item.id) ?? 0;
+          const grossAmount =
+            Math.abs(qty - remainingQty) <= 0.0001
+              ? r2(Math.max(0, item.amount - priorGross))
+              : r2((item.amount * qty) / item.qty);
+          return { item, qty, grossAmount };
+        });
+
+        const selectedGross = r2(
+          returnLines.reduce((sum, line) => sum + line.grossAmount, 0)
+        );
+        const priorReturnedGross = r2(
+          priorReturnItems.reduce((sum, item) => sum - item.amount, 0)
+        );
+        const priorRefunded = r2(
+          completedReturns.reduce((sum, returned) => sum - returned.total, 0)
+        );
+        const allItemsReturnedAfter = originalItems.every(item => {
+          const selectedQty = requestedByItemId.get(item.id) ?? 0;
+          return (
+            (priorQtyByItemId.get(item.id) ?? 0) + selectedQty >=
+            item.qty - 0.0001
+          );
+        });
+        const proportionalRefund =
+          originalSale.subtotal > 0
+            ? r2((selectedGross * originalSale.total) / originalSale.subtotal)
+            : 0;
+        const refundAmount = r2(
+          Math.max(
+            0,
+            Math.min(
+              originalSale.total - priorRefunded,
+              allItemsReturnedAfter
+                ? originalSale.total - priorRefunded
+                : proportionalRefund
+            )
+          )
+        );
+        const allocatedDiscount = r2(selectedGross - refundAmount);
+        const vatAmount = r2(
+          (refundAmount * originalSale.vatRate) / (100 + originalSale.vatRate)
+        );
+
+        const priorRemovedEarned = completedReturns.reduce(
+          (sum, returned) => sum + Math.max(0, -returned.pointsEarned),
+          0
+        );
+        const priorRestoredRedeemed = completedReturns.reduce(
+          (sum, returned) => sum + Math.max(0, -returned.pointsRedeemed),
+          0
+        );
+        const cumulativeRefund = r2(priorRefunded + refundAmount);
+        const cumulativeGross = r2(priorReturnedGross + selectedGross);
+        const targetRemovedEarned = allItemsReturnedAfter
+          ? originalSale.pointsEarned
+          : originalSale.total > 0
+            ? Math.floor(
+                (originalSale.pointsEarned * cumulativeRefund) /
+                  originalSale.total +
+                  1e-9
+              )
+            : 0;
+        const targetRestoredRedeemed = allItemsReturnedAfter
+          ? originalSale.pointsRedeemed
+          : originalSale.subtotal > 0
+            ? Math.floor(
+                (originalSale.pointsRedeemed * cumulativeGross) /
+                  originalSale.subtotal +
+                  1e-9
+              )
+            : 0;
+        const removedEarned = Math.max(
+          0,
+          Math.min(
+            originalSale.pointsEarned - priorRemovedEarned,
+            targetRemovedEarned - priorRemovedEarned
+          )
+        );
+        const restoredRedeemed = Math.max(
+          0,
+          Math.min(
+            originalSale.pointsRedeemed - priorRestoredRedeemed,
+            targetRestoredRedeemed - priorRestoredRedeemed
+          )
+        );
+
+        const openShift = await tx.query.shifts.findFirst({
+          columns: { id: true },
+          where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
+          orderBy: (row, { desc: orderDesc }) => [orderDesc(row.openedAt)],
+        });
+        const receiptNo = await nextDocNo(tx, "return_receipt", branchId);
+        const [created] = await tx
+          .insert(sales)
+          .values({
+            branchId,
+            receiptNo,
+            transactionType: "return",
+            originalSaleId: originalSale.id,
+            returnReason: input.reason,
+            shiftId: openShift?.id,
+            staffName: ctx.staff.name,
+            memberId: originalSale.memberId,
+            customerId:
+              input.refundMethod === "credit" ? originalSale.customerId : null,
+            subtotal: -selectedGross,
+            discount: -allocatedDiscount,
+            vatRate: originalSale.vatRate,
+            vatAmount: -vatAmount,
+            total: -refundAmount,
+            paymentMethod: input.refundMethod,
+            received: -refundAmount,
+            changeAmt: 0,
+            pointsEarned: -removedEarned,
+            pointsRedeemed: -restoredRedeemed,
+          })
+          .returning({ id: sales.id });
+        if (!created) throw new Error("สร้างเอกสารคืนสินค้าไม่สำเร็จ");
+
+        await tx.insert(saleItems).values(
+          returnLines.map(line => ({
+            branchId,
+            saleId: created.id,
+            originalSaleItemId: line.item.id,
+            productId: line.item.productId,
+            name: line.item.name,
+            qty: -line.qty,
+            unit: line.item.unit,
+            unitPrice: line.item.unitPrice,
+            amount: -line.grossAmount,
+          }))
+        );
+        for (const line of returnLines) {
+          if (line.item.productId == null) continue;
+          await tx
+            .update(products)
+            .set({ stockQty: sql`${products.stockQty} + ${line.qty}` })
+            .where(
+              and(
+                eq(products.id, line.item.productId),
+                eq(products.branchId, branchId)
+              )
+            );
+        }
+
+        if (originalSale.memberId) {
+          const pointsDelta = restoredRedeemed - removedEarned;
+          if (pointsDelta !== 0) {
+            await tx
+              .update(members)
+              .set({ points: sql`${members.points} + ${pointsDelta}` })
+              .where(eq(members.id, originalSale.memberId));
+            await tx.insert(pointTransactions).values({
+              branchId,
+              memberId: originalSale.memberId,
+              saleId: created.id,
+              type: "adjust",
+              points: pointsDelta,
+              note: `ปรับแต้มจากคืนสินค้า บิล ${originalSale.receiptNo}`,
+            });
+          }
+        }
+        return created.id;
+      });
+
+      const returnedSale = await db.query.sales.findFirst({
+        where: and(eq(sales.id, returnId), eq(sales.branchId, branchId)),
+      });
+      const returnedItems = await db
+        .select()
+        .from(saleItems)
+        .where(
+          and(eq(saleItems.saleId, returnId), eq(saleItems.branchId, branchId))
+        );
+      const originalSale = returnedSale?.originalSaleId
+        ? await db.query.sales.findFirst({
+            where: and(
+              eq(sales.id, returnedSale.originalSaleId),
+              eq(sales.branchId, branchId)
+            ),
+          })
+        : null;
+      const member = returnedSale?.memberId
+        ? await db.query.members.findFirst({
+            where: eq(members.id, returnedSale.memberId),
+          })
+        : null;
+      const customer = returnedSale?.customerId
+        ? await db.query.customers.findFirst({
+            where: eq(customers.id, returnedSale.customerId),
+          })
+        : null;
+      logAudit({
+        action: "return_sale",
+        ...actorFromReq(ctx.req),
+        detail: `คืนสินค้าอ้างอิงบิล ${originalSale?.receiptNo ?? input.saleId} เป็นเงิน ${Math.abs(returnedSale?.total ?? 0).toFixed(2)} บาท: ${input.reason}`,
+        refType: "sale",
+        refId: returnId,
+      });
+      return {
+        sale: {
+          ...returnedSale!,
+          originalReceiptNo: originalSale?.receiptNo ?? null,
+          memberName: member?.name ?? null,
+          customerName: customer?.name ?? null,
+        },
+        items: returnedItems,
       };
     }),
 
@@ -1753,28 +2326,52 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      const sale = await db.query.sales.findFirst({
-        where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
-      });
-      if (!sale || sale.status === "voided") throw new Error("ยกเลิกบิลไม่ได้");
-      const items = await db
-        .select()
-        .from(saleItems)
-        .where(
-          and(eq(saleItems.saleId, sale.id), eq(saleItems.branchId, branchId))
-        );
-      await db.transaction(async tx => {
+      const sale = await db.transaction(async tx => {
+        const [lockedSale] = await tx
+          .select()
+          .from(sales)
+          .where(and(eq(sales.id, input.id), eq(sales.branchId, branchId)))
+          .for("update");
+        if (!lockedSale || lockedSale.status === "voided")
+          throw new Error("ยกเลิกบิลไม่ได้");
+        if (lockedSale.transactionType === "sale") {
+          const completedReturn = await tx.query.sales.findFirst({
+            columns: { id: true },
+            where: and(
+              eq(sales.branchId, branchId),
+              eq(sales.transactionType, "return"),
+              eq(sales.originalSaleId, lockedSale.id),
+              eq(sales.status, "completed")
+            ),
+          });
+          if (completedReturn)
+            throw new Error(
+              "บิลนี้มีรายการคืนสินค้าแล้ว กรุณายกเลิกเอกสารคืนสินค้าก่อน"
+            );
+        }
+        const items = await tx
+          .select()
+          .from(saleItems)
+          .where(
+            and(
+              eq(saleItems.saleId, lockedSale.id),
+              eq(saleItems.branchId, branchId)
+            )
+          );
         await tx
           .update(sales)
           .set({ status: "voided" })
-          .where(and(eq(sales.id, sale.id), eq(sales.branchId, branchId)));
+          .where(
+            and(eq(sales.id, lockedSale.id), eq(sales.branchId, branchId))
+          );
         // คืนสต๊อกและแต้มอัตโนมัติ
         await reverseSaleEffects(
           tx,
-          sale,
+          lockedSale,
           items,
-          `ยกเลิกบิล ${sale.receiptNo}`
+          `ยกเลิกบิล ${lockedSale.receiptNo}`
         );
+        return lockedSale;
       });
       logAudit({
         action: "void_sale",
@@ -1807,6 +2404,19 @@ export const posRouter = createRouter({
       if (!sale) throw new Error("ไม่พบบิล");
       if (sale.status === "voided")
         throw new Error("แก้ไขบิลที่ยกเลิกแล้วไม่ได้");
+      if (sale.transactionType !== "sale")
+        throw new Error("เอกสารคืนสินค้าไม่สามารถแก้ไขหัวบิลได้");
+      const completedReturn = await db.query.sales.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(sales.branchId, branchId),
+          eq(sales.transactionType, "return"),
+          eq(sales.originalSaleId, sale.id),
+          eq(sales.status, "completed")
+        ),
+      });
+      if (completedReturn)
+        throw new Error("บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้");
 
       const discount = input.discount ?? sale.discount;
       if (discount > sale.subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
@@ -1822,6 +2432,30 @@ export const posRouter = createRouter({
       const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
 
       await db.transaction(async tx => {
+        const [lockedSale] = await tx
+          .select({
+            id: sales.id,
+            status: sales.status,
+            transactionType: sales.transactionType,
+          })
+          .from(sales)
+          .where(and(eq(sales.id, sale.id), eq(sales.branchId, branchId)))
+          .for("update");
+        if (!lockedSale || lockedSale.status !== "completed")
+          throw new Error("แก้ไขบิลนี้ไม่ได้");
+        const returnCreatedWhileWaiting = await tx.query.sales.findFirst({
+          columns: { id: true },
+          where: and(
+            eq(sales.branchId, branchId),
+            eq(sales.transactionType, "return"),
+            eq(sales.originalSaleId, sale.id),
+            eq(sales.status, "completed")
+          ),
+        });
+        if (returnCreatedWhileWaiting)
+          throw new Error(
+            "บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้"
+          );
         await tx
           .update(sales)
           .set({
@@ -1894,6 +2528,20 @@ export const posRouter = createRouter({
         where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale) throw new Error("ไม่พบบิล");
+      if (sale.transactionType === "sale") {
+        const linkedReturn = await db.query.sales.findFirst({
+          columns: { id: true },
+          where: and(
+            eq(sales.branchId, branchId),
+            eq(sales.transactionType, "return"),
+            eq(sales.originalSaleId, sale.id)
+          ),
+        });
+        if (linkedReturn)
+          throw new Error(
+            "บิลนี้มีเอกสารคืนสินค้าอ้างอิงอยู่ กรุณาลบเอกสารคืนสินค้าก่อน"
+          );
+      }
       const items = await db
         .select()
         .from(saleItems)

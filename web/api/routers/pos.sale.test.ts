@@ -260,6 +260,173 @@ describe("voidSale", () => {
   });
 });
 
+describe("returnSale", () => {
+  it("manager คืนสินค้าบางส่วนแล้วคืนสต๊อก ยอดเงิน และแต้มตามสัดส่วนบิลเดิม", async () => {
+    await t.caller("admin").catalog.createProduct({
+      code: "RETURN-PARTIAL-TEST",
+      name: "สินค้าทดสอบการคืน",
+      category: "other",
+      unit: "ชิ้น",
+      price: 100,
+      cost: 50,
+      stockQty: 10,
+      lowStockAt: 1,
+    });
+    const product = await productByCode("RETURN-PARTIAL-TEST");
+    const member = await memberByCode("M0001");
+    const pointsBefore = member.points;
+    const { sale, items } = await t.caller().pos.createSale({
+      memberId: member.id,
+      items: [{ productId: product.id, qty: 3 }],
+      discount: 30,
+      paymentMethod: "cash",
+      received: 300,
+    });
+    expect(sale.total).toBe(270);
+    expect(sale.pointsEarned).toBe(10);
+
+    const firstReturn = await t.caller("manager").pos.returnSale({
+      saleId: sale.id,
+      items: [{ saleItemId: items[0]!.id, qty: 1 }],
+      reason: "ลูกค้าซื้อสินค้าเกิน",
+      refundMethod: "cash",
+    });
+
+    expect(firstReturn.sale.receiptNo).toMatch(/^RT\d{5}$/);
+    expect(firstReturn.sale.transactionType).toBe("return");
+    expect(firstReturn.sale.originalSaleId).toBe(sale.id);
+    expect(firstReturn.sale.subtotal).toBe(-100);
+    expect(firstReturn.sale.discount).toBe(-10);
+    expect(firstReturn.sale.total).toBe(-90);
+    expect(firstReturn.sale.vatAmount).toBe(-5.89);
+    expect(firstReturn.sale.pointsEarned).toBe(-3);
+    expect(firstReturn.items[0]!.qty).toBe(-1);
+    expect(firstReturn.items[0]!.originalSaleItemId).toBe(items[0]!.id);
+    expect((await productByCode("RETURN-PARTIAL-TEST")).stockQty).toBe(8);
+    expect((await memberByCode("M0001")).points).toBe(
+      pointsBefore + sale.pointsEarned - 3
+    );
+
+    const detail = await t.caller().pos.saleDetail({ id: sale.id });
+    expect(detail.returnStatus).toBe("partial");
+    expect(detail.returnedTotal).toBe(90);
+    expect(detail.returnableItems[0]!.returnedQty).toBe(1);
+    expect(detail.returnableItems[0]!.returnableQty).toBe(2);
+    await expect(
+      t.caller("manager").pos.updateSale({ id: sale.id, discount: 20 })
+    ).rejects.toThrow("มีรายการคืนสินค้าแล้ว");
+    await expect(
+      t.caller("admin").pos.voidSale({ id: sale.id })
+    ).rejects.toThrow("มีรายการคืนสินค้าแล้ว");
+  });
+
+  it("คืนหลายครั้งได้ไม่เกินจำนวนซื้อ และคืนครบแล้วปรับยอด/แต้มครบพอดี", async () => {
+    await t.caller("admin").catalog.createProduct({
+      code: "RETURN-LIMIT-TEST",
+      name: "สินค้าทดสอบจำนวนคืน",
+      category: "lubricant",
+      unit: "ขวด",
+      price: 75,
+      cost: 40,
+      stockQty: 6,
+      lowStockAt: 1,
+    });
+    const product = await productByCode("RETURN-LIMIT-TEST");
+    const stockBefore = product.stockQty;
+    const member = await memberByCode("M0001");
+    const pointsBefore = member.points;
+    const { sale, items } = await t.caller().pos.createSale({
+      memberId: member.id,
+      items: [{ productId: product.id, qty: 2 }],
+      pointsToRedeem: 10,
+    });
+    const itemId = items[0]!.id;
+
+    await t.caller("manager").pos.returnSale({
+      saleId: sale.id,
+      items: [{ saleItemId: itemId, qty: 0.5 }],
+      reason: "สินค้ามีตำหนิหนึ่งชิ้น",
+      refundMethod: "cash",
+    });
+    await expect(
+      t.caller("manager").pos.returnSale({
+        saleId: sale.id,
+        items: [{ saleItemId: itemId, qty: 2 }],
+        reason: "พยายามคืนเกินจำนวน",
+        refundMethod: "cash",
+      })
+    ).rejects.toThrow("เกินจำนวนที่เหลือ");
+
+    await t.caller("manager").pos.returnSale({
+      saleId: sale.id,
+      items: [{ saleItemId: itemId, qty: 1.5 }],
+      reason: "คืนสินค้าที่เหลือทั้งหมด",
+      refundMethod: "cash",
+    });
+
+    const detail = await t.caller().pos.saleDetail({ id: sale.id });
+    expect(detail.returnStatus).toBe("full");
+    expect(detail.returnedTotal).toBe(sale.total);
+    expect(detail.returnableItems[0]!.returnableQty).toBe(0);
+    expect((await productByCode("RETURN-LIMIT-TEST")).stockQty).toBe(stockBefore);
+    expect((await memberByCode("M0001")).points).toBe(pointsBefore);
+  });
+
+  it("cashier คืนสินค้าไม่ได้ และไม่รองรับการคืนน้ำมันเชื้อเพลิง", async () => {
+    const water = await productByCode("WATER");
+    const waterSale = await t.caller().pos.createSale({
+      items: [{ productId: water.id, qty: 1 }],
+    });
+    await expect(
+      t.caller("cashier").pos.returnSale({
+        saleId: waterSale.sale.id,
+        items: [{ saleItemId: waterSale.items[0]!.id, qty: 1 }],
+        reason: "ลูกค้านำสินค้ามาคืน",
+        refundMethod: "cash",
+      })
+    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+
+    const fuel = await productByCode("GSH95");
+    const fuelSale = await t.caller().pos.createSale({
+      items: [{ productId: fuel.id, qty: 1 }],
+    });
+    await expect(
+      t.caller("manager").pos.returnSale({
+        saleId: fuelSale.sale.id,
+        items: [{ saleItemId: fuelSale.items[0]!.id, qty: 1 }],
+        reason: "ทดสอบคืนน้ำมันเชื้อเพลิง",
+        refundMethod: "cash",
+      })
+    ).rejects.toThrow("ไม่รองรับการคืนสินค้าประเภทน้ำมันเชื้อเพลิง");
+  });
+
+  it("admin ยกเลิกเอกสารคืนสินค้าแล้วหักสต๊อกและย้อนแต้มกลับ", async () => {
+    const water = await productByCode("WATER");
+    const member = await memberByCode("M0001");
+    const created = await t.caller().pos.createSale({
+      memberId: member.id,
+      items: [{ productId: water.id, qty: 5 }],
+    });
+    const returned = await t.caller("manager").pos.returnSale({
+      saleId: created.sale.id,
+      items: [{ saleItemId: created.items[0]!.id, qty: 2 }],
+      reason: "คืนเพื่อทดสอบการยกเลิก",
+      refundMethod: "cash",
+    });
+    const stockAfterReturn = (await productByCode("WATER")).stockQty;
+    const pointsAfterReturn = (await memberByCode("M0001")).points;
+
+    await t.caller("admin").pos.voidSale({ id: returned.sale.id });
+
+    expect((await productByCode("WATER")).stockQty).toBe(stockAfterReturn - 2);
+    expect((await memberByCode("M0001")).points).toBe(
+      pointsAfterReturn - returned.sale.pointsEarned + returned.sale.pointsRedeemed
+    );
+    const originalDetail = await t.caller().pos.saleDetail({ id: created.sale.id });
+    expect(originalDetail.returnedTotal).toBe(0);
+  });
+});
+
 describe("updateSale", () => {
   it("ช่องทางที่ผู้ดูแลปิดไว้: สร้างบิลออนไลน์ไม่ได้ แต่บิลออฟไลน์ซิงก์ได้", async () => {
     const water = await productByCode("WATER");

@@ -51,6 +51,7 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
   if (path.startsWith("reports.")) return "reports";
   if (path.startsWith("taxInvoice.")) return "tax_invoices";
   if (path.startsWith("audit.")) return "audit";
+  if (path.startsWith("security.")) return "security";
   if (path.startsWith("workforce.")) return "workforce";
   if (path.startsWith("stockCount.")) return "stock";
   if (
@@ -63,12 +64,19 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
   if (
     path === "pos.salesHistory" ||
     path === "pos.saleDetail" ||
+    path === "pos.returnSale" ||
     path === "pos.updateSale" ||
     path === "pos.voidSale"
   ) {
     return "sales";
   }
   if (path === "pos.createSale" || path === "pos.dashboard") return "pos";
+  if (
+    path === "catalog.searchExternalProduct" ||
+    path === "catalog.importExternalProduct"
+  ) {
+    return "pos";
+  }
   if (path.startsWith("payments.")) return "pos";
   return null;
 }

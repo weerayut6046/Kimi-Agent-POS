@@ -20,6 +20,7 @@ import {
   Menu,
   MoreHorizontal,
   ShieldCheck,
+  ShieldAlert,
   CalendarDays,
   Search,
   CornerDownLeft,
@@ -179,6 +180,14 @@ const menus: MenuItem[] = [
     group: "system",
   },
   {
+    permission: "security",
+    to: "/security",
+    label: "ความปลอดภัย",
+    icon: ShieldAlert,
+    adminOnly: true,
+    group: "system",
+  },
+  {
     permission: "settings",
     to: "/settings",
     label: "ตั้งค่าระบบ",
@@ -212,6 +221,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/tax-invoices": () => import("@/pages/TaxInvoices"),
   "/documents": () => import("@/pages/Documents"),
   "/audit": () => import("@/pages/Audit"),
+  "/security": () => import("@/pages/Security"),
   "/settings": () => import("@/pages/Settings"),
 };
 const preloadedRoutes = new Set<string>();

@@ -14,7 +14,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://lexjxdrypkwqnlpjkttd.supabase.co wss://lexjxdrypkwqnlpjkttd.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://lexjxdrypkwqnlpjkttd.supabase.co https://images.openfoodfacts.org https://images.openbeautyfacts.org https://images.openpetfoodfacts.org https://images.openproductsfacts.org; font-src 'self' data:; connect-src 'self' https://lexjxdrypkwqnlpjkttd.supabase.co wss://lexjxdrypkwqnlpjkttd.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         },
         {
           "key": "X-Content-Type-Options",

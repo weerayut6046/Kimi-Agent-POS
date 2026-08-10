@@ -5,7 +5,9 @@ contextBridge.exposeInMainWorld("posDesktop", {
   /** เลขเวอร์ชันของแอป (app.getVersion()) — ไว้แสดงหน้า Login ยืนยันผลอัปเดต */
   getAppVersion: () => ipcRenderer.invoke("app:version"),
   getSyncStatus: () => ipcRenderer.invoke("offline:status"),
-  retrySync: () => ipcRenderer.invoke("offline:retry"),
+  retrySync: staffToken => ipcRenderer.invoke("offline:retry", staffToken),
+  exportOfflineRecovery: () => ipcRenderer.invoke("offline:recovery-export"),
+  importOfflineRecovery: () => ipcRenderer.invoke("offline:recovery-import"),
   createSale: request =>
     ipcRenderer.invoke("sale:create-offline-capable", request),
   onSyncStatus: callback => {

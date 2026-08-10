@@ -1,4 +1,5 @@
-export type SalePaymentMethod = "cash" | "qr" | "card" | "credit" | "thungngern";
+export type SalePaymentMethod =
+  "cash" | "qr" | "card" | "credit" | "thungngern";
 
 export type DesktopSaleInput = {
   shiftId?: number;
@@ -75,4 +76,11 @@ export type DesktopSyncStatus = {
   pendingCount: number;
   lastSyncedAt: string | null;
   lastError: string | null;
+};
+
+export type DesktopOfflineRecoveryResult = {
+  canceled: boolean;
+  fileName: string | null;
+  pendingCount: number;
+  importedCount: number;
 };

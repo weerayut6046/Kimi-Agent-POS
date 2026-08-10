@@ -13,6 +13,7 @@ import {
   assistantActionProposals,
   branches,
   fuelTanks,
+  loginAttempts,
   nozzles,
   payrollRecords,
   products,
@@ -25,6 +26,8 @@ import {
   workShiftTemplates,
 } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { clientIpFromReq } from "../lib/clientIp";
+import { activeStaffSessionFromRequest } from "../lib/authorization";
 import {
   createSupabaseStaffIdentity,
   deleteSupabaseStaffIdentity,
@@ -43,6 +46,9 @@ import {
 } from "../lib/branches";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+const LOGIN_REPORT_WINDOW_MS = 60_000;
+const LOGIN_REPORT_MAX_PER_WINDOW = 20;
+const loginReportTimesByKey = new Map<string, number[]>();
 const menuPermissionsInput = z.array(z.enum(MENU_PERMISSION_KEYS)).min(1);
 const staffPasswordInput = z
   .string()
@@ -150,6 +156,53 @@ export const authRouter = createRouter({
         throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
       }
       return staffSessionResponse(user);
+    }),
+
+  // รับรายงานความพยายาม login จากหน้าจอ (ไม่ต้องเข้าสู่ระบบ) — เก็บเฉพาะ
+  // username/success/ip ห้ามส่งหรือเก็บรหัสผ่านเด็ดขาด; เกิน rate limit
+  // หรือบันทึกไม่สำเร็จให้เงียบไว้ ไม่โยน error กลับไปที่ client
+  reportLoginAttempt: anonymousQuery
+    .input(
+      z.object({
+        username: z.string().trim().max(100),
+        success: z.boolean(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const ip = clientIpFromReq(ctx.req);
+      const session = await activeStaffSessionFromRequest(ctx.req);
+      const username = input.username.trim();
+      const success = Boolean(
+        input.success &&
+          session &&
+          session.username.toLowerCase() === username.toLowerCase()
+      );
+      const key = `${ip}|${username.toLowerCase()}`;
+      const now = Date.now();
+      const recent = (loginReportTimesByKey.get(key) ?? []).filter(
+        time => now - time < LOGIN_REPORT_WINDOW_MS
+      );
+      if (recent.length >= LOGIN_REPORT_MAX_PER_WINDOW) {
+        return { ok: true };
+      }
+      if (loginReportTimesByKey.size >= 5_000) {
+        loginReportTimesByKey.clear();
+      }
+      recent.push(now);
+      loginReportTimesByKey.set(key, recent);
+      try {
+        await getDb()
+          .insert(loginAttempts)
+          .values({
+            branchId: session?.branchId ?? 1,
+            username: session?.username ?? username,
+            success,
+            ip,
+          });
+      } catch (err) {
+        console.error("บันทึก login attempt ไม่สำเร็จ:", err);
+      }
+      return { ok: true };
     }),
 
   // Compatibility no-op for older clients. Supabase Auth now owns the only
