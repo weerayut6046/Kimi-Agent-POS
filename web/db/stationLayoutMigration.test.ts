@@ -252,12 +252,11 @@ describe("migration 0019 — ปรับผังปั๊มของฐาน
     expect(await db.query.fuelTanks.findMany()).toHaveLength(2);
   });
 
-  it("ปั๊มที่มีประวัติกะแล้ว: ปลดระวางหัวเดิมและเพิ่มหัวใหม่ โดยไม่แตะประวัติย้อนหลัง", async () => {
+  it("ประวัติกะที่บันทึกเป็น GSH91 ถูกย้ายไปรายงานเป็น GSH95 โดยไม่มีหัวจ่ายค้าง", async () => {
     const { db } = await freshDb();
-    const { branchId, pid, tid, pump2Id, gsh91NozzleId } =
-      await seedOldLayout(db);
+    const { branchId, pid, tid, gsh91NozzleId } = await seedOldLayout(db);
 
-    // ประวัติจริงของ GSH91: กะที่ปิดแล้ว + บิลขาย + การรับน้ำมันเข้าถัง
+    // กะที่ปิดไปแล้วของหัวจ่ายที่ถูกตั้งชนิดน้ำมันผิด
     const [shift] = await db
       .insert(shifts)
       .values({
@@ -276,6 +275,41 @@ describe("migration 0019 — ปรับผังปั๊มของฐาน
       closeMeter: 76520,
       pricePerLiter: 38.18,
     });
+
+    await db.execute(layoutSql);
+
+    expect(await activeLayout(db, branchId)).toEqual([
+      ["DB7", "GSH95"],
+      ["DB7", "GSH95"],
+    ]);
+
+    // ไม่มีหัวจ่ายค้าง — ย้ายในที่เดิม ไม่ได้สร้างหัวใหม่หรือปลดระวางหัวเก่า
+    const allNozzles = await db.query.nozzles.findMany();
+    expect(allNozzles).toHaveLength(4);
+    const moved = allNozzles.find(row => row.id === gsh91NozzleId)!;
+    expect(moved.active).toBe(true);
+    expect(moved.productId).toBe(pid("GSH95"));
+    expect(moved.tankId).toBe(tid("GSH95"));
+    expect(moved.label).toBe("ตู้ 2 (ซ้าย) - GSH95");
+
+    // ประวัติกะยังผูกหัวจ่ายเดิม ซึ่งตอนนี้เป็น GSH95 แล้ว → รายงานย้อนหลังนับเป็น GSH95
+    const readings = await db.query.shiftReadings.findMany();
+    expect(readings).toHaveLength(1);
+    expect(readings[0]!.nozzleId).toBe(gsh91NozzleId);
+    // ราคาที่ใช้ปิดกะเป็น snapshot ที่กระทบกับเงินสดที่นับจริงแล้ว จึงต้องไม่ถูกเขียนทับ
+    expect(readings[0]!.pricePerLiter).toBe(38.18);
+
+    // สินค้าและถัง GSH91 ที่ไม่มีประวัติของตัวเองถูกเก็บกวาดหมด
+    expect(
+      await db.query.products.findFirst({ where: eq(products.code, "GSH91") })
+    ).toBeUndefined();
+    expect(await db.query.fuelTanks.findMany()).toHaveLength(2);
+  });
+
+  it("ถัง/สินค้า GSH91 ที่มีประวัติของตัวเองจะถูกเก็บไว้ ไม่ลบทิ้งเงียบ ๆ", async () => {
+    const { db } = await freshDb();
+    const { branchId, pid, tid } = await seedOldLayout(db);
+
     const [sale] = await db
       .insert(sales)
       .values({ branchId, receiptNo: "R-OLD-1", subtotal: 381.8, total: 381.8 })
@@ -299,38 +333,11 @@ describe("migration 0019 — ปรับผังปั๊มของฐาน
 
     await db.execute(layoutSql);
 
-    // ผังที่ใช้งานได้ถูกต้องแล้ว
+    // ผังใช้งานถูกต้องแล้ว แต่ประวัติเดิมไม่ถูกทำลาย
     expect(await activeLayout(db, branchId)).toEqual([
       ["DB7", "GSH95"],
       ["DB7", "GSH95"],
     ]);
-
-    // หัวจ่ายเดิมยังอยู่ ยังเป็น GSH91 และถูกปลดระวางเท่านั้น
-    const oldNozzle = await db.query.nozzles.findFirst({
-      where: eq(nozzles.id, gsh91NozzleId),
-    });
-    expect(oldNozzle!.active).toBe(false);
-    expect(oldNozzle!.productId).toBe(pid("GSH91"));
-    expect(oldNozzle!.tankId).toBe(tid("GSH91"));
-
-    // ประวัติกะยังชี้หัวจ่ายเดิม → รายงานย้อนหลังยังนับเป็น GSH91 เหมือนเดิม
-    const readings = await db.query.shiftReadings.findMany();
-    expect(readings).toHaveLength(1);
-    expect(readings[0]!.nozzleId).toBe(gsh91NozzleId);
-    expect(readings[0]!.pricePerLiter).toBe(38.18);
-
-    // หัวจ่ายใหม่อยู่ตู้เดิม ผูกถัง GSH95 และยกเลขมิเตอร์/เลข P มาต่อ
-    const newNozzle = (
-      await db.query.nozzles.findMany({
-        where: and(eq(nozzles.pumpId, pump2Id), eq(nozzles.active, true)),
-      })
-    ).find(row => row.productId === pid("GSH95"))!;
-    expect(newNozzle.tankId).toBe(tid("GSH95"));
-    expect(newNozzle.currentMeter).toBe(76420);
-    expect(newNozzle.currentMoney).toBe(2918351.5);
-    expect(newNozzle.label).toBe("ตู้ 2 (ซ้าย) - GSH95");
-
-    // ถังและสินค้า GSH91 ยังอยู่เพราะมีประวัติ — แค่ปิดการใช้งานสินค้า
     expect(await db.query.tankRefills.findMany()).toHaveLength(1);
     const gsh91Product = await db.query.products.findFirst({
       where: eq(products.code, "GSH91"),
