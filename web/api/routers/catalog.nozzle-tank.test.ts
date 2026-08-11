@@ -57,6 +57,30 @@ describe("การผูกหัวจ่ายกับถังน้ำม�
     }
   });
 
+  it("ผังปั๊ม: 2 ตู้จ่าย ตู้ละ 2 หัว จ่าย GSH95 กับ DB7 ทั้งสองตู้จากถังร่วม", async () => {
+    const pumps = await t.caller().catalog.listPumps();
+
+    expect(pumps).toHaveLength(2);
+    for (const pump of pumps) {
+      expect(pump.nozzles).toHaveLength(2);
+      expect(pump.nozzles.map(nozzle => nozzle.product?.code).sort()).toEqual([
+        "DB7",
+        "GSH95",
+      ]);
+    }
+
+    // หัวจ่ายชนิดเดียวกันของทั้งสองตู้ต้องดึงจากถังใบเดียวกัน
+    const nozzleRows = pumps.flatMap(pump => pump.nozzles);
+    for (const code of ["GSH95", "DB7"]) {
+      const tankIds = new Set(
+        nozzleRows
+          .filter(nozzle => nozzle.product?.code === code)
+          .map(nozzle => nozzle.tankId)
+      );
+      expect(tankIds.size).toBe(1);
+    }
+  });
+
   it("เฉพาะ admin เปลี่ยนถังได้ และถังต้องตรงกับชนิดน้ำมัน", async () => {
     const productsRows = await t.db.query.products.findMany();
     const gsh95 = productsRows.find(product => product.code === "GSH95")!;
@@ -84,12 +108,21 @@ describe("การผูกหัวจ่ายกับถังน้ำม�
   });
 
   it("เฉพาะ admin แก้ชนิดน้ำมันของถังที่ยังไม่ผูกหัวจ่ายได้", async () => {
+    // ปั๊มติดตั้งเฉพาะ GSH95 กับ DB7 จึงเพิ่มชนิดน้ำมันที่ยังไม่มีหัวจ่ายไว้ทดสอบถังที่ยังไม่ผูก
+    await t.caller("admin").catalog.createProduct({
+      code: "E20",
+      name: "แก๊สโซฮอล์ E20",
+      category: "fuel",
+      unit: "ลิตร",
+      price: 37.44,
+      cost: 36,
+    });
     const productsRows = await t.db.query.products.findMany();
-    const gsh91 = productsRows.find(product => product.code === "GSH91")!;
+    const spareFuel = productsRows.find(product => product.code === "E20")!;
     const db7 = productsRows.find(product => product.code === "DB7")!;
 
     await t.caller("admin").catalog.createTank({
-      productId: gsh91.id,
+      productId: spareFuel.id,
       name: "ถังทดสอบแก้ชนิดน้ำมัน",
       capacityLiters: 5000,
       currentLiters: 1200,
@@ -121,7 +154,7 @@ describe("การผูกหัวจ่ายกับถังน้ำม�
     await expect(
       t.caller("admin").catalog.updateTank({
         id: linkedDb7Tank.id,
-        productId: gsh91.id,
+        productId: spareFuel.id,
       })
     ).rejects.toThrow("ถังนี้ยังผูกกับหัวจ่ายอยู่");
   });

@@ -87,10 +87,9 @@ export async function seedIfEmpty(): Promise<boolean> {
     { name: "กะดึก", startTime: "22:00", endTime: "06:00", breakMinutes: 60 },
   ]);
 
-  // สินค้า: น้ำมัน
+  // สินค้า: น้ำมัน — ปั๊มนี้จำหน่ายแก๊สโซฮอล์ 95 และดีเซล B7
   await db.insert(products).values([
     { code: "GSH95", name: "แก๊สโซฮอล์ 95", category: "fuel", unit: "ลิตร", price: 40.74, cost: 39.2 },
-    { code: "GSH91", name: "แก๊สโซฮอล์ 91", category: "fuel", unit: "ลิตร", price: 38.18, cost: 36.7 },
     { code: "DB7", name: "ดีเซล B7", category: "fuel", unit: "ลิตร", price: 31.94, cost: 30.6 },
   ]);
   // สินค้า: 2T / น้ำมันเครื่อง / อื่นๆ
@@ -102,17 +101,16 @@ export async function seedIfEmpty(): Promise<boolean> {
     { code: "TISSUE", name: "กระดาษทิชชู", category: "other", unit: "ห่อ", price: 20, cost: 12, stockQty: 40, lowStockAt: 10 },
   ]);
 
-  // ตู้จ่าย 2 ตู้ (ตู้ 1: GSH95 ซ้าย / DB7 ขวา, ตู้ 2: GSH91 ซ้าย / DB7 ขวา)
+  // ตู้จ่าย 2 ตู้ ตู้ละ 2 หัวจ่าย — ทั้งสองตู้จ่ายแก๊สโซฮอล์ 95 (ซ้าย) และดีเซล B7 (ขวา)
   const [{ id: pump1 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 1" }).returning({ id: pumps.id });
   const [{ id: pump2 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 2" }).returning({ id: pumps.id });
 
   const prodRows = await db.query.products.findMany();
   const pid = (code: string) => prodRows.find((p) => p.code === code)!.id;
 
-  // ถังน้ำมัน
+  // ถังน้ำมัน — ถังละชนิด ป้อนหัวจ่ายชนิดเดียวกันของทั้งสองตู้
   await db.insert(fuelTanks).values([
     { productId: pid("GSH95"), name: "ถัง GSH95", capacityLiters: 20000, currentLiters: 12450, lowAlertAt: 4000 },
-    { productId: pid("GSH91"), name: "ถัง GSH91", capacityLiters: 15000, currentLiters: 6200, lowAlertAt: 3000 },
     { productId: pid("DB7"), name: "ถังดีเซล B7", capacityLiters: 20000, currentLiters: 3100, lowAlertAt: 4000 },
   ]);
 
@@ -122,7 +120,7 @@ export async function seedIfEmpty(): Promise<boolean> {
   await db.insert(nozzles).values([
     { pumpId: pump1, productId: pid("GSH95"), tankId: tankId("GSH95"), label: "ตู้ 1 (ซ้าย) - GSH95", currentMeter: 152340.5, currentMoney: 6206318.75 },
     { pumpId: pump1, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 1 (ขวา) - DB7", currentMeter: 98512.25, currentMoney: 3146447.0 },
-    { pumpId: pump2, productId: pid("GSH91"), tankId: tankId("GSH91"), label: "ตู้ 2 (ซ้าย) - GSH91", currentMeter: 76420.0, currentMoney: 2918351.5 },
+    { pumpId: pump2, productId: pid("GSH95"), tankId: tankId("GSH95"), label: "ตู้ 2 (ซ้าย) - GSH95", currentMeter: 76420.0, currentMoney: 2918351.5 },
     { pumpId: pump2, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 2 (ขวา) - DB7", currentMeter: 64110.75, currentMoney: 2047969.25 },
   ]);
 
