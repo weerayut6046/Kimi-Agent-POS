@@ -27,7 +27,7 @@ const targets: MeterNozzleTarget[] = [
   },
   {
     nozzleId: 21,
-    label: "ตู้ 2 left - GSH91",
+    label: "ตู้ 2 left - GSH95",
     pumpName: "Pump 2",
     openMeter: 0,
     openMoney: 0,

@@ -207,16 +207,28 @@ const shiftHistoryListInput = z
   })
   .optional();
 
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1_000;
+
 function bangkokMonthRange(monthKey?: string) {
-  const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
-  const currentBangkok = new Date(Date.now() + bangkokOffsetMs);
+  const currentBangkok = new Date(Date.now() + BANGKOK_OFFSET_MS);
   const [year, month] = monthKey
     ? monthKey.split("-").map(Number)
     : [currentBangkok.getUTCFullYear(), currentBangkok.getUTCMonth() + 1];
   return {
-    start: new Date(Date.UTC(year!, month! - 1, 1) - bangkokOffsetMs),
-    end: new Date(Date.UTC(year!, month!, 1) - bangkokOffsetMs),
+    start: new Date(Date.UTC(year!, month! - 1, 1) - BANGKOK_OFFSET_MS),
+    end: new Date(Date.UTC(year!, month!, 1) - BANGKOK_OFFSET_MS),
   };
+}
+
+/**
+ * ต้นวันตามเวลาไทยของ "YYYY-MM-DD" (เลื่อนได้ด้วย dayOffset)
+ * ต้องคิดจากเวลาไทยเสมอ ไม่งั้นกะที่เปิดช่วง 00:00–07:00 จะหลุดช่วงค้นหาเมื่อเซิร์ฟเวอร์รันที่ UTC
+ */
+function bangkokDayStart(dateKey: string, dayOffset = 0) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(
+    Date.UTC(year!, month! - 1, day! + dayOffset) - BANGKOK_OFFSET_MS
+  );
 }
 
 const historyShifts = alias(shifts, "history_shifts");
@@ -972,13 +984,13 @@ export const posRouter = createRouter({
         conditions.push(lt(historyShifts.openedAt, period.end));
       } else if (input.from) {
         conditions.push(
-          gte(historyShifts.openedAt, new Date(`${input.from}T00:00:00`))
+          gte(historyShifts.openedAt, bangkokDayStart(input.from))
         );
       }
       if (!input.month && input.to) {
-        const exclusiveEnd = new Date(`${input.to}T00:00:00`);
-        exclusiveEnd.setDate(exclusiveEnd.getDate() + 1);
-        conditions.push(lt(historyShifts.openedAt, exclusiveEnd));
+        conditions.push(
+          lt(historyShifts.openedAt, bangkokDayStart(input.to, 1))
+        );
       }
       const rows = await getDb()
         .select(shiftHistorySelection)

@@ -4,7 +4,7 @@ import { auditLogs, fuelTanks, priceChanges, products } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสเปิด–ปิดกะและมิเตอร์ บนฐานข้อมูลชั่วคราว (migrate + seed)
-// seed: หัวจ่าย 4 ตัว (GSH95/DB7/GSH91/DB7) ถัง GSH95 = 12,450 ลิตร, ราคา GSH95 = 40.74
+// seed: หัวจ่าย 4 ตัว (GSH95/DB7/GSH95/DB7) ถัง GSH95 = 12,450 ลิตร, ราคา GSH95 = 40.74
 let t: TestDb;
 
 beforeAll(async () => {
