@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import {
   and,
   desc,
@@ -31,14 +30,7 @@ import {
   sumCashCounts,
   type CashCounts,
 } from "@contracts/cash";
-import {
-  METER_OCR_MAX_BASE64_CHARS_PER_IMAGE,
-  METER_OCR_MAX_IMAGES_PER_REQUEST,
-} from "@contracts/meterOcr";
-import { normalizeMeterOcrMode } from "@contracts/settings";
 import { assessMeterReading } from "@contracts/meterReconciliation";
-import { env } from "../lib/env";
-import { MeterOcrError, readMeterImages } from "../lib/meterOcr";
 import {
   products,
   nozzles,
@@ -61,63 +53,6 @@ import {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
-const meterOcrRateLimits = new Map<
-  string,
-  { windowStartedAt: number; requestCount: number }
->();
-
-function enforceMeterOcrRateLimit(branchId: number, staffId: number) {
-  const key = `${branchId}:${staffId}`;
-  const now = Date.now();
-  const current = meterOcrRateLimits.get(key);
-  if (!current || now - current.windowStartedAt >= 60_000) {
-    meterOcrRateLimits.set(key, { windowStartedAt: now, requestCount: 1 });
-    return;
-  }
-  if (current.requestCount >= 12) {
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: "อ่านภาพถี่เกินไป กรุณารอสักครู่แล้วลองใหม่",
-    });
-  }
-  current.requestCount += 1;
-}
-
-const meterOcrImageInput = z
-  .object({
-    mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
-    contentBase64: z
-      .string()
-      .min(4)
-      .max(METER_OCR_MAX_BASE64_CHARS_PER_IMAGE)
-      .regex(/^[A-Za-z0-9+/]+={0,2}$/, "ข้อมูลรูปภาพไม่ใช่ Base64 ที่ถูกต้อง"),
-  })
-  .superRefine((image, ctx) => {
-    try {
-      const header = atob(image.contentBase64.slice(0, 32));
-      const valid =
-        (image.mimeType === "image/jpeg" &&
-          header.charCodeAt(0) === 0xff &&
-          header.charCodeAt(1) === 0xd8 &&
-          header.charCodeAt(2) === 0xff) ||
-        (image.mimeType === "image/png" &&
-          header.startsWith("\x89PNG\r\n\x1a\n")) ||
-        (image.mimeType === "image/webp" &&
-          header.startsWith("RIFF") &&
-          header.slice(8, 12) === "WEBP");
-      if (!valid) {
-        ctx.addIssue({
-          code: "custom",
-          message: "ชนิดไฟล์รูปภาพไม่ตรงกับเนื้อหาไฟล์",
-        });
-      }
-    } catch {
-      ctx.addIssue({
-        code: "custom",
-        message: "เปิดข้อมูลรูปภาพไม่สำเร็จ",
-      });
-    }
-  });
 
 const shiftHistoryFields = {
   staffId: z.number().int().positive().nullable().optional(),
@@ -382,88 +317,6 @@ export const posRouter = createRouter({
       }),
     };
   }),
-
-  shiftMeterScan: publicQuery
-    .input(
-      z.object({
-        shiftId: z.number().int().positive(),
-        images: z
-          .array(meterOcrImageInput)
-          .min(1)
-          .max(METER_OCR_MAX_IMAGES_PER_REQUEST),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      const branchId = ctx.staff.branchId;
-      const shift = await getDb().query.shifts.findFirst({
-        columns: { id: true, status: true },
-        where: and(eq(shifts.id, input.shiftId), eq(shifts.branchId, branchId)),
-      });
-      if (!shift || shift.status !== "open") {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "ไม่พบกะที่เปิดอยู่สำหรับอ่านมิเตอร์",
-        });
-      }
-
-      const configuredMode = await getDb().query.settings.findFirst({
-        columns: { value: true },
-        where: and(
-          eq(settings.branchId, branchId),
-          eq(settings.key, "meter_ocr_mode")
-        ),
-      });
-      if (normalizeMeterOcrMode(configuredMode?.value) === "local") {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "สาขานี้ตั้งค่าให้อ่านมิเตอร์ในเครื่อง จึงไม่อนุญาตให้ส่งภาพไปยัง Gemini",
-        });
-      }
-
-      enforceMeterOcrRateLimit(branchId, ctx.staff.id);
-      try {
-        const results = await readMeterImages({
-          apiKey: env.meterOcrApiKey,
-          apiUrl: env.meterOcrApiUrl,
-          model: env.meterOcrModel,
-          timeoutMs: env.meterOcrTimeoutMs,
-          images: input.images,
-        });
-        return {
-          results,
-          model: env.meterOcrModel,
-        };
-      } catch (error) {
-        if (error instanceof MeterOcrError) {
-          if (error.kind === "not_configured") {
-            throw new TRPCError({
-              code: "PRECONDITION_FAILED",
-              message:
-                "ยังไม่ได้เปิดใช้ระบบอ่านมิเตอร์จากภาพ กรุณาให้ผู้ดูแลตั้งค่า GEMINI_API_KEY",
-            });
-          }
-          if (error.kind === "timeout") {
-            throw new TRPCError({
-              code: "TIMEOUT",
-              message: "ระบบอ่านภาพใช้เวลานานเกินไป กรุณาลองใหม่",
-            });
-          }
-          if (error.kind === "rate_limited") {
-            throw new TRPCError({
-              code: "TOO_MANY_REQUESTS",
-              message:
-                "โควตา Gemini ไม่พร้อมใช้งาน กรุณาตรวจสอบ Billing และ API quota หรือลองใหม่ภายหลัง หรือกรอกค่าด้วยตนเอง",
-            });
-          }
-          throw new TRPCError({
-            code: "BAD_GATEWAY",
-            message: "อ่านตัวเลขจากภาพไม่สำเร็จ กรุณาลองใหม่หรือกรอกด้วยตนเอง",
-          });
-        }
-        throw error;
-      }
-    }),
 
   openShift: publicQuery
     .input(

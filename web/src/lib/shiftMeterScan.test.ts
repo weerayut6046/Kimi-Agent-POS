@@ -48,5 +48,6 @@ describe("shift meter image mapping", () => {
     expect(suggestNozzleId(targets, 1, "right")).toBe(12);
     expect(suggestNozzleId(targets, 2, "left")).toBe(21);
     expect(suggestNozzleId(targets, null, "left")).toBeNull();
+    expect(suggestNozzleId(targets, null, "right")).toBe(12);
   });
 });

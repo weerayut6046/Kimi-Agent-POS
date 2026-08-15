@@ -10,17 +10,13 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  METER_OCR_MAX_IMAGES_PER_REQUEST,
   METER_OCR_MAX_SELECTED_IMAGES,
   type MeterDisplayMode,
   type MeterDisplaySide,
 } from "@contracts/meterOcr";
-import type { MeterOcrMode } from "@contracts/settings";
 import { assessMeterReading } from "@contracts/meterReconciliation";
-import { trpc } from "@/providers/trpc";
 import {
   scanMeterImageLocally,
-  shouldUseGeminiFallback,
   type MeterImageScanResult,
 } from "@/lib/localMeterOcr";
 import {
@@ -70,13 +66,10 @@ type ScanNote = {
   mode: MeterDisplayMode;
   issue: string;
   screenCount: number;
-  source: "local" | "gemini";
 };
 
 type Props = {
-  shiftId: number;
   targets: MeterNozzleTarget[];
-  mode: MeterOcrMode;
   onApply: (values: Record<number, { l?: string; p?: string }>) => void;
 };
 
@@ -90,26 +83,7 @@ function modeLabel(mode: MeterDisplayMode) {
   return "ยังไม่ทราบ L/P";
 }
 
-function readerModeLabel(mode: MeterOcrMode) {
-  if (mode === "local") return "อ่านในเครื่อง · ไม่ส่งภาพออก";
-  if (mode === "auto") return "อัตโนมัติ · Gemini เฉพาะภาพไม่ชัด";
-  return "Gemini";
-}
-
-function chunks<T>(items: T[], size: number): T[][] {
-  const output: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    output.push(items.slice(index, index + size));
-  }
-  return output;
-}
-
-export default function ShiftMeterImageScanner({
-  shiftId,
-  targets,
-  mode,
-  onApply,
-}: Props) {
+export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
   const [open, setOpen] = useState(false);
   const [images, setImages] = useState<PreparedMeterImage[]>([]);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
@@ -120,10 +94,7 @@ export default function ShiftMeterImageScanner({
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const multipleInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const scanMutation = trpc.pos.shiftMeterScan.useMutation({
-    trpc: { context: { skipBatch: true } },
-  });
-  const scanning = localScanning || scanMutation.isPending;
+  const scanning = localScanning;
 
   const imageById = useMemo(
     () => new Map(images.map(image => [image.id, image])),
@@ -272,122 +243,44 @@ export default function ShiftMeterImageScanner({
     const nextNotes: ScanNote[] = [];
 
     try {
-      setLocalScanning(mode !== "gemini");
-      for (const batch of chunks(images, METER_OCR_MAX_IMAGES_PER_REQUEST)) {
-        let batchResults: Array<{
-          result: MeterImageScanResult;
-          source: "local" | "gemini";
-        }> = [];
-
-        if (mode === "gemini") {
-          const response = await scanMutation.mutateAsync({
-            shiftId,
-            images: batch.map(image => ({
-              mimeType: image.mimeType,
-              contentBase64: image.contentBase64,
-            })),
-          });
-          batchResults = response.results.map(result => ({
-            result,
-            source: "gemini" as const,
-          }));
-        } else {
-          for (let imageIndex = 0; imageIndex < batch.length; imageIndex += 1) {
-            batchResults.push({
-              result: await scanMeterImageLocally(
-                batch[imageIndex]!,
-                imageIndex
-              ),
-              source: "local",
-            });
-            await new Promise<void>(resolve =>
-              requestAnimationFrame(() => resolve())
-            );
-          }
-
-          if (mode === "auto") {
-            const fallback = batchResults
-              .map((entry, index) => ({ entry, index }))
-              .filter(({ entry }) => shouldUseGeminiFallback(entry.result));
-            if (fallback.length) {
-              try {
-                const response = await scanMutation.mutateAsync({
-                  shiftId,
-                  images: fallback.map(({ index }) => ({
-                    mimeType: batch[index]!.mimeType,
-                    contentBase64: batch[index]!.contentBase64,
-                  })),
-                });
-                for (const result of response.results) {
-                  const original = fallback[result.imageIndex];
-                  if (!original) continue;
-                  batchResults[original.index] = {
-                    result: {
-                      ...result,
-                      imageIndex: original.index,
-                    },
-                    source: "gemini",
-                  };
-                }
-              } catch (cause) {
-                const fallbackIssue =
-                  cause instanceof Error
-                    ? cause.message
-                    : "เรียก Gemini สำรองไม่สำเร็จ";
-                for (const { index } of fallback) {
-                  const current = batchResults[index]!;
-                  batchResults[index] = {
-                    ...current,
-                    result: {
-                      ...current.result,
-                      issue: [current.result.issue, fallbackIssue]
-                        .filter(Boolean)
-                        .join(" · "),
-                    },
-                  };
-                }
-              }
-            }
-          }
-        }
-
-        for (const { result, source } of batchResults) {
-          const image = batch[result.imageIndex];
-          if (!image) continue;
-          nextNotes.push({
+      setLocalScanning(true);
+      for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
+        const image = images[imageIndex]!;
+        const result: MeterImageScanResult = await scanMeterImageLocally(
+          image,
+          imageIndex
+        );
+        nextNotes.push({
+          imageId: image.id,
+          imageName: image.fileName,
+          pumpNumber: result.pumpNumber,
+          mode: result.mode,
+          issue: result.issue,
+          screenCount: result.screens.length,
+        });
+        for (const screen of result.screens) {
+          nextRows.push({
+            id: `${image.id}:${screen.side}`,
             imageId: image.id,
             imageName: image.fileName,
             pumpNumber: result.pumpNumber,
             mode: result.mode,
-            issue: result.issue,
-            screenCount: result.screens.length,
-            source,
+            side: screen.side,
+            prefixDigits: screen.prefixDigits,
+            mainDigits: screen.mainDigits,
+            value: screen.combinedText ?? "",
+            confidence: screen.confidence,
+            nozzleId: suggestNozzleId(targets, result.pumpNumber, screen.side),
+            sourceValid: screen.valid,
           });
-          for (const screen of result.screens) {
-            nextRows.push({
-              id: `${image.id}:${screen.side}`,
-              imageId: image.id,
-              imageName: image.fileName,
-              pumpNumber: result.pumpNumber,
-              mode: result.mode,
-              side: screen.side,
-              prefixDigits: screen.prefixDigits,
-              mainDigits: screen.mainDigits,
-              value: screen.combinedText ?? "",
-              confidence: screen.confidence,
-              nozzleId: suggestNozzleId(
-                targets,
-                result.pumpNumber,
-                screen.side
-              ),
-              sourceValid: screen.valid,
-            });
-          }
         }
         setProgress(current => ({
           ...current,
-          done: Math.min(current.total, current.done + batch.length),
+          done: Math.min(current.total, imageIndex + 1),
         }));
+        await new Promise<void>(resolve =>
+          requestAnimationFrame(() => resolve())
+        );
       }
       setReviewRows(nextRows);
       setScanNotes(nextNotes);
@@ -440,7 +333,8 @@ export default function ShiftMeterImageScanner({
             </DialogTitle>
             <DialogDescription>
               เลือกรูปของหลายตู้พร้อมกันได้ ระบบจะรวมเลขด้านบนกับด้านล่าง
-              แล้วให้ตรวจทานก่อนเติมแบบฟอร์มปิดกะ · {readerModeLabel(mode)}
+              แล้วให้ตรวจทานก่อนเติมแบบฟอร์มปิดกะ ·
+              ประมวลผลในเครื่องและไม่ส่งภาพออก
             </DialogDescription>
           </DialogHeader>
 
@@ -469,6 +363,10 @@ export default function ShiftMeterImageScanner({
                   <p className="text-xs text-muted-foreground">
                     เลือกได้สูงสุด {METER_OCR_MAX_SELECTED_IMAGES} ภาพ
                     และสามารถถ่ายเพิ่มทีละภาพได้
+                  </p>
+                  <p className="mt-1 text-xs text-blue-700">
+                    เพื่อความแม่นยำ ให้ถ่ายหน้าตรง เห็น LCD
+                    หลักทั้งสองจอเต็มกรอบ และหลีกเลี่ยงเงาหรือแสงสะท้อนบนจอ
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -604,15 +502,7 @@ export default function ShiftMeterImageScanner({
                           <Badge variant="secondary">
                             {note.screenCount} จอ
                           </Badge>
-                          <Badge
-                            variant={
-                              note.source === "local" ? "outline" : "secondary"
-                            }
-                          >
-                            {note.source === "local"
-                              ? "อ่านในเครื่อง"
-                              : "Gemini"}
-                          </Badge>
+                          <Badge variant="outline">อ่านในเครื่อง</Badge>
                         </div>
                         {note.issue && (
                           <div className="mt-1 text-amber-700">

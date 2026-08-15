@@ -73,6 +73,10 @@ function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function luminance(red: number, green: number, blue: number) {
+  return Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+}
+
 function hammingDistance(
   actual: ReadonlySet<Segment>,
   expected: readonly Segment[]
@@ -341,6 +345,15 @@ export function findMainDisplays(
         );
       },
     },
+    {
+      // จอที่สีฟ้าถูก white balance ของกล้องลดจนเกือบเป็นสีเทา
+      confidence: 0.52,
+      predicate: (red: number, green: number, blue: number) => {
+        const brightness = luminance(red, green, blue);
+        const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+        return brightness >= 52 && brightness <= 210 && spread <= 34;
+      },
+    },
   ];
 
   const candidates: DisplayCandidate[] = [];
@@ -390,13 +403,23 @@ function otsuThreshold(
   x0: number,
   y0: number,
   x1: number,
-  y1: number
+  y1: number,
+  channel: "red" | "luminance"
 ) {
   const histogram = new Uint32Array(256);
   const pixels = (x1 - x0) * (y1 - y0);
   for (let y = y0; y < y1; y += 1) {
     for (let x = x0; x < x1; x += 1) {
-      histogram[imageData.data[(y * imageData.width + x) * 4]!] += 1;
+      const offset = (y * imageData.width + x) * 4;
+      const intensity =
+        channel === "red"
+          ? imageData.data[offset]!
+          : luminance(
+              imageData.data[offset]!,
+              imageData.data[offset + 1]!,
+              imageData.data[offset + 2]!
+            );
+      histogram[intensity]! += 1;
     }
   }
 
@@ -435,7 +458,18 @@ function roiMask(
   left: number,
   top: number,
   right: number,
-  bottom: number
+  bottom: number,
+  options: {
+    channel: "red" | "luminance";
+    localOffset: number;
+    globalAllowance: number;
+    adaptive: boolean;
+  } = {
+    channel: "red",
+    localOffset: 8,
+    globalAllowance: 18,
+    adaptive: true,
+  }
 ): { mask: Uint8Array; width: number; height: number } {
   const x0 = clamp(Math.floor(imageData.width * left), 0, imageData.width - 1);
   const y0 = clamp(Math.floor(imageData.height * top), 0, imageData.height - 1);
@@ -447,14 +481,21 @@ function roiMask(
   );
   const width = x1 - x0;
   const height = y1 - y0;
-  const threshold = otsuThreshold(imageData, x0, y0, x1, y1);
+  const threshold = otsuThreshold(imageData, x0, y0, x1, y1, options.channel);
   const integralWidth = width + 1;
   const integral = new Uint32Array(integralWidth * (height + 1));
   for (let y = 0; y < height; y += 1) {
     let rowSum = 0;
     for (let x = 0; x < width; x += 1) {
       const sourceOffset = ((y + y0) * imageData.width + x + x0) * 4;
-      rowSum += imageData.data[sourceOffset]!;
+      rowSum +=
+        options.channel === "red"
+          ? imageData.data[sourceOffset]!
+          : luminance(
+              imageData.data[sourceOffset]!,
+              imageData.data[sourceOffset + 1]!,
+              imageData.data[sourceOffset + 2]!
+            );
       integral[(y + 1) * integralWidth + x + 1] =
         integral[y * integralWidth + x + 1]! + rowSum;
     }
@@ -474,13 +515,68 @@ function roiMask(
         integral[localY1 * integralWidth + localX0]! +
         integral[localY0 * integralWidth + localX0]!;
       const localMean = localSum / ((localX1 - localX0) * (localY1 - localY0));
-      const red = imageData.data[sourceOffset]!;
-      if (red < localMean - 8 && red < threshold + 18) {
+      const intensity =
+        options.channel === "red"
+          ? imageData.data[sourceOffset]!
+          : luminance(
+              imageData.data[sourceOffset]!,
+              imageData.data[sourceOffset + 1]!,
+              imageData.data[sourceOffset + 2]!
+            );
+      if (
+        (!options.adaptive || intensity < localMean - options.localOffset) &&
+        intensity < threshold + options.globalAllowance
+      ) {
         mask[y * width + x] = 1;
       }
     }
   }
   return { mask, width, height };
+}
+
+const MASK_PASSES = [
+  {
+    channel: "red",
+    localOffset: 5,
+    globalAllowance: 24,
+    adaptive: true,
+  },
+  {
+    channel: "red",
+    localOffset: 9,
+    globalAllowance: 18,
+    adaptive: true,
+  },
+  {
+    channel: "luminance",
+    localOffset: 6,
+    globalAllowance: 22,
+    adaptive: true,
+  },
+  {
+    channel: "luminance",
+    localOffset: 11,
+    globalAllowance: 16,
+    adaptive: true,
+  },
+  {
+    channel: "luminance",
+    localOffset: 0,
+    globalAllowance: 4,
+    adaptive: false,
+  },
+] as const;
+
+function roiMaskPasses(
+  imageData: ImageData,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number
+) {
+  return MASK_PASSES.map(options =>
+    roiMask(imageData, left, top, right, bottom, options)
+  );
 }
 
 function cropRowsToLongestRun(input: {
@@ -793,6 +889,69 @@ function decodeDigits(
   };
 }
 
+function digitReadShapeScore(read: DigitRead, includeDecimal: boolean) {
+  if (!read.text) return -1;
+  if (includeDecimal) {
+    if (!/^\d{1,10}(?:\.\d{1,3})?$/.test(read.text)) return -0.75;
+    const [integerPart, decimalPart] = read.text.split(".");
+    return (
+      (integerPart!.length >= 4 ? 0.14 : 0) +
+      (decimalPart?.length === 2 ? 0.22 : decimalPart ? 0.08 : 0)
+    );
+  }
+  return /^\d{1,2}$/.test(read.text) ? 0.16 : -0.5;
+}
+
+function chooseDigitRead(
+  reads: DigitRead[],
+  includeDecimal: boolean
+): DigitRead {
+  const groups = new Map<string, DigitRead[]>();
+  for (const read of reads) {
+    const group = groups.get(read.text) ?? [];
+    group.push(read);
+    groups.set(read.text, group);
+  }
+
+  const ranked = [...groups.entries()]
+    .map(([text, group]) => {
+      const averageConfidence =
+        group.reduce((total, read) => total + read.confidence, 0) /
+        group.length;
+      const agreement = group.length / Math.max(1, reads.length);
+      return {
+        text,
+        averageConfidence,
+        agreement,
+        score:
+          averageConfidence * 0.62 +
+          agreement * 0.55 +
+          digitReadShapeScore(group[0]!, includeDecimal),
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+  const best = ranked[0];
+  if (!best || !best.text) return { text: "", confidence: 0 };
+  return {
+    text: best.text,
+    confidence: clamp(
+      best.averageConfidence * 0.72 + best.agreement * 0.28,
+      0,
+      0.98
+    ),
+  };
+}
+
+function decodeDigitsFromPasses(
+  passes: Array<{ mask: Uint8Array; width: number; height: number }>,
+  includeDecimal: boolean
+) {
+  return chooseDigitRead(
+    passes.map(pass => decodeDigits(pass, includeDecimal)),
+    includeDecimal
+  );
+}
+
 function decodeMode(input: {
   mask: Uint8Array;
   width: number;
@@ -827,16 +986,53 @@ function decodeMode(input: {
   };
 }
 
+function decodeModeFromPasses(
+  passes: Array<{ mask: Uint8Array; width: number; height: number }>
+): ModeRead {
+  const reads = passes.map(decodeMode);
+  const ranked = (["L", "P"] as const)
+    .map(mode => {
+      const matching = reads.filter(read => read.mode === mode);
+      const agreement = matching.length / Math.max(1, reads.length);
+      const averageConfidence = matching.length
+        ? matching.reduce((total, read) => total + read.confidence, 0) /
+          matching.length
+        : 0;
+      return {
+        mode,
+        agreement,
+        averageConfidence,
+        score: agreement * 0.65 + averageConfidence * 0.35,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+  const best = ranked[0]!;
+  if (best.agreement < 0.4) return { mode: "unknown", confidence: 0 };
+  return {
+    mode: best.mode,
+    confidence: clamp(
+      best.averageConfidence * 0.7 + best.agreement * 0.3,
+      0.25,
+      0.98
+    ),
+  };
+}
+
 export function readMeterScreenImageData(
   imageData: ImageData,
   side: MeterDisplaySide
 ): { screen: MeterImageScanScreen; mode: ModeRead } {
-  const main = cropRowsToLongestRun(roiMask(imageData, 0.02, 0.42, 0.98, 0.98));
-  const prefix = roiMask(imageData, 0.5, 0.06, 1, 0.46);
-  const modeMask = roiMask(imageData, 0.03, 0.06, 0.3, 0.5);
-  const mainRead = decodeDigits(main, true);
-  const prefixRead = decodeDigits(prefix, false);
-  const mode = decodeMode(modeMask);
+  const mainRead = decodeDigitsFromPasses(
+    roiMaskPasses(imageData, 0.02, 0.4, 0.98, 0.99).map(cropRowsToLongestRun),
+    true
+  );
+  const prefixRead = decodeDigitsFromPasses(
+    roiMaskPasses(imageData, 0.48, 0.04, 1, 0.48),
+    false
+  );
+  const mode = decodeModeFromPasses(
+    roiMaskPasses(imageData, 0.02, 0.04, 0.32, 0.52)
+  );
   const combined = combineMeterDisplayDigits(prefixRead.text, mainRead.text);
 
   return {
@@ -950,6 +1146,61 @@ function loadPreparedImage(previewDataUrl: string) {
   });
 }
 
+function assessImageQuality(imageData: ImageData) {
+  const { width, height, data } = imageData;
+  const step = 2;
+  let samples = 0;
+  let sum = 0;
+  let sumSquared = 0;
+  let clippedDark = 0;
+  let clippedBright = 0;
+  let edgeEnergy = 0;
+  let edgeSamples = 0;
+  for (let y = step; y < height; y += step) {
+    for (let x = step; x < width; x += step) {
+      const offset = (y * width + x) * 4;
+      const value = luminance(
+        data[offset]!,
+        data[offset + 1]!,
+        data[offset + 2]!
+      );
+      const leftOffset = (y * width + x - step) * 4;
+      const topOffset = ((y - step) * width + x) * 4;
+      const left = luminance(
+        data[leftOffset]!,
+        data[leftOffset + 1]!,
+        data[leftOffset + 2]!
+      );
+      const top = luminance(
+        data[topOffset]!,
+        data[topOffset + 1]!,
+        data[topOffset + 2]!
+      );
+      samples += 1;
+      sum += value;
+      sumSquared += value * value;
+      if (value <= 12) clippedDark += 1;
+      if (value >= 243) clippedBright += 1;
+      edgeEnergy += Math.abs(value - left) + Math.abs(value - top);
+      edgeSamples += 2;
+    }
+  }
+  if (!samples) return [];
+  const mean = sum / samples;
+  const deviation = Math.sqrt(Math.max(0, sumSquared / samples - mean ** 2));
+  const clippedRatio = (clippedDark + clippedBright) / samples;
+  const averageEdge = edgeEnergy / Math.max(1, edgeSamples);
+  const issues: string[] = [];
+  if (mean < 42) issues.push("ภาพมืดมาก ควรถ่ายใหม่ในที่สว่างขึ้น");
+  if (mean > 222 || clippedRatio > 0.34) {
+    issues.push("ภาพสว่างจ้าหรือมีแสงสะท้อนมาก");
+  }
+  if (deviation < 18 || averageEdge < 2.4) {
+    issues.push("ภาพมีคอนทราสต์หรือความคมชัดต่ำ");
+  }
+  return issues;
+}
+
 function chooseMode(reads: ModeRead[]) {
   const valid = reads.filter(read => read.mode !== "unknown");
   if (!valid.length) return { mode: "unknown" as const, confidence: 0 };
@@ -972,7 +1223,9 @@ export async function scanMeterImageLocally(
   imageIndex = 0
 ): Promise<MeterImageScanResult> {
   const image = await loadPreparedImage(prepared.previewDataUrl);
-  const analysisWidth = Math.min(512, image.naturalWidth);
+  // ความกว้างระดับนี้ยังทำงานได้เร็วบนมือถือ แต่รักษาขอบ LCD และกรอบจอ
+  // ได้ดีกว่าภาพวิเคราะห์ 512 px โดยเฉพาะภาพที่ถ่ายทั้งตู้
+  const analysisWidth = Math.min(896, image.naturalWidth);
   const analysisHeight = Math.max(
     1,
     Math.round(image.naturalHeight * (analysisWidth / image.naturalWidth))
@@ -992,6 +1245,7 @@ export async function scanMeterImageLocally(
     analysisWidth,
     analysisHeight
   );
+  const qualityIssues = assessImageQuality(analysisData);
   const displays = findMainDisplays(analysisData);
   if (!displays) {
     return {
@@ -999,8 +1253,10 @@ export async function scanMeterImageLocally(
       pumpNumber: null,
       mode: "unknown",
       screens: [],
-      issue:
+      issue: [
+        ...qualityIssues,
         "ระบบในเครื่องหา LCD หลักสองจอไม่ครบ กรุณาครอปภาพให้เห็นหน้าตู้ตรงและชัดขึ้น",
+      ].join(" · "),
     };
   }
 
@@ -1018,7 +1274,7 @@ export async function scanMeterImageLocally(
     ...screen,
     confidence: Math.min(screen.confidence, chosenMode.confidence),
   }));
-  const issues: string[] = [];
+  const issues: string[] = [...qualityIssues];
   if (pumpNumber == null) issues.push("อ่านหมายเลขตู้ไม่ได้");
   if (chosenMode.mode === "unknown") issues.push("อ่านโหมด L/P ไม่ได้");
   if (left.mode.mode !== right.mode.mode) {
@@ -1037,13 +1293,4 @@ export async function scanMeterImageLocally(
     screens,
     issue: issues.join(" · "),
   };
-}
-
-export function shouldUseGeminiFallback(result: MeterImageScanResult) {
-  return (
-    result.pumpNumber == null ||
-    result.mode === "unknown" ||
-    result.screens.length !== 2 ||
-    result.screens.some(screen => !screen.valid || screen.confidence < 0.72)
-  );
 }

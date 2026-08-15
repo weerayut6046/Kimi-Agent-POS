@@ -3,8 +3,6 @@ import {
   findMainDisplays,
   matchSevenSegmentDigit,
   readMeterScreenImageData,
-  shouldUseGeminiFallback,
-  type MeterImageScanResult,
 } from "./localMeterOcr";
 
 const patterns = {
@@ -19,35 +17,6 @@ const patterns = {
   "8": ["a", "b", "c", "d", "e", "f", "g"],
   "9": ["a", "b", "c", "d", "f", "g"],
 } as const;
-
-function validResult(): MeterImageScanResult {
-  return {
-    imageIndex: 0,
-    pumpNumber: 1,
-    mode: "L",
-    issue: "",
-    screens: [
-      {
-        side: "left",
-        prefixDigits: "39",
-        mainDigits: "6962.39",
-        combinedText: "396962.39",
-        value: 396962.39,
-        confidence: 0.94,
-        valid: true,
-      },
-      {
-        side: "right",
-        prefixDigits: "90",
-        mainDigits: "3971.37",
-        combinedText: "903971.37",
-        value: 903971.37,
-        confidence: 0.92,
-        valid: true,
-      },
-    ],
-  };
-}
 
 function meterImageData(input: {
   width?: number;
@@ -84,17 +53,19 @@ function meterImageData(input: {
   return { width, height, data } as ImageData;
 }
 
-function sevenSegmentScreenData() {
+function sevenSegmentScreenData(redChannelAmbiguous = false) {
   const width = 400;
   const height = 200;
   const data = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const red = Math.round(122 - (x / width) * 48 + (y / height) * 5);
+      const red = redChannelAmbiguous
+        ? 92
+        : Math.round(122 - (x / width) * 48 + (y / height) * 5);
       const offset = (y * width + x) * 4;
       data[offset] = red;
-      data[offset + 1] = red + 18;
-      data[offset + 2] = red + 36;
+      data[offset + 1] = redChannelAmbiguous ? 142 : red + 18;
+      data[offset + 2] = redChannelAmbiguous ? 162 : red + 36;
       data[offset + 3] = 255;
     }
   }
@@ -102,9 +73,9 @@ function sevenSegmentScreenData() {
     for (let row = y; row < y + boxHeight; row += 1) {
       for (let column = x; column < x + boxWidth; column += 1) {
         const offset = (row * width + column) * 4;
-        data[offset] = 18;
-        data[offset + 1] = 27;
-        data[offset + 2] = 38;
+        data[offset] = redChannelAmbiguous ? 92 : 18;
+        data[offset + 1] = redChannelAmbiguous ? 22 : 27;
+        data[offset + 2] = redChannelAmbiguous ? 24 : 38;
       }
     }
   };
@@ -169,24 +140,6 @@ describe("local seven-segment OCR", () => {
     }
   });
 
-  it("uses Gemini fallback only when the local result needs review", () => {
-    expect(shouldUseGeminiFallback(validResult())).toBe(false);
-    expect(
-      shouldUseGeminiFallback({
-        ...validResult(),
-        screens: validResult().screens.map((screen, index) =>
-          index === 0 ? { ...screen, confidence: 0.7 } : screen
-        ),
-      })
-    ).toBe(true);
-    expect(
-      shouldUseGeminiFallback({ ...validResult(), pumpNumber: null })
-    ).toBe(true);
-    expect(shouldUseGeminiFallback({ ...validResult(), mode: "unknown" })).toBe(
-      true
-    );
-  });
-
   it("finds both LCD panels after mobile color conversion mutes the blue tint", () => {
     const displays = findMainDisplays(
       meterImageData({ panelColor: [148, 159, 165] })
@@ -203,6 +156,14 @@ describe("local seven-segment OCR", () => {
 
     expect(displays).not.toBeNull();
     expect(displays?.map(display => display.width)).toEqual([142, 144]);
+  });
+
+  it("finds neutral-gray LCD panels after aggressive camera white balance", () => {
+    const displays = findMainDisplays(
+      meterImageData({ panelColor: [136, 139, 141] })
+    );
+
+    expect(displays?.map(display => display.x)).toEqual([28, 230]);
   });
 
   it("does not invent the missing second LCD panel", () => {
@@ -222,6 +183,17 @@ describe("local seven-segment OCR", () => {
     expect(result.mode.mode).toBe("L");
     expect(result.screen.prefixDigits).toBe("42");
     expect(result.screen.mainDigits).toBe("0246.87");
+    expect(result.screen.combinedText).toBe("420246.87");
+    expect(result.screen.valid).toBe(true);
+  });
+
+  it("uses luminance consensus when the red channel has no segment contrast", () => {
+    const result = readMeterScreenImageData(
+      sevenSegmentScreenData(true),
+      "right"
+    );
+
+    expect(result.mode.mode).toBe("L");
     expect(result.screen.combinedText).toBe("420246.87");
     expect(result.screen.valid).toBe(true);
   });

@@ -65,7 +65,6 @@ import {
   sumCashCounts,
   type CashCounts,
 } from "@contracts/cash";
-import { normalizeMeterOcrMode } from "@contracts/settings";
 import { assessMeterReading } from "@contracts/meterReconciliation";
 import { bangkokMonthKey } from "@/lib/bangkokMonth";
 
@@ -754,11 +753,6 @@ export default function Shifts() {
     currentShift?.lubricantSales?.lubricantItems ?? [];
   const currentLubricantAmount =
     currentShift?.lubricantSales?.lubricantAmount ?? 0;
-  const { data: branchSettings } = trpc.catalog.getSettings.useQuery(
-    undefined,
-    { enabled: currentShift != null }
-  );
-  const meterOcrMode = normalizeMeterOcrMode(branchSettings?.meter_ocr_mode);
   const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
     enabled: currentShift === null,
   });
@@ -1286,9 +1280,7 @@ export default function Shifts() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
                   <ShiftMeterImageScanner
-                    shiftId={currentShift.id}
                     targets={meterScanTargets}
-                    mode={meterOcrMode}
                     onApply={values => {
                       setCloseVals(current => {
                         const next = { ...current };

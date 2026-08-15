@@ -68,29 +68,6 @@ describe("openShift / closeShift", () => {
     expect((await t.caller().pos.currentShift())?.id).toBe(current!.id);
   });
 
-  it("โหมดอ่านในเครื่องป้องกันการส่งภาพไป Gemini ที่ฝั่ง API", async () => {
-    const cur = await t.caller().pos.currentShift();
-    await t.caller("admin").catalog.updateSettings({
-      entries: [{ key: "meter_ocr_mode", value: "local" }],
-    });
-
-    await expect(
-      t.caller().pos.shiftMeterScan({
-        shiftId: cur!.id,
-        images: [
-          {
-            mimeType: "image/jpeg",
-            contentBase64: "/9j/AA==",
-          },
-        ],
-      })
-    ).rejects.toThrow("ไม่อนุญาตให้ส่งภาพไปยัง Gemini");
-
-    await t.caller("admin").catalog.updateSettings({
-      entries: [{ key: "meter_ocr_mode", value: "gemini" }],
-    });
-  });
-
   it("แจ้งเตือนเมื่อพบประวัติเปลี่ยนราคาหลังเปิดกะ", async () => {
     const fuel = await t.db.query.products.findFirst({
       where: eq(products.code, "GSH95"),
