@@ -1,4 +1,6 @@
+export const METER_OCR_MAX_IMAGES_PER_REQUEST = 4;
 export const METER_OCR_MAX_SELECTED_IMAGES = 20;
+export const METER_OCR_MAX_BASE64_CHARS_PER_IMAGE = 2_100_000;
 
 export type MeterDisplayMode = "L" | "P" | "unknown";
 export type MeterDisplaySide = "left" | "right";

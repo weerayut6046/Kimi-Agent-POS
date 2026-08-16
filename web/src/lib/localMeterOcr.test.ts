@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findMainDisplays,
   matchSevenSegmentDigit,
+  measureSpecularGlare,
   readMeterScreenImageData,
 } from "./localMeterOcr";
 
@@ -130,6 +131,22 @@ function sevenSegmentScreenData(redChannelAmbiguous = false) {
   return { width, height, data } as ImageData;
 }
 
+function addReflection(
+  imageData: ImageData,
+  left: number,
+  right: number
+) {
+  for (let y = 0; y < imageData.height; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const offset = (y * imageData.width + x) * 4;
+      imageData.data[offset] = 246;
+      imageData.data[offset + 1] = 244;
+      imageData.data[offset + 2] = 240;
+    }
+  }
+  return imageData;
+}
+
 describe("local seven-segment OCR", () => {
   it("maps every standard seven-segment pattern to its digit", () => {
     for (const [digit, segments] of Object.entries(patterns)) {
@@ -196,5 +213,14 @@ describe("local seven-segment OCR", () => {
     expect(result.mode.mode).toBe("L");
     expect(result.screen.combinedText).toBe("420246.87");
     expect(result.screen.valid).toBe(true);
+  });
+
+  it("measures a clipped reflection across an LCD instead of treating it as trustworthy", () => {
+    const screen = addReflection(sevenSegmentScreenData(), 120, 180);
+
+    expect(measureSpecularGlare(screen)).toBeGreaterThan(0.14);
+    expect(readMeterScreenImageData(screen, "left").screen.glareRatio).toBe(
+      measureSpecularGlare(screen)
+    );
   });
 });

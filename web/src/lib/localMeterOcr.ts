@@ -12,6 +12,7 @@ export type MeterImageScanScreen = {
   combinedText: string | null;
   value: number | null;
   confidence: number;
+  glareRatio: number;
   valid: boolean;
 };
 
@@ -48,6 +49,7 @@ type ModeRead = {
 };
 
 type Segment = "a" | "b" | "c" | "d" | "e" | "f" | "g";
+type MeterIntensityChannel = "red" | "luminance" | "minimum";
 
 const SEGMENT_PATTERNS: Readonly<Record<string, readonly Segment[]>> = {
   "0": ["a", "b", "c", "d", "e", "f"],
@@ -75,6 +77,43 @@ function clamp(value: number, minimum: number, maximum: number) {
 
 function luminance(red: number, green: number, blue: number) {
   return Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+}
+
+function channelIntensity(
+  data: Uint8ClampedArray,
+  offset: number,
+  channel: MeterIntensityChannel
+) {
+  if (channel === "red") return data[offset]!;
+  const red = data[offset]!;
+  const green = data[offset + 1]!;
+  const blue = data[offset + 2]!;
+  return channel === "minimum"
+    ? Math.min(red, green, blue)
+    : luminance(red, green, blue);
+}
+
+/**
+ * Measures clipped, low-saturation highlights inside an extracted LCD screen.
+ * A reflection raises all RGB channels, while a dark seven-segment stroke
+ * normally keeps at least one channel low. The ratio is deliberately exposed
+ * so callers can reject risky reads instead of inventing hidden digits.
+ */
+export function measureSpecularGlare(imageData: ImageData) {
+  let highlights = 0;
+  const pixels = imageData.width * imageData.height;
+  for (let offset = 0; offset < imageData.data.length; offset += 4) {
+    const red = imageData.data[offset]!;
+    const green = imageData.data[offset + 1]!;
+    const blue = imageData.data[offset + 2]!;
+    const maximum = Math.max(red, green, blue);
+    const minimum = Math.min(red, green, blue);
+    const lightness = luminance(red, green, blue);
+    if (lightness >= 218 && (minimum >= 198 || maximum - minimum <= 52)) {
+      highlights += 1;
+    }
+  }
+  return pixels ? highlights / pixels : 0;
 }
 
 function hammingDistance(
@@ -404,21 +443,14 @@ function otsuThreshold(
   y0: number,
   x1: number,
   y1: number,
-  channel: "red" | "luminance"
+  channel: MeterIntensityChannel
 ) {
   const histogram = new Uint32Array(256);
   const pixels = (x1 - x0) * (y1 - y0);
   for (let y = y0; y < y1; y += 1) {
     for (let x = x0; x < x1; x += 1) {
       const offset = (y * imageData.width + x) * 4;
-      const intensity =
-        channel === "red"
-          ? imageData.data[offset]!
-          : luminance(
-              imageData.data[offset]!,
-              imageData.data[offset + 1]!,
-              imageData.data[offset + 2]!
-            );
+      const intensity = channelIntensity(imageData.data, offset, channel);
       histogram[intensity]! += 1;
     }
   }
@@ -460,7 +492,7 @@ function roiMask(
   right: number,
   bottom: number,
   options: {
-    channel: "red" | "luminance";
+    channel: MeterIntensityChannel;
     localOffset: number;
     globalAllowance: number;
     adaptive: boolean;
@@ -488,14 +520,11 @@ function roiMask(
     let rowSum = 0;
     for (let x = 0; x < width; x += 1) {
       const sourceOffset = ((y + y0) * imageData.width + x + x0) * 4;
-      rowSum +=
-        options.channel === "red"
-          ? imageData.data[sourceOffset]!
-          : luminance(
-              imageData.data[sourceOffset]!,
-              imageData.data[sourceOffset + 1]!,
-              imageData.data[sourceOffset + 2]!
-            );
+      rowSum += channelIntensity(
+        imageData.data,
+        sourceOffset,
+        options.channel
+      );
       integral[(y + 1) * integralWidth + x + 1] =
         integral[y * integralWidth + x + 1]! + rowSum;
     }
@@ -515,14 +544,11 @@ function roiMask(
         integral[localY1 * integralWidth + localX0]! +
         integral[localY0 * integralWidth + localX0]!;
       const localMean = localSum / ((localX1 - localX0) * (localY1 - localY0));
-      const intensity =
-        options.channel === "red"
-          ? imageData.data[sourceOffset]!
-          : luminance(
-              imageData.data[sourceOffset]!,
-              imageData.data[sourceOffset + 1]!,
-              imageData.data[sourceOffset + 2]!
-            );
+      const intensity = channelIntensity(
+        imageData.data,
+        sourceOffset,
+        options.channel
+      );
       if (
         (!options.adaptive || intensity < localMean - options.localOffset) &&
         intensity < threshold + options.globalAllowance
@@ -563,6 +589,18 @@ const MASK_PASSES = [
     channel: "luminance",
     localOffset: 0,
     globalAllowance: 4,
+    adaptive: false,
+  },
+  {
+    channel: "minimum",
+    localOffset: 7,
+    globalAllowance: 22,
+    adaptive: true,
+  },
+  {
+    channel: "minimum",
+    localOffset: 0,
+    globalAllowance: 7,
     adaptive: false,
   },
 ] as const;
@@ -1022,6 +1060,7 @@ export function readMeterScreenImageData(
   imageData: ImageData,
   side: MeterDisplaySide
 ): { screen: MeterImageScanScreen; mode: ModeRead } {
+  const glareRatio = measureSpecularGlare(imageData);
   const mainRead = decodeDigitsFromPasses(
     roiMaskPasses(imageData, 0.02, 0.4, 0.98, 0.99).map(cropRowsToLongestRun),
     true
@@ -1034,6 +1073,7 @@ export function readMeterScreenImageData(
     roiMaskPasses(imageData, 0.02, 0.04, 0.32, 0.52)
   );
   const combined = combineMeterDisplayDigits(prefixRead.text, mainRead.text);
+  const glarePenalty = clamp((glareRatio - 0.025) * 2.4, 0, 0.48);
 
   return {
     screen: {
@@ -1042,7 +1082,10 @@ export function readMeterScreenImageData(
       mainDigits: mainRead.text,
       combinedText: combined?.combinedText ?? null,
       value: combined?.value ?? null,
-      confidence: Math.min(mainRead.confidence, prefixRead.confidence),
+      confidence:
+        Math.min(mainRead.confidence, prefixRead.confidence) *
+        (1 - glarePenalty),
+      glareRatio,
       valid: combined != null,
     },
     mode,
@@ -1284,6 +1327,11 @@ export async function scanMeterImageLocally(
     issues.push("มีจอที่อ่านตัวเลขได้ไม่ครบ");
   } else if (screens.some(screen => screen.confidence < 0.72)) {
     issues.push("ผลอ่านในเครื่องมีความมั่นใจต่ำ กรุณาตรวจทาน");
+  }
+  if (screens.some(screen => screen.glareRatio >= 0.08)) {
+    issues.push(
+      "พบแสงสะท้อนบน LCD กรุณาถ่ายเพิ่มโดยขยับมุม 5–10° ให้เงาเคลื่อนตำแหน่ง"
+    );
   }
 
   return {

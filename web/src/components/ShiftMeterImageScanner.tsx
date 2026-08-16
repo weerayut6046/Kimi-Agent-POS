@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  METER_OCR_MAX_IMAGES_PER_REQUEST,
   METER_OCR_MAX_SELECTED_IMAGES,
   type MeterDisplayMode,
   type MeterDisplaySide,
@@ -19,6 +20,11 @@ import {
   scanMeterImageLocally,
   type MeterImageScanResult,
 } from "@/lib/localMeterOcr";
+import {
+  buildAiMeterAgreement,
+  buildMeterConsensus,
+} from "@/lib/meterScanConsensus";
+import { trpc } from "@/providers/trpc";
 import {
   prepareMeterImage,
   suggestNozzleId,
@@ -55,8 +61,22 @@ type ReviewRow = {
   mainDigits: string;
   value: string;
   confidence: number;
+  glareRatio: number;
   nozzleId: number | null;
   sourceValid: boolean;
+  sampleCount: number;
+  matchingCount: number;
+  autoAccepted: boolean;
+  manuallyConfirmed: boolean;
+  consensusIssue: string;
+  aiValue: string | null;
+  aiMode: MeterDisplayMode;
+  aiConfidence: number;
+  aiValid: boolean;
+  aiStatus: "matched" | "mismatch" | "unavailable";
+  aiCheckedCount: number;
+  aiMatchingCount: number;
+  aiIssue: string;
 };
 
 type ScanNote = {
@@ -66,9 +86,12 @@ type ScanNote = {
   mode: MeterDisplayMode;
   issue: string;
   screenCount: number;
+  aiChecked: boolean;
+  aiIssue: string;
 };
 
 type Props = {
+  shiftId: number;
   targets: MeterNozzleTarget[];
   onApply: (values: Record<number, { l?: string; p?: string }>) => void;
 };
@@ -83,7 +106,55 @@ function modeLabel(mode: MeterDisplayMode) {
   return "ยังไม่ทราบ L/P";
 }
 
-export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
+function collapseReviewRows(rows: ReviewRow[]) {
+  const groups = new Map<string, ReviewRow[]>();
+  for (const row of rows) {
+    const groupKey =
+      row.nozzleId != null && (row.mode === "L" || row.mode === "P")
+        ? `${row.nozzleId}:${row.mode}`
+        : `unmapped:${row.id}`;
+    groups.set(groupKey, [...(groups.get(groupKey) ?? []), row]);
+  }
+
+  return [...groups.entries()].map(([groupKey, group]) => {
+    const consensus = buildMeterConsensus(group);
+    const aiAgreement = buildAiMeterAgreement(
+      group,
+      consensus.representative.value,
+      consensus.representative.mode
+    );
+    return {
+      ...consensus.representative,
+      id:
+        group.length > 1
+          ? `consensus:${groupKey}`
+          : consensus.representative.id,
+      confidence: consensus.confidence,
+      sampleCount: consensus.sampleCount,
+      matchingCount: consensus.matchingCount,
+      autoAccepted:
+        consensus.autoAccepted && aiAgreement.status === "matched",
+      manuallyConfirmed: false,
+      consensusIssue: consensus.autoAccepted
+        ? aiAgreement.issue
+        : consensus.issue,
+      aiValue: aiAgreement.representative?.aiValue ?? null,
+      aiMode: aiAgreement.representative?.aiMode ?? "unknown",
+      aiConfidence: aiAgreement.representative?.aiConfidence ?? 0,
+      aiValid: aiAgreement.representative?.aiValid ?? false,
+      aiStatus: aiAgreement.status,
+      aiCheckedCount: aiAgreement.checkedCount,
+      aiMatchingCount: aiAgreement.matchingCount,
+      aiIssue: aiAgreement.issue,
+    };
+  });
+}
+
+export default function ShiftMeterImageScanner({
+  shiftId,
+  targets,
+  onApply,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [images, setImages] = useState<PreparedMeterImage[]>([]);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
@@ -94,7 +165,10 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const multipleInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const scanning = localScanning;
+  const verifyMutation = trpc.pos.shiftMeterVerify.useMutation({
+    trpc: { context: { skipBatch: true } },
+  });
+  const scanning = localScanning || verifyMutation.isPending;
 
   const imageById = useMemo(
     () => new Map(images.map(image => [image.id, image])),
@@ -120,6 +194,14 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
       const value = Number(row.value);
       if (!row.value.trim() || !Number.isFinite(value) || value < 0) {
         problems.set(row.id, "เลขมิเตอร์ไม่ถูกต้อง");
+        continue;
+      }
+      if (!row.autoAccepted && !row.manuallyConfirmed) {
+        problems.set(
+          row.id,
+          row.consensusIssue ||
+            "ผลอ่านยังไม่มั่นใจ กรุณาตรวจเลขแล้วกดยืนยันค่านี้"
+        );
         continue;
       }
       const target = targetById.get(row.nozzleId);
@@ -229,8 +311,10 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
 
   const removeImage = (imageId: string) => {
     setImages(current => current.filter(image => image.id !== imageId));
-    setReviewRows(current => current.filter(row => row.imageId !== imageId));
-    setScanNotes(current => current.filter(note => note.imageId !== imageId));
+    // ผลแบบ consensus อาจอ้างอิงภาพนี้ร่วมกับภาพอื่น จึงให้สแกนใหม่
+    // เพื่อไม่ให้จำนวนเสียงโหวตที่แสดงคลาดเคลื่อนจากภาพที่เหลือ
+    setReviewRows([]);
+    setScanNotes([]);
   };
 
   const scanImages = async () => {
@@ -257,6 +341,8 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
           mode: result.mode,
           issue: result.issue,
           screenCount: result.screens.length,
+          aiChecked: false,
+          aiIssue: "",
         });
         for (const screen of result.screens) {
           nextRows.push({
@@ -270,8 +356,22 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
             mainDigits: screen.mainDigits,
             value: screen.combinedText ?? "",
             confidence: screen.confidence,
+            glareRatio: screen.glareRatio,
             nozzleId: suggestNozzleId(targets, result.pumpNumber, screen.side),
             sourceValid: screen.valid,
+            sampleCount: 1,
+            matchingCount: screen.valid ? 1 : 0,
+            autoAccepted: false,
+            manuallyConfirmed: false,
+            consensusIssue: "",
+            aiValue: null,
+            aiMode: "unknown",
+            aiConfidence: 0,
+            aiValid: false,
+            aiStatus: "unavailable",
+            aiCheckedCount: 0,
+            aiMatchingCount: 0,
+            aiIssue: "",
           });
         }
         setProgress(current => ({
@@ -282,7 +382,68 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
           requestAnimationFrame(() => resolve())
         );
       }
-      setReviewRows(nextRows);
+
+      for (
+        let batchStart = 0;
+        batchStart < images.length;
+        batchStart += METER_OCR_MAX_IMAGES_PER_REQUEST
+      ) {
+        const batch = images.slice(
+          batchStart,
+          batchStart + METER_OCR_MAX_IMAGES_PER_REQUEST
+        );
+        try {
+          const response = await verifyMutation.mutateAsync({
+            shiftId,
+            images: batch.map(image => ({
+              mimeType: image.mimeType,
+              contentBase64: image.contentBase64,
+            })),
+          });
+          for (const aiResult of response.results) {
+            const image = batch[aiResult.imageIndex];
+            if (!image) continue;
+            const note = nextNotes.find(item => item.imageId === image.id);
+            if (note) {
+              note.aiChecked = true;
+              note.aiIssue = aiResult.issue;
+            }
+            for (const row of nextRows.filter(
+              item => item.imageId === image.id
+            )) {
+              const aiScreen = aiResult.screens.find(
+                screen => screen.side === row.side
+              );
+              row.aiValue = aiScreen?.combinedText ?? null;
+              row.aiMode = aiResult.mode;
+              row.aiConfidence = aiScreen?.confidence ?? 0;
+              row.aiValid = aiScreen?.valid ?? false;
+              row.aiIssue =
+                aiResult.issue ||
+                (!aiScreen?.valid
+                  ? "AI อ่านตัวเลขจอนี้ได้ไม่ครบ"
+                  : aiResult.mode === "unknown"
+                    ? "AI อ่านโหมด L/P ไม่ได้"
+                    : "");
+            }
+          }
+        } catch (cause) {
+          const message =
+            cause instanceof Error
+              ? cause.message
+              : "AI ตรวจภาพไม่สำเร็จ กรุณาตรวจเลขด้วยตนเอง";
+          for (const image of batch) {
+            const note = nextNotes.find(item => item.imageId === image.id);
+            if (note) note.aiIssue = message;
+            for (const row of nextRows.filter(
+              item => item.imageId === image.id
+            )) {
+              row.aiIssue = message;
+            }
+          }
+        }
+      }
+      setReviewRows(collapseReviewRows(nextRows));
       setScanNotes(nextNotes);
       if (!nextRows.length) {
         setError("ยังอ่านเลขมิเตอร์จากภาพไม่ได้ กรุณาตรวจภาพหรือกรอกด้วยตนเอง");
@@ -333,8 +494,8 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
             </DialogTitle>
             <DialogDescription>
               เลือกรูปของหลายตู้พร้อมกันได้ ระบบจะรวมเลขด้านบนกับด้านล่าง
-              แล้วให้ตรวจทานก่อนเติมแบบฟอร์มปิดกะ ·
-              ประมวลผลในเครื่องและไม่ส่งภาพออก
+              ตรวจด้วย computer vision ในเครื่องก่อน แล้วส่งสำเนาภาพที่ลบ
+              EXIF/GPS ไปให้ Gemini AI ตรวจซ้ำก่อนเติมแบบฟอร์มปิดกะ
             </DialogDescription>
           </DialogHeader>
 
@@ -365,8 +526,9 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                     และสามารถถ่ายเพิ่มทีละภาพได้
                   </p>
                   <p className="mt-1 text-xs text-blue-700">
-                    เพื่อความแม่นยำ ให้ถ่ายหน้าตรง เห็น LCD
-                    หลักทั้งสองจอเต็มกรอบ และหลีกเลี่ยงเงาหรือแสงสะท้อนบนจอ
+                    เพื่อผลแม่นที่สุด ให้ถ่าย 3 รูปต่อโหมด L หรือ P
+                    และขยับมุมโทรศัพท์ 5–10° ในแต่ละรูปให้เงาสะท้อนเคลื่อนตำแหน่ง
+                    โดยไม่ใช้แฟลชและให้ LCD หลักสองจอเต็มกรอบ
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -441,8 +603,10 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                     <ScanLine className="mr-2 h-4 w-4" />
                   )}
                   {scanning
-                    ? `กำลังอ่าน ${progress.done}/${progress.total} ภาพ`
-                    : `อ่านตัวเลขจาก ${images.length} ภาพ`}
+                    ? verifyMutation.isPending
+                      ? "AI กำลังตรวจสอบซ้ำ…"
+                      : `กำลังอ่านในเครื่อง ${progress.done}/${progress.total} ภาพ`
+                    : `อ่านและตรวจ ${images.length} ภาพ`}
                 </Button>
                 {images.length > 0 && (
                   <Button
@@ -503,10 +667,20 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                             {note.screenCount} จอ
                           </Badge>
                           <Badge variant="outline">อ่านในเครื่อง</Badge>
+                          <Badge
+                            variant={note.aiChecked ? "default" : "outline"}
+                          >
+                            {note.aiChecked ? "AI ตรวจแล้ว" : "AI ยังไม่ยืนยัน"}
+                          </Badge>
                         </div>
                         {note.issue && (
                           <div className="mt-1 text-amber-700">
                             {note.issue}
+                          </div>
+                        )}
+                        {note.aiIssue && (
+                          <div className="mt-1 text-amber-700">
+                            AI: {note.aiIssue}
                           </div>
                         )}
                       </div>
@@ -521,7 +695,8 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                 <div>
                   <div className="font-medium">3. ยืนยันตัวเลขและหัวจ่าย</div>
                   <p className="text-xs text-muted-foreground">
-                    แก้เลขหรือเลือกหัวจ่ายได้ก่อนนำไปเติมแบบฟอร์ม
+                    ระบบจะยอมรับอัตโนมัติเมื่อ local OCR/consensus และ AI
+                    อ่านตรงกันเท่านั้น; ผลที่ไม่ตรงหรือ AI ยืนยันไม่ได้ต้องตรวจเอง
                   </p>
                 </div>
 
@@ -529,7 +704,7 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                   {reviewRows.map(row => {
                     const problem = rowProblems.get(row.id);
                     const lowConfidence =
-                      row.confidence < 0.85 || !row.sourceValid;
+                      !row.autoAccepted && !row.manuallyConfirmed;
                     return (
                       <div
                         key={row.id}
@@ -570,6 +745,10 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                                           item.pumpNumber,
                                           item.side
                                         ),
+                                        autoAccepted: false,
+                                        manuallyConfirmed: false,
+                                        consensusIssue:
+                                          "มีการเปลี่ยน L/P กรุณาตรวจเลขและยืนยันอีกครั้ง",
                                       }
                                     : item
                                 )
@@ -606,22 +785,78 @@ export default function ShiftMeterImageScanner({ targets, onApply }: Props) {
                               setReviewRows(current =>
                                 current.map(item =>
                                   item.id === row.id
-                                    ? { ...item, value: event.target.value }
+                                    ? {
+                                        ...item,
+                                        value: event.target.value,
+                                        autoAccepted: false,
+                                        manuallyConfirmed: true,
+                                      }
                                     : item
                                 )
                               )
                             }
                             className="h-9"
                           />
-                          <div
-                            className={`text-[11px] ${
-                              lowConfidence
-                                ? "text-amber-700"
-                                : "text-emerald-700"
-                            }`}
-                          >
-                            ความมั่นใจ {Math.round(row.confidence * 100)}%
+                          <div className="flex flex-wrap gap-x-2 gap-y-1 text-[11px]">
+                            <span
+                              className={
+                                lowConfidence
+                                  ? "text-amber-700"
+                                  : "text-emerald-700"
+                              }
+                            >
+                              ความมั่นใจ {Math.round(row.confidence * 100)}%
+                            </span>
+                            {row.glareRatio >= 0.01 && (
+                              <span className="text-amber-700">
+                                แสงสะท้อน {Math.round(row.glareRatio * 100)}%
+                              </span>
+                            )}
+                            {row.sampleCount > 1 && (
+                              <span className="text-blue-700">
+                                ตรงกัน {row.matchingCount}/{row.sampleCount} รูป
+                              </span>
+                            )}
+                            <span
+                              className={
+                                row.aiStatus === "matched"
+                                  ? "text-emerald-700"
+                                  : row.aiStatus === "mismatch"
+                                    ? "text-red-700"
+                                    : "text-amber-700"
+                              }
+                            >
+                              {row.aiStatus === "matched"
+                                ? `AI ตรงกัน ${row.aiMatchingCount}/${row.aiCheckedCount}`
+                                : row.aiStatus === "mismatch"
+                                  ? `AI อ่าน ${row.aiValue ?? "ไม่ครบ"}`
+                                  : "AI ยังไม่ยืนยัน"}
+                            </span>
                           </div>
+                          {!row.autoAccepted && !row.manuallyConfirmed && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() =>
+                                setReviewRows(current =>
+                                  current.map(item =>
+                                    item.id === row.id
+                                      ? { ...item, manuallyConfirmed: true }
+                                      : item
+                                  )
+                                )
+                              }
+                            >
+                              ตรวจเลขแล้ว ยืนยันค่านี้
+                            </Button>
+                          )}
+                          {row.manuallyConfirmed && (
+                            <div className="text-[11px] text-blue-700">
+                              ยืนยันด้วยตนเองแล้ว
+                            </div>
+                          )}
                         </div>
 
                         <div className="space-y-1.5">

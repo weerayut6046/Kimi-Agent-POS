@@ -1280,6 +1280,7 @@ export default function Shifts() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3">
                   <ShiftMeterImageScanner
+                    shiftId={currentShift.id}
                     targets={meterScanTargets}
                     onApply={values => {
                       setCloseVals(current => {

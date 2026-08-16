@@ -63,6 +63,9 @@ if (!["ollama", "deepseek"].includes(assistantProvider)) {
 }
 
 const parsedOllamaTimeoutMs = Number(runtimeValue("OLLAMA_TIMEOUT_MS"));
+const parsedMeterAiTimeoutMs = Number(
+  runtimeValue("GEMINI_METER_VERIFY_TIMEOUT_MS")
+);
 
 export const env = {
   appId: runtimeValue("APP_ID") || "pumppos",
@@ -110,6 +113,21 @@ export const env = {
       : 180_000,
   deepseekApiKey: runtimeValue("DEEPSEEK_API_KEY") ?? "",
   deepseekModel: runtimeValue("DEEPSEEK_MODEL") || "deepseek-v4-flash",
+  // ตรวจสอบ OCR มิเตอร์ซ้ำด้วย Gemini Vision ฝั่ง server เท่านั้น
+  meterAiApiKey:
+    runtimeValue("GEMINI_METER_VERIFY_API_KEY") ||
+    runtimeValue("GEMINI_API_KEY") ||
+    runtimeValue("METER_OCR_API_KEY") ||
+    "",
+  meterAiApiUrl:
+    runtimeValue("GEMINI_METER_VERIFY_API_URL") ||
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
+  meterAiModel:
+    runtimeValue("GEMINI_METER_VERIFY_MODEL") || "gemini-3.6-flash",
+  meterAiTimeoutMs:
+    Number.isFinite(parsedMeterAiTimeoutMs) && parsedMeterAiTimeoutMs > 0
+      ? Math.min(Math.max(parsedMeterAiTimeoutMs, 10_000), 120_000)
+      : 45_000,
   // Slip2Go — ตรวจสลิปโอนเงินเข้าบัญชีถุงเงินของร้าน (server-side only)
   slip2goBaseUrl: (
     runtimeValue("SLIP2GO_BASE_URL") || "https://connect.slip2go.com"

@@ -2479,18 +2479,19 @@ export default function Settings() {
                       {staff?.branch.name ?? "ปัจจุบัน"}
                     </p>
                   </div>
-                  <Badge variant="secondary">ประมวลผลในเครื่อง</Badge>
+                  <Badge variant="secondary">Local OCR + AI ตรวจซ้ำ</Badge>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                  <div className="font-medium text-emerald-900">
-                    อ่านและคำนวณภายในอุปกรณ์เท่านั้น
+                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+                  <div className="font-medium text-blue-900">
+                    อ่านในเครื่องก่อน แล้วใช้ Gemini AI ตรวจสอบอิสระ
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-emerald-800">
+                  <p className="mt-1 text-sm leading-6 text-blue-800">
                     ระบบใช้ computer vision ตรวจจอและถอดรหัส seven-segment
-                    หลายรอบจากภาพในหน่วยความจำ ไม่เรียก AI API
-                    และไม่ส่งรูปภาพออกจากเครื่อง
+                    หลายรอบจากภาพในหน่วยความจำ จากนั้นส่งสำเนา JPEG ที่ลบ
+                    EXIF/GPS ให้ Gemini อ่านซ้ำโดยไม่ส่งผล local OCR ไปชี้นำ
+                    ค่าจะผ่านอัตโนมัติเฉพาะเมื่อทั้งสองระบบอ่านตรงกัน
                   </p>
                 </div>
               </CardContent>

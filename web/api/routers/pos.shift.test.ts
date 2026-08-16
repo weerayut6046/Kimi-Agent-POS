@@ -50,6 +50,20 @@ describe("openShift / closeShift", () => {
     expect(r1.pricePerLiter).toBe(40.74); // snapshot ราคาตอนเปิดกะ
   });
 
+  it("ไม่ส่งภาพให้ AI ถ้าไม่ใช่กะที่เปิดอยู่ของสาขา", async () => {
+    await expect(
+      t.caller().pos.shiftMeterVerify({
+        shiftId: 999_999,
+        images: [
+          {
+            mimeType: "image/jpeg",
+            contentBase64: "/9j/4AAQ",
+          },
+        ],
+      })
+    ).rejects.toThrow("ไม่พบกะที่เปิดอยู่");
+  });
+
   it("ป้องกันเลข P ผิดหนึ่งหลักไม่ให้ทำให้ยอดรวมคลาดหลายแสน", async () => {
     const current = await t.caller().pos.currentShift();
     const nozzleRows = await allNozzles();

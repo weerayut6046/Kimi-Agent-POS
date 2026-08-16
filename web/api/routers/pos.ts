@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
   and,
   desc,
@@ -30,7 +31,16 @@ import {
   sumCashCounts,
   type CashCounts,
 } from "@contracts/cash";
+import {
+  METER_OCR_MAX_BASE64_CHARS_PER_IMAGE,
+  METER_OCR_MAX_IMAGES_PER_REQUEST,
+} from "@contracts/meterOcr";
 import { assessMeterReading } from "@contracts/meterReconciliation";
+import { env } from "../lib/env";
+import {
+  MeterAiVerifierError,
+  verifyMeterImagesWithGemini,
+} from "../lib/meterAiVerifier";
 import {
   products,
   nozzles,
@@ -53,6 +63,60 @@ import {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
+const meterAiRateLimits = new Map<
+  string,
+  { windowStartedAt: number; requestCount: number }
+>();
+
+function enforceMeterAiRateLimit(branchId: number, staffId: number) {
+  const key = `${branchId}:${staffId}`;
+  const now = Date.now();
+  const current = meterAiRateLimits.get(key);
+  if (!current || now - current.windowStartedAt >= 60_000) {
+    meterAiRateLimits.set(key, { windowStartedAt: now, requestCount: 1 });
+    return;
+  }
+  if (current.requestCount >= 12) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "ตรวจภาพด้วย AI ถี่เกินไป กรุณารอสักครู่แล้วลองใหม่",
+    });
+  }
+  current.requestCount += 1;
+}
+
+const meterAiImageInput = z
+  .object({
+    mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    contentBase64: z
+      .string()
+      .min(4)
+      .max(METER_OCR_MAX_BASE64_CHARS_PER_IMAGE)
+      .regex(/^[A-Za-z0-9+/]+={0,2}$/, "ข้อมูลรูปภาพไม่ใช่ Base64 ที่ถูกต้อง"),
+  })
+  .superRefine((image, ctx) => {
+    try {
+      const header = atob(image.contentBase64.slice(0, 32));
+      const valid =
+        (image.mimeType === "image/jpeg" &&
+          header.charCodeAt(0) === 0xff &&
+          header.charCodeAt(1) === 0xd8 &&
+          header.charCodeAt(2) === 0xff) ||
+        (image.mimeType === "image/png" &&
+          header.startsWith("\x89PNG\r\n\x1a\n")) ||
+        (image.mimeType === "image/webp" &&
+          header.startsWith("RIFF") &&
+          header.slice(8, 12) === "WEBP");
+      if (!valid) {
+        ctx.addIssue({
+          code: "custom",
+          message: "ชนิดไฟล์รูปภาพไม่ตรงกับเนื้อหาไฟล์",
+        });
+      }
+    } catch {
+      ctx.addIssue({ code: "custom", message: "เปิดข้อมูลรูปภาพไม่สำเร็จ" });
+    }
+  });
 
 const shiftHistoryFields = {
   staffId: z.number().int().positive().nullable().optional(),
@@ -317,6 +381,68 @@ export const posRouter = createRouter({
       }),
     };
   }),
+
+  shiftMeterVerify: publicQuery
+    .input(
+      z.object({
+        shiftId: z.number().int().positive(),
+        images: z
+          .array(meterAiImageInput)
+          .min(1)
+          .max(METER_OCR_MAX_IMAGES_PER_REQUEST),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const branchId = ctx.staff.branchId;
+      const shift = await getDb().query.shifts.findFirst({
+        columns: { id: true, status: true },
+        where: and(eq(shifts.id, input.shiftId), eq(shifts.branchId, branchId)),
+      });
+      if (!shift || shift.status !== "open") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ไม่พบกะที่เปิดอยู่สำหรับตรวจมิเตอร์",
+        });
+      }
+
+      enforceMeterAiRateLimit(branchId, ctx.staff.id);
+      try {
+        const results = await verifyMeterImagesWithGemini({
+          apiKey: env.meterAiApiKey,
+          apiUrl: env.meterAiApiUrl,
+          model: env.meterAiModel,
+          timeoutMs: env.meterAiTimeoutMs,
+          images: input.images,
+        });
+        return { results, model: env.meterAiModel };
+      } catch (error) {
+        if (error instanceof MeterAiVerifierError) {
+          if (error.kind === "not_configured") {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "ยังไม่ได้เปิดใช้ AI ตรวจมิเตอร์ กรุณาตั้งค่า GEMINI_API_KEY",
+            });
+          }
+          if (error.kind === "timeout") {
+            throw new TRPCError({
+              code: "TIMEOUT",
+              message: "AI ใช้เวลาตรวจภาพนานเกินไป กรุณาลองใหม่",
+            });
+          }
+          if (error.kind === "rate_limited") {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "โควตา AI ไม่พร้อมใช้งาน กรุณาลองใหม่ภายหลัง",
+            });
+          }
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message: "AI ตรวจภาพไม่สำเร็จ กรุณาลองใหม่หรือตรวจเลขด้วยตนเอง",
+          });
+        }
+        throw error;
+      }
+    }),
 
   openShift: publicQuery
     .input(
