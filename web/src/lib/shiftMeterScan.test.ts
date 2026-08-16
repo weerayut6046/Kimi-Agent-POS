@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   inferNozzleSide,
   inferPumpNumber,
+  mapWithConcurrency,
   suggestNozzleId,
   type MeterNozzleTarget,
 } from "./shiftMeterScan";
@@ -49,5 +50,20 @@ describe("shift meter image mapping", () => {
     expect(suggestNozzleId(targets, 2, "left")).toBe(21);
     expect(suggestNozzleId(targets, null, "left")).toBeNull();
     expect(suggestNozzleId(targets, null, "right")).toBe(12);
+  });
+
+  it("limits expensive image work while preserving file order", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const result = await mapWithConcurrency([30, 10, 20, 5], 2, async value => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise(resolve => setTimeout(resolve, value));
+      active -= 1;
+      return value * 2;
+    });
+
+    expect(maximumActive).toBe(2);
+    expect(result).toEqual([60, 20, 40, 10]);
   });
 });

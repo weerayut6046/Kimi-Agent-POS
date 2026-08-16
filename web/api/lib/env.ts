@@ -122,12 +122,11 @@ export const env = {
   meterAiApiUrl:
     runtimeValue("GEMINI_METER_VERIFY_API_URL") ||
     "https://generativelanguage.googleapis.com/v1beta/interactions",
-  meterAiModel:
-    runtimeValue("GEMINI_METER_VERIFY_MODEL") || "gemini-3.6-flash",
+  meterAiModel: runtimeValue("GEMINI_METER_VERIFY_MODEL") || "gemini-3.6-flash",
   meterAiTimeoutMs:
     Number.isFinite(parsedMeterAiTimeoutMs) && parsedMeterAiTimeoutMs > 0
       ? Math.min(Math.max(parsedMeterAiTimeoutMs, 10_000), 120_000)
-      : 45_000,
+      : 30_000,
   // Slip2Go — ตรวจสลิปโอนเงินเข้าบัญชีถุงเงินของร้าน (server-side only)
   slip2goBaseUrl: (
     runtimeValue("SLIP2GO_BASE_URL") || "https://connect.slip2go.com"

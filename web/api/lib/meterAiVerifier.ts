@@ -1,11 +1,12 @@
 import { z } from "zod";
 import {
   combineMeterDisplayDigits,
+  METER_OCR_MAX_IMAGES_PER_REQUEST,
   type MeterDisplayMode,
   type MeterDisplaySide,
 } from "@contracts/meterOcr";
 
-const DEFAULT_TIMEOUT_MS = 45_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 const providerScreenSchema = z
   .object({
@@ -27,7 +28,9 @@ const providerImageSchema = z
   .strict();
 
 const providerResultSchema = z
-  .object({ images: z.array(providerImageSchema).max(4) })
+  .object({
+    images: z.array(providerImageSchema).max(METER_OCR_MAX_IMAGES_PER_REQUEST),
+  })
   .strict();
 
 const structuredOutputSchema = {
@@ -37,7 +40,7 @@ const structuredOutputSchema = {
   properties: {
     images: {
       type: "array",
-      maxItems: 4,
+      maxItems: METER_OCR_MAX_IMAGES_PER_REQUEST,
       items: {
         type: "object",
         additionalProperties: false,
@@ -123,22 +126,31 @@ function responseOutputText(payload: unknown): string | null {
   const record = payload as Record<string, unknown>;
   if (typeof record.output_text === "string") return record.output_text;
 
+  const textFromBlock = (block: unknown): string => {
+    if (!block || typeof block !== "object") return "";
+    const output = block as Record<string, unknown>;
+    if (
+      typeof output.text === "string" &&
+      (output.type === "text" || output.type === "output_text" || !output.type)
+    ) {
+      return output.text;
+    }
+    if (output.json && typeof output.json === "object") {
+      return JSON.stringify(output.json);
+    }
+    return "";
+  };
+
   for (const collection of [record.steps, record.output, record.outputs]) {
     if (!Array.isArray(collection)) continue;
     for (let index = collection.length - 1; index >= 0; index -= 1) {
       const output = collection[index];
+      const directText = textFromBlock(output);
+      if (directText) return directText;
       if (!output || typeof output !== "object") continue;
       const content = (output as Record<string, unknown>).content;
       if (!Array.isArray(content)) continue;
-      const text = content
-        .filter(item => item && typeof item === "object")
-        .map(item => item as Record<string, unknown>)
-        .filter(item =>
-          ["text", "output_text"].includes(String(item.type ?? ""))
-        )
-        .map(item => item.text)
-        .filter((value): value is string => typeof value === "string")
-        .join("");
+      const text = content.map(textFromBlock).join("");
       if (text) return text;
     }
   }
@@ -238,6 +250,7 @@ export async function verifyMeterImagesWithGemini(input: {
         headers: {
           "x-goog-api-key": input.apiKey,
           "Content-Type": "application/json",
+          "Api-Revision": "2026-05-20",
         },
         body: JSON.stringify({
           model: input.model,
@@ -250,6 +263,7 @@ export async function verifyMeterImagesWithGemini(input: {
                 type: "image",
                 data: image.contentBase64,
                 mime_type: image.mimeType,
+                resolution: "high",
               },
             ]),
           ],
@@ -259,19 +273,23 @@ export async function verifyMeterImagesWithGemini(input: {
             schema: structuredOutputSchema,
           },
           generation_config: {
-            thinking_level: "medium",
-            max_output_tokens: 2_048,
+            thinking_level: "low",
+            max_output_tokens: 1_024,
           },
         }),
         signal: controller.signal,
       }
     );
 
+    const requestId =
+      response.headers.get("x-request-id") ??
+      response.headers.get("x-goog-request-id") ??
+      undefined;
     if (!response.ok) {
       console.error("Meter AI verification request failed", {
         provider: "gemini",
         status: response.status,
-        requestId: response.headers.get("x-request-id") ?? undefined,
+        requestId,
       });
       if (response.status === 429) {
         throw new MeterAiVerifierError(
@@ -296,6 +314,25 @@ export async function verifyMeterImagesWithGemini(input: {
     }
     const outputText = responseOutputText(payload);
     if (!outputText) {
+      const providerRecord =
+        payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>)
+          : {};
+      console.error("Meter AI response had no readable output", {
+        provider: "gemini",
+        requestId,
+        responseKeys: Object.keys(providerRecord).slice(0, 12),
+        stepTypes: Array.isArray(providerRecord.steps)
+          ? providerRecord.steps
+              .map(step =>
+                step && typeof step === "object"
+                  ? (step as Record<string, unknown>).type
+                  : undefined
+              )
+              .filter(Boolean)
+              .slice(0, 12)
+          : [],
+      });
       throw new MeterAiVerifierError(
         "invalid_response",
         "บริการ AI ไม่ได้ส่งผลตรวจกลับมา"
@@ -306,6 +343,11 @@ export async function verifyMeterImagesWithGemini(input: {
     try {
       decoded = JSON.parse(outputText);
     } catch {
+      console.error("Meter AI response contained invalid JSON", {
+        provider: "gemini",
+        requestId,
+        outputLength: outputText.length,
+      });
       throw new MeterAiVerifierError(
         "invalid_response",
         "ผลตรวจ AI ไม่ใช่ JSON ที่ถูกต้อง"
@@ -313,6 +355,14 @@ export async function verifyMeterImagesWithGemini(input: {
     }
     const parsed = providerResultSchema.safeParse(decoded);
     if (!parsed.success) {
+      console.error("Meter AI response failed schema validation", {
+        provider: "gemini",
+        requestId,
+        issues: parsed.error.issues.slice(0, 12).map(issue => ({
+          code: issue.code,
+          path: issue.path.join("."),
+        })),
+      });
       throw new MeterAiVerifierError(
         "invalid_response",
         "ผลตรวจ AI มีรูปแบบไม่ถูกต้อง"

@@ -100,8 +100,33 @@ function channelIntensity(
  * so callers can reject risky reads instead of inventing hidden digits.
  */
 export function measureSpecularGlare(imageData: ImageData) {
-  let highlights = 0;
+  const histogram = new Uint32Array(256);
   const pixels = imageData.width * imageData.height;
+  for (let offset = 0; offset < imageData.data.length; offset += 4) {
+    const lightness = luminance(
+      imageData.data[offset]!,
+      imageData.data[offset + 1]!,
+      imageData.data[offset + 2]!
+    );
+    histogram[lightness]! += 1;
+  }
+
+  // The LCDs used at the station have a naturally clipped white backlight.
+  // Treating every bright pixel as glare marks almost the entire display as a
+  // reflection. Use the median screen lightness as the expected backlight and
+  // only count low-saturation highlights that are materially brighter than it.
+  const medianTarget = Math.ceil(pixels * 0.5);
+  let accumulated = 0;
+  let medianLightness = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    accumulated += histogram[value]!;
+    if (accumulated >= medianTarget) {
+      medianLightness = value;
+      break;
+    }
+  }
+  const highlightThreshold = Math.max(232, medianLightness + 14);
+  let highlights = 0;
   for (let offset = 0; offset < imageData.data.length; offset += 4) {
     const red = imageData.data[offset]!;
     const green = imageData.data[offset + 1]!;
@@ -109,7 +134,10 @@ export function measureSpecularGlare(imageData: ImageData) {
     const maximum = Math.max(red, green, blue);
     const minimum = Math.min(red, green, blue);
     const lightness = luminance(red, green, blue);
-    if (lightness >= 218 && (minimum >= 198 || maximum - minimum <= 52)) {
+    if (
+      lightness >= highlightThreshold &&
+      (minimum >= 198 || maximum - minimum <= 52)
+    ) {
       highlights += 1;
     }
   }
@@ -349,6 +377,19 @@ export function findMainDisplays(
   const { width, height } = imageData;
   const masks = [
     {
+      // The production dispensers use a clipped white/blue-white LCD
+      // backlight. At normal exposure this bright rectangle is much more
+      // stable than its tint, which changes significantly with camera white
+      // balance and reflections.
+      confidence: 1.08,
+      predicate: (red: number, green: number, blue: number) => {
+        const brightness = luminance(red, green, blue);
+        const minimum = Math.min(red, green, blue);
+        const spread = Math.max(red, green, blue) - minimum;
+        return brightness >= 220 && minimum >= 188 && spread <= 78;
+      },
+    },
+    {
       confidence: 1,
       predicate: (red: number, green: number, blue: number) =>
         blue - red > 25 &&
@@ -520,11 +561,7 @@ function roiMask(
     let rowSum = 0;
     for (let x = 0; x < width; x += 1) {
       const sourceOffset = ((y + y0) * imageData.width + x + x0) * 4;
-      rowSum += channelIntensity(
-        imageData.data,
-        sourceOffset,
-        options.channel
-      );
+      rowSum += channelIntensity(imageData.data, sourceOffset, options.channel);
       integral[(y + 1) * integralWidth + x + 1] =
         integral[y * integralWidth + x + 1]! + rowSum;
     }

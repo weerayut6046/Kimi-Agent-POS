@@ -21,6 +21,30 @@ export type PreparedMeterImage = {
   previewDataUrl: string;
 };
 
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const workerCount = Math.min(
+    items.length,
+    Math.max(1, Math.floor(concurrency))
+  );
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index]!, index);
+      }
+    })
+  );
+  return results;
+}
+
 export function inferPumpNumber(name: string): number | null {
   const matches = name.match(/\d+/g);
   if (!matches?.length) return null;
@@ -148,17 +172,14 @@ export async function prepareMeterImage(
 
     // ภาพ local คงรายละเอียดสูง ส่วนสำเนาที่ส่ง AI จำกัดขนาด payload แยกกัน
     // และทั้งสองสำเนาถูก encode ใหม่เป็น JPEG จึงไม่มี EXIF/GPS ติดออกไป
-    const previewDataUrl = await renderJpeg(2_560, 0.92);
+    const previewDataUrl = await renderJpeg(2_048, 0.9);
     for (const attempt of [
-      { maxDimension: 2_000, quality: 0.88 },
-      { maxDimension: 1_800, quality: 0.82 },
-      { maxDimension: 1_600, quality: 0.76 },
-      { maxDimension: 1_400, quality: 0.72 },
+      { maxDimension: 1_600, quality: 0.82 },
+      { maxDimension: 1_440, quality: 0.78 },
+      { maxDimension: 1_280, quality: 0.74 },
+      { maxDimension: 1_120, quality: 0.7 },
     ]) {
-      const aiDataUrl = await renderJpeg(
-        attempt.maxDimension,
-        attempt.quality
-      );
+      const aiDataUrl = await renderJpeg(attempt.maxDimension, attempt.quality);
       const contentBase64 = aiDataUrl.split(",", 2)[1] ?? "";
       if (
         contentBase64.length > 0 &&

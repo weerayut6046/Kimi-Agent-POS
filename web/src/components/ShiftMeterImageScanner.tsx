@@ -26,6 +26,7 @@ import {
 } from "@/lib/meterScanConsensus";
 import { trpc } from "@/providers/trpc";
 import {
+  mapWithConcurrency,
   prepareMeterImage,
   suggestNozzleId,
   type MeterNozzleTarget,
@@ -117,7 +118,57 @@ function collapseReviewRows(rows: ReviewRow[]) {
   }
 
   return [...groups.entries()].map(([groupKey, group]) => {
-    const consensus = buildMeterConsensus(group);
+    const localGroup = group.filter(row => row.sourceValid);
+    if (!localGroup.length) {
+      const aiConsensus = buildMeterConsensus(
+        group.map(row => ({
+          ...row,
+          value: row.aiValue ?? row.value,
+          confidence: row.aiConfidence,
+          glareRatio: 0,
+          sourceValid: row.aiValid && row.aiConfidence >= 0.82,
+        }))
+      );
+      const validAiCount = group.filter(
+        row => row.aiValid && row.aiConfidence >= 0.82
+      ).length;
+      const requiredMatches = Math.ceil((group.length * 2) / 3);
+      const aiStatus =
+        validAiCount >= 2 && aiConsensus.matchingCount >= requiredMatches
+          ? ("matched" as const)
+          : validAiCount > 1
+            ? ("mismatch" as const)
+            : ("unavailable" as const);
+      const representative = aiConsensus.representative;
+      const issue =
+        aiStatus === "matched"
+          ? "ระบบในเครื่องหา LCD ไม่พบ ค่านี้มาจาก AI กรุณาตรวจเลขจริงแล้วกดยืนยัน"
+          : aiConsensus.issue ||
+            representative.aiIssue ||
+            "AI ยังยืนยันผลนี้ไม่ได้ กรุณาตรวจเลขจริง";
+      return {
+        ...representative,
+        id: group.length > 1 ? `consensus:${groupKey}` : representative.id,
+        value: representative.aiValue ?? representative.value,
+        confidence: aiConsensus.confidence,
+        sourceValid: false,
+        sampleCount: aiConsensus.sampleCount,
+        matchingCount: aiConsensus.matchingCount,
+        autoAccepted: false,
+        manuallyConfirmed: false,
+        consensusIssue: issue,
+        aiValue: representative.aiValue,
+        aiMode: representative.aiMode,
+        aiConfidence: representative.aiConfidence,
+        aiValid: representative.aiValid,
+        aiStatus,
+        aiCheckedCount: validAiCount,
+        aiMatchingCount: aiConsensus.matchingCount,
+        aiIssue: issue,
+      };
+    }
+
+    const consensus = buildMeterConsensus(localGroup);
     const aiAgreement = buildAiMeterAgreement(
       group,
       consensus.representative.value,
@@ -132,8 +183,7 @@ function collapseReviewRows(rows: ReviewRow[]) {
       confidence: consensus.confidence,
       sampleCount: consensus.sampleCount,
       matchingCount: consensus.matchingCount,
-      autoAccepted:
-        consensus.autoAccepted && aiAgreement.status === "matched",
+      autoAccepted: consensus.autoAccepted && aiAgreement.status === "matched",
       manuallyConfirmed: false,
       consensusIssue: consensus.autoAccepted
         ? aiAgreement.issue
@@ -162,13 +212,14 @@ export default function ShiftMeterImageScanner({
   const [error, setError] = useState("");
   const [preparing, setPreparing] = useState(false);
   const [localScanning, setLocalScanning] = useState(false);
+  const [aiChecking, setAiChecking] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const multipleInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const verifyMutation = trpc.pos.shiftMeterVerify.useMutation({
     trpc: { context: { skipBatch: true } },
   });
-  const scanning = localScanning || verifyMutation.isPending;
+  const scanning = localScanning || aiChecking;
 
   const imageById = useMemo(
     () => new Map(images.map(image => [image.id, image])),
@@ -286,10 +337,9 @@ export default function ShiftMeterImageScanner({
 
     setPreparing(true);
     try {
-      const prepared: PreparedMeterImage[] = [];
-      for (const file of files) {
-        prepared.push(await prepareMeterImage(file));
-      }
+      const prepared = await mapWithConcurrency(files, 2, file =>
+        prepareMeterImage(file)
+      );
       setImages(current => [...current, ...prepared]);
       setReviewRows([]);
       setScanNotes([]);
@@ -323,17 +373,84 @@ export default function ShiftMeterImageScanner({
     setReviewRows([]);
     setScanNotes([]);
     setProgress({ done: 0, total: images.length });
-    const nextRows: ReviewRow[] = [];
-    const nextNotes: ScanNote[] = [];
 
     try {
       setLocalScanning(true);
-      for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
-        const image = images[imageIndex]!;
-        const result: MeterImageScanResult = await scanMeterImageLocally(
-          image,
-          imageIndex
+      setAiChecking(true);
+
+      const localTask = (async () => {
+        const results: MeterImageScanResult[] = [];
+        for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
+          const image = images[imageIndex]!;
+          try {
+            results.push(await scanMeterImageLocally(image, imageIndex));
+          } catch (cause) {
+            results.push({
+              imageIndex,
+              pumpNumber: null,
+              mode: "unknown",
+              screens: [],
+              issue:
+                cause instanceof Error
+                  ? cause.message
+                  : "ระบบในเครื่องอ่านภาพนี้ไม่สำเร็จ",
+            });
+          }
+          setProgress(current => ({
+            ...current,
+            done: Math.min(current.total, imageIndex + 1),
+          }));
+          await new Promise<void>(resolve =>
+            requestAnimationFrame(() => resolve())
+          );
+        }
+        return results;
+      })();
+
+      const batches: PreparedMeterImage[][] = [];
+      for (
+        let batchStart = 0;
+        batchStart < images.length;
+        batchStart += METER_OCR_MAX_IMAGES_PER_REQUEST
+      ) {
+        batches.push(
+          images.slice(
+            batchStart,
+            batchStart + METER_OCR_MAX_IMAGES_PER_REQUEST
+          )
         );
+      }
+      const aiTask = mapWithConcurrency(batches, 2, async batch => {
+        try {
+          const response = await verifyMutation.mutateAsync({
+            shiftId,
+            images: batch.map(image => ({
+              mimeType: image.mimeType,
+              contentBase64: image.contentBase64,
+            })),
+          });
+          return { batch, response, error: "" };
+        } catch (cause) {
+          return {
+            batch,
+            response: null,
+            error:
+              cause instanceof Error
+                ? cause.message
+                : "AI ตรวจภาพไม่สำเร็จ กรุณาตรวจเลขด้วยตนเอง",
+          };
+        }
+      });
+
+      const [localResults, aiBatchResults] = await Promise.all([
+        localTask,
+        aiTask,
+      ]);
+      const nextRows: ReviewRow[] = [];
+      const nextNotes: ScanNote[] = [];
+
+      for (const result of localResults) {
+        const image = images[result.imageIndex]!;
         nextNotes.push({
           imageId: image.id,
           imageName: image.fileName,
@@ -374,79 +491,124 @@ export default function ShiftMeterImageScanner({
             aiIssue: "",
           });
         }
-        setProgress(current => ({
-          ...current,
-          done: Math.min(current.total, imageIndex + 1),
-        }));
-        await new Promise<void>(resolve =>
-          requestAnimationFrame(() => resolve())
-        );
       }
 
-      for (
-        let batchStart = 0;
-        batchStart < images.length;
-        batchStart += METER_OCR_MAX_IMAGES_PER_REQUEST
-      ) {
-        const batch = images.slice(
-          batchStart,
-          batchStart + METER_OCR_MAX_IMAGES_PER_REQUEST
-        );
-        try {
-          const response = await verifyMutation.mutateAsync({
-            shiftId,
-            images: batch.map(image => ({
-              mimeType: image.mimeType,
-              contentBase64: image.contentBase64,
-            })),
-          });
-          for (const aiResult of response.results) {
-            const image = batch[aiResult.imageIndex];
-            if (!image) continue;
-            const note = nextNotes.find(item => item.imageId === image.id);
-            if (note) {
-              note.aiChecked = true;
-              note.aiIssue = aiResult.issue;
-            }
-            for (const row of nextRows.filter(
-              item => item.imageId === image.id
-            )) {
-              const aiScreen = aiResult.screens.find(
-                screen => screen.side === row.side
-              );
-              row.aiValue = aiScreen?.combinedText ?? null;
-              row.aiMode = aiResult.mode;
-              row.aiConfidence = aiScreen?.confidence ?? 0;
-              row.aiValid = aiScreen?.valid ?? false;
-              row.aiIssue =
-                aiResult.issue ||
-                (!aiScreen?.valid
-                  ? "AI อ่านตัวเลขจอนี้ได้ไม่ครบ"
-                  : aiResult.mode === "unknown"
-                    ? "AI อ่านโหมด L/P ไม่ได้"
-                    : "");
-            }
-          }
-        } catch (cause) {
-          const message =
-            cause instanceof Error
-              ? cause.message
-              : "AI ตรวจภาพไม่สำเร็จ กรุณาตรวจเลขด้วยตนเอง";
+      for (const { batch, response, error: aiError } of aiBatchResults) {
+        if (!response) {
           for (const image of batch) {
             const note = nextNotes.find(item => item.imageId === image.id);
-            if (note) note.aiIssue = message;
+            if (note) note.aiIssue = aiError;
             for (const row of nextRows.filter(
               item => item.imageId === image.id
             )) {
-              row.aiIssue = message;
+              row.aiIssue = aiError;
             }
+          }
+          continue;
+        }
+
+        for (const aiResult of response.results) {
+          const image = batch[aiResult.imageIndex];
+          if (!image) continue;
+          const note = nextNotes.find(item => item.imageId === image.id);
+          if (note) {
+            note.aiChecked = true;
+            note.aiIssue = aiResult.issue;
+            if (note.pumpNumber == null && aiResult.pumpNumber != null) {
+              note.pumpNumber = aiResult.pumpNumber;
+            }
+            if (note.mode === "unknown" && aiResult.mode !== "unknown") {
+              note.mode = aiResult.mode;
+            }
+          }
+
+          const rowsForImage = nextRows.filter(
+            item => item.imageId === image.id
+          );
+          for (const aiScreen of aiResult.screens) {
+            const row = rowsForImage.find(item => item.side === aiScreen.side);
+            const aiIssue =
+              aiResult.issue ||
+              (!aiScreen.valid
+                ? "AI อ่านตัวเลขจอนี้ได้ไม่ครบ"
+                : aiResult.mode === "unknown"
+                  ? "AI อ่านโหมด L/P ไม่ได้"
+                  : "");
+            if (row) {
+              row.aiValue = aiScreen.combinedText;
+              row.aiMode = aiResult.mode;
+              row.aiConfidence = aiScreen.confidence;
+              row.aiValid = aiScreen.valid;
+              row.aiIssue = aiIssue;
+              if (!row.sourceValid && aiScreen.valid && aiScreen.combinedText) {
+                row.prefixDigits = aiScreen.prefixDigits;
+                row.mainDigits = aiScreen.mainDigits;
+                row.value = aiScreen.combinedText;
+              }
+              if (row.pumpNumber == null && aiResult.pumpNumber != null) {
+                row.pumpNumber = aiResult.pumpNumber;
+              }
+              if (row.mode === "unknown" && aiResult.mode !== "unknown") {
+                row.mode = aiResult.mode;
+              }
+              row.nozzleId = suggestNozzleId(targets, row.pumpNumber, row.side);
+              continue;
+            }
+            if (
+              !aiScreen.valid ||
+              !aiScreen.combinedText ||
+              aiResult.mode === "unknown"
+            ) {
+              continue;
+            }
+            nextRows.push({
+              id: `${image.id}:${aiScreen.side}:ai`,
+              imageId: image.id,
+              imageName: image.fileName,
+              pumpNumber: aiResult.pumpNumber,
+              mode: aiResult.mode,
+              side: aiScreen.side,
+              prefixDigits: aiScreen.prefixDigits,
+              mainDigits: aiScreen.mainDigits,
+              value: aiScreen.combinedText,
+              confidence: aiScreen.confidence,
+              glareRatio: 0,
+              nozzleId: suggestNozzleId(
+                targets,
+                aiResult.pumpNumber,
+                aiScreen.side
+              ),
+              sourceValid: false,
+              sampleCount: 1,
+              matchingCount: 0,
+              autoAccepted: false,
+              manuallyConfirmed: false,
+              consensusIssue:
+                "ระบบในเครื่องหา LCD ไม่พบ ค่านี้มาจาก AI กรุณาตรวจเลขจริงแล้วกดยืนยัน",
+              aiValue: aiScreen.combinedText,
+              aiMode: aiResult.mode,
+              aiConfidence: aiScreen.confidence,
+              aiValid: true,
+              aiStatus: "unavailable",
+              aiCheckedCount: 1,
+              aiMatchingCount: 0,
+              aiIssue,
+            });
           }
         }
       }
+
       setReviewRows(collapseReviewRows(nextRows));
       setScanNotes(nextNotes);
       if (!nextRows.length) {
-        setError("ยังอ่านเลขมิเตอร์จากภาพไม่ได้ กรุณาตรวจภาพหรือกรอกด้วยตนเอง");
+        const aiError = aiBatchResults
+          .map(result => result.error)
+          .find(Boolean);
+        setError(
+          aiError
+            ? `ยังอ่านเลขมิเตอร์จากภาพไม่ได้ และ AI ตรวจไม่สำเร็จ: ${aiError}`
+            : "ยังอ่านเลขมิเตอร์จากภาพไม่ได้ กรุณาตรวจภาพหรือกรอกด้วยตนเอง"
+        );
       }
     } catch (cause) {
       setError(
@@ -454,6 +616,7 @@ export default function ShiftMeterImageScanner({
       );
     } finally {
       setLocalScanning(false);
+      setAiChecking(false);
     }
   };
 
@@ -527,8 +690,9 @@ export default function ShiftMeterImageScanner({
                   </p>
                   <p className="mt-1 text-xs text-blue-700">
                     เพื่อผลแม่นที่สุด ให้ถ่าย 3 รูปต่อโหมด L หรือ P
-                    และขยับมุมโทรศัพท์ 5–10° ในแต่ละรูปให้เงาสะท้อนเคลื่อนตำแหน่ง
-                    โดยไม่ใช้แฟลชและให้ LCD หลักสองจอเต็มกรอบ
+                    และขยับมุมโทรศัพท์ 5–10°
+                    ในแต่ละรูปให้เงาสะท้อนเคลื่อนตำแหน่ง โดยไม่ใช้แฟลชและให้ LCD
+                    หลักสองจอเต็มกรอบ
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -603,9 +767,7 @@ export default function ShiftMeterImageScanner({
                     <ScanLine className="mr-2 h-4 w-4" />
                   )}
                   {scanning
-                    ? verifyMutation.isPending
-                      ? "AI กำลังตรวจสอบซ้ำ…"
-                      : `กำลังอ่านในเครื่อง ${progress.done}/${progress.total} ภาพ`
+                    ? `กำลังอ่านและให้ AI ตรวจ ${progress.done}/${progress.total} ภาพ…`
                     : `อ่านและตรวจ ${images.length} ภาพ`}
                 </Button>
                 {images.length > 0 && (
@@ -696,7 +858,8 @@ export default function ShiftMeterImageScanner({
                   <div className="font-medium">3. ยืนยันตัวเลขและหัวจ่าย</div>
                   <p className="text-xs text-muted-foreground">
                     ระบบจะยอมรับอัตโนมัติเมื่อ local OCR/consensus และ AI
-                    อ่านตรงกันเท่านั้น; ผลที่ไม่ตรงหรือ AI ยืนยันไม่ได้ต้องตรวจเอง
+                    อ่านตรงกันเท่านั้น; ผลที่ไม่ตรงหรือ AI
+                    ยืนยันไม่ได้ต้องตรวจเอง
                   </p>
                 </div>
 

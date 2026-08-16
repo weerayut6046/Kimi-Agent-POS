@@ -23,16 +23,18 @@ function meterImageData(input: {
   width?: number;
   height?: number;
   panelColor: [number, number, number];
+  backgroundColor?: [number, number, number];
   onePanelOnly?: boolean;
 }) {
   const width = input.width ?? 400;
   const height = input.height ?? 300;
   const data = new Uint8ClampedArray(width * height * 4);
+  const backgroundColor = input.backgroundColor ?? [236, 231, 220];
   for (let index = 0; index < width * height; index += 1) {
     const offset = index * 4;
-    data[offset] = 236;
-    data[offset + 1] = 231;
-    data[offset + 2] = 220;
+    data[offset] = backgroundColor[0];
+    data[offset + 1] = backgroundColor[1];
+    data[offset + 2] = backgroundColor[2];
     data[offset + 3] = 255;
   }
   const panels = input.onePanelOnly
@@ -131,11 +133,7 @@ function sevenSegmentScreenData(redChannelAmbiguous = false) {
   return { width, height, data } as ImageData;
 }
 
-function addReflection(
-  imageData: ImageData,
-  left: number,
-  right: number
-) {
+function addReflection(imageData: ImageData, left: number, right: number) {
   for (let y = 0; y < imageData.height; y += 1) {
     for (let x = left; x < right; x += 1) {
       const offset = (y * imageData.width + x) * 4;
@@ -215,6 +213,17 @@ describe("local seven-segment OCR", () => {
     expect(result.screen.valid).toBe(true);
   });
 
+  it("finds clipped white LCD backlights from the production dispensers", () => {
+    const displays = findMainDisplays(
+      meterImageData({
+        backgroundColor: [190, 191, 196],
+        panelColor: [248, 252, 255],
+      })
+    );
+
+    expect(displays?.map(display => display.x)).toEqual([28, 230]);
+  });
+
   it("measures a clipped reflection across an LCD instead of treating it as trustworthy", () => {
     const screen = addReflection(sevenSegmentScreenData(), 120, 180);
 
@@ -222,5 +231,20 @@ describe("local seven-segment OCR", () => {
     expect(readMeterScreenImageData(screen, "left").screen.glareRatio).toBe(
       measureSpecularGlare(screen)
     );
+  });
+
+  it("does not classify a uniform white LCD backlight as glare", () => {
+    const width = 320;
+    const height = 160;
+    const data = new Uint8ClampedArray(width * height * 4);
+    for (let index = 0; index < width * height; index += 1) {
+      const offset = index * 4;
+      data[offset] = 246;
+      data[offset + 1] = 251;
+      data[offset + 2] = 255;
+      data[offset + 3] = 255;
+    }
+
+    expect(measureSpecularGlare({ width, height, data } as ImageData)).toBe(0);
   });
 });
