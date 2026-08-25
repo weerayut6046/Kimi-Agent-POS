@@ -1,0 +1,2 @@
+ALTER TABLE "pos"."payroll_records" ADD COLUMN "absence_days" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "pos"."payroll_records" ADD COLUMN "absence_deduction" numeric(18, 3) DEFAULT 0 NOT NULL;

@@ -58,6 +58,8 @@ describe("Gemini meter verifier", () => {
       request.input.find((item: { type: string }) => item.type === "image")
         ?.resolution
     ).toBe("high");
+    expect(request.input[0].text).toContain("LEFT DISPLAY / RIGHT DISPLAY");
+    expect(request.input[0].text).toContain("ใช้ภาพขยายเพื่อตรวจเส้นของตัวเลข");
     expect(requestHeaders.get("Api-Revision")).toBe("2026-05-20");
   });
 

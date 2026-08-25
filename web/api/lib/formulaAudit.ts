@@ -74,6 +74,8 @@ export interface FormulaAuditPayroll {
   payrollMonth: string;
   staffId: number;
   baseAmount: number;
+  absenceDeduction: number;
+  advanceDeduction: number;
   overtimeAmount: number;
   bonus: number;
   deduction: number;
@@ -596,6 +598,8 @@ export function runFormulaAudit(data: FormulaAuditData): FormulaAuditIssue[] {
       payroll.baseAmount +
         payroll.overtimeAmount +
         payroll.bonus -
+        payroll.absenceDeduction -
+        payroll.advanceDeduction -
         payroll.deduction
     );
     if (differs(payroll.netAmount, expectedNet, 0.009)) {
@@ -605,7 +609,7 @@ export function runFormulaAudit(data: FormulaAuditData): FormulaAuditIssue[] {
           severity: "critical",
           category: "payroll",
           title: "เงินเดือนสุทธิไม่ตรงกับสูตร",
-          detail: `${payroll.payrollMonth} · พนักงาน #${payroll.staffId}: เงินฐาน + OT + โบนัส − หัก`,
+          detail: `${payroll.payrollMonth} · พนักงาน #${payroll.staffId}: เงินฐาน + OT + โบนัส − หักขาดงาน − ยอดเบิก − หักอื่น`,
           suggestion: "คำนวณรายการเงินเดือนใหม่ก่อนเปลี่ยนสถานะเป็นจ่ายแล้ว",
           refType: "payroll",
           refId: payroll.id,

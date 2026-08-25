@@ -1,5 +1,6 @@
 import {
   combineMeterDisplayDigits,
+  METER_OCR_MAX_BASE64_CHARS_PER_IMAGE,
   type MeterDisplayMode,
   type MeterDisplaySide,
 } from "@contracts/meterOcr";
@@ -22,6 +23,15 @@ export type MeterImageScanResult = {
   mode: MeterDisplayMode;
   screens: MeterImageScanScreen[];
   issue: string;
+  quality: {
+    level: "good" | "warning" | "poor";
+    issues: string[];
+    usedHighResolutionFallback: boolean;
+  };
+  aiImage?: {
+    mimeType: "image/jpeg";
+    contentBase64: string;
+  };
 };
 
 type Bounds = {
@@ -1174,6 +1184,149 @@ function extractScreenImageData(
   return context.getImageData(0, 0, targetWidth, targetHeight);
 }
 
+function displaySourceBounds(
+  image: HTMLImageElement,
+  analysisWidth: number,
+  analysisHeight: number,
+  bounds: Bounds
+) {
+  const scaleX = image.naturalWidth / analysisWidth;
+  const scaleY = image.naturalHeight / analysisHeight;
+  const paddingX = bounds.width * scaleX * 0.035;
+  const paddingY = bounds.height * scaleY * 0.07;
+  const x = clamp(bounds.x * scaleX - paddingX, 0, image.naturalWidth - 1);
+  const y = clamp(bounds.y * scaleY - paddingY, 0, image.naturalHeight - 1);
+  const right = clamp(
+    (bounds.x + bounds.width) * scaleX + paddingX,
+    x + 1,
+    image.naturalWidth
+  );
+  const bottom = clamp(
+    (bounds.y + bounds.height) * scaleY + paddingY,
+    y + 1,
+    image.naturalHeight
+  );
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function drawContainedImage(
+  context: CanvasRenderingContext2D,
+  image: CanvasImageSource,
+  source: { x: number; y: number; width: number; height: number },
+  target: { x: number; y: number; width: number; height: number }
+) {
+  const scale = Math.min(
+    target.width / source.width,
+    target.height / source.height
+  );
+  const width = source.width * scale;
+  const height = source.height * scale;
+  const x = target.x + (target.width - width) / 2;
+  const y = target.y + (target.height - height) / 2;
+  context.drawImage(
+    image,
+    source.x,
+    source.y,
+    source.width,
+    source.height,
+    x,
+    y,
+    width,
+    height
+  );
+}
+
+/**
+ * Gemini used to receive only the full dispenser photo. This evidence sheet
+ * preserves that context for pump/mode detection and adds large, loss-limited
+ * crops of both LCDs so individual seven-segment strokes occupy more pixels.
+ */
+function buildAiEvidenceImage(
+  image: HTMLImageElement,
+  analysisWidth: number,
+  analysisHeight: number,
+  displays: [Bounds, Bounds]
+) {
+  const attempts = [
+    { width: 1_440, quality: 0.88 },
+    { width: 1_280, quality: 0.82 },
+    { width: 1_120, quality: 0.76 },
+  ];
+
+  for (const attempt of attempts) {
+    const width = attempt.width;
+    const padding = Math.round(width * 0.018);
+    const labelHeight = Math.round(width * 0.035);
+    const fullHeight = Math.round(width * 0.43);
+    const cropHeight = Math.round(width * 0.32);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = padding * 3 + labelHeight * 2 + fullHeight + cropHeight;
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) return null;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.fillStyle = "#f8fafc";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#0f172a";
+    context.font = `600 ${Math.max(16, Math.round(width * 0.018))}px sans-serif`;
+    context.fillText("FULL DISPENSER", padding, padding + labelHeight * 0.72);
+
+    const fullTargetY = padding + labelHeight;
+    drawContainedImage(
+      context,
+      image,
+      { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight },
+      {
+        x: padding,
+        y: fullTargetY,
+        width: width - padding * 2,
+        height: fullHeight,
+      }
+    );
+
+    const cropLabelY = fullTargetY + fullHeight + padding;
+    const gap = padding;
+    const cropWidth = (width - padding * 2 - gap) / 2;
+    context.fillStyle = "#0f172a";
+    context.fillText("LEFT DISPLAY", padding, cropLabelY + labelHeight * 0.72);
+    context.fillText(
+      "RIGHT DISPLAY",
+      padding + cropWidth + gap,
+      cropLabelY + labelHeight * 0.72
+    );
+
+    const cropY = cropLabelY + labelHeight;
+    for (const [index, display] of displays.entries()) {
+      const source = displaySourceBounds(
+        image,
+        analysisWidth,
+        analysisHeight,
+        display
+      );
+      const targetX = padding + index * (cropWidth + gap);
+      context.fillStyle = "#ffffff";
+      context.fillRect(targetX, cropY, cropWidth, cropHeight);
+      drawContainedImage(context, image, source, {
+        x: targetX,
+        y: cropY,
+        width: cropWidth,
+        height: cropHeight,
+      });
+    }
+
+    const dataUrl = canvas.toDataURL("image/jpeg", attempt.quality);
+    const contentBase64 = dataUrl.split(",", 2)[1] ?? "";
+    if (
+      contentBase64.length > 0 &&
+      contentBase64.length <= METER_OCR_MAX_BASE64_CHARS_PER_IMAGE
+    ) {
+      return { mimeType: "image/jpeg" as const, contentBase64 };
+    }
+  }
+  return null;
+}
+
 function detectPumpNumber(
   imageData: ImageData,
   left: Bounds,
@@ -1303,58 +1456,103 @@ export async function scanMeterImageLocally(
   imageIndex = 0
 ): Promise<MeterImageScanResult> {
   const image = await loadPreparedImage(prepared.previewDataUrl);
-  // ความกว้างระดับนี้ยังทำงานได้เร็วบนมือถือ แต่รักษาขอบ LCD และกรอบจอ
-  // ได้ดีกว่าภาพวิเคราะห์ 512 px โดยเฉพาะภาพที่ถ่ายทั้งตู้
-  const analysisWidth = Math.min(896, image.naturalWidth);
-  const analysisHeight = Math.max(
-    1,
-    Math.round(image.naturalHeight * (analysisWidth / image.naturalWidth))
-  );
-  const analysisCanvas = document.createElement("canvas");
-  analysisCanvas.width = analysisWidth;
-  analysisCanvas.height = analysisHeight;
-  const context = analysisCanvas.getContext("2d", {
-    alpha: false,
-    willReadFrequently: true,
-  });
-  if (!context) throw new Error("อุปกรณ์นี้ไม่รองรับการอ่านภาพในเครื่อง");
-  context.drawImage(image, 0, 0, analysisWidth, analysisHeight);
-  const analysisData = context.getImageData(
-    0,
-    0,
-    analysisWidth,
-    analysisHeight
-  );
+  const analyseAtWidth = (requestedWidth: number) => {
+    const width = Math.min(requestedWidth, image.naturalWidth);
+    const height = Math.max(
+      1,
+      Math.round(image.naturalHeight * (width / image.naturalWidth))
+    );
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", {
+      alpha: false,
+      willReadFrequently: true,
+    });
+    if (!context) throw new Error("อุปกรณ์นี้ไม่รองรับการอ่านภาพในเครื่อง");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, width, height);
+    const imageData = context.getImageData(0, 0, width, height);
+    return { width, height, imageData, displays: findMainDisplays(imageData) };
+  };
+
+  // ตรวจเร็วที่ 896 px ก่อน แล้วค่อยใช้ภาพละเอียดขึ้นเมื่อหา LCD ไม่พบ
+  // หรือกรอบที่พบมีขนาดเล็กเกินไป การทำ fallback เฉพาะภาพที่จำเป็นช่วย
+  // รักษาความเร็วบนมือถือโดยไม่ทิ้งรายละเอียดของภาพที่ถ่ายไกล
+  let analysis = analyseAtWidth(896);
+  let usedHighResolutionFallback = false;
+  const smallestDisplayHeight = analysis.displays
+    ? Math.min(...analysis.displays.map(display => display.height))
+    : 0;
+  if (
+    image.naturalWidth > analysis.width &&
+    (!analysis.displays || smallestDisplayHeight < 72)
+  ) {
+    analysis = analyseAtWidth(1_440);
+    usedHighResolutionFallback = analysis.width > 896;
+  }
+
+  const { width: analysisWidth, height: analysisHeight } = analysis;
+  const analysisData = analysis.imageData;
   const qualityIssues = assessImageQuality(analysisData);
-  const displays = findMainDisplays(analysisData);
+  const displays = analysis.displays;
   if (!displays) {
+    const issues = [
+      ...qualityIssues,
+      "ระบบในเครื่องหา LCD หลักสองจอไม่ครบ กรุณาครอปภาพให้เห็นหน้าตู้ตรงและชัดขึ้น",
+    ];
     return {
       imageIndex,
       pumpNumber: null,
       mode: "unknown",
       screens: [],
-      issue: [
-        ...qualityIssues,
-        "ระบบในเครื่องหา LCD หลักสองจอไม่ครบ กรุณาครอปภาพให้เห็นหน้าตู้ตรงและชัดขึ้น",
-      ].join(" · "),
+      issue: issues.join(" · "),
+      quality: {
+        level: "poor",
+        issues,
+        usedHighResolutionFallback,
+      },
     };
   }
 
   const pumpNumber = detectPumpNumber(analysisData, displays[0], displays[1]);
-  const left = readMeterScreenImageData(
-    extractScreenImageData(image, analysisWidth, analysisHeight, displays[0]),
-    "left"
+  const leftImageData = extractScreenImageData(
+    image,
+    analysisWidth,
+    analysisHeight,
+    displays[0]
   );
-  const right = readMeterScreenImageData(
-    extractScreenImageData(image, analysisWidth, analysisHeight, displays[1]),
-    "right"
+  const rightImageData = extractScreenImageData(
+    image,
+    analysisWidth,
+    analysisHeight,
+    displays[1]
   );
+  const left = readMeterScreenImageData(leftImageData, "left");
+  const right = readMeterScreenImageData(rightImageData, "right");
   const chosenMode = chooseMode([left.mode, right.mode]);
   const screens = [left.screen, right.screen].map(screen => ({
     ...screen,
     confidence: Math.min(screen.confidence, chosenMode.confidence),
   }));
   const issues: string[] = [...qualityIssues];
+  const sourceDisplayHeights = displays.map(
+    display => display.height * (image.naturalHeight / analysisHeight)
+  );
+  if (Math.min(...sourceDisplayHeights) < 150) {
+    issues.push("จออยู่ไกลและมีพิกเซลน้อย ควรถ่ายให้หน้าจอใหญ่เต็มกรอบขึ้น");
+  }
+  const [leftDisplay, rightDisplay] = displays;
+  const verticalSkew =
+    Math.abs(
+      leftDisplay.y +
+        leftDisplay.height / 2 -
+        (rightDisplay.y + rightDisplay.height / 2)
+    ) / Math.max(1, (leftDisplay.height + rightDisplay.height) / 2);
+  if (verticalSkew > 0.2) {
+    issues.push("ภาพเอียงมาก ควรถ่ายให้ขอบจอซ้ายและขวาอยู่ระดับเดียวกัน");
+  }
   if (pumpNumber == null) issues.push("อ่านหมายเลขตู้ไม่ได้");
   if (chosenMode.mode === "unknown") issues.push("อ่านโหมด L/P ไม่ได้");
   if (left.mode.mode !== right.mode.mode) {
@@ -1371,11 +1569,31 @@ export async function scanMeterImageLocally(
     );
   }
 
+  const uniqueIssues = [...new Set(issues)];
+  const qualityLevel = screens.some(screen => !screen.valid)
+    ? "poor"
+    : uniqueIssues.length > 0 ||
+        screens.some(screen => screen.confidence < 0.82)
+      ? "warning"
+      : "good";
+  const aiImage = buildAiEvidenceImage(
+    image,
+    analysisWidth,
+    analysisHeight,
+    displays
+  );
+
   return {
     imageIndex,
     pumpNumber,
     mode: chosenMode.mode,
     screens,
-    issue: issues.join(" · "),
+    issue: uniqueIssues.join(" · "),
+    quality: {
+      level: qualityLevel,
+      issues: uniqueIssues,
+      usedHighResolutionFallback,
+    },
+    ...(aiImage ? { aiImage } : {}),
   };
 }

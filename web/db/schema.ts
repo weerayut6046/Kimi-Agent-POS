@@ -165,6 +165,13 @@ export const workSchedules = posSchema
       })
         .notNull()
         .default("scheduled"),
+      cashAdvance: numeric("cash_advance", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      })
+        .notNull()
+        .default(0),
       note: text("note"),
       createdAt: timestamp("created_at", { withTimezone: true })
         .notNull()
@@ -237,6 +244,21 @@ export const payrollRecords = posSchema
         .references(() => staffUsers.id, { onDelete: "restrict" }),
       workDays: integer("work_days").notNull().default(0),
       workHours: numeric("work_hours", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      })
+        .notNull()
+        .default(0),
+      absenceDays: integer("absence_days").notNull().default(0),
+      absenceDeduction: numeric("absence_deduction", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      })
+        .notNull()
+        .default(0),
+      advanceDeduction: numeric("advance_deduction", {
         precision: 18,
         scale: 3,
         mode: "number",

@@ -66,6 +66,7 @@ type ScheduleForm = {
   shiftTemplateId: string;
   staffId: string;
   status: ScheduleStatus;
+  cashAdvance: string;
   note: string;
 };
 
@@ -96,6 +97,13 @@ type PayrollForm = {
   bonus: string;
   deduction: string;
   note: string;
+};
+
+type CashAdvanceForm = {
+  id: number;
+  staffName: string;
+  workDate: string;
+  cashAdvance: string;
 };
 
 type StaffForm = {
@@ -154,6 +162,8 @@ export default function Workforce() {
   const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
+  const canManageCashAdvance =
+    staff?.role === "admin" || staff?.role === "manager";
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
   const initialTab =
@@ -170,6 +180,8 @@ export default function Workforce() {
   const [templateForm, setTemplateForm] = useState<TemplateForm | null>(null);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [payrollForm, setPayrollForm] = useState<PayrollForm | null>(null);
+  const [cashAdvanceForm, setCashAdvanceForm] =
+    useState<CashAdvanceForm | null>(null);
   const [staffForm, setStaffForm] = useState<StaffForm | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -219,32 +231,65 @@ export default function Workforce() {
   };
 
   const createSchedule = trpc.workforce.createSchedule.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
       refreshSchedule();
+      refreshPayroll();
       setScheduleForm(null);
-      showSuccess("เพิ่มตารางงานแล้ว");
+      showSuccess(
+        result.payrollUpdated
+          ? "เพิ่มตารางงานและหักยอดเบิกในเงินเดือนแล้ว"
+          : "เพิ่มตารางงานแล้ว",
+      );
     },
     onError: err => showError(err.message),
   });
   const updateSchedule = trpc.workforce.updateSchedule.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
       refreshSchedule();
+      refreshPayroll();
       setScheduleForm(null);
-      showSuccess("แก้ไขตารางงานแล้ว");
+      showSuccess(
+        result.payrollUpdated
+          ? "แก้ไขตารางงานและอัปเดตเงินเดือนแล้ว"
+          : "แก้ไขตารางงานแล้ว",
+      );
+    },
+    onError: err => showError(err.message),
+  });
+  const updateCashAdvance = trpc.workforce.updateCashAdvance.useMutation({
+    onSuccess: result => {
+      refreshSchedule();
+      refreshPayroll();
+      setCashAdvanceForm(null);
+      showSuccess(
+        result.payrollUpdated
+          ? "แก้ยอดเบิกและปรับเงินเดือนฉบับร่างแล้ว"
+          : "แก้ยอดเบิกแล้ว รายการเงินเดือนที่จ่ายแล้วจะไม่เปลี่ยนย้อนหลัง"
+      );
     },
     onError: err => showError(err.message),
   });
   const deleteSchedule = trpc.workforce.deleteSchedule.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
       refreshSchedule();
-      showSuccess("ลบตารางงานแล้ว");
+      refreshPayroll();
+      showSuccess(
+        result.payrollUpdated
+          ? "ลบตารางงานและอัปเดตเงินเดือนแล้ว"
+          : "ลบตารางงานแล้ว",
+      );
     },
     onError: err => showError(err.message),
   });
   const swapSchedules = trpc.workforce.swapSchedules.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
       refreshSchedule();
-      showSuccess("สลับกะพนักงานเรียบร้อยแล้ว");
+      refreshPayroll();
+      showSuccess(
+        result.payrollUpdated
+          ? "สลับกะและอัปเดตเงินเดือนแล้ว"
+          : "สลับกะพนักงานเรียบร้อยแล้ว",
+      );
     },
     onError: err => showError(err.message),
   });
@@ -335,6 +380,7 @@ export default function Workforce() {
       shiftTemplateId: activeTemplates[0] ? String(activeTemplates[0].id) : "",
       staffId: directory[0] ? String(directory[0].id) : "",
       status: "scheduled",
+      cashAdvance: "0",
       note: "",
     });
   };
@@ -346,6 +392,7 @@ export default function Workforce() {
       shiftTemplateId: Number(scheduleForm.shiftTemplateId),
       staffId: Number(scheduleForm.staffId),
       status: scheduleForm.status,
+      cashAdvance: Number(scheduleForm.cashAdvance) || 0,
       note: scheduleForm.note.trim() || undefined,
     };
     if (!values.workDate || !values.shiftTemplateId || !values.staffId) {
@@ -357,6 +404,14 @@ export default function Workforce() {
     } else {
       createSchedule.mutate(values);
     }
+  };
+
+  const submitCashAdvance = () => {
+    if (!cashAdvanceForm) return;
+    updateCashAdvance.mutate({
+      id: cashAdvanceForm.id,
+      cashAdvance: Number(cashAdvanceForm.cashAdvance) || 0,
+    });
   };
 
   const toggleScheduleSelection = (id: number) => {
@@ -510,8 +565,9 @@ export default function Workforce() {
                     <TableHead>กะงาน</TableHead>
                     <TableHead>พนักงาน</TableHead>
                     <TableHead>สถานะ</TableHead>
+                    <TableHead className="text-right">เบิกเงิน</TableHead>
                     <TableHead>หมายเหตุ</TableHead>
-                    {isAdmin && <TableHead className="w-24" />}
+                    {canManageCashAdvance && <TableHead className="w-28" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -546,48 +602,77 @@ export default function Workforce() {
                         </div>
                       </TableCell>
                       <TableCell>{statusBadge(schedule.status)}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {schedule.cashAdvance > 0
+                          ? `฿${fmtMoney(schedule.cashAdvance)}`
+                          : "-"}
+                      </TableCell>
                       <TableCell className="max-w-56 text-sm text-muted-foreground">
                         {schedule.note || "-"}
                       </TableCell>
-                      {isAdmin && (
+                      {canManageCashAdvance && (
                         <TableCell>
                           <div className="flex gap-1">
                             <Button
                               size="icon"
                               variant="ghost"
-                              title="แก้ไข"
+                              title="แก้ยอดเบิกเงินล่วงหน้า"
                               onClick={() =>
-                                setScheduleForm({
+                                setCashAdvanceForm({
                                   id: schedule.id,
+                                  staffName: schedule.staffName,
                                   workDate: schedule.workDate,
-                                  shiftTemplateId: String(
-                                    schedule.shiftTemplateId
-                                  ),
-                                  staffId: String(schedule.staffId),
-                                  status: schedule.status,
-                                  note: schedule.note ?? "",
+                                  cashAdvance: String(schedule.cashAdvance),
                                 })
                               }
                             >
-                              <Pencil />
+                              <CircleDollarSign />
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-destructive"
-                              title="ลบ"
-                              onClick={async () => {
-                                if (
-                                  await confirmAction(
-                                    `ลบกะ ${schedule.shiftName} ของ ${schedule.staffName}?`
-                                  )
-                                ) {
-                                  deleteSchedule.mutate({ id: schedule.id });
-                                }
-                              }}
-                            >
-                              <Trash2 />
-                            </Button>
+                            {isAdmin && (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  title="แก้ไข"
+                                  onClick={() =>
+                                    setScheduleForm({
+                                      id: schedule.id,
+                                      workDate: schedule.workDate,
+                                      shiftTemplateId: String(
+                                        schedule.shiftTemplateId
+                                      ),
+                                      staffId: String(schedule.staffId),
+                                      status: schedule.status,
+                                      cashAdvance: String(
+                                        schedule.cashAdvance
+                                      ),
+                                      note: schedule.note ?? "",
+                                    })
+                                  }
+                                >
+                                  <Pencil />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  title="ลบ"
+                                  onClick={async () => {
+                                    if (
+                                      await confirmAction(
+                                        `ลบกะ ${schedule.shiftName} ของ ${schedule.staffName}?`
+                                      )
+                                    ) {
+                                      deleteSchedule.mutate({
+                                        id: schedule.id,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       )}
@@ -596,7 +681,7 @@ export default function Workforce() {
                   {!scheduleLoading && schedules.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={isAdmin ? 7 : 5}
+                        colSpan={isAdmin ? 8 : canManageCashAdvance ? 7 : 6}
                         className="py-10 text-center text-muted-foreground"
                       >
                         ยังไม่มีตารางงานในช่วงนี้
@@ -825,6 +910,14 @@ export default function Workforce() {
             )}
           </div>
 
+          {isAdmin && (
+            <p className="text-xs text-muted-foreground">
+              พนักงานรายเดือนหักขาดงานอัตโนมัติวันละ เงินเดือน ÷ 30
+              โดยสถานะลาไม่ถูกหัก รายวัน/รายชั่วโมงไม่ถูกหักซ้ำ
+              และยอดเบิกจากทุกกะจะถูกหักเต็มจำนวน
+            </p>
+          )}
+
           {isAdmin ? (
             <Card>
               <CardContent className="overflow-x-auto pt-4">
@@ -855,6 +948,11 @@ export default function Workforce() {
                         <TableCell className="text-right whitespace-nowrap">
                           {fmtNum(row.workDays)} วัน / {fmtNum(row.workHours)}{" "}
                           ชม.
+                          {row.absenceDays > 0 && (
+                            <div className="text-xs text-red-700">
+                              ขาดงาน {fmtNum(row.absenceDays)} วัน
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           ฿{fmtMoney(row.baseAmount)}
@@ -866,13 +964,22 @@ export default function Workforce() {
                           </div>
                         </TableCell>
                         <TableCell className="text-right text-sm">
-                          <span className="text-emerald-700">
-                            +฿{fmtMoney(row.bonus)}
-                          </span>
-                          <br />
-                          <span className="text-red-700">
-                            -฿{fmtMoney(row.deduction)}
-                          </span>
+                          <div className="text-emerald-700">
+                            โบนัส +฿{fmtMoney(row.bonus)}
+                          </div>
+                          {row.absenceDeduction > 0 && (
+                            <div className="text-red-700">
+                              ขาดงาน -฿{fmtMoney(row.absenceDeduction)}
+                            </div>
+                          )}
+                          {row.advanceDeduction > 0 && (
+                            <div className="text-red-700">
+                              เบิกเงิน -฿{fmtMoney(row.advanceDeduction)}
+                            </div>
+                          )}
+                          <div className="text-red-700">
+                            หักอื่น -฿{fmtMoney(row.deduction)}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right text-base font-bold">
                           ฿{fmtMoney(row.netAmount)}
@@ -991,8 +1098,24 @@ export default function Workforce() {
                             myPayroll.overtimeAmount + myPayroll.bonus
                           )}{" "}
                           / -฿
-                          {fmtMoney(myPayroll.deduction)}
+                          {fmtMoney(
+                            myPayroll.absenceDeduction +
+                              myPayroll.advanceDeduction +
+                              myPayroll.deduction
+                          )}
                         </div>
+                        {myPayroll.absenceDays > 0 && (
+                          <div className="mt-1 text-xs text-red-700">
+                            ขาดงาน {fmtNum(myPayroll.absenceDays)} วัน หัก ฿
+                            {fmtMoney(myPayroll.absenceDeduction)}
+                          </div>
+                        )}
+                        {myPayroll.advanceDeduction > 0 && (
+                          <div className="mt-1 text-xs text-red-700">
+                            เบิกเงินจากกะ ฿
+                            {fmtMoney(myPayroll.advanceDeduction)}
+                          </div>
+                        )}
                       </div>
                       <div className="rounded-xl bg-blue-50 p-3 text-blue-800">
                         <div className="text-xs">รับสุทธิ</div>
@@ -1170,6 +1293,27 @@ export default function Workforce() {
                   </div>
                   <div className="space-y-2 sm:col-span-2">
                     <Label className="text-xs font-semibold text-slate-700">
+                      เบิกเงินล่วงหน้า (บาท)
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={scheduleForm.cashAdvance}
+                      onChange={event =>
+                        setScheduleForm({
+                          ...scheduleForm,
+                          cashAdvance: event.target.value,
+                        })
+                      }
+                      className="bg-white"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      ยอดนี้จะถูกรวมไปหักจากเงินเดือนของพนักงานในเดือนเดียวกับกะ
+                    </p>
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label className="text-xs font-semibold text-slate-700">
                       หมายเหตุ
                     </Label>
                     <Textarea
@@ -1196,6 +1340,59 @@ export default function Workforce() {
               disabled={createSchedule.isPending || updateSchedule.isPending}
             >
               บันทึก
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={cashAdvanceForm != null}
+        onOpenChange={open => !open && setCashAdvanceForm(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>แก้ยอดเบิกเงินล่วงหน้า</DialogTitle>
+            <DialogDescription>
+              {cashAdvanceForm
+                ? `${cashAdvanceForm.staffName} · ${fmtDate(cashAdvanceForm.workDate)}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {cashAdvanceForm && (
+            <div className="space-y-2 py-2">
+              <Label htmlFor="cash-advance-amount">ยอดเบิก (บาท)</Label>
+              <Input
+                id="cash-advance-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                autoFocus
+                value={cashAdvanceForm.cashAdvance}
+                onChange={event =>
+                  setCashAdvanceForm({
+                    ...cashAdvanceForm,
+                    cashAdvance: event.target.value,
+                  })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                กรอก 0 เพื่อล้างยอดเบิก
+                ระบบจะปรับเงินเดือนฉบับร่างของเดือนนี้ให้อัตโนมัติ
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCashAdvanceForm(null)}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              onClick={submitCashAdvance}
+              disabled={updateCashAdvance.isPending}
+            >
+              บันทึกยอดเบิก
             </Button>
           </DialogFooter>
         </DialogContent>

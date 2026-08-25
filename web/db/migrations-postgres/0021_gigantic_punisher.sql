@@ -1,0 +1,2 @@
+ALTER TABLE "pos"."payroll_records" ADD COLUMN "advance_deduction" numeric(18, 3) DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "pos"."work_schedules" ADD COLUMN "cash_advance" numeric(18, 3) DEFAULT 0 NOT NULL;

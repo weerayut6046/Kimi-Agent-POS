@@ -9,7 +9,7 @@ import {
   workSchedules,
   workShiftTemplates,
 } from "@db/schema";
-import { adminQuery, staffIdFromHeader } from "../guard";
+import { adminQuery, managerQuery, staffIdFromHeader } from "../guard";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { staffSessionFromHeader } from "../lib/session";
 import { createRouter, publicQuery } from "../middleware";
@@ -46,6 +46,127 @@ function shiftHours(startTime: string, endTime: string, breakMinutes: number) {
   let end = toMinutes(endTime);
   if (end <= start) end += 24 * 60;
   return round2(Math.max(0, end - start - breakMinutes) / 60);
+}
+
+type PayrollSyncDb = Pick<
+  ReturnType<typeof getDb>,
+  "query" | "select" | "update"
+>;
+
+async function syncDraftPayrollForMonth(
+  db: PayrollSyncDb,
+  branchId: number,
+  staffId: number,
+  payrollMonth: string,
+) {
+  const monthStart = `${payrollMonth}-01`;
+  const monthEnd = nextMonth(payrollMonth);
+  const [payroll, profile, schedules] = await Promise.all([
+    db.query.payrollRecords.findFirst({
+      where: and(
+        eq(payrollRecords.branchId, branchId),
+        eq(payrollRecords.staffId, staffId),
+        eq(payrollRecords.payrollMonth, payrollMonth),
+      ),
+    }),
+    db.query.employeeProfiles.findFirst({
+      where: eq(employeeProfiles.staffId, staffId),
+    }),
+    db
+      .select({
+        workDate: workSchedules.workDate,
+        status: workSchedules.status,
+        cashAdvance: workSchedules.cashAdvance,
+        startTime: workShiftTemplates.startTime,
+        endTime: workShiftTemplates.endTime,
+        breakMinutes: workShiftTemplates.breakMinutes,
+      })
+      .from(workSchedules)
+      .innerJoin(
+        workShiftTemplates,
+        eq(workShiftTemplates.id, workSchedules.shiftTemplateId),
+      )
+      .where(
+        and(
+          eq(workSchedules.branchId, branchId),
+          eq(workSchedules.staffId, staffId),
+          gte(workSchedules.workDate, monthStart),
+          lt(workSchedules.workDate, monthEnd),
+        ),
+      ),
+  ]);
+
+  const advanceDeduction = round2(
+    schedules.reduce((sum, schedule) => sum + schedule.cashAdvance, 0),
+  );
+  if (!payroll || payroll.status !== "draft" || !profile) {
+    return { payrollUpdated: false, advanceDeduction };
+  }
+
+  const worked = schedules.filter(
+    schedule => schedule.status !== "leave" && schedule.status !== "absent",
+  );
+  const workDays = new Set(worked.map(schedule => schedule.workDate)).size;
+  const workHours = round2(
+    worked.reduce(
+      (sum, schedule) =>
+        sum +
+        shiftHours(
+          schedule.startTime,
+          schedule.endTime,
+          schedule.breakMinutes,
+        ),
+      0,
+    ),
+  );
+  const absenceDays = new Set(
+    schedules
+      .filter(schedule => schedule.status === "absent")
+      .map(schedule => schedule.workDate),
+  ).size;
+  const baseAmount = round2(
+    profile.salaryType === "monthly"
+      ? profile.baseRate
+      : profile.salaryType === "daily"
+        ? workDays * profile.baseRate
+        : workHours * profile.baseRate,
+  );
+  const absenceDeduction =
+    profile.salaryType === "monthly"
+      ? Math.min(baseAmount, round2((profile.baseRate / 30) * absenceDays))
+      : 0;
+  const overtimeAmount = round2(
+    payroll.overtimeHours * profile.overtimeRate,
+  );
+  const netAmount = round2(
+    baseAmount +
+      overtimeAmount +
+      payroll.bonus -
+      absenceDeduction -
+      advanceDeduction -
+      payroll.deduction,
+  );
+
+  await db
+    .update(payrollRecords)
+    .set({
+      workDays,
+      workHours,
+      absenceDays,
+      absenceDeduction,
+      advanceDeduction,
+      baseAmount,
+      overtimeAmount,
+      netAmount,
+    })
+    .where(
+      and(
+        eq(payrollRecords.id, payroll.id),
+        eq(payrollRecords.branchId, branchId),
+      ),
+    );
+
+  return { payrollUpdated: true, advanceDeduction, netAmount };
 }
 
 async function requireStaff(staffId: number, branchId?: number) {
@@ -208,7 +329,7 @@ export const workforceRouter = createRouter({
         gte(workSchedules.workDate, input.startDate),
         lte(workSchedules.workDate, input.endDate),
       ];
-      if (role !== "admin")
+      if (role !== "admin" && role !== "manager")
         filters.push(eq(workSchedules.staffId, currentStaffId!));
       return getDb()
         .select({
@@ -217,6 +338,7 @@ export const workforceRouter = createRouter({
           shiftTemplateId: workSchedules.shiftTemplateId,
           staffId: workSchedules.staffId,
           status: workSchedules.status,
+          cashAdvance: workSchedules.cashAdvance,
           note: workSchedules.note,
           staffName: staffUsers.name,
           staffRole: staffUsers.role,
@@ -246,19 +368,22 @@ export const workforceRouter = createRouter({
         shiftTemplateId: z.number().int().positive(),
         staffId: z.number().int().positive(),
         status: scheduleStatus.default("scheduled"),
+        cashAdvance: z.number().finite().min(0).default(0),
         note: z.string().trim().max(500).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
       const [staff, template] = await Promise.all([
-        requireStaff(input.staffId, ctx.staff.branchId),
-        requireTemplate(input.shiftTemplateId, ctx.staff.branchId),
+        requireStaff(input.staffId, branchId),
+        requireTemplate(input.shiftTemplateId, branchId),
       ]);
       if (!staff.active) throw new Error("พนักงานคนนี้ถูกปิดใช้งาน");
       if (!template.active) throw new Error("รูปแบบกะนี้ถูกปิดใช้งาน");
-      const duplicate = await getDb().query.workSchedules.findFirst({
+      const duplicate = await db.query.workSchedules.findFirst({
         where: and(
-          eq(workSchedules.branchId, ctx.staff.branchId),
+          eq(workSchedules.branchId, branchId),
           eq(workSchedules.workDate, input.workDate),
           eq(workSchedules.shiftTemplateId, input.shiftTemplateId),
           eq(workSchedules.staffId, input.staffId)
@@ -266,18 +391,35 @@ export const workforceRouter = createRouter({
       });
       if (duplicate)
         throw new Error("พนักงานคนนี้มีกะดังกล่าวในวันที่เลือกแล้ว");
-      const [{ id }] = await getDb()
-        .insert(workSchedules)
-        .values({ ...input, branchId: ctx.staff.branchId })
-        .returning({ id: workSchedules.id });
+      let id = 0;
+      let payrollUpdated = false;
+      let advanceDeduction = 0;
+      await db.transaction(async tx => {
+        [{ id }] = await tx
+          .insert(workSchedules)
+          .values({ ...input, branchId })
+          .returning({ id: workSchedules.id });
+        const synced = await syncDraftPayrollForMonth(
+          tx,
+          branchId,
+          input.staffId,
+          input.workDate.slice(0, 7),
+        );
+        payrollUpdated = synced.payrollUpdated;
+        advanceDeduction = synced.advanceDeduction;
+      });
       logAudit({
         action: "create_work_schedule",
         ...actorFromReq(ctx.req),
-        detail: `จัด ${staff.name} เข้ากะ ${template.name} วันที่ ${input.workDate}`,
+        detail: `จัด ${staff.name} เข้ากะ ${template.name} วันที่ ${input.workDate}${
+          input.cashAdvance > 0
+            ? ` · เบิกเงิน ${input.cashAdvance} บาท`
+            : ""
+        }`,
         refType: "work_schedule",
         refId: id,
       });
-      return { ok: true, id };
+      return { ok: true, id, payrollUpdated, advanceDeduction };
     }),
 
   updateSchedule: adminQuery
@@ -288,6 +430,7 @@ export const workforceRouter = createRouter({
         shiftTemplateId: z.number().int().positive(),
         staffId: z.number().int().positive(),
         status: scheduleStatus,
+        cashAdvance: z.number().finite().min(0).optional(),
         note: z.string().trim().max(500).nullable().optional(),
       })
     )
@@ -317,49 +460,144 @@ export const workforceRouter = createRouter({
       if (duplicate)
         throw new Error("พนักงานคนนี้มีกะดังกล่าวในวันที่เลือกแล้ว");
       const { id, ...values } = input;
-      await db
-        .update(workSchedules)
-        .set(values)
-        .where(
-          and(eq(workSchedules.id, id), eq(workSchedules.branchId, branchId)),
+      let payrollUpdated = false;
+      await db.transaction(async tx => {
+        await tx
+          .update(workSchedules)
+          .set(values)
+          .where(
+            and(
+              eq(workSchedules.id, id),
+              eq(workSchedules.branchId, branchId),
+            ),
+          );
+        const affected = new Map(
+          [
+            {
+              staffId: existing.staffId,
+              month: existing.workDate.slice(0, 7),
+            },
+            { staffId: input.staffId, month: input.workDate.slice(0, 7) },
+          ].map(target => [`${target.staffId}:${target.month}`, target]),
         );
+        for (const target of affected.values()) {
+          const synced = await syncDraftPayrollForMonth(
+            tx,
+            branchId,
+            target.staffId,
+            target.month,
+          );
+          payrollUpdated ||= synced.payrollUpdated;
+        }
+      });
       logAudit({
         action: "update_work_schedule",
         ...actorFromReq(ctx.req),
-        detail: `แก้ตารางงาน ${staff.name} เป็นกะ ${template.name} วันที่ ${input.workDate}`,
+        detail: `แก้ตารางงาน ${staff.name} เป็นกะ ${template.name} วันที่ ${input.workDate} · เบิกเงิน ${
+          input.cashAdvance ?? existing.cashAdvance
+        } บาท`,
         refType: "work_schedule",
         refId: id,
       });
-      return { ok: true };
+      return { ok: true, payrollUpdated };
     }),
 
-  deleteSchedule: adminQuery
-    .input(z.object({ id: z.number().int().positive() }))
+  updateCashAdvance: managerQuery
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        cashAdvance: z.number().finite().min(0),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
+      const db = getDb();
       const branchId = ctx.staff.branchId;
-      const schedule = await getDb().query.workSchedules.findFirst({
+      const schedule = await db.query.workSchedules.findFirst({
         where: and(
           eq(workSchedules.id, input.id),
           eq(workSchedules.branchId, branchId),
         ),
       });
       if (!schedule) throw new Error("ไม่พบรายการตารางงาน");
-      await getDb()
-        .delete(workSchedules)
-        .where(
-          and(
-            eq(workSchedules.id, input.id),
-            eq(workSchedules.branchId, branchId),
-          ),
+      const payrollMonth = schedule.workDate.slice(0, 7);
+      let payrollUpdated = false;
+      let advanceDeduction = 0;
+      await db.transaction(async tx => {
+        await tx
+          .update(workSchedules)
+          .set({ cashAdvance: input.cashAdvance })
+          .where(
+            and(
+              eq(workSchedules.id, input.id),
+              eq(workSchedules.branchId, branchId),
+            ),
+          );
+        const synced = await syncDraftPayrollForMonth(
+          tx,
+          branchId,
+          schedule.staffId,
+          payrollMonth,
         );
+        advanceDeduction = synced.advanceDeduction;
+        payrollUpdated = synced.payrollUpdated;
+      });
+      logAudit({
+        action: "update_work_schedule_cash_advance",
+        ...actorFromReq(ctx.req),
+        detail: `แก้ยอดเบิกกะวันที่ ${schedule.workDate} จาก ${schedule.cashAdvance} เป็น ${input.cashAdvance} บาท`,
+        refType: "work_schedule",
+        refId: schedule.id,
+      });
+      return {
+        ok: true,
+        cashAdvance: input.cashAdvance,
+        advanceDeduction,
+        payrollUpdated,
+      };
+    }),
+
+  deleteSchedule: adminQuery
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const branchId = ctx.staff.branchId;
+      const schedule = await db.query.workSchedules.findFirst({
+        where: and(
+          eq(workSchedules.id, input.id),
+          eq(workSchedules.branchId, branchId),
+        ),
+      });
+      if (!schedule) throw new Error("ไม่พบรายการตารางงาน");
+      let payrollUpdated = false;
+      await db.transaction(async tx => {
+        await tx
+          .delete(workSchedules)
+          .where(
+            and(
+              eq(workSchedules.id, input.id),
+              eq(workSchedules.branchId, branchId),
+            ),
+          );
+        const synced = await syncDraftPayrollForMonth(
+          tx,
+          branchId,
+          schedule.staffId,
+          schedule.workDate.slice(0, 7),
+        );
+        payrollUpdated = synced.payrollUpdated;
+      });
       logAudit({
         action: "delete_work_schedule",
         ...actorFromReq(ctx.req),
-        detail: `ลบตารางงานวันที่ ${schedule.workDate}`,
+        detail: `ลบตารางงานวันที่ ${schedule.workDate}${
+          schedule.cashAdvance > 0
+            ? ` · ยอดเบิก ${schedule.cashAdvance} บาท`
+            : ""
+        }`,
         refType: "work_schedule",
         refId: input.id,
       });
-      return { ok: true };
+      return { ok: true, payrollUpdated };
     }),
 
   swapSchedules: adminQuery
@@ -416,17 +654,37 @@ export const workforceRouter = createRouter({
         throw new Error("สลับไม่ได้ เพราะพนักงานมีกะซ้ำในช่วงที่เลือก");
       }
 
-      await db
-        .update(workSchedules)
-        .set({
-          staffId: sql<number>`case when ${workSchedules.id} = ${first.id} then cast(${second.staffId} as integer) else cast(${first.staffId} as integer) end`,
-        })
-        .where(
-          and(
-            eq(workSchedules.branchId, branchId),
-            inArray(workSchedules.id, [first.id, second.id]),
-          ),
+      let payrollUpdated = false;
+      await db.transaction(async tx => {
+        await tx
+          .update(workSchedules)
+          .set({
+            staffId: sql<number>`case when ${workSchedules.id} = ${first.id} then cast(${second.staffId} as integer) else cast(${first.staffId} as integer) end`,
+          })
+          .where(
+            and(
+              eq(workSchedules.branchId, branchId),
+              inArray(workSchedules.id, [first.id, second.id]),
+            ),
+          );
+        const affected = new Map(
+          [
+            { staffId: first.staffId, month: first.workDate.slice(0, 7) },
+            { staffId: second.staffId, month: first.workDate.slice(0, 7) },
+            { staffId: second.staffId, month: second.workDate.slice(0, 7) },
+            { staffId: first.staffId, month: second.workDate.slice(0, 7) },
+          ].map(target => [`${target.staffId}:${target.month}`, target]),
         );
+        for (const target of affected.values()) {
+          const synced = await syncDraftPayrollForMonth(
+            tx,
+            branchId,
+            target.staffId,
+            target.month,
+          );
+          payrollUpdated ||= synced.payrollUpdated;
+        }
+      });
       const [firstStaff, secondStaff] = await Promise.all([
         requireStaff(first.staffId, branchId),
         requireStaff(second.staffId, branchId),
@@ -438,7 +696,7 @@ export const workforceRouter = createRouter({
         refType: "work_schedule",
         refId: first.id,
       });
-      return { ok: true };
+      return { ok: true, payrollUpdated };
     }),
 
   employeeProfiles: adminQuery.query(async ({ ctx }) => {
@@ -540,6 +798,9 @@ export const workforceRouter = createRouter({
           salaryType: employeeProfiles.salaryType,
           workDays: payrollRecords.workDays,
           workHours: payrollRecords.workHours,
+          absenceDays: payrollRecords.absenceDays,
+          absenceDeduction: payrollRecords.absenceDeduction,
+          advanceDeduction: payrollRecords.advanceDeduction,
           baseAmount: payrollRecords.baseAmount,
           overtimeHours: payrollRecords.overtimeHours,
           overtimeAmount: payrollRecords.overtimeAmount,
@@ -609,6 +870,7 @@ export const workforceRouter = createRouter({
             staffId: workSchedules.staffId,
             workDate: workSchedules.workDate,
             status: workSchedules.status,
+            cashAdvance: workSchedules.cashAdvance,
             startTime: workShiftTemplates.startTime,
             endTime: workShiftTemplates.endTime,
             breakMinutes: workShiftTemplates.breakMinutes,
@@ -650,6 +912,15 @@ export const workforceRouter = createRouter({
               schedule.status !== "leave" &&
               schedule.status !== "absent"
           );
+          const absenceDays = new Set(
+            schedules
+              .filter(
+                schedule =>
+                  schedule.staffId === profile.staffId &&
+                  schedule.status === "absent"
+              )
+              .map(schedule => schedule.workDate)
+          ).size;
           const workDays = new Set(worked.map(schedule => schedule.workDate))
             .size;
           const workHours = round2(
@@ -671,12 +942,29 @@ export const workforceRouter = createRouter({
                 ? workDays * profile.baseRate
                 : workHours * profile.baseRate
           );
+          const absenceDeduction =
+            profile.salaryType === "monthly"
+              ? Math.min(
+                  baseAmount,
+                  round2((profile.baseRate / 30) * absenceDays)
+                )
+              : 0;
+          const advanceDeduction = round2(
+            schedules
+              .filter(schedule => schedule.staffId === profile.staffId)
+              .reduce((sum, schedule) => sum + schedule.cashAdvance, 0)
+          );
           const overtimeHours = current?.overtimeHours ?? 0;
           const overtimeAmount = round2(overtimeHours * profile.overtimeRate);
           const bonus = current?.bonus ?? 0;
           const deduction = current?.deduction ?? 0;
           const netAmount = round2(
-            baseAmount + overtimeAmount + bonus - deduction
+            baseAmount +
+              overtimeAmount +
+              bonus -
+              absenceDeduction -
+              advanceDeduction -
+              deduction
           );
           const values = {
             branchId,
@@ -684,6 +972,9 @@ export const workforceRouter = createRouter({
             staffId: profile.staffId,
             workDays,
             workHours,
+            absenceDays,
+            absenceDeduction,
+            advanceDeduction,
             baseAmount,
             overtimeHours,
             overtimeAmount,
@@ -744,7 +1035,12 @@ export const workforceRouter = createRouter({
       if (!profile) throw new Error("ไม่พบข้อมูลค่าจ้างของพนักงาน");
       const overtimeAmount = round2(input.overtimeHours * profile.overtimeRate);
       const netAmount = round2(
-        record.baseAmount + overtimeAmount + input.bonus - input.deduction
+        record.baseAmount +
+          overtimeAmount +
+          input.bonus -
+          record.absenceDeduction -
+          record.advanceDeduction -
+          input.deduction
       );
       await db
         .update(payrollRecords)

@@ -63,6 +63,7 @@ type ReviewRow = {
   value: string;
   confidence: number;
   glareRatio: number;
+  imageQualityLevel: "good" | "warning" | "poor";
   nozzleId: number | null;
   sourceValid: boolean;
   sampleCount: number;
@@ -87,6 +88,9 @@ type ScanNote = {
   mode: MeterDisplayMode;
   issue: string;
   screenCount: number;
+  qualityLevel: "good" | "warning" | "poor";
+  usedHighResolutionFallback: boolean;
+  aiUsesDisplayCrops: boolean;
   aiChecked: boolean;
   aiIssue: string;
 };
@@ -118,7 +122,13 @@ function collapseReviewRows(rows: ReviewRow[]) {
   }
 
   return [...groups.entries()].map(([groupKey, group]) => {
-    const localGroup = group.filter(row => row.sourceValid);
+    const allLocalRows = group.filter(row => row.sourceValid);
+    const usableLocalRows = allLocalRows.filter(
+      row => row.imageQualityLevel !== "poor"
+    );
+    const localGroup = usableLocalRows.length ? usableLocalRows : allLocalRows;
+    const qualityBlocked =
+      allLocalRows.length > 0 && usableLocalRows.length === 0;
     if (!localGroup.length) {
       const aiConsensus = buildMeterConsensus(
         group.map(row => ({
@@ -183,11 +193,16 @@ function collapseReviewRows(rows: ReviewRow[]) {
       confidence: consensus.confidence,
       sampleCount: consensus.sampleCount,
       matchingCount: consensus.matchingCount,
-      autoAccepted: consensus.autoAccepted && aiAgreement.status === "matched",
+      autoAccepted:
+        !qualityBlocked &&
+        consensus.autoAccepted &&
+        aiAgreement.status === "matched",
       manuallyConfirmed: false,
-      consensusIssue: consensus.autoAccepted
-        ? aiAgreement.issue
-        : consensus.issue,
+      consensusIssue: qualityBlocked
+        ? "ภาพทั้งหมดมีคุณภาพต่ำ กรุณาถ่ายใหม่หรือตรวจเลขจริงแล้วกดยืนยัน"
+        : consensus.autoAccepted
+          ? aiAgreement.issue
+          : consensus.issue,
       aiValue: aiAgreement.representative?.aiValue ?? null,
       aiMode: aiAgreement.representative?.aiMode ?? "unknown",
       aiConfidence: aiAgreement.representative?.aiConfidence ?? 0,
@@ -376,9 +391,9 @@ export default function ShiftMeterImageScanner({
 
     try {
       setLocalScanning(true);
-      setAiChecking(true);
+      setAiChecking(false);
 
-      const localTask = (async () => {
+      const localResults = await (async () => {
         const results: MeterImageScanResult[] = [];
         for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
           const image = images[imageIndex]!;
@@ -394,6 +409,15 @@ export default function ShiftMeterImageScanner({
                 cause instanceof Error
                   ? cause.message
                   : "ระบบในเครื่องอ่านภาพนี้ไม่สำเร็จ",
+              quality: {
+                level: "poor",
+                issues: [
+                  cause instanceof Error
+                    ? cause.message
+                    : "ระบบในเครื่องอ่านภาพนี้ไม่สำเร็จ",
+                ],
+                usedHighResolutionFallback: false,
+              },
             });
           }
           setProgress(current => ({
@@ -406,15 +430,24 @@ export default function ShiftMeterImageScanner({
         }
         return results;
       })();
+      setLocalScanning(false);
+      setAiChecking(true);
 
-      const batches: PreparedMeterImage[][] = [];
+      const aiEntries = images.map((image, imageIndex) => ({
+        image,
+        aiImage: localResults[imageIndex]?.aiImage ?? {
+          mimeType: image.mimeType,
+          contentBase64: image.contentBase64,
+        },
+      }));
+      const batches: Array<typeof aiEntries> = [];
       for (
         let batchStart = 0;
-        batchStart < images.length;
+        batchStart < aiEntries.length;
         batchStart += METER_OCR_MAX_IMAGES_PER_REQUEST
       ) {
         batches.push(
-          images.slice(
+          aiEntries.slice(
             batchStart,
             batchStart + METER_OCR_MAX_IMAGES_PER_REQUEST
           )
@@ -424,10 +457,7 @@ export default function ShiftMeterImageScanner({
         try {
           const response = await verifyMutation.mutateAsync({
             shiftId,
-            images: batch.map(image => ({
-              mimeType: image.mimeType,
-              contentBase64: image.contentBase64,
-            })),
+            images: batch.map(entry => entry.aiImage),
           });
           return { batch, response, error: "" };
         } catch (cause) {
@@ -441,11 +471,7 @@ export default function ShiftMeterImageScanner({
           };
         }
       });
-
-      const [localResults, aiBatchResults] = await Promise.all([
-        localTask,
-        aiTask,
-      ]);
+      const aiBatchResults = await aiTask;
       const nextRows: ReviewRow[] = [];
       const nextNotes: ScanNote[] = [];
 
@@ -458,6 +484,9 @@ export default function ShiftMeterImageScanner({
           mode: result.mode,
           issue: result.issue,
           screenCount: result.screens.length,
+          qualityLevel: result.quality.level,
+          usedHighResolutionFallback: result.quality.usedHighResolutionFallback,
+          aiUsesDisplayCrops: result.aiImage != null,
           aiChecked: false,
           aiIssue: "",
         });
@@ -474,6 +503,7 @@ export default function ShiftMeterImageScanner({
             value: screen.combinedText ?? "",
             confidence: screen.confidence,
             glareRatio: screen.glareRatio,
+            imageQualityLevel: result.quality.level,
             nozzleId: suggestNozzleId(targets, result.pumpNumber, screen.side),
             sourceValid: screen.valid,
             sampleCount: 1,
@@ -495,7 +525,7 @@ export default function ShiftMeterImageScanner({
 
       for (const { batch, response, error: aiError } of aiBatchResults) {
         if (!response) {
-          for (const image of batch) {
+          for (const { image } of batch) {
             const note = nextNotes.find(item => item.imageId === image.id);
             if (note) note.aiIssue = aiError;
             for (const row of nextRows.filter(
@@ -508,8 +538,9 @@ export default function ShiftMeterImageScanner({
         }
 
         for (const aiResult of response.results) {
-          const image = batch[aiResult.imageIndex];
-          if (!image) continue;
+          const entry = batch[aiResult.imageIndex];
+          if (!entry) continue;
+          const image = entry.image;
           const note = nextNotes.find(item => item.imageId === image.id);
           if (note) {
             note.aiChecked = true;
@@ -573,6 +604,7 @@ export default function ShiftMeterImageScanner({
               value: aiScreen.combinedText,
               confidence: aiScreen.confidence,
               glareRatio: 0,
+              imageQualityLevel: note?.qualityLevel ?? "poor",
               nozzleId: suggestNozzleId(
                 targets,
                 aiResult.pumpNumber,
@@ -658,7 +690,8 @@ export default function ShiftMeterImageScanner({
             <DialogDescription>
               เลือกรูปของหลายตู้พร้อมกันได้ ระบบจะรวมเลขด้านบนกับด้านล่าง
               ตรวจด้วย computer vision ในเครื่องก่อน แล้วส่งสำเนาภาพที่ลบ
-              EXIF/GPS ไปให้ Gemini AI ตรวจซ้ำก่อนเติมแบบฟอร์มปิดกะ
+              EXIF/GPS พร้อมภาพขยายจอซ้ายและขวาไปให้ Gemini AI
+              ตรวจซ้ำก่อนเติมแบบฟอร์มปิดกะ
             </DialogDescription>
           </DialogHeader>
 
@@ -692,7 +725,8 @@ export default function ShiftMeterImageScanner({
                     เพื่อผลแม่นที่สุด ให้ถ่าย 3 รูปต่อโหมด L หรือ P
                     และขยับมุมโทรศัพท์ 5–10°
                     ในแต่ละรูปให้เงาสะท้อนเคลื่อนตำแหน่ง โดยไม่ใช้แฟลชและให้ LCD
-                    หลักสองจอเต็มกรอบ
+                    หลักสองจอเต็มกรอบ ระบบจะเตือนเมื่อจอเล็ก ภาพเอียง
+                    หรือคุณภาพไม่พอ
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -767,7 +801,9 @@ export default function ShiftMeterImageScanner({
                     <ScanLine className="mr-2 h-4 w-4" />
                   )}
                   {scanning
-                    ? `กำลังอ่านและให้ AI ตรวจ ${progress.done}/${progress.total} ภาพ…`
+                    ? localScanning
+                      ? `กำลังวิเคราะห์ภาพละเอียด ${progress.done}/${progress.total} ภาพ…`
+                      : `กำลังให้ AI ตรวจภาพขยายจอ ${images.length} ภาพ…`
                     : `อ่านและตรวจ ${images.length} ภาพ`}
                 </Button>
                 {images.length > 0 && (
@@ -828,7 +864,33 @@ export default function ShiftMeterImageScanner({
                           <Badge variant="secondary">
                             {note.screenCount} จอ
                           </Badge>
+                          <Badge
+                            variant={
+                              note.qualityLevel === "poor"
+                                ? "destructive"
+                                : "outline"
+                            }
+                            className={
+                              note.qualityLevel === "good"
+                                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                : note.qualityLevel === "warning"
+                                  ? "border-amber-300 bg-amber-50 text-amber-700"
+                                  : undefined
+                            }
+                          >
+                            {note.qualityLevel === "good"
+                              ? "ภาพชัด"
+                              : note.qualityLevel === "warning"
+                                ? "ควรตรวจทาน"
+                                : "ควรถ่ายใหม่"}
+                          </Badge>
                           <Badge variant="outline">อ่านในเครื่อง</Badge>
+                          {note.usedHighResolutionFallback && (
+                            <Badge variant="outline">ตรวจภาพละเอียดสูง</Badge>
+                          )}
+                          {note.aiUsesDisplayCrops && (
+                            <Badge variant="outline">AI ใช้ภาพขยายจอ</Badge>
+                          )}
                           <Badge
                             variant={note.aiChecked ? "default" : "outline"}
                           >

@@ -733,15 +733,28 @@ shiftHours = r2(max(0, endMinutes − startMinutes − breakMinutes) / 60)
 ```text
 workDays = count(distinct workDate)
 workHours = r2(Σ shiftHours)
+absenceDays = count(distinct workDate ที่ status = absent)
+advanceDeduction = r2(Σ cashAdvance ของทุกกะพนักงานในเดือน)
 
 baseAmount =
   monthly ? r2(baseRate)
   daily   ? r2(workDays × baseRate)
   hourly  ? r2(workHours × baseRate)
 
+absenceDeduction =
+  monthly ? min(baseAmount, r2(baseRate ÷ 30 × absenceDays))
+  daily/hourly ? 0 (ฐานค่าจ้างนับเฉพาะวัน/ชั่วโมงทำงานอยู่แล้ว)
+
 overtimeAmount = r2(overtimeHours × overtimeRate)
-netAmount = r2(baseAmount + overtimeAmount + bonus − deduction)
+netAmount = r2(baseAmount + overtimeAmount + bonus − absenceDeduction − advanceDeduction − deduction)
 ```
+
+สถานะ `leave` ไม่หักอัตโนมัติ เพราะวันลาบางประเภทเป็นวันลาได้รับค่าจ้าง;
+หากเป็นลาไม่รับค่าจ้างให้บันทึกเป็น `absent` เพื่อเข้าการคำนวณหักเงิน
+หรือกรอกรายการหักอื่นตามนโยบายของกิจการ
+
+ยอดเบิกเงินบันทึกในแต่ละกะและรวมตามพนักงานในเดือนนั้นโดยไม่ขึ้นกับสถานะกะ
+เมื่อรายการเงินเดือนเป็น `paid` แล้ว การแก้กะจะไม่เปลี่ยนยอดเงินเดือนย้อนหลัง
 
 ตัวอย่างรายวัน:
 

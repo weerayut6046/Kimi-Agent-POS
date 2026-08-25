@@ -197,6 +197,8 @@ export async function loadFormulaAuditReport(
         payrollMonth: payrollRecords.payrollMonth,
         staffId: payrollRecords.staffId,
         baseAmount: payrollRecords.baseAmount,
+        absenceDeduction: payrollRecords.absenceDeduction,
+        advanceDeduction: payrollRecords.advanceDeduction,
         overtimeAmount: payrollRecords.overtimeAmount,
         bonus: payrollRecords.bonus,
         deduction: payrollRecords.deduction,
