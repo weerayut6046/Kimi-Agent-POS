@@ -40,10 +40,15 @@ import {
 } from "@contracts/meterOcr";
 import { assessMeterReading } from "@contracts/meterReconciliation";
 import {
+  DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
   positiveSettingNumber,
 } from "@contracts/settings";
+import {
+  activeReceiptPromotion,
+  appliedPromotionDiscount,
+} from "@contracts/promotion";
 import { env } from "../lib/env";
 import {
   MeterAiVerifierError,
@@ -1539,20 +1544,57 @@ export const posRouter = createRouter({
       }
       const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
 
+      // บิลออฟไลน์ต้องยึดวันที่ขายจริง ส่วนบิลออนไลน์ยึดเวลาของเซิร์ฟเวอร์
+      // เพื่อไม่ให้ client ระบุวันเองแล้วหลบกติกาโปรโมชั่นได้
+      const promotionAt =
+        input.clientReceiptNo && input.clientCreatedAt
+          ? input.clientCreatedAt
+          : new Date();
+      const activePromotion = activeReceiptPromotion(
+        { ...DEFAULT_SETTINGS, ...settingMap },
+        promotionAt
+      );
+      const promotionDiscount = appliedPromotionDiscount(
+        activePromotion,
+        lines.reduce(
+          (sum, line) =>
+            line.product.category === "fuel" ? sum + line.qty : sum,
+          0
+        ),
+        subtotal
+      );
+      if (activePromotion && input.pointsToRedeem > 0) {
+        throw new Error(
+          "ช่วงโปรโมชั่นไม่สามารถใช้แต้มเป็นส่วนลดหรือรับส่วนลดอื่นร่วมได้"
+        );
+      }
+      const effectivePointsToRedeem = activePromotion
+        ? 0
+        : input.pointsToRedeem;
+
       // แลกแต้มเป็นส่วนลด
-      const loyaltyChoice =
-        input.loyaltyChoice ??
-        (input.pointsToRedeem > 0 ? "redeem" : "earn");
-      if (input.loyaltyChoice && !input.memberId) {
+      const loyaltyChoice = activePromotion
+        ? null
+        : (input.loyaltyChoice ??
+          (effectivePointsToRedeem > 0 ? "redeem" : "earn"));
+      if (!activePromotion && input.loyaltyChoice && !input.memberId) {
         throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
       }
-      if (input.loyaltyChoice === "earn" && input.pointsToRedeem > 0) {
+      if (
+        !activePromotion &&
+        input.loyaltyChoice === "earn" &&
+        effectivePointsToRedeem > 0
+      ) {
         throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
       }
-      if (input.loyaltyChoice === "redeem" && input.pointsToRedeem === 0) {
+      if (
+        !activePromotion &&
+        input.loyaltyChoice === "redeem" &&
+        effectivePointsToRedeem === 0
+      ) {
         throw new Error("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
       }
-      if (input.pointsToRedeem > 0 && !input.memberId) {
+      if (effectivePointsToRedeem > 0 && !input.memberId) {
         throw new Error("ต้องเลือกสมาชิกก่อนใช้แต้ม");
       }
       let member: typeof members.$inferSelect | undefined;
@@ -1566,13 +1608,17 @@ export const posRouter = createRouter({
         if (isMemberCardExpired(member.cardExpiresAt)) {
           throw new Error("บัตรสมาชิกหมดอายุแล้ว กรุณาต่ออายุบัตรก่อนใช้งาน");
         }
-        if (input.pointsToRedeem > 0) {
-          if (input.pointsToRedeem > member.points)
+        if (effectivePointsToRedeem > 0) {
+          if (effectivePointsToRedeem > member.points)
             throw new Error("แต้มไม่พอ");
-          redeemDiscount = r2(input.pointsToRedeem * pointValue);
+          redeemDiscount = r2(effectivePointsToRedeem * pointValue);
         }
       }
-      const totalDiscount = r2(input.discount + redeemDiscount);
+      // ระหว่างโปรโมชั่น ใช้เฉพาะส่วนลดโปรโมชั่นที่คำนวณจากสินค้าในบิล
+      // ค่า discount จาก client จะไม่สามารถนำส่วนลดอื่นมาซ้อนได้
+      const totalDiscount = r2(
+        (activePromotion ? promotionDiscount : input.discount) + redeemDiscount
+      );
       if (totalDiscount > subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
 
       const total = r2(subtotal - totalDiscount);
@@ -1582,7 +1628,9 @@ export const posRouter = createRouter({
           ? r2(Math.max(0, input.received - total))
           : 0;
       const pointsEarned =
-        member && loyaltyChoice === "earn" ? Math.floor(total / earnPer) : 0;
+        !activePromotion && member && loyaltyChoice === "earn"
+          ? Math.floor(total / earnPer)
+          : 0;
 
       // ขายเชื่อ: บังคับเลือกลูกค้า และเช็กวงเงินเครดิต (creditLimit = 0 คือไม่จำกัด)
       let customer: typeof customers.$inferSelect | undefined;
@@ -1624,7 +1672,7 @@ export const posRouter = createRouter({
             received: input.paymentMethod === "cash" ? input.received : total,
             changeAmt,
             pointsEarned,
-            pointsRedeemed: input.pointsToRedeem,
+            pointsRedeemed: effectivePointsToRedeem,
             createdAt: input.clientCreatedAt,
           })
           .onConflictDoNothing({
@@ -1693,12 +1741,12 @@ export const posRouter = createRouter({
           const updatedMember = await tx
             .update(members)
             .set({
-              points: sql`${members.points} - ${input.pointsToRedeem} + ${pointsEarned}`,
+              points: sql`${members.points} - ${effectivePointsToRedeem} + ${pointsEarned}`,
             })
             .where(
               and(
                 eq(members.id, member.id),
-                gte(members.points, input.pointsToRedeem),
+                gte(members.points, effectivePointsToRedeem),
                 gt(members.cardExpiresAt, new Date())
               )
             )
@@ -1714,13 +1762,13 @@ export const posRouter = createRouter({
               note: `รับแต้มจากบิล ${receiptNo}`,
             });
           }
-          if (input.pointsToRedeem > 0) {
+          if (effectivePointsToRedeem > 0) {
             await tx.insert(pointTransactions).values({
               branchId,
               memberId: member.id,
               saleId: id,
               type: "redeem",
-              points: -input.pointsToRedeem,
+              points: -effectivePointsToRedeem,
               note: `ใช้แต้มลดบิล ${receiptNo}`,
             });
           }
@@ -2473,7 +2521,21 @@ export const posRouter = createRouter({
       if (completedReturn)
         throw new Error("บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้");
 
-      const discount = input.discount ?? sale.discount;
+      const settingMap = await getSettingMap(db, branchId);
+      const activePromotion = activeReceiptPromotion({
+        ...DEFAULT_SETTINGS,
+        ...settingMap,
+      });
+      if (
+        activePromotion &&
+        input.discount !== undefined &&
+        input.discount !== sale.discount
+      ) {
+        throw new Error("ช่วงโปรโมชั่นไม่สามารถแก้ไขหรือเพิ่มส่วนลดอื่นได้");
+      }
+      const discount = activePromotion
+        ? sale.discount
+        : (input.discount ?? sale.discount);
       if (discount > sale.subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
       const paymentMethod = input.paymentMethod ?? sale.paymentMethod;
       const total = r2(sale.subtotal - discount);
@@ -2482,7 +2544,6 @@ export const posRouter = createRouter({
       const changeAmt =
         paymentMethod === "cash" ? r2(Math.max(0, received - total)) : 0;
 
-      const settingMap = await getSettingMap(db, branchId);
       const earnPer = positiveSettingNumber(
         settingMap.point_earn_per_baht,
         DEFAULT_POINT_EARN_PER_BAHT
@@ -2494,8 +2555,9 @@ export const posRouter = createRouter({
         : null;
       const memberCardActive =
         saleMember != null && !isMemberCardExpired(saleMember.cardExpiresAt);
-      const pointsEarned =
-        sale.pointsRedeemed > 0
+      const pointsEarned = activePromotion
+        ? sale.pointsEarned
+        : sale.pointsRedeemed > 0
           ? 0
           : memberCardActive
             ? Math.floor(total / earnPer)

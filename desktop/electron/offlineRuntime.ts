@@ -168,7 +168,9 @@ export function buildOfflineReceipt(
     request.input.loyaltyChoice ??
     (request.input.pointsToRedeem > 0 ? "redeem" : "earn");
   const pointsEarned =
-    request.input.memberId && loyaltyChoice === "earn"
+    !request.context.promotionActive &&
+    request.input.memberId &&
+    loyaltyChoice === "earn"
       ? Math.floor(total / request.context.pointEarnPerBaht)
       : 0;
 

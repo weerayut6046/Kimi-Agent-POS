@@ -18,6 +18,7 @@ import {
   type SlipReceiverPolicy,
 } from "./sessionService";
 import { createMockSlip2GoClient, Slip2GoError } from "./slip2go-client";
+import { bangkokDateKey } from "@contracts/promotion";
 
 const PROMPTPAY_POLICY: SlipReceiverPolicy = {
   kind: "slip2go",
@@ -34,6 +35,7 @@ const OFFICIAL_MERCHANT_QR =
   "00020101021130830016A0000006770101120115010753700088205021922141170560220009090317WEERAYUTNAMWONGSA53037645802TH62080704000063046EAD";
 
 let t: TestDb;
+const NO_PROMOTION = { promotion_enabled: "0" };
 
 beforeAll(async () => {
   t = await setupTestDb();
@@ -56,6 +58,14 @@ const water = async () => {
   return p;
 };
 
+const fuel = async () => {
+  const p = await t.db.query.products.findFirst({
+    where: and(eq(products.code, "GSH95"), eq(products.branchId, 1)),
+  });
+  if (!p) throw new Error("ไม่พบสินค้า GSH95 ใน seed");
+  return p;
+};
+
 const makeSession = async (qty = 2) => {
   const p = await water();
   const snapshot = await computeSaleSnapshot(
@@ -67,7 +77,7 @@ const makeSession = async (qty = 2) => {
       discount: 0,
       pointsToRedeem: 0,
     },
-    {}
+    NO_PROMOTION
   );
   return startThungngernSession(t.db, 1, snapshot);
 };
@@ -108,7 +118,7 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
         pointsToRedeem: 50,
         loyaltyChoice: "redeem",
       },
-      {}
+      NO_PROMOTION
     );
 
     expect(snapshot.subtotal).toBe(150);
@@ -116,6 +126,56 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
     expect(snapshot.total).toBe(100);
     expect(snapshot.pointsToRedeem).toBe(50);
     expect(snapshot.pointsEarned).toBe(0);
+  });
+
+  it("ช่วงโปรโมชั่นล็อกยอด QR ด้วยส่วนลดโปรโมชั่นเท่านั้นและไม่ให้แต้ม", async () => {
+    const product = await fuel();
+    const member = await t.db.query.members.findFirst();
+    if (!member) throw new Error("ไม่พบสมาชิกใน seed");
+    const today = bangkokDateKey(new Date());
+    const promotionSettings = {
+      promotion_enabled: "1",
+      promotion_name: "โปรโมชั่นทดสอบ",
+      promotion_discount: "0.50",
+      promotion_start_date: today,
+      promotion_end_date: today,
+    };
+
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบโปรโมชั่น",
+        memberId: member.id,
+        items: [{ productId: product.id, qty: 10 }],
+        discount: 100,
+        pointsToRedeem: 0,
+        loyaltyChoice: "earn",
+      },
+      promotionSettings
+    );
+
+    expect(snapshot.subtotal).toBe(407.4);
+    expect(snapshot.discount).toBe(5);
+    expect(snapshot.total).toBe(402.4);
+    expect(snapshot.pointsEarned).toBe(0);
+    expect(snapshot.pointsToRedeem).toBe(0);
+
+    await expect(
+      computeSaleSnapshot(
+        t.db,
+        1,
+        {
+          staffName: "ทดสอบใช้แต้มช่วงโปรโมชั่น",
+          memberId: member.id,
+          items: [{ productId: product.id, qty: 1 }],
+          discount: 0,
+          pointsToRedeem: 1,
+          loyaltyChoice: "redeem",
+        },
+        promotionSettings
+      )
+    ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถใช้แต้ม");
   });
 
   it("ตรวจยอดแต้มกลางอีกครั้งตอนปิดบิลเพื่อกันสองสาขาใช้แต้มพร้อมกัน", async () => {
@@ -133,7 +193,7 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
         discount: 0,
         pointsToRedeem: 10,
       },
-      {}
+      NO_PROMOTION
     );
     const session = await startThungngernSession(t.db, 1, snapshot);
 
@@ -179,7 +239,7 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
           discount: 0,
           pointsToRedeem: 0,
         },
-        {}
+        NO_PROMOTION
       )
     ).rejects.toThrow("บัตรสมาชิกหมดอายุแล้ว");
 
@@ -221,7 +281,7 @@ describe("finalizeThungngernSession — idempotency", () => {
           discount: 0,
           pointsToRedeem: 0,
         },
-        {}
+        NO_PROMOTION
       )
     ).rejects.toThrow("หมดแล้ว ไม่สามารถขายได้");
 
@@ -238,7 +298,7 @@ describe("finalizeThungngernSession — idempotency", () => {
         discount: 0,
         pointsToRedeem: 0,
       },
-      {}
+      NO_PROMOTION
     );
     const session = await startThungngernSession(t.db, 1, snapshot);
     await t.db

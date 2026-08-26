@@ -43,6 +43,7 @@ describe("buildOfflineReceipt", () => {
         vatRate: 7,
         pointEarnPerBaht: 100,
         pointRedeemValue: 1,
+        promotionActive: false,
         memberName: "สมาชิกทดสอบ",
         customerName: null,
       },
@@ -72,6 +73,52 @@ describe("buildOfflineReceipt", () => {
     ]);
   });
 
+  it("ไม่สะสมแต้มในบิลออฟไลน์เมื่อโปรโมชั่นกำลังใช้งาน", () => {
+    const request: DesktopSaleRequest = {
+      input: {
+        staffName: "พนักงานทดสอบ",
+        memberId: 7,
+        items: [{ productId: 1, qty: 10 }],
+        discount: 5,
+        paymentMethod: "cash",
+        received: 500,
+        pointsToRedeem: 0,
+      },
+      lines: [
+        {
+          productId: 1,
+          name: "น้ำมัน",
+          unit: "ลิตร",
+          unitPrice: 40,
+          category: "fuel",
+          qty: 10,
+        },
+      ],
+      context: {
+        vatRate: 7,
+        pointEarnPerBaht: 100,
+        pointRedeemValue: 1,
+        promotionActive: true,
+        memberName: "สมาชิกทดสอบ",
+        customerName: null,
+      },
+    };
+
+    const receipt = buildOfflineReceipt(
+      request,
+      "OFF-ABC123-20260826162539-0002",
+      new Date("2026-08-26T09:25:39.000Z"),
+      -2
+    );
+
+    expect(receipt.sale).toMatchObject({
+      discount: 5,
+      total: 395,
+      pointsEarned: 0,
+      pointsRedeemed: 0,
+    });
+  });
+
   it("ไม่สร้างใบเสร็จหาก snapshot สินค้าไม่ครบ", () => {
     const request: DesktopSaleRequest = {
       input: {
@@ -87,6 +134,7 @@ describe("buildOfflineReceipt", () => {
         vatRate: 7,
         pointEarnPerBaht: 100,
         pointRedeemValue: 1,
+        promotionActive: false,
         memberName: null,
         customerName: null,
       },
@@ -128,6 +176,7 @@ describe("buildOfflineReceipt", () => {
           vatRate: 7,
           pointEarnPerBaht: 100,
           pointRedeemValue: 1,
+          promotionActive: false,
           memberName: null,
           customerName: null,
         },
@@ -182,6 +231,7 @@ describe("buildOfflineReceipt", () => {
           vatRate: 7,
           pointEarnPerBaht: 100,
           pointRedeemValue: 1,
+          promotionActive: false,
           memberName: null,
           customerName: null,
         },

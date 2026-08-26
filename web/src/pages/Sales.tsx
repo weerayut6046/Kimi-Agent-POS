@@ -50,6 +50,11 @@ import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printReceiptElement, parseReceiptPaper } from "@/lib/printDoc";
 import { fmtMoney, fmtNum, fmtDateTime, paymentLabel } from "@/lib/format";
+import {
+  activeReceiptPromotion,
+  appliedPromotionDiscount,
+  type ActiveReceiptPromotion,
+} from "@contracts/promotion";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -95,6 +100,7 @@ export default function Sales() {
     limit: 200,
   });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const activePromotion = activeReceiptPromotion(settingMap);
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const [detailId, setDetailId] = useState<number | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
@@ -413,6 +419,7 @@ export default function Sales() {
         <EditSaleDialog
           key={editSale.id}
           sale={editSale}
+          promotionActive={activePromotion != null}
           saving={updateMut.isPending}
           onClose={() => setEditSale(null)}
           onSave={v => updateMut.mutate({ id: editSale.id, ...v })}
@@ -435,6 +442,7 @@ export default function Sales() {
       {addOpen && (
         <AddSaleDialog
           staffName={staff?.name ?? ""}
+          promotion={activePromotion}
           payMethods={PAY_METHODS.filter(
             m => (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
           )}
@@ -737,11 +745,13 @@ function ReturnSaleDialog({
 // ============ แก้ไขหัวบิล: พนักงานผู้ขาย / วิธีชำระ / ส่วนลด ============
 function EditSaleDialog({
   sale,
+  promotionActive,
   saving,
   onClose,
   onSave,
 }: {
   sale: SaleRow;
+  promotionActive: boolean;
   saving: boolean;
   onClose: () => void;
   onSave: (v: {
@@ -755,7 +765,7 @@ function EditSaleDialog({
     sale.paymentMethod
   );
   const [discount, setDiscount] = useState(String(sale.discount));
-  const discountNum = Number(discount) || 0;
+  const discountNum = promotionActive ? sale.discount : Number(discount) || 0;
   const newTotal = r2(Math.max(0, sale.subtotal - discountNum));
   const valid =
     staffName.trim().length > 0 &&
@@ -831,19 +841,25 @@ function EditSaleDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label className="text-xs font-semibold text-slate-700">
-                  ส่วนลด (บาท) — ยอดขาย ฿{fmtMoney(sale.subtotal)}
-                </Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={sale.subtotal}
-                  className="bg-white"
-                  value={discount}
-                  onChange={e => setDiscount(e.target.value)}
-                />
-              </div>
+              {promotionActive ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800 sm:col-span-2">
+                  ช่วงโปรโมชั่นไม่สามารถแก้ไขหรือเพิ่มส่วนลดอื่นได้
+                </div>
+              ) : (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ส่วนลด (บาท) — ยอดขาย ฿{fmtMoney(sale.subtotal)}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={sale.subtotal}
+                    className="bg-white"
+                    value={discount}
+                    onChange={e => setDiscount(e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </section>
           <p className="text-sm text-muted-foreground">
@@ -886,15 +902,18 @@ type Line = {
   unit: string;
   price: number;
   qty: number;
+  category: "fuel" | "lubricant" | "other";
 };
 
 function AddSaleDialog({
   staffName,
+  promotion,
   payMethods,
   onClose,
   onCreated,
 }: {
   staffName: string;
+  promotion: ActiveReceiptPromotion | null;
   payMethods: PayMethod[];
   onClose: () => void;
   onCreated: () => void;
@@ -930,7 +949,16 @@ function AddSaleDialog({
   const activeProducts = (products ?? []).filter(p => p.active);
   const subtotal = r2(lines.reduce((s, l) => s + l.price * l.qty, 0));
   const discountNum = Number(discount) || 0;
-  const total = r2(Math.max(0, subtotal - discountNum));
+  const promotionDiscount = appliedPromotionDiscount(
+    promotion,
+    lines.reduce(
+      (sum, line) => (line.category === "fuel" ? sum + line.qty : sum),
+      0
+    ),
+    subtotal
+  );
+  const effectiveDiscount = promotion ? promotionDiscount : discountNum;
+  const total = r2(Math.max(0, subtotal - effectiveDiscount));
 
   const addLine = () => {
     const p = activeProducts.find(x => x.id === Number(productId));
@@ -945,7 +973,14 @@ function AddSaleDialog({
       }
       return [
         ...prev,
-        { productId: p.id, name: p.name, unit: p.unit, price: p.price, qty: q },
+        {
+          productId: p.id,
+          name: p.name,
+          unit: p.unit,
+          price: p.price,
+          qty: q,
+          category: p.category,
+        },
       ];
     });
     setProductId("");
@@ -958,7 +993,7 @@ function AddSaleDialog({
       setErr("กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
       return;
     }
-    if (discountNum > subtotal) {
+    if (!promotion && discountNum > subtotal) {
       setErr("ส่วนลดมากกว่ายอดขาย");
       return;
     }
@@ -966,7 +1001,7 @@ function AddSaleDialog({
       staffName,
       memberId: member?.id,
       items: lines.map(l => ({ productId: l.productId, qty: l.qty })),
-      discount: r2(discountNum),
+      discount: r2(effectiveDiscount),
       paymentMethod,
       received: paymentMethod === "cash" ? Number(received) || total : 0,
     });
@@ -1108,7 +1143,9 @@ function AddSaleDialog({
               <div>
                 <h3 className="text-sm font-bold text-slate-900">สมาชิก</h3>
                 <p className="text-[11px] text-slate-500">
-                  ค้นหาสมาชิกด้วยเบอร์โทร (ไม่บังคับ)
+                  {promotion
+                    ? "บันทึกสมาชิกได้ แต่ช่วงโปรโมชั่นจะไม่ได้รับแต้ม"
+                    : "ค้นหาสมาชิกด้วยเบอร์โทร (ไม่บังคับ)"}
                 </p>
               </div>
             </div>
@@ -1174,18 +1211,25 @@ function AddSaleDialog({
               </div>
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-slate-700">
-                  ส่วนลด (บาท)
-                </Label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="bg-white"
-                  value={discount}
-                  onChange={e => setDiscount(e.target.value)}
-                />
-              </div>
+              {promotion ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                  {promotion.name}: ใช้เฉพาะส่วนลดโปรโมชั่น ไม่สะสมแต้ม
+                  และไม่ใช้ส่วนลดอื่นร่วม
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    ส่วนลด (บาท)
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="bg-white"
+                    value={discount}
+                    onChange={e => setDiscount(e.target.value)}
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label className="text-xs font-semibold text-slate-700">
                   วิธีชำระเงิน
@@ -1224,7 +1268,8 @@ function AddSaleDialog({
             </div>
             <div className="text-sm space-y-0.5 border-t border-slate-100 px-4 py-3">
               <p>
-                ยอดขาย ฿{fmtMoney(subtotal)} — ส่วนลด ฿{fmtMoney(discountNum)}
+                ยอดขาย ฿{fmtMoney(subtotal)} — ส่วนลด ฿
+                {fmtMoney(effectiveDiscount)}
               </p>
               <p className="font-semibold">ยอดสุทธิ ฿{fmtMoney(total)}</p>
             </div>

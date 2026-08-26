@@ -301,15 +301,16 @@ export default function Pos() {
   const promotionDiscount = appliedPromotionDiscount(
     activePromotion,
     promotionFuelLiters,
-    subtotal,
-    discount
+    subtotal
   );
-  const billDiscount = Math.round((discount + promotionDiscount) * 100) / 100;
+  const billDiscount = activePromotion
+    ? promotionDiscount
+    : Math.round(discount * 100) / 100;
   const memberCardExpired = member
     ? isMemberCardExpired(member.cardExpiresAt)
     : false;
   const maxRedeemablePoints =
-    member && !memberCardExpired
+    member && !memberCardExpired && !activePromotion
       ? Math.min(
           member.points,
           Math.floor(Math.max(0, subtotal - billDiscount) / pointValue)
@@ -679,11 +680,16 @@ export default function Pos() {
 
   const checkout = async () => {
     if (cart.length === 0) return;
-    if (member && !loyaltyChoice) {
+    if (!activePromotion && member && !loyaltyChoice) {
       setErr("กรุณาถามลูกค้าและเลือกว่าจะสะสมแต้ม หรือใช้แต้มเป็นส่วนลด");
       return;
     }
-    if (member && loyaltyChoice === "redeem" && redeemPoints === 0) {
+    if (
+      !activePromotion &&
+      member &&
+      loyaltyChoice === "redeem" &&
+      redeemPoints === 0
+    ) {
       setErr("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
       return;
     }
@@ -721,8 +727,9 @@ export default function Pos() {
         memberId: member?.id,
         items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
         discount: billDiscount,
-        pointsToRedeem: redeemPoints,
-        loyaltyChoice: member ? (loyaltyChoice ?? undefined) : undefined,
+        pointsToRedeem: activePromotion ? 0 : redeemPoints,
+        loyaltyChoice:
+          member && !activePromotion ? (loyaltyChoice ?? undefined) : undefined,
       });
       return;
     }
@@ -736,8 +743,9 @@ export default function Pos() {
       discount: billDiscount,
       paymentMethod: payMethod,
       received: receivedNum,
-      pointsToRedeem: redeemPoints,
-      loyaltyChoice: member ? (loyaltyChoice ?? undefined) : undefined,
+      pointsToRedeem: activePromotion ? 0 : redeemPoints,
+      loyaltyChoice:
+        member && !activePromotion ? (loyaltyChoice ?? undefined) : undefined,
     };
 
     if (!window.posDesktop) {
@@ -762,6 +770,7 @@ export default function Pos() {
           vatRate: Number(settingMap?.vat_rate ?? "7"),
           pointEarnPerBaht,
           pointRedeemValue: pointValue,
+          promotionActive: activePromotion != null,
           memberName: member?.name ?? null,
           customerName: creditCustomer?.name ?? null,
         },
@@ -1230,27 +1239,31 @@ export default function Pos() {
                         ? `ลด ฿${fmtMoney(activePromotion.discountPerLiter)}/ลิตร × ${fmtNum(promotionFuelLiters)} ลิตร และสรุปส่วนลดท้ายบิล`
                         : "ใช้กับสินค้าหมวดน้ำมัน และสรุปส่วนลดให้อัตโนมัติท้ายบิล"}
                     </div>
+                    <div className="mt-1 text-[11px] font-semibold text-emerald-800">
+                      ช่วงโปรโมชั่นไม่สะสมแต้ม
+                      และไม่สามารถใช้แต้ม/ส่วนลดอื่นร่วมได้
+                    </div>
                   </div>
                 )}
-                <div className="flex justify-between items-center gap-2">
-                  <span className="flex items-center gap-1.5 text-slate-500">
-                    <BadgePercent className="size-3.5" />
-                    {activePromotion
-                      ? "ส่วนลดเพิ่มเติม (บาท)"
-                      : "ส่วนลดท้ายบิล (บาท)"}
-                  </span>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={discount || ""}
-                    placeholder="0"
-                    onChange={e =>
-                      setDiscount(Math.max(0, Number(e.target.value) || 0))
-                    }
-                    className="h-9 w-24 text-right"
-                  />
-                </div>
-                {member && !memberCardExpired && (
+                {!activePromotion && (
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="flex items-center gap-1.5 text-slate-500">
+                      <BadgePercent className="size-3.5" />
+                      ส่วนลดท้ายบิล (บาท)
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={discount || ""}
+                      placeholder="0"
+                      onChange={e =>
+                        setDiscount(Math.max(0, Number(e.target.value) || 0))
+                      }
+                      className="h-9 w-24 text-right"
+                    />
+                  </div>
+                )}
+                {member && !memberCardExpired && !activePromotion && (
                   <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3">
                     <div>
                       <div className="flex items-center gap-1.5 font-semibold text-violet-950">

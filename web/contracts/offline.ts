@@ -27,6 +27,7 @@ export type DesktopSaleContext = {
   vatRate: number;
   pointEarnPerBaht: number;
   pointRedeemValue: number;
+  promotionActive: boolean;
   memberName: string | null;
   customerName: string | null;
 };

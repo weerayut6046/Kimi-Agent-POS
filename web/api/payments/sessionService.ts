@@ -15,10 +15,15 @@ import type {
 } from "@contracts/payments";
 import type { DesktopReceipt } from "@contracts/offline";
 import {
+  DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
   positiveSettingNumber,
 } from "@contracts/settings";
+import {
+  activeReceiptPromotion,
+  appliedPromotionDiscount,
+} from "@contracts/promotion";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
@@ -106,18 +111,47 @@ export async function computeSaleSnapshot(
     DEFAULT_POINT_REDEEM_VALUE
   );
 
-  const loyaltyChoice =
-    input.loyaltyChoice ?? (input.pointsToRedeem > 0 ? "redeem" : "earn");
-  if (input.loyaltyChoice && !input.memberId) {
+  const activePromotion = activeReceiptPromotion({
+    ...DEFAULT_SETTINGS,
+    ...settingMap,
+  });
+  const promotionDiscount = appliedPromotionDiscount(
+    activePromotion,
+    lines.reduce(
+      (sum, line) => (line.product.category === "fuel" ? sum + line.qty : sum),
+      0
+    ),
+    subtotal
+  );
+  if (activePromotion && input.pointsToRedeem > 0) {
+    throw new Error(
+      "ช่วงโปรโมชั่นไม่สามารถใช้แต้มเป็นส่วนลดหรือรับส่วนลดอื่นร่วมได้"
+    );
+  }
+  const effectivePointsToRedeem = activePromotion ? 0 : input.pointsToRedeem;
+
+  const loyaltyChoice = activePromotion
+    ? null
+    : (input.loyaltyChoice ??
+      (effectivePointsToRedeem > 0 ? "redeem" : "earn"));
+  if (!activePromotion && input.loyaltyChoice && !input.memberId) {
     throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
   }
-  if (input.loyaltyChoice === "earn" && input.pointsToRedeem > 0) {
+  if (
+    !activePromotion &&
+    input.loyaltyChoice === "earn" &&
+    effectivePointsToRedeem > 0
+  ) {
     throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
   }
-  if (input.loyaltyChoice === "redeem" && input.pointsToRedeem === 0) {
+  if (
+    !activePromotion &&
+    input.loyaltyChoice === "redeem" &&
+    effectivePointsToRedeem === 0
+  ) {
     throw new Error("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
   }
-  if (input.pointsToRedeem > 0 && !input.memberId) {
+  if (effectivePointsToRedeem > 0 && !input.memberId) {
     throw new Error("ต้องเลือกสมาชิกก่อนใช้แต้ม");
   }
   let redeemDiscount = 0;
@@ -132,18 +166,22 @@ export async function computeSaleSnapshot(
       throw new Error("บัตรสมาชิกหมดอายุแล้ว กรุณาต่ออายุบัตรก่อนใช้งาน");
     }
     memberId = member.id;
-    if (input.pointsToRedeem > 0) {
-      if (input.pointsToRedeem > member.points) throw new Error("แต้มไม่พอ");
-      redeemDiscount = r2(input.pointsToRedeem * pointValue);
+    if (effectivePointsToRedeem > 0) {
+      if (effectivePointsToRedeem > member.points) throw new Error("แต้มไม่พอ");
+      redeemDiscount = r2(effectivePointsToRedeem * pointValue);
     }
   }
-  const totalDiscount = r2(input.discount + redeemDiscount);
+  const totalDiscount = r2(
+    (activePromotion ? promotionDiscount : input.discount) + redeemDiscount
+  );
   if (totalDiscount > subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
 
   const total = r2(subtotal - totalDiscount);
   const vatAmount = r2((total * vatRate) / (100 + vatRate)); // VAT รวมใน
   const pointsEarned =
-    memberId && loyaltyChoice === "earn" ? Math.floor(total / earnPer) : 0;
+    !activePromotion && memberId && loyaltyChoice === "earn"
+      ? Math.floor(total / earnPer)
+      : 0;
 
   return {
     items: lines.map(l => ({
@@ -161,7 +199,7 @@ export async function computeSaleSnapshot(
     vatAmount,
     total,
     memberId,
-    pointsToRedeem: memberId ? input.pointsToRedeem : 0,
+    pointsToRedeem: memberId ? effectivePointsToRedeem : 0,
     pointsEarned,
     shiftId: input.shiftId ?? null,
     staffName: input.staffName,

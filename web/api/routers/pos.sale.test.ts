@@ -10,6 +10,7 @@ import {
   settings,
 } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
+import { bangkokDateKey } from "@contracts/promotion";
 
 // เทสการขายผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed เหมือน production)
 // ข้อมูล seed ที่ใช้: WATER 10฿ สต๊อก 120, TISSUE 20฿ สต๊อก 40, GSH95 40.74฿/ลิตร (fuel)
@@ -18,6 +19,12 @@ let t: TestDb;
 
 beforeAll(async () => {
   t = await setupTestDb();
+  await t.db
+    .update(settings)
+    .set({ value: "0" })
+    .where(
+      and(eq(settings.branchId, 1), eq(settings.key, "promotion_enabled"))
+    );
 });
 afterAll(() => t.cleanup());
 
@@ -34,6 +41,23 @@ const memberByCode = async (code: string) => {
   });
   if (!m) throw new Error(`ไม่พบสมาชิก ${code} ใน seed`);
   return m;
+};
+
+const setPromotion = async (enabled: boolean) => {
+  const today = bangkokDateKey(new Date());
+  const values: Record<string, string> = {
+    promotion_enabled: enabled ? "1" : "0",
+    promotion_name: "โปรโมชั่นทดสอบ",
+    promotion_discount: "0.50",
+    promotion_start_date: today,
+    promotion_end_date: today,
+  };
+  for (const [key, value] of Object.entries(values)) {
+    await t.db
+      .update(settings)
+      .set({ value })
+      .where(and(eq(settings.branchId, 1), eq(settings.key, key)));
+  }
 };
 
 describe("createSale", () => {
@@ -78,6 +102,47 @@ describe("createSale", () => {
     expect(sale.received).toBe(407.4);
     expect(sale.changeAmt).toBe(0);
     expect((await productByCode("GSH95")).stockQty).toBe(gsh95.stockQty);
+  });
+
+  it("ช่วงโปรโมชั่นใช้เฉพาะส่วนลดโปรโมชั่นและไม่สะสมหรือใช้แต้ม", async () => {
+    const gsh95 = await productByCode("GSH95");
+    const member = await memberByCode("M0001");
+    const pointsBefore = member.points;
+    await setPromotion(true);
+
+    try {
+      const { sale } = await t.caller().pos.createSale({
+        memberId: member.id,
+        items: [{ productId: gsh95.id, qty: 10 }],
+        discount: 100,
+        loyaltyChoice: "earn",
+        paymentMethod: "qr",
+      });
+
+      expect(sale.subtotal).toBe(407.4);
+      expect(sale.discount).toBe(5);
+      expect(sale.total).toBe(402.4);
+      expect(sale.pointsEarned).toBe(0);
+      expect(sale.pointsRedeemed).toBe(0);
+      expect((await memberByCode("M0001")).points).toBe(pointsBefore);
+      expect(
+        await t.db
+          .select()
+          .from(pointTransactions)
+          .where(eq(pointTransactions.saleId, sale.id))
+      ).toHaveLength(0);
+
+      await expect(
+        t.caller().pos.createSale({
+          memberId: member.id,
+          items: [{ productId: gsh95.id, qty: 1 }],
+          pointsToRedeem: 1,
+          loyaltyChoice: "redeem",
+        })
+      ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถใช้แต้ม");
+    } finally {
+      await setPromotion(false);
+    }
   });
 
   it("สินค้าหมดหรือจำนวนเกินสต๊อกขายไม่ได้และสต๊อกไม่ติดลบ", async () => {
@@ -262,6 +327,11 @@ describe("createSale", () => {
         lowStockAt: 2,
       })
       .returning();
+    await t.db.insert(settings).values({
+      branchId: secondBranch!.id,
+      key: "promotion_enabled",
+      value: "0",
+    });
     const member = await memberByCode("M0001");
 
     const searchFromSecondBranch = await t
@@ -607,6 +677,27 @@ describe("updateSale", () => {
     expect(updated!.pointsEarned).toBe(0); // ยอดสุทธิ 75 บาทยังไม่ครบ 100 บาท
     // แต้มปรับเฉพาะส่วนต่าง 1 → 0
     expect((await memberByCode("M0001")).points).toBe(pointsAfterSale - 1);
+  });
+
+  it("ระหว่างโปรโมชั่นแก้บิลเพื่อเพิ่มส่วนลดอื่นไม่ได้", async () => {
+    const fuel = await productByCode("GSH95");
+    await setPromotion(true);
+
+    try {
+      const { sale } = await t.caller().pos.createSale({
+        items: [{ productId: fuel.id, qty: 10 }],
+        paymentMethod: "qr",
+      });
+      expect(sale.discount).toBe(5);
+
+      await expect(
+        t
+          .caller("manager")
+          .pos.updateSale({ id: sale.id, discount: sale.discount + 1 })
+      ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถแก้ไขหรือเพิ่มส่วนลดอื่นได้");
+    } finally {
+      await setPromotion(false);
+    }
   });
 
   it("แก้ไขบิลที่เลือกใช้แต้มแล้วจะไม่เพิ่มแต้มสะสมย้อนหลัง", async () => {

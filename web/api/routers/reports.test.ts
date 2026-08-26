@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
-import { products } from "@db/schema";
+import { products, settings } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสรายงานปิดวัน (Z-report) ผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed)
@@ -18,6 +18,12 @@ const todayStr = () => {
 
 beforeAll(async () => {
   t = await setupTestDb();
+  await t.db
+    .update(settings)
+    .set({ value: "0" })
+    .where(
+      and(eq(settings.branchId, 1), eq(settings.key, "promotion_enabled"))
+    );
 });
 afterAll(() => t.cleanup());
 
