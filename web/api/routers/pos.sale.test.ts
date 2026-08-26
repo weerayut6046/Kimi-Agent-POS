@@ -1,11 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { products, members, saleItems, sales, settings } from "@db/schema";
+import {
+  branches,
+  products,
+  members,
+  pointTransactions,
+  saleItems,
+  sales,
+  settings,
+} from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสการขายผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed เหมือน production)
 // ข้อมูล seed ที่ใช้: WATER 10฿ สต๊อก 120, TISSUE 20฿ สต๊อก 40, GSH95 40.74฿/ลิตร (fuel)
-// สมาชิก M0001 มี 320 แต้ม, VAT 7% รวมใน, ได้แต้มทุก 25 บาท, แต้มลดได้แต้มละ 1 บาท
+// สมาชิก M0001 มี 320 แต้ม, VAT 7% รวมใน, ได้แต้มทุก 100 บาท, แต้มลดได้แต้มละ 1 บาท
 let t: TestDb;
 
 beforeAll(async () => {
@@ -145,7 +153,7 @@ describe("createSale", () => {
       clientCreatedAt: new Date("2026-07-21T09:25:39.000Z"),
       staffName: "พนักงานออฟไลน์",
       memberId: member.id,
-      items: [{ productId: water.id, qty: 5 }],
+      items: [{ productId: water.id, qty: 10 }],
       paymentMethod: "cash" as const,
       received: 100,
     };
@@ -155,8 +163,8 @@ describe("createSale", () => {
 
     expect(second.sale.id).toBe(first.sale.id);
     expect(second.sale.receiptNo).toBe(clientReceiptNo);
-    expect((await productByCode("WATER")).stockQty).toBe(water.stockQty - 5);
-    expect((await memberByCode("M0001")).points).toBe(member.points + 2);
+    expect((await productByCode("WATER")).stockQty).toBe(water.stockQty - 10);
+    expect((await memberByCode("M0001")).points).toBe(member.points + 1);
 
     const matchingSales = await t.db
       .select()
@@ -170,16 +178,16 @@ describe("createSale", () => {
     expect(matchingItems).toHaveLength(1);
   });
 
-  it("สมาชิกได้แต้มตามยอดขาย (ทุก 25 บาท = 1 แต้ม)", async () => {
+  it("สมาชิกได้แต้มตามยอดขาย (ทุก 100 บาท = 1 แต้ม)", async () => {
     const water = await productByCode("WATER");
     const member = await memberByCode("M0001");
 
     const { sale } = await t.caller().pos.createSale({
       memberId: member.id,
-      items: [{ productId: water.id, qty: 4 }], // 40 บาท
+      items: [{ productId: water.id, qty: 10 }], // 100 บาท
     });
 
-    expect(sale.pointsEarned).toBe(1); // floor(40/25)
+    expect(sale.pointsEarned).toBe(1); // floor(100/100)
     expect((await memberByCode("M0001")).points).toBe(member.points + 1);
   });
 
@@ -189,16 +197,16 @@ describe("createSale", () => {
 
     const { sale } = await t.caller().pos.createSale({
       memberId: member.id,
-      items: [{ productId: water.id, qty: 10 }], // 100 บาท
+      items: [{ productId: water.id, qty: 20 }], // 200 บาท
       pointsToRedeem: 50,
+      loyaltyChoice: "redeem",
     });
 
     expect(sale.discount).toBe(50); // 50 แต้ม × 1 บาท
-    expect(sale.total).toBe(50);
+    expect(sale.total).toBe(150);
     expect(sale.pointsRedeemed).toBe(50);
-    expect(sale.pointsEarned).toBe(2); // floor(50/25)
-    // หัก 50 ที่ใช้ บวก 2 ที่ได้
-    expect((await memberByCode("M0001")).points).toBe(member.points - 50 + 2);
+    expect(sale.pointsEarned).toBe(0); // เลือกใช้แต้มแล้วจะไม่สะสมแต้มในบิลเดียวกัน
+    expect((await memberByCode("M0001")).points).toBe(member.points - 50);
   });
 
   it("ใช้แต้มเกินที่มี → error", async () => {
@@ -211,6 +219,120 @@ describe("createSale", () => {
         pointsToRedeem: member.points + 1,
       })
     ).rejects.toThrow("แต้มไม่พอ");
+  });
+
+  it("ใช้แต้มโดยไม่เลือกสมาชิกไม่ได้", async () => {
+    const water = await productByCode("WATER");
+    await expect(
+      t.caller().pos.createSale({
+        items: [{ productId: water.id, qty: 10 }],
+        pointsToRedeem: 1,
+      })
+    ).rejects.toThrow("ต้องเลือกสมาชิกก่อนใช้แต้ม");
+  });
+
+  it("ใช้แต้มเป็นส่วนลดท้ายบิลเกินยอดขายไม่ได้", async () => {
+    const water = await productByCode("WATER");
+    const member = await memberByCode("M0001");
+    await expect(
+      t.caller().pos.createSale({
+        memberId: member.id,
+        items: [{ productId: water.id, qty: 1 }],
+        pointsToRedeem: 11,
+      })
+    ).rejects.toThrow("ส่วนลดมากกว่ายอดขาย");
+  });
+
+  it("สมาชิกใช้ยอดแต้มบัญชีเดียวกันซื้อสินค้าข้ามสาขาได้", async () => {
+    const [secondBranch] = await t.db
+      .insert(branches)
+      .values({ code: "CROSS-POINT", name: "สาขาทดสอบแต้มร่วม" })
+      .returning();
+    const [branchProduct] = await t.db
+      .insert(products)
+      .values({
+        branchId: secondBranch!.id,
+        code: "CROSS-POINT-WATER",
+        name: "น้ำดื่มสาขาทดสอบ",
+        category: "other",
+        unit: "ขวด",
+        price: 10,
+        cost: 5,
+        stockQty: 20,
+        lowStockAt: 2,
+      })
+      .returning();
+    const member = await memberByCode("M0001");
+
+    const searchFromSecondBranch = await t
+      .caller("admin", 1, secondBranch!.id)
+      .membership.findByPhone({ phone: member.phone });
+    expect(searchFromSecondBranch[0]?.id).toBe(member.id);
+
+    const { sale } = await t
+      .caller("admin", 1, secondBranch!.id)
+      .pos.createSale({
+        memberId: member.id,
+        items: [{ productId: branchProduct!.id, qty: 10 }],
+        pointsToRedeem: 20,
+      });
+
+    expect(sale.branchId).toBe(secondBranch!.id);
+    expect(sale.total).toBe(80);
+    expect((await memberByCode("M0001")).points).toBe(member.points - 20);
+
+    const [redeemTransaction] = await t.db
+      .select()
+      .from(pointTransactions)
+      .where(
+        and(
+          eq(pointTransactions.saleId, sale.id),
+          eq(pointTransactions.type, "redeem")
+        )
+      );
+    expect(redeemTransaction).toMatchObject({
+      branchId: secondBranch!.id,
+      memberId: member.id,
+      points: -20,
+    });
+
+    const historyFromMainBranch = await t
+      .caller("admin", 1, 1)
+      .membership.memberTransactions({ memberId: member.id });
+    expect(historyFromMainBranch[0]).toMatchObject({
+      branchId: secondBranch!.id,
+      branchName: "สาขาทดสอบแต้มร่วม",
+      points: -20,
+    });
+  });
+
+  it("บัตรหมดอายุซื้อแบบสมาชิกหรือรับแต้มเพิ่มไม่ได้ และยอดเดิมถูกตัดเป็นศูนย์", async () => {
+    const water = await productByCode("WATER");
+    const [expiredMember] = await t.db
+      .insert(members)
+      .values({
+        memberCode: "M-EXPIRED-SALE",
+        name: "สมาชิกหมดอายุหน้าขาย",
+        phone: "0800000199",
+        points: 25,
+        cardActivatedAt: new Date("2025-01-01T00:00:00.000Z"),
+        cardExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
+      })
+      .returning();
+
+    await expect(
+      t.caller().pos.createSale({
+        memberId: expiredMember!.id,
+        items: [{ productId: water.id, qty: 10 }],
+      })
+    ).rejects.toThrow("บัตรสมาชิกหมดอายุแล้ว");
+
+    expect((await memberByCode("M-EXPIRED-SALE")).points).toBe(0);
+    const [expiry] = await t.db
+      .select()
+      .from(pointTransactions)
+      .where(eq(pointTransactions.memberId, expiredMember!.id));
+    expect(expiry).toMatchObject({ type: "expire", points: -25 });
   });
 });
 
@@ -230,7 +352,7 @@ describe("voidSale", () => {
     const member = await memberByCode("M0001");
     const { sale } = await t.caller().pos.createSale({
       memberId: member.id,
-      items: [{ productId: water.id, qty: 10 }], // 100 − 20 = 80 บาท → ได้ 3 แต้ม
+      items: [{ productId: water.id, qty: 10 }], // 100 − 20 = 80 บาท → ยังไม่ได้แต้ม
       pointsToRedeem: 20,
     });
     const pointsAfterSale = (await memberByCode("M0001")).points;
@@ -267,8 +389,8 @@ describe("returnSale", () => {
       name: "สินค้าทดสอบการคืน",
       category: "other",
       unit: "ชิ้น",
-      price: 100,
-      cost: 50,
+      price: 200,
+      cost: 100,
       stockQty: 10,
       lowStockAt: 1,
     });
@@ -282,8 +404,8 @@ describe("returnSale", () => {
       paymentMethod: "cash",
       received: 300,
     });
-    expect(sale.total).toBe(270);
-    expect(sale.pointsEarned).toBe(10);
+    expect(sale.total).toBe(570);
+    expect(sale.pointsEarned).toBe(5);
 
     const firstReturn = await t.caller("manager").pos.returnSale({
       saleId: sale.id,
@@ -295,21 +417,21 @@ describe("returnSale", () => {
     expect(firstReturn.sale.receiptNo).toMatch(/^RT\d{5}$/);
     expect(firstReturn.sale.transactionType).toBe("return");
     expect(firstReturn.sale.originalSaleId).toBe(sale.id);
-    expect(firstReturn.sale.subtotal).toBe(-100);
+    expect(firstReturn.sale.subtotal).toBe(-200);
     expect(firstReturn.sale.discount).toBe(-10);
-    expect(firstReturn.sale.total).toBe(-90);
-    expect(firstReturn.sale.vatAmount).toBe(-5.89);
-    expect(firstReturn.sale.pointsEarned).toBe(-3);
+    expect(firstReturn.sale.total).toBe(-190);
+    expect(firstReturn.sale.vatAmount).toBe(-12.43);
+    expect(firstReturn.sale.pointsEarned).toBe(-1);
     expect(firstReturn.items[0]!.qty).toBe(-1);
     expect(firstReturn.items[0]!.originalSaleItemId).toBe(items[0]!.id);
     expect((await productByCode("RETURN-PARTIAL-TEST")).stockQty).toBe(8);
     expect((await memberByCode("M0001")).points).toBe(
-      pointsBefore + sale.pointsEarned - 3
+      pointsBefore + sale.pointsEarned - 1
     );
 
     const detail = await t.caller().pos.saleDetail({ id: sale.id });
     expect(detail.returnStatus).toBe("partial");
-    expect(detail.returnedTotal).toBe(90);
+    expect(detail.returnedTotal).toBe(190);
     expect(detail.returnableItems[0]!.returnedQty).toBe(1);
     expect(detail.returnableItems[0]!.returnableQty).toBe(2);
     await expect(
@@ -368,7 +490,9 @@ describe("returnSale", () => {
     expect(detail.returnStatus).toBe("full");
     expect(detail.returnedTotal).toBe(sale.total);
     expect(detail.returnableItems[0]!.returnableQty).toBe(0);
-    expect((await productByCode("RETURN-LIMIT-TEST")).stockQty).toBe(stockBefore);
+    expect((await productByCode("RETURN-LIMIT-TEST")).stockQty).toBe(
+      stockBefore
+    );
     expect((await memberByCode("M0001")).points).toBe(pointsBefore);
   });
 
@@ -420,9 +544,13 @@ describe("returnSale", () => {
 
     expect((await productByCode("WATER")).stockQty).toBe(stockAfterReturn - 2);
     expect((await memberByCode("M0001")).points).toBe(
-      pointsAfterReturn - returned.sale.pointsEarned + returned.sale.pointsRedeemed
+      pointsAfterReturn -
+        returned.sale.pointsEarned +
+        returned.sale.pointsRedeemed
     );
-    const originalDetail = await t.caller().pos.saleDetail({ id: created.sale.id });
+    const originalDetail = await t
+      .caller()
+      .pos.saleDetail({ id: created.sale.id });
     expect(originalDetail.returnedTotal).toBe(0);
   });
 });
@@ -466,7 +594,7 @@ describe("updateSale", () => {
     const member = await memberByCode("M0001");
     const { sale } = await t.caller().pos.createSale({
       memberId: member.id,
-      items: [{ productId: water.id, qty: 10 }], // 100 บาท → 4 แต้ม
+      items: [{ productId: water.id, qty: 10 }], // 100 บาท → 1 แต้ม
     });
     const pointsAfterSale = (await memberByCode("M0001")).points;
 
@@ -476,9 +604,29 @@ describe("updateSale", () => {
 
     expect(updated!.total).toBe(75);
     expect(updated!.vatAmount).toBe(4.91); // 75 × 7 / 107
-    expect(updated!.pointsEarned).toBe(3); // floor(75/25)
-    // แต้มปรับเฉพาะส่วนต่าง 4 → 3
+    expect(updated!.pointsEarned).toBe(0); // ยอดสุทธิ 75 บาทยังไม่ครบ 100 บาท
+    // แต้มปรับเฉพาะส่วนต่าง 1 → 0
     expect((await memberByCode("M0001")).points).toBe(pointsAfterSale - 1);
+  });
+
+  it("แก้ไขบิลที่เลือกใช้แต้มแล้วจะไม่เพิ่มแต้มสะสมย้อนหลัง", async () => {
+    const fuel = await productByCode("GSH95");
+    const member = await memberByCode("M0001");
+    const { sale } = await t.caller().pos.createSale({
+      memberId: member.id,
+      items: [{ productId: fuel.id, qty: 10 }],
+      pointsToRedeem: 10,
+      loyaltyChoice: "redeem",
+    });
+    const pointsAfterSale = (await memberByCode("M0001")).points;
+
+    const updated = await t
+      .caller("manager")
+      .pos.updateSale({ id: sale.id, discount: 20 });
+
+    expect(updated!.pointsRedeemed).toBe(10);
+    expect(updated!.pointsEarned).toBe(0);
+    expect((await memberByCode("M0001")).points).toBe(pointsAfterSale);
   });
 
   it("cashier แก้ไขบิลไม่ได้", async () => {

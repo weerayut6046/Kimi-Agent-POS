@@ -138,7 +138,7 @@ describe("workforce router", () => {
       staffId: 2,
       position: "ผู้จัดการสาขา",
       salaryType: "monthly",
-      baseRate: 30_000,
+      baseRate: 10_000,
       overtimeRate: 100,
     });
     const templates = await admin.workforce.listTemplates();
@@ -275,10 +275,11 @@ describe("workforce router", () => {
     expect(monthlyDraft).toMatchObject({
       workDays: 2,
       absenceDays: 1,
-      absenceDeduction: 1000,
+      baseRate: 10_000,
+      absenceDeduction: 0,
       advanceDeduction: 300,
-      baseAmount: 30_000,
-      netAmount: 28_700,
+      baseAmount: 666.66,
+      netAmount: 366.66,
       status: "draft",
     });
     await expect(
@@ -286,9 +287,26 @@ describe("workforce router", () => {
         id: monthlyDraft.id,
         overtimeHours: 0,
         bonus: 0,
-        deduction: 500,
+        deduction: 100,
       })
-    ).resolves.toMatchObject({ netAmount: 28_200 });
+    ).resolves.toMatchObject({ netAmount: 266.66 });
+    const monthlyRealtimeSchedule = await admin.workforce.createSchedule({
+      workDate: "2026-07-10",
+      shiftTemplateId: morning.id,
+      staffId: 2,
+      status: "scheduled",
+    });
+    expect(monthlyRealtimeSchedule).toMatchObject({ payrollUpdated: true });
+    expect(
+      (await admin.workforce.payrollList({ month: "2026-07" })).find(
+        row => row.staffId === 2,
+      ),
+    ).toMatchObject({
+      workDays: 3,
+      baseAmount: 999.99,
+      absenceDeduction: 0,
+      netAmount: 599.99,
+    });
 
     const updated = await admin.workforce.updatePayroll({
       id: draft.id,

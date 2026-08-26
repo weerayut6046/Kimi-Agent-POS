@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gt, gte, sql } from "drizzle-orm";
 import {
   members,
   paymentSessions,
@@ -14,8 +14,15 @@ import type {
   ThungngernSessionView,
 } from "@contracts/payments";
 import type { DesktopReceipt } from "@contracts/offline";
+import {
+  DEFAULT_POINT_EARN_PER_BAHT,
+  DEFAULT_POINT_REDEEM_VALUE,
+  positiveSettingNumber,
+} from "@contracts/settings";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
+import { expireDueMemberPoints } from "../lib/memberExpiry";
+import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
   isDuplicateSlipError,
   Slip2GoError,
@@ -44,6 +51,7 @@ export type ThungngernSaleInput = {
   items: Array<{ productId: number; qty: number }>;
   discount: number;
   pointsToRedeem: number;
+  loyaltyChoice?: "earn" | "redeem";
 };
 
 export type FinalizeResult = {
@@ -89,16 +97,40 @@ export async function computeSaleSnapshot(
   const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
 
   const vatRate = Number(settingMap.vat_rate ?? "7");
-  const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
-  const pointValue = Number(settingMap.point_redeem_value ?? "1");
+  const earnPer = positiveSettingNumber(
+    settingMap.point_earn_per_baht,
+    DEFAULT_POINT_EARN_PER_BAHT
+  );
+  const pointValue = positiveSettingNumber(
+    settingMap.point_redeem_value,
+    DEFAULT_POINT_REDEEM_VALUE
+  );
 
+  const loyaltyChoice =
+    input.loyaltyChoice ?? (input.pointsToRedeem > 0 ? "redeem" : "earn");
+  if (input.loyaltyChoice && !input.memberId) {
+    throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
+  }
+  if (input.loyaltyChoice === "earn" && input.pointsToRedeem > 0) {
+    throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
+  }
+  if (input.loyaltyChoice === "redeem" && input.pointsToRedeem === 0) {
+    throw new Error("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
+  }
+  if (input.pointsToRedeem > 0 && !input.memberId) {
+    throw new Error("ต้องเลือกสมาชิกก่อนใช้แต้ม");
+  }
   let redeemDiscount = 0;
   let memberId: number | null = null;
   if (input.memberId) {
+    await expireDueMemberPoints(db, branchId);
     const member = await db.query.members.findFirst({
       where: eq(members.id, input.memberId),
     });
     if (!member) throw new Error("ไม่พบสมาชิก");
+    if (isMemberCardExpired(member.cardExpiresAt)) {
+      throw new Error("บัตรสมาชิกหมดอายุแล้ว กรุณาต่ออายุบัตรก่อนใช้งาน");
+    }
     memberId = member.id;
     if (input.pointsToRedeem > 0) {
       if (input.pointsToRedeem > member.points) throw new Error("แต้มไม่พอ");
@@ -110,7 +142,8 @@ export async function computeSaleSnapshot(
 
   const total = r2(subtotal - totalDiscount);
   const vatAmount = r2((total * vatRate) / (100 + vatRate)); // VAT รวมใน
-  const pointsEarned = memberId ? Math.floor(total / earnPer) : 0;
+  const pointsEarned =
+    memberId && loyaltyChoice === "earn" ? Math.floor(total / earnPer) : 0;
 
   return {
     items: lines.map(l => ({
@@ -264,12 +297,20 @@ async function insertSaleFromSnapshot(
   }
 
   if (snapshot.memberId) {
-    await tx
+    const updatedMember = await tx
       .update(members)
       .set({
         points: sql`${members.points} - ${snapshot.pointsToRedeem} + ${snapshot.pointsEarned}`,
       })
-      .where(eq(members.id, snapshot.memberId));
+      .where(
+        and(
+          eq(members.id, snapshot.memberId),
+          gte(members.points, snapshot.pointsToRedeem),
+          gt(members.cardExpiresAt, new Date())
+        )
+      )
+      .returning({ id: members.id });
+    if (!updatedMember[0]) throw new Error("แต้มไม่พอ");
     if (snapshot.pointsEarned > 0) {
       await tx.insert(pointTransactions).values({
         branchId,

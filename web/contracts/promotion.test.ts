@@ -1,0 +1,49 @@
+import { describe, expect, it } from "vitest";
+import {
+  activeReceiptPromotion,
+  appliedPromotionDiscount,
+  bangkokDateKey,
+  promotionSettingsValidationMessage,
+} from "./promotion";
+
+const settings = {
+  promotion_enabled: "1",
+  promotion_name: "โปรโมชั่นประจำเดือน",
+  promotion_discount: "0.50",
+  promotion_start_date: "2026-08-01",
+  promotion_end_date: "2026-08-31",
+};
+
+describe("receipt promotion", () => {
+  it("ยึดวันเริ่มและสิ้นสุดตามเวลาไทย", () => {
+    expect(bangkokDateKey("2026-07-31T17:00:00Z")).toBe("2026-08-01");
+    expect(activeReceiptPromotion(settings, "2026-08-31T16:59:59Z")).toEqual({
+      name: "โปรโมชั่นประจำเดือน",
+      discountPerLiter: 0.5,
+    });
+    expect(activeReceiptPromotion(settings, "2026-08-31T17:00:00Z")).toBeNull();
+  });
+
+  it("ไม่ใช้โปรโมชั่นเมื่อปิดหรือข้อมูลไม่สมบูรณ์", () => {
+    expect(
+      activeReceiptPromotion(
+        { ...settings, promotion_enabled: "0" },
+        "2026-08-15"
+      )
+    ).toBeNull();
+    expect(
+      promotionSettingsValidationMessage({
+        ...settings,
+        promotion_start_date: "2026-09-01",
+      })
+    ).toBe("วันสิ้นสุดโปรโมชั่นต้องไม่ก่อนวันเริ่ม");
+  });
+
+  it("คูณส่วนลดตามจำนวนลิตรและลดได้ไม่เกินยอดคงเหลือ", () => {
+    const promotion = activeReceiptPromotion(settings, "2026-08-15");
+    expect(appliedPromotionDiscount(promotion, 20, 100, 2)).toBe(10);
+    expect(appliedPromotionDiscount(promotion, 20, 10, 9.75)).toBe(0.25);
+    expect(appliedPromotionDiscount(promotion, 20, 10, 10)).toBe(0);
+    expect(appliedPromotionDiscount(promotion, 0, 100)).toBe(0);
+  });
+});

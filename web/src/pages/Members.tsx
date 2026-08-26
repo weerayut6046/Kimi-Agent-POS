@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Users,
   UserPlus,
@@ -8,6 +8,10 @@ import {
   History,
   Pencil,
   Trash2,
+  CreditCard,
+  ScanLine,
+  CircleCheck,
+  CircleAlert,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,8 +44,16 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
-import { fmtDateTime, tierLabel } from "@/lib/format";
+import { MemberCardDialog } from "@/components/MemberCardDialog";
+import { fmtDateTH, fmtDateTime, tierLabel } from "@/lib/format";
+import {
+  extractMemberCardCode,
+  formatMemberCode,
+  isLongMemberCode,
+} from "@contracts/memberCode";
+import { isMemberCardExpired } from "@contracts/memberExpiry";
 import type { Member, Reward } from "@db/schema";
+import { toast } from "sonner";
 
 export default function Members() {
   const confirmAction = useAppConfirm();
@@ -55,11 +67,18 @@ export default function Members() {
   });
   const { data: rewardList } = trpc.membership.listRewards.useQuery();
   const { data: redemptions } = trpc.membership.redemptionHistory.useQuery();
+  const { data: settingMap } = trpc.catalog.getSettings.useQuery();
+  const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
 
   const [showCreate, setShowCreate] = useState(false);
+  const [cardInput, setCardInput] = useState("");
+  const [autoGenerateCode, setAutoGenerateCode] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const cardInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<Member | null>(null);
+  const [cardMember, setCardMember] = useState<Member | null>(null);
   const [editM, setEditM] = useState<{
     id: number;
     name: string;
@@ -69,6 +88,22 @@ export default function Members() {
   const [adjustPts, setAdjustPts] = useState("");
   const [adjustNote, setAdjustNote] = useState("");
   const [err, setErr] = useState("");
+
+  const detectedCardCode = extractMemberCardCode(cardInput);
+  const cardCodeValid = isLongMemberCode(detectedCardCode);
+  const cardAvailability = trpc.membership.checkCardAvailability.useQuery(
+    { cardCode: detectedCardCode || "-" },
+    {
+      enabled: showCreate && !autoGenerateCode && cardCodeValid,
+      staleTime: 0,
+    }
+  );
+  const cardReady =
+    autoGenerateCode ||
+    (cardCodeValid && cardAvailability.data?.available === true);
+  const selectedExpired = selected
+    ? isMemberCardExpired(selected.cardExpiresAt)
+    : false;
 
   const { data: txns } = trpc.membership.memberTransactions.useQuery(
     { memberId: selected?.id ?? 0 },
@@ -83,15 +118,49 @@ export default function Members() {
   };
 
   const createMut = trpc.membership.createMember.useMutation({
-    onSuccess: () => {
+    onSuccess: result => {
       refresh();
+      toast.success(
+        `เปิดสมาชิกสำเร็จ · ${formatMemberCode(result.memberCode)}`
+      );
       setShowCreate(false);
+      setCardInput("");
+      setAutoGenerateCode(false);
       setName("");
       setPhone("");
       setErr("");
     },
     onError: e => setErr(e.message),
   });
+
+  const submitNewMember = () => {
+    if (!name.trim() || phone.trim().length < 9 || createMut.isPending) return;
+    if (!autoGenerateCode && !cardCodeValid) {
+      setErr("กรุณาเสียบ สแกน หรือกรอกเลขบัตร 16 หลักให้ถูกต้อง");
+      cardInputRef.current?.focus();
+      return;
+    }
+    if (!autoGenerateCode && cardAvailability.data?.available === false) {
+      setErr("บัตรนี้เปิดใช้งานแล้ว");
+      return;
+    }
+    createMut.mutate({
+      name: name.trim(),
+      phone: phone.trim(),
+      cardCode: autoGenerateCode ? undefined : detectedCardCode,
+    });
+  };
+
+  const setCreateDialogOpen = (open: boolean) => {
+    setShowCreate(open);
+    setErr("");
+    if (!open) {
+      setCardInput("");
+      setAutoGenerateCode(false);
+      setName("");
+      setPhone("");
+    }
+  };
   const adjustMut = trpc.membership.adjustPoints.useMutation({
     onSuccess: () => {
       refresh();
@@ -138,12 +207,20 @@ export default function Members() {
         <h1 className="page-heading flex items-center gap-2">
           <Users className="w-6 h-6 text-primary" /> สมาชิกสะสมแต้ม
         </h1>
-        <Button
-          className="w-full sm:w-auto"
-          onClick={() => setShowCreate(true)}
-        >
-          <UserPlus className="w-4 h-4 mr-2" /> สมัครสมาชิก
-        </Button>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <Badge
+            variant="outline"
+            className="h-9 border-violet-200 bg-violet-50 px-3 text-violet-700"
+          >
+            สมาชิกและแต้มใช้ร่วมกันทุกสาขา
+          </Badge>
+          <Button
+            className="flex-1 sm:flex-none"
+            onClick={() => setCreateDialogOpen(true)}
+          >
+            <UserPlus className="w-4 h-4 mr-2" /> สมัครสมาชิก
+          </Button>
+        </div>
       </div>
       {err && <p className="text-sm text-destructive">{err}</p>}
 
@@ -175,8 +252,22 @@ export default function Members() {
               <TableBody>
                 {(memberList ?? []).map(m => (
                   <TableRow key={m.id}>
-                    <TableCell className="font-mono text-xs">
-                      {m.memberCode}
+                    <TableCell className="text-xs">
+                      <div className="font-mono">
+                        {formatMemberCode(m.memberCode)}
+                      </div>
+                      <div
+                        className={`mt-1 font-sans ${
+                          isMemberCardExpired(m.cardExpiresAt)
+                            ? "font-semibold text-red-600"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {isMemberCardExpired(m.cardExpiresAt)
+                          ? "หมดอายุ"
+                          : "ใช้ได้ถึง"}{" "}
+                        {fmtDateTH(m.cardExpiresAt)}
+                      </div>
                     </TableCell>
                     <TableCell className="font-medium">{m.name}</TableCell>
                     <TableCell>{m.phone}</TableCell>
@@ -187,11 +278,25 @@ export default function Members() {
                         {tierLabel[m.tier]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-semibold text-primary">
+                    <TableCell
+                      className={`text-right font-semibold ${
+                        isMemberCardExpired(m.cardExpiresAt)
+                          ? "text-slate-400"
+                          : "text-primary"
+                      }`}
+                    >
                       {m.points}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setCardMember(m)}
+                          title="ดูและพิมพ์บัตรสมาชิก PVC"
+                        >
+                          <CreditCard className="mr-1.5 size-4" /> บัตร
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -326,8 +431,14 @@ export default function Members() {
       </Card>
 
       {/* Dialog สมัครสมาชิก */}
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
+      <Dialog open={showCreate} onOpenChange={setCreateDialogOpen}>
+        <DialogContent
+          className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-lg sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100"
+          onOpenAutoFocus={event => {
+            event.preventDefault();
+            cardInputRef.current?.focus();
+          }}
+        >
           <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
             <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
             <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
@@ -345,12 +456,121 @@ export default function Members() {
                   สมัครสมาชิกใหม่
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  กรอกชื่อและเบอร์โทรศัพท์เพื่อเปิดบัญชีสมาชิกสะสมแต้ม
+                  เสียบหรือสแกนบัตรใหม่ แล้วกรอกข้อมูลเพื่อเปิดใช้งานทันที
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+            {err && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <CircleAlert className="mt-0.5 size-4 shrink-0" />
+                {err}
+              </div>
+            )}
+            <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm shadow-violet-100/60">
+              <div className="flex items-center gap-3 border-b border-violet-100 bg-violet-50/80 px-4 py-3">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-violet-600 text-white">
+                  <ScanLine className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-bold text-slate-900">
+                    เปิดใช้งานบัตรใหม่
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    รองรับเครื่องอ่าน USB/HID, QR และบาร์โค้ด
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs text-violet-700"
+                  onClick={() => {
+                    setAutoGenerateCode(value => !value);
+                    setErr("");
+                  }}
+                >
+                  {autoGenerateCode ? "ใช้บัตรจริง" : "ไม่มีบัตร"}
+                </Button>
+              </div>
+              <div className="space-y-2 p-4">
+                <Label className="text-xs font-semibold text-slate-700">
+                  เลขบัตรสมาชิก 16 หลัก
+                </Label>
+                <div className="relative">
+                  <CreditCard className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-violet-500" />
+                  <Input
+                    ref={cardInputRef}
+                    value={
+                      autoGenerateCode
+                        ? "ระบบจะสร้างเลขบัตรให้อัตโนมัติ"
+                        : cardInput
+                    }
+                    disabled={autoGenerateCode}
+                    autoComplete="off"
+                    placeholder="เสียบบัตร สแกน หรือกรอกเลขบัตร"
+                    aria-label="เลขบัตรสมาชิกใหม่"
+                    className="h-12 bg-white pl-10 font-mono tracking-wider"
+                    onChange={event => {
+                      setCardInput(event.target.value);
+                      setErr("");
+                    }}
+                    onBlur={() => {
+                      if (cardCodeValid) {
+                        setCardInput(formatMemberCode(detectedCardCode));
+                      }
+                    }}
+                    onKeyDown={event => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      if (cardCodeValid) {
+                        setCardInput(formatMemberCode(detectedCardCode));
+                        if (name.trim() && phone.trim().length >= 9) {
+                          submitNewMember();
+                        } else {
+                          nameInputRef.current?.focus();
+                        }
+                      } else {
+                        setErr("อ่านเลขบัตรไม่สำเร็จ กรุณาลองอีกครั้ง");
+                      }
+                    }}
+                  />
+                </div>
+                {!autoGenerateCode && !cardInput && (
+                  <p className="text-xs text-slate-500">
+                    วางเคอร์เซอร์ช่องนี้แล้วเสียบ/รูดบัตร
+                    เครื่องอ่านจะส่งเลขเข้าระบบ
+                  </p>
+                )}
+                {!autoGenerateCode && cardInput && !cardCodeValid && (
+                  <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                    <CircleAlert className="size-3.5" />
+                    เลขยังไม่ครบหรือ check digit ไม่ถูกต้อง
+                  </p>
+                )}
+                {!autoGenerateCode &&
+                  cardCodeValid &&
+                  cardAvailability.isFetching && (
+                    <p className="text-xs text-violet-600">กำลังตรวจสอบบัตร…</p>
+                  )}
+                {!autoGenerateCode &&
+                  cardAvailability.data?.available === true && (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                      <CircleCheck className="size-3.5" />
+                      บัตรใหม่ พร้อมเปิดใช้งาน
+                    </p>
+                  )}
+                {!autoGenerateCode &&
+                  cardAvailability.data?.available === false &&
+                  cardCodeValid && (
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-red-700">
+                      <CircleAlert className="size-3.5" />
+                      บัตรนี้เปิดใช้งานแล้ว
+                    </p>
+                  )}
+              </div>
+            </section>
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
               <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
@@ -371,6 +591,7 @@ export default function Members() {
                     ชื่อ-นามสกุล
                   </Label>
                   <Input
+                    ref={nameInputRef}
                     value={name}
                     onChange={e => setName(e.target.value)}
                     placeholder="เช่น สมชาย ใจดี"
@@ -387,6 +608,12 @@ export default function Members() {
                     inputMode="tel"
                     placeholder="08x-xxx-xxxx"
                     className="bg-white"
+                    onKeyDown={event => {
+                      if (event.key === "Enter" && cardReady) {
+                        event.preventDefault();
+                        submitNewMember();
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -395,10 +622,17 @@ export default function Members() {
           <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
             <Button
               className="w-full"
-              disabled={!name || phone.length < 9 || createMut.isPending}
-              onClick={() => createMut.mutate({ name, phone })}
+              disabled={
+                !name.trim() ||
+                phone.trim().length < 9 ||
+                !cardReady ||
+                createMut.isPending
+              }
+              onClick={submitNewMember}
             >
-              สมัครสมาชิก
+              {autoGenerateCode
+                ? "สมัครสมาชิกและสร้างเลขอัตโนมัติ"
+                : "เปิดใช้งานบัตรและเพิ่มสมาชิก"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -567,6 +801,17 @@ export default function Members() {
                       {tierLabel[selected.tier]}
                     </Badge>
                   </div>
+                  <div
+                    className={`rounded-xl border px-3 py-2 text-xs font-medium ${
+                      selectedExpired
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {selectedExpired ? "บัตรหมดอายุเมื่อ" : "บัตรใช้ได้ถึง"}{" "}
+                    {fmtDateTH(selected.cardExpiresAt)}
+                    {selectedExpired && " · แต้มถูกตัดเป็น 0 และใช้บัตรไม่ได้"}
+                  </div>
 
                   {/* แลกของรางวัล */}
                   <div>
@@ -593,6 +838,7 @@ export default function Members() {
                                   : "outline"
                               }
                               disabled={
+                                selectedExpired ||
                                 selected.points < r.pointsRequired ||
                                 redeemMut.isPending
                               }
@@ -648,7 +894,10 @@ export default function Members() {
                       size="sm"
                       variant="secondary"
                       disabled={
-                        !adjustPts || !adjustNote || adjustMut.isPending
+                        selectedExpired ||
+                        !adjustPts ||
+                        !adjustNote ||
+                        adjustMut.isPending
                       }
                       onClick={() =>
                         adjustMut.mutate({
@@ -675,7 +924,7 @@ export default function Members() {
                       ประวัติแต้มล่าสุด
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      รายการเคลื่อนไหวของแต้ม
+                      รายการเคลื่อนไหวรวมจากทุกสาขา
                     </p>
                   </div>
                 </div>
@@ -688,7 +937,7 @@ export default function Members() {
                       >
                         <div>
                           <div className="text-xs text-muted-foreground">
-                            {fmtDateTime(t.createdAt)}
+                            {fmtDateTime(t.createdAt)} · {t.branchName}
                           </div>
                           <div>{t.note}</div>
                         </div>
@@ -712,6 +961,14 @@ export default function Members() {
           )}
         </DialogContent>
       </Dialog>
+
+      <MemberCardDialog
+        member={cardMember}
+        open={!!cardMember}
+        onOpenChange={open => !open && setCardMember(null)}
+        settingMap={settingMap}
+        logoUrl={logoUrl}
+      />
     </div>
   );
 }

@@ -420,7 +420,7 @@ function buildTools(
               },
               memberCode: {
                 type: "string",
-                description: "รหัสสมาชิก เช่น M0001",
+                description: "รหัสสมาชิก เช่น 8812 3456 7890 1234 หรือ M0001 รุ่นเดิม",
               },
               points: {
                 type: "integer",

@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { paymentSettings, paymentSessions, products, sales } from "@db/schema";
+import {
+  members,
+  paymentSettings,
+  paymentSessions,
+  products,
+  sales,
+} from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 import { crc16Ccitt } from "../lib/promptpay";
 import {
@@ -83,6 +89,105 @@ const slipOf = (overrides: Record<string, unknown> = {}) => ({
   receiverBankAccount: null,
   raw: null,
   ...overrides,
+});
+
+describe("computeSaleSnapshot — แต้มสมาชิก", () => {
+  it("ทุก 100 บาทได้ 1 แต้ม และ 1 แต้มลดท้ายบิลได้ 1 บาท", async () => {
+    const product = await water();
+    const member = await t.db.query.members.findFirst();
+    if (!member) throw new Error("ไม่พบสมาชิกใน seed");
+
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบแต้ม",
+        memberId: member.id,
+        items: [{ productId: product.id, qty: 15 }],
+        discount: 0,
+        pointsToRedeem: 50,
+        loyaltyChoice: "redeem",
+      },
+      {}
+    );
+
+    expect(snapshot.subtotal).toBe(150);
+    expect(snapshot.discount).toBe(50);
+    expect(snapshot.total).toBe(100);
+    expect(snapshot.pointsToRedeem).toBe(50);
+    expect(snapshot.pointsEarned).toBe(0);
+  });
+
+  it("ตรวจยอดแต้มกลางอีกครั้งตอนปิดบิลเพื่อกันสองสาขาใช้แต้มพร้อมกัน", async () => {
+    const product = await water();
+    const member = await t.db.query.members.findFirst();
+    if (!member) throw new Error("ไม่พบสมาชิกใน seed");
+    const originalPoints = member.points;
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบแต้มพร้อมกัน",
+        memberId: member.id,
+        items: [{ productId: product.id, qty: 10 }],
+        discount: 0,
+        pointsToRedeem: 10,
+      },
+      {}
+    );
+    const session = await startThungngernSession(t.db, 1, snapshot);
+
+    try {
+      await t.db
+        .update(members)
+        .set({ points: 0 })
+        .where(eq(members.id, member.id));
+      await expect(
+        finalizeThungngernSession(t.db, 1, session.id, "manual")
+      ).rejects.toThrow("แต้มไม่พอ");
+      expect((await storedSession(session.id))?.status).toBe("pending");
+    } finally {
+      await t.db
+        .update(members)
+        .set({ points: originalPoints })
+        .where(eq(members.id, member.id));
+    }
+  });
+
+  it("ไม่สร้าง snapshot ให้บัตรที่หมดอายุและตัดยอดแต้มเดิมเป็นศูนย์", async () => {
+    const product = await water();
+    const [expiredMember] = await t.db
+      .insert(members)
+      .values({
+        memberCode: "M-EXPIRED-TNG",
+        name: "สมาชิกหมดอายุถุงเงิน",
+        phone: "0800000299",
+        points: 40,
+        cardActivatedAt: new Date("2025-01-01T00:00:00.000Z"),
+        cardExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
+      })
+      .returning();
+
+    await expect(
+      computeSaleSnapshot(
+        t.db,
+        1,
+        {
+          staffName: "ทดสอบบัตรหมดอายุ",
+          memberId: expiredMember!.id,
+          items: [{ productId: product.id, qty: 10 }],
+          discount: 0,
+          pointsToRedeem: 0,
+        },
+        {}
+      )
+    ).rejects.toThrow("บัตรสมาชิกหมดอายุแล้ว");
+
+    const reloaded = await t.db.query.members.findFirst({
+      where: eq(members.id, expiredMember!.id),
+    });
+    expect(reloaded?.points).toBe(0);
+  });
 });
 
 describe("finalizeThungngernSession — idempotency", () => {

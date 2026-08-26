@@ -1,8 +1,10 @@
+import { DEFAULT_SETTINGS } from "@contracts/settings";
+
 /** สร้าง state เริ่มต้นของหน้า Settings จากข้อมูลที่ React Query cache ไว้แล้ว */
 export function createInitialSettingsForm(
   settingMap: Readonly<Record<string, string>> | undefined
 ): Record<string, string> {
-  return { ...(settingMap ?? {}) };
+  return settingMap ? { ...DEFAULT_SETTINGS, ...settingMap } : {};
 }
 
 export type ManagedBackupHealthView = {
@@ -38,7 +40,9 @@ export const STAFF_PASSWORD_MAX_LENGTH = 128;
  * Keep the staff password rules in one place so the Settings form can stop an
  * invalid request before tRPC serializes the Zod issues into a JSON message.
  */
-export function staffPasswordValidationMessage(password: string): string | null {
+export function staffPasswordValidationMessage(
+  password: string
+): string | null {
   if (password.length < STAFF_PASSWORD_MIN_LENGTH) {
     return `รหัสผ่านต้องมีอย่างน้อย ${STAFF_PASSWORD_MIN_LENGTH} ตัวอักษร`;
   }

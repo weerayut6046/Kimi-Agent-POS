@@ -31,6 +31,11 @@ function round2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function monthlyBaseAmount(monthlySalary: number, workDays: number) {
+  const dailyRate = round2(monthlySalary / 30);
+  return round2(dailyRate * workDays);
+}
+
 function nextMonth(month: string) {
   const [year, monthNumber] = month.split("-").map(Number);
   const date = new Date(Date.UTC(year, monthNumber, 1));
@@ -126,15 +131,12 @@ async function syncDraftPayrollForMonth(
   ).size;
   const baseAmount = round2(
     profile.salaryType === "monthly"
-      ? profile.baseRate
+      ? monthlyBaseAmount(profile.baseRate, workDays)
       : profile.salaryType === "daily"
         ? workDays * profile.baseRate
         : workHours * profile.baseRate,
   );
-  const absenceDeduction =
-    profile.salaryType === "monthly"
-      ? Math.min(baseAmount, round2((profile.baseRate / 30) * absenceDays))
-      : 0;
+  const absenceDeduction = 0;
   const overtimeAmount = round2(
     payroll.overtimeHours * profile.overtimeRate,
   );
@@ -796,6 +798,7 @@ export const workforceRouter = createRouter({
           staffName: staffUsers.name,
           position: employeeProfiles.position,
           salaryType: employeeProfiles.salaryType,
+          baseRate: employeeProfiles.baseRate,
           workDays: payrollRecords.workDays,
           workHours: payrollRecords.workHours,
           absenceDays: payrollRecords.absenceDays,
@@ -937,18 +940,12 @@ export const workforceRouter = createRouter({
           );
           const baseAmount = round2(
             profile.salaryType === "monthly"
-              ? profile.baseRate
+              ? monthlyBaseAmount(profile.baseRate, workDays)
               : profile.salaryType === "daily"
                 ? workDays * profile.baseRate
                 : workHours * profile.baseRate
           );
-          const absenceDeduction =
-            profile.salaryType === "monthly"
-              ? Math.min(
-                  baseAmount,
-                  round2((profile.baseRate / 30) * absenceDays)
-                )
-              : 0;
+          const absenceDeduction = 0;
           const advanceDeduction = round2(
             schedules
               .filter(schedule => schedule.staffId === profile.staffId)

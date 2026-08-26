@@ -15,6 +15,7 @@ const Shifts = lazy(() => import("@/pages/Shifts"));
 const Stock = lazy(() => import("@/pages/Stock"));
 const StockCount = lazy(() => import("@/pages/StockCount"));
 const Members = lazy(() => import("@/pages/Members"));
+const MemberCardBatches = lazy(() => import("@/pages/MemberCardBatches"));
 const Customers = lazy(() => import("@/pages/Customers"));
 const Debts = lazy(() => import("@/pages/Debts"));
 const Sales = lazy(() => import("@/pages/Sales"));
@@ -31,14 +32,19 @@ const Workforce = lazy(() => import("@/pages/Workforce"));
 
 function MenuRoute({
   permission,
+  managerOnly = false,
   children,
 }: {
   permission: MenuPermissionKey;
+  managerOnly?: boolean;
   children: ReactNode;
 }) {
   const { staff } = useStaff();
   if (!staff) return <Navigate to="/login" replace />;
-  if (hasMenuPermission(staff.role, staff.menuPermissions, permission)) {
+  if (
+    hasMenuPermission(staff.role, staff.menuPermissions, permission) &&
+    (!managerOnly || staff.role === "admin" || staff.role === "manager")
+  ) {
     return children;
   }
   const fallback = getFirstAllowedMenuPath(staff.role, staff.menuPermissions);
@@ -147,6 +153,14 @@ export default function App() {
             element={
               <MenuRoute permission="members">
                 <Members />
+              </MenuRoute>
+            }
+          />
+          <Route
+            path="/member-cards"
+            element={
+              <MenuRoute permission="members" managerOnly>
+                <MemberCardBatches />
               </MenuRoute>
             }
           />

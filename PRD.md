@@ -380,7 +380,7 @@ vatAmount = r2(total × vatRate / (100 + vatRate))   // VAT รวมใน
 preVat = r2(total − vatAmount)
 
 change = cash ? r2(max(0, received − total)) : 0
-pointsEarned = member ? floor(total / pointEarnPerBaht) : 0
+pointsEarned = member และ loyaltyChoice = earn ? floor(total / pointEarnPerBaht) : 0
 memberPointsNext = oldPoints − pointsToRedeem + pointsEarned
 ```
 
@@ -389,6 +389,7 @@ Validation:
 - `totalDiscount ≤ subtotal`
 - `pointsToRedeem ≤ member.points`
 - ผู้ไม่มีสมาชิกไม่ได้แต้มและไม่ใช้แต้ม
+- บิลสมาชิกต้องเลือกอย่างใดอย่างหนึ่งระหว่างสะสมแต้ม (`earn`) หรือใช้แต้มเป็นส่วนลด (`redeem`) และจะไม่รับแต้มใหม่เมื่อเลือกใช้แต้ม
 - วิธีชำระที่ไม่ใช่เงินสดบันทึก `received = total` และ `change = 0`
 - ค่าเริ่มต้น: VAT 7%, ได้ 1 แต้มต่อยอดสุทธิทุก 25 บาท, 1 แต้มลด 1 บาท
 
@@ -737,21 +738,19 @@ absenceDays = count(distinct workDate ที่ status = absent)
 advanceDeduction = r2(Σ cashAdvance ของทุกกะพนักงานในเดือน)
 
 baseAmount =
-  monthly ? r2(baseRate)
+  monthly ? r2(r2(baseRate ÷ 30) × workDays)
   daily   ? r2(workDays × baseRate)
   hourly  ? r2(workHours × baseRate)
 
-absenceDeduction =
-  monthly ? min(baseAmount, r2(baseRate ÷ 30 × absenceDays))
-  daily/hourly ? 0 (ฐานค่าจ้างนับเฉพาะวัน/ชั่วโมงทำงานอยู่แล้ว)
+absenceDeduction = 0 (ฐานค่าจ้างนับเฉพาะวัน/ชั่วโมงทำงานอยู่แล้ว)
 
 overtimeAmount = r2(overtimeHours × overtimeRate)
 netAmount = r2(baseAmount + overtimeAmount + bonus − absenceDeduction − advanceDeduction − deduction)
 ```
 
-สถานะ `leave` ไม่หักอัตโนมัติ เพราะวันลาบางประเภทเป็นวันลาได้รับค่าจ้าง;
-หากเป็นลาไม่รับค่าจ้างให้บันทึกเป็น `absent` เพื่อเข้าการคำนวณหักเงิน
-หรือกรอกรายการหักอื่นตามนโยบายของกิจการ
+พนักงานรายเดือนจึงได้อัตราต่อวันจาก `baseRate ÷ 30` โดยปัดเป็น 2 ตำแหน่งก่อน
+คูณ `workDays` เช่น เงินเดือน 10,000 บาท ได้วันละ 333.33 บาท
+สถานะ `leave` และ `absent` ไม่นับเป็นวันทำงาน จึงไม่หักขาดงานซ้ำอีกครั้ง
 
 ยอดเบิกเงินบันทึกในแต่ละกะและรวมตามพนักงานในเดือนนั้นโดยไม่ขึ้นกับสถานะกะ
 เมื่อรายการเงินเดือนเป็น `paid` แล้ว การแก้กะจะไม่เปลี่ยนยอดเงินเดือนย้อนหลัง

@@ -10,6 +10,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -826,21 +827,111 @@ export const saleItems = posSchema
   )
   .enableRLS();
 
-// ============ สมาชิกสะสมแต้ม ============
+// ============ สมาชิกสะสมแต้ม (บัญชีกลาง ใช้ร่วมกันทุกสาขา) ============
 export const members = posSchema
-  .table("members", {
-    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-    memberCode: text("member_code").notNull().unique(),
-    name: text("name").notNull(),
-    phone: text("phone").notNull().unique(),
-    points: integer("points").notNull().default(0),
-    tier: text("tier", { enum: ["silver", "gold", "platinum"] })
-      .notNull()
-      .default("silver"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  })
+  .table(
+    "members",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      memberCode: text("member_code").notNull().unique(),
+      name: text("name").notNull(),
+      phone: text("phone").notNull().unique(),
+      points: integer("points").notNull().default(0),
+      tier: text("tier", { enum: ["silver", "gold", "platinum"] })
+        .notNull()
+        .default("silver"),
+      cardActivatedAt: timestamp("card_activated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      cardExpiresAt: timestamp("card_expires_at", { withTimezone: true })
+        .notNull()
+        .default(sql`now() + interval '1 year'`),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      cardValidityCheck: check(
+        "members_card_validity_check",
+        sql`${t.cardExpiresAt} > ${t.cardActivatedAt}`
+      ),
+      cardExpiryDueIdx: index("members_card_expiry_due_idx")
+        .on(t.cardExpiresAt)
+        .where(sql`${t.points} > 0`),
+    })
+  )
+  .enableRLS();
+
+// ============ ชุดบัตรสมาชิก PVC และทะเบียนเลขบัตร ============
+export const memberCardBatches = posSchema
+  .table(
+    "member_card_batches",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      batchCode: text("batch_code").notNull().unique(),
+      label: text("label").notNull().default(""),
+      quantity: integer("quantity").notNull(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      createdByStaffId: integer("created_by_staff_id").references(
+        () => staffUsers.id,
+        { onDelete: "set null" }
+      ),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      quantityCheck: check(
+        "member_card_batches_quantity_check",
+        sql`${t.quantity} between 1 and 500`
+      ),
+      createdIdx: index("member_card_batches_created_idx").on(t.createdAt),
+      branchIdx: index("member_card_batches_branch_idx").on(t.branchId),
+      createdByIdx: index("member_card_batches_created_by_idx").on(
+        t.createdByStaffId
+      ),
+    })
+  )
+  .enableRLS();
+
+export const memberCards = posSchema
+  .table(
+    "member_cards",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      batchId: integer("batch_id").references(() => memberCardBatches.id, {
+        onDelete: "restrict",
+      }),
+      memberCode: text("member_code").notNull().unique(),
+      status: text("status", { enum: ["unused", "activated", "void"] })
+        .notNull()
+        .default("unused"),
+      activatedMemberId: integer("activated_member_id")
+        .unique()
+        .references(() => members.id, { onDelete: "set null" }),
+      activatedAt: timestamp("activated_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      statusCheck: check(
+        "member_cards_status_check",
+        sql`${t.status} in ('unused', 'activated', 'void')`
+      ),
+      activationCheck: check(
+        "member_cards_activation_check",
+        sql`(${t.status} = 'unused' and ${t.activatedMemberId} is null and ${t.activatedAt} is null)
+          or (${t.status} = 'activated' and ${t.activatedAt} is not null)
+          or (${t.status} = 'void' and ${t.activatedMemberId} is null)`
+      ),
+      batchIdx: index("member_cards_batch_idx").on(t.batchId),
+      statusIdx: index("member_cards_status_idx").on(t.status),
+    })
+  )
   .enableRLS();
 
 export const pointTransactions = posSchema
@@ -858,7 +949,9 @@ export const pointTransactions = posSchema
       saleId: integer("sale_id").references(() => sales.id, {
         onDelete: "set null",
       }),
-      type: text("type", { enum: ["earn", "redeem", "adjust"] }).notNull(),
+      type: text("type", {
+        enum: ["earn", "redeem", "adjust", "expire"],
+      }).notNull(),
       points: integer("points").notNull(),
       note: text("note"),
       createdAt: timestamp("created_at", { withTimezone: true })
@@ -1284,13 +1377,17 @@ export const paymentSessions = posSchema
         .$type<ThungngernSessionStatus>()
         .notNull()
         .default("pending"),
-      amount: numeric("amount", { precision: 18, scale: 3, mode: "number" })
-        .notNull(), // ยอดที่ล็อกใน QR (บาท)
+      amount: numeric("amount", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      }).notNull(), // ยอดที่ล็อกใน QR (บาท)
       saleId: integer("sale_id").references(() => sales.id, {
         onDelete: "set null",
       }),
-      confirmedBy: text("confirmed_by", { enum: ["auto", "manual", "webhook"] })
-        .$type<PaymentConfirmedBy>(),
+      confirmedBy: text("confirmed_by", {
+        enum: ["auto", "manual", "webhook"],
+      }).$type<PaymentConfirmedBy>(),
       externalRef: text("external_ref"), // transRef จาก Slip2Go/ธนาคาร (คอลัมน์เดิม)
       // transRef จากสลิปที่ตรวจผ่าน Slip2Go — สลิป 1 ใบใช้ปิดบิลได้ครั้งเดียว (unique เฉพาะที่มีค่า)
       transRef: text("trans_ref"),
@@ -1434,7 +1531,13 @@ export const securityEvents = posSchema
         .default(sql`pos.default_branch_id()`)
         .references(() => branches.id, { onDelete: "restrict" }),
       category: text("category", {
-        enum: ["auth", "data_tampering", "permission", "vulnerability", "system"],
+        enum: [
+          "auth",
+          "data_tampering",
+          "permission",
+          "vulnerability",
+          "system",
+        ],
       }).notNull(),
       severity: text("severity", {
         enum: ["info", "warning", "critical"],
@@ -1535,6 +1638,8 @@ export type ShiftReading = typeof shiftReadings.$inferSelect;
 export type Sale = typeof sales.$inferSelect;
 export type SaleItem = typeof saleItems.$inferSelect;
 export type Member = typeof members.$inferSelect;
+export type MemberCardBatch = typeof memberCardBatches.$inferSelect;
+export type MemberCard = typeof memberCards.$inferSelect;
 export type PointTransaction = typeof pointTransactions.$inferSelect;
 export type Reward = typeof rewards.$inferSelect;
 export type RewardRedemption = typeof rewardRedemptions.$inferSelect;

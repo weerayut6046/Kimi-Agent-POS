@@ -13,12 +13,13 @@ describe("buildOfflineReceipt", () => {
         memberId: 7,
         items: [
           { productId: 1, qty: 2 },
-          { productId: 2, qty: 1.5 },
+          { productId: 2, qty: 3 },
         ],
         discount: 5,
         paymentMethod: "cash",
         received: 200,
         pointsToRedeem: 10,
+        loyaltyChoice: "redeem",
       },
       lines: [
         {
@@ -40,7 +41,7 @@ describe("buildOfflineReceipt", () => {
       ],
       context: {
         vatRate: 7,
-        pointEarnPerBaht: 25,
+        pointEarnPerBaht: 100,
         pointRedeemValue: 1,
         memberName: "สมาชิกทดสอบ",
         customerName: null,
@@ -56,18 +57,18 @@ describe("buildOfflineReceipt", () => {
 
     expect(receipt.sale).toMatchObject({
       id: -1,
-      subtotal: 80,
+      subtotal: 140,
       discount: 15,
-      total: 65,
-      vatAmount: 4.25,
+      total: 125,
+      vatAmount: 8.18,
       received: 200,
-      changeAmt: 135,
-      pointsEarned: 2,
+      changeAmt: 75,
+      pointsEarned: 0,
       pointsRedeemed: 10,
     });
     expect(receipt.items).toEqual([
       { name: "น้ำดื่ม", qty: 2, unit: "ขวด", unitPrice: 10, amount: 20 },
-      { name: "น้ำมัน", qty: 1.5, unit: "ลิตร", unitPrice: 40, amount: 60 },
+      { name: "น้ำมัน", qty: 3, unit: "ลิตร", unitPrice: 40, amount: 120 },
     ]);
   });
 
@@ -84,7 +85,7 @@ describe("buildOfflineReceipt", () => {
       lines: [],
       context: {
         vatRate: 7,
-        pointEarnPerBaht: 25,
+        pointEarnPerBaht: 100,
         pointRedeemValue: 1,
         memberName: null,
         customerName: null,
@@ -125,7 +126,7 @@ describe("buildOfflineReceipt", () => {
         ],
         context: {
           vatRate: 7,
-          pointEarnPerBaht: 25,
+          pointEarnPerBaht: 100,
           pointRedeemValue: 1,
           memberName: null,
           customerName: null,
@@ -179,7 +180,7 @@ describe("buildOfflineReceipt", () => {
         ],
         context: {
           vatRate: 7,
-          pointEarnPerBaht: 25,
+          pointEarnPerBaht: 100,
           pointRedeemValue: 1,
           memberName: null,
           customerName: null,

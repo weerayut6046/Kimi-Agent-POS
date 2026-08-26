@@ -10,6 +10,18 @@ export function normalizeMeterOcrMode(_value: unknown): MeterOcrMode {
   return "local";
 }
 
+export const DEFAULT_POINT_EARN_PER_BAHT = 100;
+export const DEFAULT_POINT_REDEEM_VALUE = 1;
+
+/** อ่านค่าตัวเลขบวกจาก settings และย้อนกลับไปใช้ค่ามาตรฐานเมื่อข้อมูลไม่ถูกต้อง */
+export function positiveSettingNumber(
+  value: unknown,
+  fallback: number
+): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   shop_name: "ปั๊มน้ำมันกลางใหญ่บริการ",
   shop_branch: "สาขาหลัก",
@@ -17,8 +29,8 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   tax_id: "0105566001123",
   shop_phone: "02-123-4567",
   vat_rate: "7",
-  point_earn_per_baht: "25",
-  point_redeem_value: "1",
+  point_earn_per_baht: String(DEFAULT_POINT_EARN_PER_BAHT),
+  point_redeem_value: String(DEFAULT_POINT_REDEEM_VALUE),
   receipt_prefix: "R",
   receipt_next_no: "1",
   tax_invoice_prefix: "T",
@@ -34,6 +46,11 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   pay_qr_enabled: "1",
   pay_card_enabled: "1",
   pay_credit_enabled: "1",
+  promotion_enabled: "1",
+  promotion_name: "โปรโมชั่นลดราคาน้ำมัน สิงหาคม 2569",
+  promotion_discount: "0.50",
+  promotion_start_date: "2026-08-01",
+  promotion_end_date: "2026-08-31",
   meter_ocr_mode: "local",
 };
 

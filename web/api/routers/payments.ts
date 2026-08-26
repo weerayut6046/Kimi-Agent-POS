@@ -36,6 +36,7 @@ const saleInputSchema = z.object({
     .min(1),
   discount: z.number().nonnegative().default(0),
   pointsToRedeem: z.number().int().nonnegative().default(0),
+  loyaltyChoice: z.enum(["earn", "redeem"]).optional(),
 });
 
 async function getSettingMap(db: ReturnType<typeof getDb>, branchId: number) {

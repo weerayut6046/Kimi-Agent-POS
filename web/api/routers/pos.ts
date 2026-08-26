@@ -6,6 +6,7 @@ import {
   eq,
   getTableColumns,
   gte,
+  gt,
   inArray,
   like,
   lt,
@@ -20,6 +21,8 @@ import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
+import { expireDueMemberPoints } from "../lib/memberExpiry";
+import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
   attachShiftCashMeter,
   attachShiftLubricantSales,
@@ -36,6 +39,11 @@ import {
   METER_OCR_MAX_IMAGES_PER_REQUEST,
 } from "@contracts/meterOcr";
 import { assessMeterReading } from "@contracts/meterReconciliation";
+import {
+  DEFAULT_POINT_EARN_PER_BAHT,
+  DEFAULT_POINT_REDEEM_VALUE,
+  positiveSettingNumber,
+} from "@contracts/settings";
 import { env } from "../lib/env";
 import {
   MeterAiVerifierError,
@@ -295,6 +303,7 @@ async function reverseSaleEffects(
       .from(members)
       .where(eq(members.id, sale.memberId));
     if (m) {
+      if (isMemberCardExpired(m.cardExpiresAt)) return;
       const restored = m.points - sale.pointsEarned + sale.pointsRedeemed;
       await tx
         .update(members)
@@ -420,7 +429,8 @@ export const posRouter = createRouter({
           if (error.kind === "not_configured") {
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
-              message: "ยังไม่ได้เปิดใช้ AI ตรวจมิเตอร์ กรุณาตั้งค่า GEMINI_API_KEY",
+              message:
+                "ยังไม่ได้เปิดใช้ AI ตรวจมิเตอร์ กรุณาตั้งค่า GEMINI_API_KEY",
             });
           }
           if (error.kind === "timeout") {
@@ -1418,6 +1428,7 @@ export const posRouter = createRouter({
         customerId: z.number().int().positive().optional(), // บังคับเมื่อ paymentMethod = credit
         received: z.number().nonnegative().default(0),
         pointsToRedeem: z.number().int().nonnegative().default(0),
+        loyaltyChoice: z.enum(["earn", "redeem"]).optional(),
         clientReceiptNo: z
           .string()
           .regex(/^OFF-[A-Z0-9]{6}-\d{14}-\d{4,8}$/)
@@ -1488,8 +1499,14 @@ export const posRouter = createRouter({
         throw new Error("ช่องทางชำระเงินนี้ถูกปิดใช้งานโดยผู้ดูแล");
       }
       const vatRate = Number(settingMap.vat_rate ?? "7");
-      const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
-      const pointValue = Number(settingMap.point_redeem_value ?? "1");
+      const earnPer = positiveSettingNumber(
+        settingMap.point_earn_per_baht,
+        DEFAULT_POINT_EARN_PER_BAHT
+      );
+      const pointValue = positiveSettingNumber(
+        settingMap.point_redeem_value,
+        DEFAULT_POINT_REDEEM_VALUE
+      );
 
       // คำนวณราคาฝั่งเซิร์ฟเวอร์เสมอ
       const lines = input.items.map(it => {
@@ -1523,13 +1540,32 @@ export const posRouter = createRouter({
       const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
 
       // แลกแต้มเป็นส่วนลด
+      const loyaltyChoice =
+        input.loyaltyChoice ??
+        (input.pointsToRedeem > 0 ? "redeem" : "earn");
+      if (input.loyaltyChoice && !input.memberId) {
+        throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
+      }
+      if (input.loyaltyChoice === "earn" && input.pointsToRedeem > 0) {
+        throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
+      }
+      if (input.loyaltyChoice === "redeem" && input.pointsToRedeem === 0) {
+        throw new Error("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
+      }
+      if (input.pointsToRedeem > 0 && !input.memberId) {
+        throw new Error("ต้องเลือกสมาชิกก่อนใช้แต้ม");
+      }
       let member: typeof members.$inferSelect | undefined;
       let redeemDiscount = 0;
       if (input.memberId) {
+        await expireDueMemberPoints(db, branchId);
         member = await db.query.members.findFirst({
           where: eq(members.id, input.memberId),
         });
         if (!member) throw new Error("ไม่พบสมาชิก");
+        if (isMemberCardExpired(member.cardExpiresAt)) {
+          throw new Error("บัตรสมาชิกหมดอายุแล้ว กรุณาต่ออายุบัตรก่อนใช้งาน");
+        }
         if (input.pointsToRedeem > 0) {
           if (input.pointsToRedeem > member.points)
             throw new Error("แต้มไม่พอ");
@@ -1545,7 +1581,8 @@ export const posRouter = createRouter({
         input.paymentMethod === "cash"
           ? r2(Math.max(0, input.received - total))
           : 0;
-      const pointsEarned = member ? Math.floor(total / earnPer) : 0;
+      const pointsEarned =
+        member && loyaltyChoice === "earn" ? Math.floor(total / earnPer) : 0;
 
       // ขายเชื่อ: บังคับเลือกลูกค้า และเช็กวงเงินเครดิต (creditLimit = 0 คือไม่จำกัด)
       let customer: typeof customers.$inferSelect | undefined;
@@ -1653,12 +1690,20 @@ export const posRouter = createRouter({
         }
 
         if (member) {
-          await tx
+          const updatedMember = await tx
             .update(members)
             .set({
               points: sql`${members.points} - ${input.pointsToRedeem} + ${pointsEarned}`,
             })
-            .where(eq(members.id, member.id));
+            .where(
+              and(
+                eq(members.id, member.id),
+                gte(members.points, input.pointsToRedeem),
+                gt(members.cardExpiresAt, new Date())
+              )
+            )
+            .returning({ id: members.id });
+          if (!updatedMember[0]) throw new Error("แต้มไม่พอ");
           if (pointsEarned > 0) {
             await tx.insert(pointTransactions).values({
               branchId,
@@ -1986,6 +2031,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await expireDueMemberPoints(db, branchId);
       const settingMap = await getSettingMap(db, branchId);
       if ((settingMap[`pay_${input.refundMethod}_enabled`] ?? "1") === "0") {
         throw new Error("ช่องทางคืนเงินนี้ถูกปิดใช้งานโดยผู้ดูแล");
@@ -2173,20 +2219,36 @@ export const posRouter = createRouter({
                   1e-9
               )
             : 0;
-        const removedEarned = Math.max(
-          0,
-          Math.min(
-            originalSale.pointsEarned - priorRemovedEarned,
-            targetRemovedEarned - priorRemovedEarned
-          )
-        );
-        const restoredRedeemed = Math.max(
-          0,
-          Math.min(
-            originalSale.pointsRedeemed - priorRestoredRedeemed,
-            targetRestoredRedeemed - priorRestoredRedeemed
-          )
-        );
+        const originalMember = originalSale.memberId
+          ? (
+              await tx
+                .select()
+                .from(members)
+                .where(eq(members.id, originalSale.memberId))
+                .for("update")
+            )[0]
+          : null;
+        const keepPointReversal =
+          originalMember != null &&
+          !isMemberCardExpired(originalMember.cardExpiresAt);
+        const removedEarned = keepPointReversal
+          ? Math.max(
+              0,
+              Math.min(
+                originalSale.pointsEarned - priorRemovedEarned,
+                targetRemovedEarned - priorRemovedEarned
+              )
+            )
+          : 0;
+        const restoredRedeemed = keepPointReversal
+          ? Math.max(
+              0,
+              Math.min(
+                originalSale.pointsRedeemed - priorRestoredRedeemed,
+                targetRestoredRedeemed - priorRestoredRedeemed
+              )
+            )
+          : 0;
 
         const openShift = await tx.query.shifts.findFirst({
           columns: { id: true },
@@ -2317,6 +2379,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await expireDueMemberPoints(db, branchId);
       const sale = await db.transaction(async tx => {
         const [lockedSale] = await tx
           .select()
@@ -2389,6 +2452,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await expireDueMemberPoints(db, branchId);
       const sale = await db.query.sales.findFirst({
         where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
@@ -2419,8 +2483,23 @@ export const posRouter = createRouter({
         paymentMethod === "cash" ? r2(Math.max(0, received - total)) : 0;
 
       const settingMap = await getSettingMap(db, branchId);
-      const earnPer = Number(settingMap.point_earn_per_baht ?? "25");
-      const pointsEarned = sale.memberId ? Math.floor(total / earnPer) : 0;
+      const earnPer = positiveSettingNumber(
+        settingMap.point_earn_per_baht,
+        DEFAULT_POINT_EARN_PER_BAHT
+      );
+      const saleMember = sale.memberId
+        ? await db.query.members.findFirst({
+            where: eq(members.id, sale.memberId),
+          })
+        : null;
+      const memberCardActive =
+        saleMember != null && !isMemberCardExpired(saleMember.cardExpiresAt);
+      const pointsEarned =
+        sale.pointsRedeemed > 0
+          ? 0
+          : memberCardActive
+            ? Math.floor(total / earnPer)
+            : sale.pointsEarned;
 
       await db.transaction(async tx => {
         const [lockedSale] = await tx
@@ -2515,6 +2594,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await expireDueMemberPoints(db, branchId);
       const sale = await db.query.sales.findFirst({
         where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });

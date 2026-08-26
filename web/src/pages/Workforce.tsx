@@ -753,9 +753,17 @@ export default function Workforce() {
                               : "ยังไม่ตั้งค่า"}
                           </TableCell>
                           <TableCell className="text-right">
-                            {profile.baseRate == null
-                              ? "-"
-                              : `฿${fmtMoney(profile.baseRate)}`}
+                            <div>
+                              {profile.baseRate == null
+                                ? "-"
+                                : `฿${fmtMoney(profile.baseRate)}`}
+                            </div>
+                            {profile.salaryType === "monthly" &&
+                              profile.baseRate != null && (
+                                <div className="text-xs text-muted-foreground">
+                                  ฿{fmtMoney(profile.baseRate / 30)}/วัน
+                                </div>
+                              )}
                           </TableCell>
                           <TableCell className="text-right">
                             {profile.overtimeRate == null
@@ -866,9 +874,16 @@ export default function Workforce() {
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-muted-foreground">อัตราหลัก</span>
-                        <span className="font-semibold">
-                          ฿{fmtMoney(myProfile.baseRate ?? 0)}
-                        </span>
+                        <div className="text-right">
+                          <div className="font-semibold">
+                            ฿{fmtMoney(myProfile.baseRate ?? 0)}
+                          </div>
+                          {myProfile.salaryType === "monthly" && (
+                            <div className="text-xs text-muted-foreground">
+                              ฿{fmtMoney((myProfile.baseRate ?? 0) / 30)}/วัน
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="flex justify-between gap-3">
                         <span className="text-muted-foreground">
@@ -912,9 +927,8 @@ export default function Workforce() {
 
           {isAdmin && (
             <p className="text-xs text-muted-foreground">
-              พนักงานรายเดือนหักขาดงานอัตโนมัติวันละ เงินเดือน ÷ 30
-              โดยสถานะลาไม่ถูกหัก รายวัน/รายชั่วโมงไม่ถูกหักซ้ำ
-              และยอดเบิกจากทุกกะจะถูกหักเต็มจำนวน
+              พนักงานรายเดือนคิดค่าแรงต่อวันจาก เงินเดือน ÷ 30 แล้วคูณจำนวน
+              วันที่มาทำงาน จากนั้นหักยอดเบิกเงินล่วงหน้าจากทุกกะเต็มจำนวน
             </p>
           )}
 
@@ -955,7 +969,14 @@ export default function Workforce() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          ฿{fmtMoney(row.baseAmount)}
+                          <div>฿{fmtMoney(row.baseAmount)}</div>
+                          {row.salaryType === "monthly" &&
+                            row.baseRate != null && (
+                              <div className="text-xs text-muted-foreground">
+                                ฿{fmtMoney(row.baseRate / 30)} ×{" "}
+                                {fmtNum(row.workDays)} วัน
+                              </div>
+                            )}
                         </TableCell>
                         <TableCell className="text-right">
                           ฿{fmtMoney(row.overtimeAmount)}
@@ -1106,8 +1127,8 @@ export default function Workforce() {
                         </div>
                         {myPayroll.absenceDays > 0 && (
                           <div className="mt-1 text-xs text-red-700">
-                            ขาดงาน {fmtNum(myPayroll.absenceDays)} วัน หัก ฿
-                            {fmtMoney(myPayroll.absenceDeduction)}
+                            ขาดงาน {fmtNum(myPayroll.absenceDays)} วัน
+                            (ไม่นับเป็นวันทำงาน)
                           </div>
                         )}
                         {myPayroll.advanceDeduction > 0 && (

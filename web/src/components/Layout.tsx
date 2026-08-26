@@ -25,6 +25,7 @@ import {
   Search,
   CornerDownLeft,
   Sparkles,
+  BadgePlus,
   type LucideIcon,
 } from "lucide-react";
 import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
@@ -122,6 +123,14 @@ const menus: MenuItem[] = [
     group: "customer",
   },
   {
+    permission: "members",
+    to: "/member-cards",
+    label: "สร้างชุดบัตรสมาชิก",
+    icon: BadgePlus,
+    managerOnly: true,
+    group: "customer",
+  },
+  {
     permission: "customers",
     to: "/customers",
     label: "ลูกค้าธุรกิจ",
@@ -213,6 +222,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/stock": () => import("@/pages/Stock"),
   "/stock/count": () => import("@/pages/StockCount"),
   "/members": () => import("@/pages/Members"),
+  "/member-cards": () => import("@/pages/MemberCardBatches"),
   "/customers": () => import("@/pages/Customers"),
   "/debts": () => import("@/pages/Debts"),
   "/sales": () => import("@/pages/Sales"),

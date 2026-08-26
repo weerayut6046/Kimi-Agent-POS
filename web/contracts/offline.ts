@@ -11,6 +11,7 @@ export type DesktopSaleInput = {
   paymentMethod: SalePaymentMethod;
   received: number;
   pointsToRedeem: number;
+  loyaltyChoice?: "earn" | "redeem";
 };
 
 export type DesktopSaleLine = {

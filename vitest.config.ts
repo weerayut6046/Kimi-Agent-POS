@@ -23,6 +23,7 @@ export default defineConfig({
     include: [
       "web/api/**/*.test.ts",
       "web/api/**/*.spec.ts",
+      "web/contracts/**/*.test.ts",
       "web/db/**/*.test.ts",
       "web/src/**/*.test.ts",
       "desktop/**/*.test.ts",

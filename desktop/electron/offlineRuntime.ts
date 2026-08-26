@@ -164,9 +164,13 @@ export function buildOfflineReceipt(
     request.input.paymentMethod === "cash"
       ? r2(Math.max(0, request.input.received - total))
       : 0;
-  const pointsEarned = request.input.memberId
-    ? Math.floor(total / request.context.pointEarnPerBaht)
-    : 0;
+  const loyaltyChoice =
+    request.input.loyaltyChoice ??
+    (request.input.pointsToRedeem > 0 ? "redeem" : "earn");
+  const pointsEarned =
+    request.input.memberId && loyaltyChoice === "earn"
+      ? Math.floor(total / request.context.pointEarnPerBaht)
+      : 0;
 
   return {
     sale: {

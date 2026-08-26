@@ -41,7 +41,9 @@ describe("createInitialSettingsForm", () => {
 
     const form = createInitialSettingsForm(cached);
 
-    expect(form).toEqual(cached);
+    expect(form).toMatchObject(cached);
+    expect(form.promotion_enabled).toBe("1");
+    expect(form.promotion_discount).toBe("0.50");
     expect(form).not.toBe(cached);
   });
 
@@ -124,8 +126,8 @@ describe("staff password validation", () => {
   });
 
   it("preserves ordinary server errors", () => {
-    expect(staffMutationErrorMessage(new Error("ชื่อผู้ใช้นี้ถูกใช้แล้ว"))).toBe(
-      "ชื่อผู้ใช้นี้ถูกใช้แล้ว"
-    );
+    expect(
+      staffMutationErrorMessage(new Error("ชื่อผู้ใช้นี้ถูกใช้แล้ว"))
+    ).toBe("ชื่อผู้ใช้นี้ถูกใช้แล้ว");
   });
 });

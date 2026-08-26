@@ -50,6 +50,7 @@ import {
   Eye,
   EyeOff,
   GripVertical,
+  BadgePercent,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
@@ -119,6 +120,14 @@ import {
   type MenuPermissionKey,
   type StaffRole,
 } from "@contracts/menuPermissions";
+import {
+  DEFAULT_POINT_EARN_PER_BAHT,
+  DEFAULT_POINT_REDEEM_VALUE,
+} from "@contracts/settings";
+import {
+  activeReceiptPromotion,
+  promotionSettingsValidationMessage,
+} from "@contracts/promotion";
 
 function staffMenuPermissions(
   role: StaffRole,
@@ -730,7 +739,7 @@ export default function Settings() {
     setPrevSettingMap(settingMap);
     if (settingMap) {
       setForm(f => {
-        const merged = { ...settingMap };
+        const merged = createInitialSettingsForm(settingMap);
         for (const k of Object.keys(f)) {
           // ยังไม่เคยโหลด settingMap — ทุก key ในฟอร์มคือการแก้ของผู้ใช้ เก็บไว้ทั้งหมด
           if (!prevSettingMap) {
@@ -1225,6 +1234,11 @@ export default function Settings() {
   // กันตัวนับถอยหลังกรณีมีการออกเอกสารระหว่างที่เปิดหน้านี้ค้างไว้
   const COUNTER_KEYS = ["receipt_next_no", "tax_invoice_next_no"];
   const saveAll = () => {
+    const promotionError = promotionSettingsValidationMessage(form);
+    if (promotionError) {
+      fail(promotionError);
+      return;
+    }
     const entries = Object.entries(form)
       .filter(
         ([k, v]) =>
@@ -1295,6 +1309,7 @@ export default function Settings() {
     `${prefix || fallback}${String(Math.max(1, Number(next ?? "1") || 1)).padStart(5, "0")}`;
 
   const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
+  const promotionPreview = activeReceiptPromotion(form);
 
   // ระหว่างโหลด/โหลดพลาด อย่าแสดงฟอร์มค่า default — ผู้ใช้จะเข้าใจผิดว่าค่าที่ตั้งไว้หาย (เคยเกิดเหตุนี้จริง)
   if (settingsPending && !settingMap) {
@@ -1433,7 +1448,12 @@ export default function Settings() {
                 <Label>สะสมแต้ม (กี่บาท = 1 แต้ม)</Label>
                 <Input
                   type="number"
-                  value={form.point_earn_per_baht ?? "25"}
+                  min={1}
+                  step={1}
+                  value={
+                    form.point_earn_per_baht ??
+                    String(DEFAULT_POINT_EARN_PER_BAHT)
+                  }
                   onChange={e => set("point_earn_per_baht", e.target.value)}
                 />
               </div>
@@ -1441,7 +1461,12 @@ export default function Settings() {
                 <Label>มูลค่าแต้มตอนใช้ (1 แต้ม = กี่บาท)</Label>
                 <Input
                   type="number"
-                  value={form.point_redeem_value ?? "1"}
+                  min={1}
+                  step={1}
+                  value={
+                    form.point_redeem_value ??
+                    String(DEFAULT_POINT_REDEEM_VALUE)
+                  }
                   onChange={e => set("point_redeem_value", e.target.value)}
                 />
               </div>
@@ -1451,6 +1476,118 @@ export default function Settings() {
                   onClick={saveAll}
                 >
                   บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* โปรโมชั่นส่วนลดท้ายบิล */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <BadgePercent className="w-4 h-4" /> โปรโมชั่นส่วนลดท้ายบิล
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div className="pr-3">
+                  <Label htmlFor="promotion_enabled" className="cursor-pointer">
+                    เปิดใช้โปรโมชั่นอัตโนมัติ
+                  </Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    ลดตามจำนวนลิตรของสินค้าหมวดน้ำมัน
+                    แล้วสรุปยอดส่วนลดท้ายใบเสร็จ
+                  </p>
+                </div>
+                <Switch
+                  id="promotion_enabled"
+                  disabled={!isAdmin}
+                  checked={form.promotion_enabled === "1"}
+                  onCheckedChange={enabled =>
+                    set("promotion_enabled", enabled ? "1" : "0")
+                  }
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>ชื่อโปรโมชั่น (แสดงบนใบเสร็จ)</Label>
+                  <Input
+                    maxLength={80}
+                    disabled={!isAdmin || form.promotion_enabled !== "1"}
+                    value={form.promotion_name ?? ""}
+                    onChange={event =>
+                      set("promotion_name", event.target.value)
+                    }
+                    placeholder="เช่น โปรโมชั่นประจำเดือน"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>ส่วนลดน้ำมัน (บาท/ลิตร)</Label>
+                  <Input
+                    type="number"
+                    min={0.01}
+                    step={0.01}
+                    disabled={!isAdmin || form.promotion_enabled !== "1"}
+                    value={form.promotion_discount ?? "0.50"}
+                    onChange={event =>
+                      set("promotion_discount", event.target.value)
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    0.50 บาท เท่ากับ 50 สตางค์
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>วันเริ่ม</Label>
+                    <Input
+                      type="date"
+                      disabled={!isAdmin || form.promotion_enabled !== "1"}
+                      value={form.promotion_start_date ?? ""}
+                      onChange={event =>
+                        set("promotion_start_date", event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>วันสิ้นสุด</Label>
+                    <Input
+                      type="date"
+                      disabled={!isAdmin || form.promotion_enabled !== "1"}
+                      value={form.promotion_end_date ?? ""}
+                      onChange={event =>
+                        set("promotion_end_date", event.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {form.promotion_enabled === "1" && (
+                <div
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    promotionPreview
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                      : promotionSettingsValidationMessage(form)
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-amber-200 bg-amber-50 text-amber-800"
+                  }`}
+                >
+                  {promotionPreview
+                    ? `กำลังใช้งานวันนี้ — ลด ${fmtMoney(promotionPreview.discountPerLiter)} บาทต่อลิตรน้ำมัน`
+                    : (promotionSettingsValidationMessage(form) ??
+                      "โปรโมชั่นยังไม่อยู่ในช่วงวันที่ใช้งาน")}
+                </div>
+              )}
+
+              <div>
+                <Button
+                  disabled={!isAdmin || saveSettings.isPending}
+                  onClick={saveAll}
+                >
+                  <Save className="w-4 h-4 mr-2" /> บันทึกโปรโมชั่น{" "}
+                  {!isAdmin && "(เฉพาะแอดมิน)"}
                 </Button>
               </div>
             </CardContent>

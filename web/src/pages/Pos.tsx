@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -72,13 +73,29 @@ import {
   parseReceiptPaper,
   printReceiptSilent,
 } from "@/lib/printDoc";
-import { fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
+import { fmtDateTH, fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
 import type { Product, Member, Customer } from "@db/schema";
 import type {
   DesktopReceipt,
   DesktopSaleInput,
   DesktopSaleResult,
 } from "@contracts/offline";
+import {
+  isScannableMemberCode,
+  normalizeMemberCode,
+} from "@contracts/memberCode";
+import { isMemberCardExpired } from "@contracts/memberExpiry";
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_POINT_EARN_PER_BAHT,
+  DEFAULT_POINT_REDEEM_VALUE,
+  positiveSettingNumber,
+} from "@contracts/settings";
+import {
+  activeReceiptPromotion,
+  appliedPromotionDiscount,
+  type AppliedReceiptPromotion,
+} from "@contracts/promotion";
 
 type CartLine = { product: Product; qty: number };
 
@@ -186,6 +203,9 @@ export default function Pos() {
   const [phoneQ, setPhoneQ] = useState("");
   const [discount, setDiscount] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [loyaltyChoice, setLoyaltyChoice] = useState<"earn" | "redeem" | null>(
+    null
+  );
   const [selectedPayMethod, setPayMethod] = useState<
     "cash" | "qr" | "card" | "credit" | "thungngern"
   >("cash");
@@ -196,6 +216,8 @@ export default function Pos() {
   const [fuelMode, setFuelMode] = useState<"liters" | "baht">("baht");
   const [fuelValue, setFuelValue] = useState("");
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [receiptPromotion, setReceiptPromotion] =
+    useState<AppliedReceiptPromotion | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [err, setErr] = useState("");
@@ -231,7 +253,14 @@ export default function Pos() {
     ? selectedPayMethod
     : (enabledPayMethods[0] ?? "cash");
 
-  const pointValue = Number(settingMap?.point_redeem_value ?? "1");
+  const pointEarnPerBaht = positiveSettingNumber(
+    settingMap?.point_earn_per_baht,
+    DEFAULT_POINT_EARN_PER_BAHT
+  );
+  const pointValue = positiveSettingNumber(
+    settingMap?.point_redeem_value,
+    DEFAULT_POINT_REDEEM_VALUE
+  );
   const activeProducts = useMemo(
     () => (products ?? []).filter(p => p.active && p.category === tab),
     [products, tab]
@@ -262,8 +291,36 @@ export default function Pos() {
   }, [cart, productById, products]);
 
   const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
-  const redeemDiscount = pointsToRedeem * pointValue;
-  const total = Math.max(0, subtotal - discount - redeemDiscount);
+  const promotionFuelLiters = cart.reduce(
+    (sum, line) => (line.product.category === "fuel" ? sum + line.qty : sum),
+    0
+  );
+  const activePromotion = settingMap
+    ? activeReceiptPromotion({ ...DEFAULT_SETTINGS, ...settingMap })
+    : null;
+  const promotionDiscount = appliedPromotionDiscount(
+    activePromotion,
+    promotionFuelLiters,
+    subtotal,
+    discount
+  );
+  const billDiscount = Math.round((discount + promotionDiscount) * 100) / 100;
+  const memberCardExpired = member
+    ? isMemberCardExpired(member.cardExpiresAt)
+    : false;
+  const maxRedeemablePoints =
+    member && !memberCardExpired
+      ? Math.min(
+          member.points,
+          Math.floor(Math.max(0, subtotal - billDiscount) / pointValue)
+        )
+      : 0;
+  const redeemPoints = Math.min(pointsToRedeem, maxRedeemablePoints);
+  if (redeemPoints !== pointsToRedeem) {
+    setPointsToRedeem(redeemPoints);
+  }
+  const redeemDiscount = redeemPoints * pointValue;
+  const total = Math.max(0, subtotal - billDiscount - redeemDiscount);
   const receivedNum = Number(received) || 0;
   const change = payMethod === "cash" ? Math.max(0, receivedNum - total) : 0;
 
@@ -510,11 +567,21 @@ export default function Pos() {
         };
       })
     );
+    setReceiptPromotion(
+      activePromotion && promotionDiscount > 0
+        ? {
+            ...activePromotion,
+            liters: promotionFuelLiters,
+            discount: promotionDiscount,
+          }
+        : null
+    );
     setReceipt(result);
     setCart([]);
     setMember(null);
     setDiscount(0);
     setPointsToRedeem(0);
+    setLoyaltyChoice(null);
     setReceived("");
     setCreditCustomer(null);
     setCustQ("");
@@ -575,10 +642,27 @@ export default function Pos() {
   const salePending =
     createSale.isPending || desktopSalePending || startThungngern.isPending;
 
+  const memberSearchReady = phoneQ.trim().length >= 3;
   const memberSearch = trpc.membership.findByPhone.useQuery(
     { phone: phoneQ },
-    { enabled: phoneQ.length >= 9 }
+    { enabled: memberSearchReady }
   );
+
+  useEffect(() => {
+    const scannedCode = normalizeMemberCode(phoneQ);
+    if (!isScannableMemberCode(scannedCode)) return;
+    const exactMember = memberSearch.data?.find(
+      candidate => normalizeMemberCode(candidate.memberCode) === scannedCode
+    );
+    if (!exactMember) return;
+    // ผลค้นหามาจากระบบภายนอกและต้องนำมาเป็นสถานะบิลปัจจุบัน
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setMember(exactMember);
+    setPointsToRedeem(0);
+    setLoyaltyChoice(null);
+    setPhoneQ("");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [memberSearch.data, phoneQ]);
 
   // ขายเชื่อ — ค้นหาลูกค้าเครดิต + ดึงยอดค้างของลูกค้าที่เลือก
   const { data: custResults } = trpc.customers.list.useQuery(
@@ -595,6 +679,18 @@ export default function Pos() {
 
   const checkout = async () => {
     if (cart.length === 0) return;
+    if (member && !loyaltyChoice) {
+      setErr("กรุณาถามลูกค้าและเลือกว่าจะสะสมแต้ม หรือใช้แต้มเป็นส่วนลด");
+      return;
+    }
+    if (member && loyaltyChoice === "redeem" && redeemPoints === 0) {
+      setErr("กรุณาระบุจำนวนแต้มที่ต้องการใช้เป็นส่วนลด");
+      return;
+    }
+    if (memberCardExpired) {
+      setErr("บัตรสมาชิกหมดอายุแล้ว กรุณานำสมาชิกออกจากบิลก่อนชำระเงิน");
+      return;
+    }
     if (cartStockIssue) {
       setErr(cartStockIssue);
       return;
@@ -611,7 +707,7 @@ export default function Pos() {
       setErr("ขณะออฟไลน์ยังไม่รองรับการขายเชื่อ กรุณาเลือกเงินสด QR หรือบัตร");
       return;
     }
-    if (syncStatus?.online === false && pointsToRedeem > 0) {
+    if (syncStatus?.online === false && redeemPoints > 0) {
       setErr("ขณะออฟไลน์ยังไม่รองรับการใช้แต้ม กรุณาตั้งค่าแต้มที่ใช้เป็น 0");
       return;
     }
@@ -624,8 +720,9 @@ export default function Pos() {
         staffName: staff?.name ?? "",
         memberId: member?.id,
         items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
-        discount,
-        pointsToRedeem,
+        discount: billDiscount,
+        pointsToRedeem: redeemPoints,
+        loyaltyChoice: member ? (loyaltyChoice ?? undefined) : undefined,
       });
       return;
     }
@@ -636,10 +733,11 @@ export default function Pos() {
       memberId: member?.id,
       customerId: payMethod === "credit" ? creditCustomer?.id : undefined,
       items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
-      discount,
+      discount: billDiscount,
       paymentMethod: payMethod,
       received: receivedNum,
-      pointsToRedeem,
+      pointsToRedeem: redeemPoints,
+      loyaltyChoice: member ? (loyaltyChoice ?? undefined) : undefined,
     };
 
     if (!window.posDesktop) {
@@ -662,7 +760,7 @@ export default function Pos() {
         })),
         context: {
           vatRate: Number(settingMap?.vat_rate ?? "7"),
-          pointEarnPerBaht: Number(settingMap?.point_earn_per_baht ?? "25"),
+          pointEarnPerBaht,
           pointRedeemValue: pointValue,
           memberName: member?.name ?? null,
           customerName: creditCustomer?.name ?? null,
@@ -926,7 +1024,13 @@ export default function Pos() {
             <CardContent className="space-y-4 bg-white/60 px-4 py-4 sm:px-5">
               {/* สมาชิก */}
               {member ? (
-                <div className="flex items-center justify-between rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-cyan-50 px-3 py-2.5">
+                <div
+                  className={`flex items-center justify-between rounded-2xl border px-3 py-2.5 ${
+                    memberCardExpired
+                      ? "border-red-200 bg-red-50"
+                      : "border-violet-200 bg-gradient-to-r from-violet-50 to-cyan-50"
+                  }`}
+                >
                   <div className="flex items-center gap-2.5 text-sm">
                     <div className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-md shadow-violet-500/20">
                       <Star className="size-4 fill-white/20" />
@@ -935,9 +1039,22 @@ export default function Pos() {
                       <div className="font-semibold text-violet-950">
                         {member.name}
                       </div>
-                      <div className="text-xs text-violet-700/70">
-                        สมาชิก · {member.points} แต้ม
-                      </div>
+                      {memberCardExpired ? (
+                        <div className="text-xs font-semibold text-red-600">
+                          บัตรหมดอายุ {fmtDateTH(member.cardExpiresAt)} · แต้ม 0
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-xs text-violet-700/70">
+                            {member.points} แต้ม · ทุก ฿
+                            {fmtMoney(pointEarnPerBaht)} ได้ 1 แต้ม
+                          </div>
+                          <div className="text-[11px] font-medium text-violet-600">
+                            ใช้แต้มได้ทุกสาขา · หมดอายุ{" "}
+                            {fmtDateTH(member.cardExpiresAt)}
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                   <button
@@ -946,6 +1063,7 @@ export default function Pos() {
                     onClick={() => {
                       setMember(null);
                       setPointsToRedeem(0);
+                      setLoyaltyChoice(null);
                     }}
                     className="grid size-8 place-items-center rounded-lg text-violet-500 hover:bg-violet-100"
                   >
@@ -957,15 +1075,15 @@ export default function Pos() {
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                     <Input
-                      placeholder="ค้นหาสมาชิกด้วยเบอร์โทร"
+                      placeholder="เบอร์โทร หรือสแกนบัตรสมาชิก"
                       value={phoneQ}
                       onChange={e => setPhoneQ(e.target.value)}
-                      inputMode="tel"
-                      aria-label="ค้นหาสมาชิกด้วยเบอร์โทร"
+                      autoComplete="off"
+                      aria-label="ค้นหาสมาชิกด้วยเบอร์โทรหรือรหัสบนบัตร"
                       className="h-11 pl-9"
                     />
                   </div>
-                  {phoneQ.length >= 9 && (
+                  {memberSearchReady && (
                     <div className="max-h-32 overflow-y-auto rounded-lg border bg-white text-sm shadow-lg">
                       {(memberSearch.data ?? []).map(m => (
                         <button
@@ -974,12 +1092,16 @@ export default function Pos() {
                           className="flex w-full justify-between border-b px-3 py-2.5 text-left last:border-0 hover:bg-blue-50"
                           onClick={() => {
                             setMember(m);
+                            setPointsToRedeem(0);
+                            setLoyaltyChoice(null);
                             setPhoneQ("");
                           }}
                         >
                           <span>{m.name}</span>
                           <span className="text-muted-foreground text-xs">
-                            {m.points} แต้ม
+                            {isMemberCardExpired(m.cardExpiresAt)
+                              ? "บัตรหมดอายุ"
+                              : `${m.points} แต้ม`}
                           </span>
                         </button>
                       ))}
@@ -1090,10 +1212,32 @@ export default function Pos() {
                     ฿{fmtMoney(subtotal)}
                   </span>
                 </div>
+                {activePromotion && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-1.5 font-semibold">
+                        <Sparkles className="size-3.5 shrink-0" />
+                        <span className="truncate">{activePromotion.name}</span>
+                      </span>
+                      <span className="shrink-0 font-bold number-display">
+                        {promotionDiscount > 0
+                          ? `−฿${fmtMoney(promotionDiscount)}`
+                          : `ลด ฿${fmtMoney(activePromotion.discountPerLiter)}/ลิตร`}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-emerald-700">
+                      {promotionFuelLiters > 0
+                        ? `ลด ฿${fmtMoney(activePromotion.discountPerLiter)}/ลิตร × ${fmtNum(promotionFuelLiters)} ลิตร และสรุปส่วนลดท้ายบิล`
+                        : "ใช้กับสินค้าหมวดน้ำมัน และสรุปส่วนลดให้อัตโนมัติท้ายบิล"}
+                    </div>
+                  </div>
+                )}
                 <div className="flex justify-between items-center gap-2">
                   <span className="flex items-center gap-1.5 text-slate-500">
                     <BadgePercent className="size-3.5" />
-                    ส่วนลด
+                    {activePromotion
+                      ? "ส่วนลดเพิ่มเติม (บาท)"
+                      : "ส่วนลดท้ายบิล (บาท)"}
                   </span>
                   <Input
                     type="number"
@@ -1106,29 +1250,122 @@ export default function Pos() {
                     className="h-9 w-24 text-right"
                   />
                 </div>
-                {member && member.points > 0 && (
-                  <div className="flex justify-between items-center gap-2">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <Star className="size-3.5" />
-                      ใช้แต้ม (มี {member.points})
-                    </span>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={member.points}
-                      disabled={syncStatus?.online === false}
-                      value={pointsToRedeem || ""}
-                      placeholder="0"
-                      onChange={e =>
-                        setPointsToRedeem(
-                          Math.min(
-                            member.points,
-                            Math.max(0, Math.floor(Number(e.target.value) || 0))
-                          )
-                        )
-                      }
-                      className="h-9 w-24 text-right"
-                    />
+                {member && !memberCardExpired && (
+                  <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3">
+                    <div>
+                      <div className="flex items-center gap-1.5 font-semibold text-violet-950">
+                        <Star className="size-3.5" />
+                        ถามลูกค้า: ต้องการสะสมแต้ม หรือใช้เป็นส่วนลด?
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-violet-600">
+                        กรุณาติ๊กเลือก 1 รายการก่อนชำระเงิน
+                      </div>
+                    </div>
+                    <div
+                      role="group"
+                      aria-label="ตัวเลือกแต้มสมาชิก"
+                      className="grid grid-cols-2 gap-2"
+                    >
+                      <label
+                        className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 transition-colors ${
+                          loyaltyChoice === "earn"
+                            ? "border-violet-500 bg-white text-violet-900 shadow-sm"
+                            : "border-violet-100 bg-white/60 text-slate-600 hover:border-violet-300"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={loyaltyChoice === "earn"}
+                          onCheckedChange={checked => {
+                            setLoyaltyChoice(checked === true ? "earn" : null);
+                            setPointsToRedeem(0);
+                            setErr("");
+                          }}
+                          aria-label="สะสมแต้ม"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-semibold">สะสมแต้ม</span>
+                          <span className="block text-[11px] text-slate-400">
+                            รับ{" "}
+                            {Math.floor(
+                              Math.max(0, subtotal - billDiscount) /
+                                pointEarnPerBaht
+                            )}{" "}
+                            แต้มจากบิลนี้
+                          </span>
+                        </span>
+                      </label>
+                      <label
+                        className={`flex items-start gap-2 rounded-xl border p-2.5 transition-colors ${
+                          syncStatus?.online === false ||
+                          maxRedeemablePoints === 0
+                            ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                            : loyaltyChoice === "redeem"
+                              ? "cursor-pointer border-emerald-500 bg-white text-emerald-900 shadow-sm"
+                              : "cursor-pointer border-violet-100 bg-white/60 text-slate-600 hover:border-emerald-300"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={loyaltyChoice === "redeem"}
+                          disabled={
+                            syncStatus?.online === false ||
+                            maxRedeemablePoints === 0
+                          }
+                          onCheckedChange={checked => {
+                            const redeemSelected = checked === true;
+                            setLoyaltyChoice(redeemSelected ? "redeem" : null);
+                            setPointsToRedeem(
+                              redeemSelected ? maxRedeemablePoints : 0
+                            );
+                            setErr("");
+                          }}
+                          aria-label="ใช้แต้มเป็นส่วนลด"
+                          className="mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-semibold">
+                            ใช้เป็นส่วนลด
+                          </span>
+                          <span className="block text-[11px] text-slate-400">
+                            มี {member.points} แต้ม · 1 แต้ม = ฿
+                            {fmtMoney(pointValue)}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                    {loyaltyChoice === "redeem" && (
+                      <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-emerald-100">
+                        <span className="text-xs text-emerald-800">
+                          จำนวนแต้มที่ใช้
+                          {redeemPoints > 0 &&
+                            ` · ลด ฿${fmtMoney(redeemDiscount)}`}
+                        </span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={maxRedeemablePoints}
+                          value={redeemPoints || ""}
+                          placeholder="0"
+                          onChange={e =>
+                            setPointsToRedeem(
+                              Math.min(
+                                maxRedeemablePoints,
+                                Math.max(
+                                  0,
+                                  Math.floor(Number(e.target.value) || 0)
+                                )
+                              )
+                            )
+                          }
+                          className="h-9 w-24 text-right"
+                        />
+                      </div>
+                    )}
+                    {!loyaltyChoice && (
+                      <div className="text-[11px] font-medium text-amber-700">
+                        ยังไม่ได้เลือกวิธีใช้สิทธิ์สมาชิก
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="mt-3 flex items-end justify-between rounded-2xl bg-gradient-to-br from-[#181540] via-[#292269] to-[#145064] px-4 py-4 text-white shadow-[0_16px_34px_rgba(36,29,91,0.22)] ring-1 ring-white/10">
@@ -1356,7 +1593,10 @@ export default function Pos() {
               <Button
                 className="shine-button h-14 w-full justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-600 px-5 text-base font-heading shadow-[0_16px_34px_rgba(88,70,220,0.28)] hover:from-violet-500 hover:via-indigo-600 hover:to-cyan-500"
                 disabled={
-                  cart.length === 0 || salePending || Boolean(cartStockIssue)
+                  cart.length === 0 ||
+                  salePending ||
+                  Boolean(cartStockIssue) ||
+                  memberCardExpired
                 }
                 onClick={() => void checkout()}
               >
@@ -1860,7 +2100,15 @@ export default function Pos() {
       </Dialog>
 
       {/* ใบเสร็จ */}
-      <Dialog open={!!receipt} onOpenChange={o => !o && setReceipt(null)}>
+      <Dialog
+        open={!!receipt}
+        onOpenChange={open => {
+          if (!open) {
+            setReceipt(null);
+            setReceiptPromotion(null);
+          }
+        }}
+      >
         <DialogContent className="max-w-sm" aria-describedby={undefined}>
           <DialogTitle className="sr-only">ใบเสร็จ</DialogTitle>
           {receipt && (
@@ -1877,6 +2125,7 @@ export default function Pos() {
                   settingMap={settingMap}
                   staffName={staff?.name}
                   logoUrl={logoUrl}
+                  promotion={receiptPromotion ?? undefined}
                 />
               </div>
             </>
@@ -1907,7 +2156,14 @@ export default function Pos() {
             >
               <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
             </Button>
-            <Button onClick={() => setReceipt(null)}>ปิด</Button>
+            <Button
+              onClick={() => {
+                setReceipt(null);
+                setReceiptPromotion(null);
+              }}
+            >
+              ปิด
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

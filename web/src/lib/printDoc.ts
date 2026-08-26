@@ -62,19 +62,39 @@ export function printElement(
   const links = Array.from(
     doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
   );
-  if (links.length === 0) {
-    setTimeout(run, 50);
-    return;
-  }
-  let settled = 0;
-  const onSettle = () => {
-    if (++settled >= links.length) run();
-  };
-  links.forEach(l => {
-    l.addEventListener("load", onSettle);
-    l.addEventListener("error", onSettle);
-  });
+  const images = Array.from(doc.querySelectorAll<HTMLImageElement>("img"));
+  const pendingAssets = [
+    ...links.map(
+      link =>
+        new Promise<void>(resolve => {
+          if (link.sheet) return resolve();
+          link.addEventListener("load", () => resolve(), { once: true });
+          link.addEventListener("error", () => resolve(), { once: true });
+        })
+    ),
+    ...images.map(
+      img =>
+        new Promise<void>(resolve => {
+          if (img.complete) return resolve();
+          img.addEventListener("load", () => resolve(), { once: true });
+          img.addEventListener("error", () => resolve(), { once: true });
+        })
+    ),
+  ];
+  const fontsReady = doc.fonts?.ready ?? Promise.resolve();
+  void Promise.allSettled([...pendingAssets, fontsReady]).then(() => run());
   setTimeout(run, 3_000); // fallback
+}
+
+/** พิมพ์บัตรสมาชิก PVC แนวนอนตามขนาดมาตรฐาน ISO/IEC 7810 ID-1 */
+export function printMemberCardElement(el: HTMLElement) {
+  printElement(
+    el,
+    "size: 85.6mm 54mm; margin: 0",
+    "html,body{width:85.6mm!important;height:54mm!important;overflow:hidden!important}" +
+      "#member-card-print{width:85.6mm!important;height:54mm!important;margin:0!important;box-shadow:none!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}" +
+      "#member-card-print *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}"
+  );
 }
 
 /** ขนาดกระดาษใบเสร็จที่ผู้ใช้เลือกเองในหน้า Settings (key receipt_paper_size) */
