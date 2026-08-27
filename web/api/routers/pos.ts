@@ -598,6 +598,10 @@ export const posRouter = createRouter({
               qty: z.number().min(0.001),
             })
           )
+          .max(
+            0,
+            "ฟีเจอร์น้ำมันเครื่อง / 2T ที่ขายเพิ่มปิดใช้งานชั่วคราว กรุณาบันทึกการขายผ่านหน้า POS"
+          )
           .default([]), // น้ำมันเครื่อง/2T ที่ขายเพิ่มและยังไม่ได้ลง POS
         cashCounts: z
           .record(z.string(), z.number().int().nonnegative())

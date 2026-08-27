@@ -211,7 +211,7 @@ describe("openShift / closeShift", () => {
     expect((await t.caller().pos.currentShift())?.id).toBe(cur!.id);
   });
 
-  it("รับเฉพาะน้ำมันเครื่องที่เปิดใช้งานและจำนวนไม่เกินสต๊อก", async () => {
+  it("ปฏิเสธน้ำมันเครื่อง / 2T ที่ขายเพิ่มระหว่างปิดใช้งานชั่วคราว", async () => {
     const cur = await t.caller().pos.currentShift();
     const nz = await allNozzles();
     const readings = nz.map(nozzle => ({
@@ -219,9 +219,6 @@ describe("openShift / closeShift", () => {
       closeMeter: nozzle.currentMeter,
       closeMoney: nozzle.currentMoney,
     }));
-    const water = await t.db.query.products.findFirst({
-      where: eq(products.code, "WATER"),
-    });
     const lubricant = await t.db.query.products.findFirst({
       where: eq(products.code, "LUBE-MC"),
     });
@@ -230,19 +227,9 @@ describe("openShift / closeShift", () => {
       t.caller().pos.closeShift({
         shiftId: cur!.id,
         readings,
-        lubricantItems: [{ productId: water!.id, qty: 1 }],
+        lubricantItems: [{ productId: lubricant!.id, qty: 1 }],
       })
-    ).rejects.toThrow("ไม่พบสินค้าน้ำมันเครื่องที่เปิดใช้งาน");
-
-    await expect(
-      t.caller().pos.closeShift({
-        shiftId: cur!.id,
-        readings,
-        lubricantItems: [
-          { productId: lubricant!.id, qty: lubricant!.stockQty + 1 },
-        ],
-      })
-    ).rejects.toThrow("สต๊อก");
+    ).rejects.toThrow("ปิดใช้งานชั่วคราว");
 
     expect((await t.caller().pos.currentShift())?.id).toBe(cur!.id);
   });
@@ -262,7 +249,10 @@ describe("openShift / closeShift", () => {
     const lubricantStockBefore = lubricant!.stockQty;
     await t.caller().pos.createSale({
       shiftId: cur!.id,
-      items: [{ productId: water!.id, qty: 2 }],
+      items: [
+        { productId: water!.id, qty: 2 },
+        { productId: lubricant!.id, qty: 2 },
+      ],
     });
 
     // หัวจ่าย 1 ขายไป 25 ลิตร (25 × 40.74 = 1,018.50) หัวจ่ายอื่นไม่ขาย
@@ -275,13 +265,12 @@ describe("openShift / closeShift", () => {
       })),
       countedCash: 700,
       transferAmount: 318.5,
-      lubricantItems: [{ productId: lubricant!.id, qty: 2 }],
     });
 
     expect(res.totalLiters).toBe(25);
     expect(res.totalAmount).toBe(1018.5);
     expect(res.totalMoneyMeter).toBe(1018.5);
-    expect(res.lubricantAmount).toBe(290);
+    expect(res.lubricantAmount).toBe(0); // ไม่มีรายการขายเพิ่มจากหน้าปิดกะ
     expect(res.diff).toBe(0); // P เท่ากับ ลิตร × ราคา
 
     // กะปิดแล้ว + ยอด POS ในกะ + ยอดเงินสดนับได้/ยอดโอนที่บันทึกตอนปิดกะ
