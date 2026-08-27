@@ -1,4 +1,10 @@
-import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type ReactNode,
+} from "react";
 import {
   closestCenter,
   DndContext,
@@ -85,15 +91,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { useDesktopSync } from "@/hooks/useDesktopSync";
+import { decodeQrImageFile } from "@/lib/qrImageDecoder";
 import {
   fmtMoney,
   fmtNum,
@@ -860,7 +862,15 @@ export default function Settings() {
     () => paymentConfig?.promptpayId ?? ""
   );
   const [tngMerchantPayload, setTngMerchantPayload] = useState("");
-  const [tngMerchantEditorOpen, setTngMerchantEditorOpen] = useState(false);
+  const [tngMerchantPreviewUrl, setTngMerchantPreviewUrl] = useState("");
+  const [tngMerchantFileName, setTngMerchantFileName] = useState("");
+  const [tngMerchantCandidate, setTngMerchantCandidate] = useState<{
+    billerId: string;
+    ref1: string;
+    ref2: string;
+  } | null>(null);
+  const [tngMerchantDecoding, setTngMerchantDecoding] = useState(false);
+  const tngMerchantInputRef = useRef<HTMLInputElement>(null);
   const [tngApiSecret, setTngApiSecret] = useState("");
   const [tngTestResult, setTngTestResult] = useState("");
   const [prevPaymentConfig, setPrevPaymentConfig] = useState(paymentConfig);
@@ -871,7 +881,9 @@ export default function Settings() {
       setTngQrMode(paymentConfig.qrMode);
       setTngPromptpayId(paymentConfig.promptpayId);
       setTngMerchantPayload("");
-      setTngMerchantEditorOpen(false);
+      setTngMerchantPreviewUrl("");
+      setTngMerchantFileName("");
+      setTngMerchantCandidate(null);
       setTngApiSecret("");
       setTngTestResult("");
     }
@@ -883,7 +895,9 @@ export default function Settings() {
       setTngQrMode(result.config.qrMode);
       setTngPromptpayId(result.config.promptpayId);
       setTngMerchantPayload("");
-      setTngMerchantEditorOpen(false);
+      setTngMerchantPreviewUrl("");
+      setTngMerchantFileName("");
+      setTngMerchantCandidate(null);
       setTngApiSecret("");
       utils.payments.config.setData(undefined, result.config);
       void utils.payments.thungngernStatus.invalidate();
@@ -891,6 +905,36 @@ export default function Settings() {
     },
     onError: e => fail(e.message),
   });
+  const validateMerchantQr = trpc.payments.validateMerchantQr.useMutation();
+  const readMerchantQrFile = async (file: File | undefined) => {
+    if (!file) return;
+    setTngMerchantDecoding(true);
+    try {
+      const decoded = await decodeQrImageFile(file);
+      const merchant = await validateMerchantQr.mutateAsync({
+        payload: decoded.payload,
+      });
+      setTngMerchantPayload(decoded.payload);
+      setTngMerchantPreviewUrl(decoded.previewUrl);
+      setTngMerchantFileName(file.name);
+      setTngMerchantCandidate(merchant);
+      ok("อ่านและตรวจสอบ QR ร้านค้าถุงเงินสำเร็จ กดบันทึกเพื่อยืนยัน");
+    } catch (error) {
+      fail(error instanceof Error ? error.message : "อ่านรูป QR ไม่สำเร็จ");
+    } finally {
+      setTngMerchantDecoding(false);
+    }
+  };
+  const onMerchantQrFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    void readMerchantQrFile(file);
+  };
+  const onMerchantQrDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (tngMerchantDecoding) return;
+    void readMerchantQrFile(event.dataTransfer.files?.[0]);
+  };
   const testPaymentConnection = trpc.payments.testConnection.useMutation({
     onSuccess: result => {
       setTngTestResult(
@@ -927,7 +971,7 @@ export default function Settings() {
       !paymentConfig?.merchant &&
       !tngMerchantPayload.trim()
     ) {
-      fail("กรุณาวาง QR ร้านค้าถุงเงิน (payload จากแอปถุงเงิน) ก่อนเปิดใช้งาน");
+      fail("กรุณาอัปโหลดรูป QR ร้านค้าถุงเงินก่อนเปิดใช้งาน");
       return;
     }
     savePaymentConfig.mutate({
@@ -1387,6 +1431,8 @@ export default function Settings() {
     `${prefix || fallback}${String(Math.max(1, Number(next ?? "1") || 1)).padStart(5, "0")}`;
 
   const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
+  const displayedMerchant =
+    tngMerchantCandidate ?? paymentConfig?.merchant ?? null;
   const perLiterPromotionEnabled =
     form.promotion_per_liter_feature_enabled === "1" &&
     form.promotion_enabled === "1";
@@ -3108,14 +3154,15 @@ export default function Settings() {
               </CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
                 เลือกช่องทางที่แสดงให้แคชเชียร์ในหน้าขาย (POS) — QR
-                ถุงเงินตั้งค่าแยกที่การ์ดด้านล่าง
+                รับเงินตั้งค่าแยกที่การ์ดด้านล่าง เมื่อเลือก “โอนจ่าย / QR”
+                ระบบจะล็อกยอดและพิมพ์ QR ลงใบเสร็จทุกบิล
               </p>
             </CardHeader>
             <CardContent className="space-y-3">
               {(
                 [
                   ["pay_cash_enabled", "เงินสด"],
-                  ["pay_qr_enabled", "QR พร้อมเพย์"],
+                  ["pay_qr_enabled", "โอนจ่าย / QR"],
                   ["pay_card_enabled", "บัตร"],
                   ["pay_credit_enabled", "เครดิต (ขายเชื่อ)"],
                 ] as const
@@ -3275,78 +3322,128 @@ export default function Settings() {
                           </div>
                           <Badge
                             variant={
-                              paymentConfig?.merchant
+                              displayedMerchant
                                 ? "default"
                                 : "destructive"
                             }
                           >
-                            {paymentConfig?.merchant
-                              ? "ตั้งค่าแล้ว"
+                            {tngMerchantCandidate
+                              ? "พร้อมบันทึก"
+                              : displayedMerchant
+                                ? "ตั้งค่าแล้ว"
                               : "ยังไม่ได้ตั้งค่า"}
                           </Badge>
                         </div>
-                        {paymentConfig?.merchant ? (
+
+                        <div
+                          className="rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 p-4 text-center transition-colors hover:border-emerald-400 hover:bg-emerald-50/70"
+                          onDragOver={event => event.preventDefault()}
+                          onDrop={onMerchantQrDrop}
+                        >
+                          {tngMerchantPreviewUrl ? (
+                            <img
+                              src={tngMerchantPreviewUrl}
+                              alt="ตัวอย่าง QR ร้านค้าถุงเงินที่อัปโหลด"
+                              className="mx-auto mb-3 max-h-48 max-w-full rounded-lg border bg-white object-contain p-2 shadow-sm"
+                            />
+                          ) : (
+                            <div className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                              <ImagePlus className="size-6" />
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              tngMerchantDecoding ||
+                              validateMerchantQr.isPending ||
+                              savePaymentConfig.isPending
+                            }
+                            onClick={() => tngMerchantInputRef.current?.click()}
+                          >
+                            {tngMerchantDecoding ||
+                            validateMerchantQr.isPending ? (
+                              <RefreshCw className="mr-1.5 size-4 animate-spin" />
+                            ) : (
+                              <ImagePlus className="mr-1.5 size-4" />
+                            )}
+                            {tngMerchantDecoding || validateMerchantQr.isPending
+                              ? "กำลังอ่านและตรวจสอบ QR…"
+                              : displayedMerchant
+                                ? "อัปโหลดรูป QR ใหม่"
+                                : "เลือกรูป QR ร้านค้า"}
+                          </Button>
+                          <input
+                            ref={tngMerchantInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            onChange={onMerchantQrFile}
+                          />
+                          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                            รองรับ PNG, JPG และ WebP ไม่เกิน 8MB
+                            หรือลากรูปมาวางบริเวณนี้
+                          </p>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            ระบบอ่าน QR ในเครื่องและส่งเฉพาะ payload
+                            ไปตรวจสอบ รูปต้นฉบับจะไม่ถูกอัปโหลดหรือจัดเก็บ
+                          </p>
+                          {tngMerchantFileName && (
+                            <div className="mt-2 text-xs font-medium text-emerald-800">
+                              <CheckCircle2 className="mr-1 inline size-3.5" />
+                              {tngMerchantFileName}
+                            </div>
+                          )}
+                        </div>
+
+                        {displayedMerchant ? (
                           <div className="grid gap-2 rounded-lg bg-muted/40 p-3 text-sm sm:grid-cols-2">
                             <div>
                               <div className="text-xs text-muted-foreground">
                                 รหัสร้านค้า (Ref 1)
                               </div>
                               <div className="font-mono">
-                                {paymentConfig.merchant.ref1}
+                                {displayedMerchant.ref1}
                               </div>
                             </div>
                             <div>
                               <div className="text-xs text-muted-foreground">
                                 ชื่อบัญชี (Ref 2)
                               </div>
-                              <div>{paymentConfig.merchant.ref2 || "—"}</div>
+                              <div>{displayedMerchant.ref2 || "—"}</div>
                             </div>
                             <div className="sm:col-span-2">
                               <div className="text-xs text-muted-foreground">
                                 Biller ID
                               </div>
                               <div className="font-mono">
-                                {paymentConfig.merchant.billerId}
+                                {displayedMerchant.billerId}
                               </div>
                             </div>
                           </div>
                         ) : (
                           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                             ยังไม่มี QR ร้านค้า — เปิดแอปถุงเงิน ไปที่ QR
-                            รับเงินของร้าน แล้วคัดลอก payload
-                            (ข้อความยาวขึ้นต้นด้วย 000201...) มาวางด้านล่าง
+                            รับเงินของร้าน บันทึกรูปหรือจับภาพหน้าจอ แล้วอัปโหลดรูป
+                            QR ที่เห็นเต็มกรอบ
                           </div>
                         )}
-                        <Collapsible
-                          open={tngMerchantEditorOpen}
-                          onOpenChange={setTngMerchantEditorOpen}
-                        >
-                          <CollapsibleTrigger asChild>
-                            <Button type="button" variant="outline" size="sm">
-                              {tngMerchantEditorOpen
-                                ? "ซ่อนช่องเปลี่ยน QR"
-                                : paymentConfig?.merchant
-                                  ? "เปลี่ยน QR ร้านค้า"
-                                  : "วาง QR ร้านค้า"}
-                            </Button>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="mt-2 space-y-1.5">
-                            <Textarea
-                              value={tngMerchantPayload}
-                              onChange={event =>
-                                setTngMerchantPayload(event.target.value)
-                              }
-                              placeholder="วาง payload QR ร้านค้าจากแอปถุงเงิน (ขึ้นต้นด้วย 000201...)"
-                              rows={3}
-                              className="font-mono text-xs"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              เซิร์ฟเวอร์จะตรวจโครงสร้างก่อนบันทึก และใช้
-                              payload นี้ฉีดยอดเงินของแต่ละบิลตอนสร้าง QR
-                              เว้นว่างเพื่อใช้ของเดิม
-                            </p>
-                          </CollapsibleContent>
-                        </Collapsible>
+                        {tngMerchantCandidate && paymentConfig?.merchant && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setTngMerchantPayload("");
+                              setTngMerchantPreviewUrl("");
+                              setTngMerchantFileName("");
+                              setTngMerchantCandidate(null);
+                            }}
+                          >
+                            ยกเลิกการเปลี่ยน QR
+                          </Button>
+                        )}
                       </div>
                     )}
 

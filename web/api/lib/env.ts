@@ -13,14 +13,26 @@ function runtimeValue(name: string): string | undefined {
 
 function required(name: string): string {
   const value = runtimeValue(name);
-  const isProduction =
-    runtimeValue("NODE_ENV") === "production" ||
-    typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !==
-      "undefined";
+  const isProduction = isProductionRuntime;
   if (!value && isProduction) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value ?? "";
+}
+
+const isProductionRuntime =
+  runtimeValue("NODE_ENV") === "production" ||
+  typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !== "undefined";
+
+const localAuthEnabled =
+  !isProductionRuntime &&
+  runtimeValue("LOCAL_AUTH_ENABLED")?.trim().toLowerCase() === "true";
+
+const appSecret = runtimeValue("APP_SECRET") ?? "";
+if (localAuthEnabled && appSecret.length < 32) {
+  throw new Error(
+    "APP_SECRET must contain at least 32 characters when LOCAL_AUTH_ENABLED=true"
+  );
 }
 
 export function projectRefFromSupabaseUrl(value: string | undefined): string {
@@ -69,11 +81,10 @@ const parsedMeterAiTimeoutMs = Number(
 
 export const env = {
   appId: runtimeValue("APP_ID") || "pumppos",
-  appSecret: runtimeValue("APP_SECRET") ?? "",
-  isProduction:
-    runtimeValue("NODE_ENV") === "production" ||
-    typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !==
-      "undefined",
+  appSecret,
+  isProduction: isProductionRuntime,
+  localAuthEnabled,
+  localAdminPassword: runtimeValue("LOCAL_ADMIN_PASSWORD") ?? "",
   databaseUrl,
   supabaseProjectRef,
   supabaseUrl:

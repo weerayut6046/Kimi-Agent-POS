@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import {
   Eye,
   Ban,
@@ -113,6 +114,49 @@ export default function Sales() {
     { id: detailId! },
     { enabled: detailId != null }
   );
+  const detailNeedsPaymentQr = Boolean(
+    detail &&
+      detail.sale.paymentMethod === "qr" &&
+      detail.sale.transactionType === "sale" &&
+      detail.sale.total > 0
+  );
+  const detailQrAmount = detailNeedsPaymentQr
+    ? r2(Math.abs(detail!.sale.total))
+    : 1;
+  const {
+    data: detailPaymentQr,
+    isFetching: detailPaymentQrLoading,
+    isError: detailPaymentQrError,
+  } = trpc.payments.promptpayQr.useQuery(
+    { amount: detailQrAmount },
+    { enabled: detailNeedsPaymentQr }
+  );
+  const [detailPaymentQrImage, setDetailPaymentQrImage] = useState<{
+    payload: string;
+    url: string;
+  } | null>(null);
+  useEffect(() => {
+    const payload = detailNeedsPaymentQr ? detailPaymentQr?.payload : null;
+    if (!payload) return;
+    let cancelled = false;
+    void QRCode.toDataURL(payload, {
+      width: 384,
+      margin: 2,
+      errorCorrectionLevel: "M",
+    })
+      .then(url => {
+        if (!cancelled) setDetailPaymentQrImage({ payload, url });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [detailNeedsPaymentQr, detailPaymentQr?.payload]);
+  const detailPaymentQrUrl =
+    detailPaymentQrImage &&
+    detailPaymentQrImage.payload === detailPaymentQr?.payload
+      ? detailPaymentQrImage.url
+      : null;
 
   const invalidate = () => {
     utils.pos.salesHistory.invalidate();
@@ -335,6 +379,15 @@ export default function Sales() {
           {detail && (
             <>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
+                {detailNeedsPaymentQr && !detailPaymentQrUrl && (
+                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                    {detailPaymentQrLoading
+                      ? "กำลังสร้าง QR โอนจ่ายสำหรับพิมพ์ซ้ำ…"
+                      : detailPaymentQrError || detailPaymentQr?.payload === null
+                        ? "ไม่สามารถสร้าง QR ได้ กรุณาตรวจสอบการตั้งค่า QR รับเงินของสาขา"
+                        : "กำลังเตรียม QR โอนจ่าย…"}
+                  </div>
+                )}
                 <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
                   <div className="p-4 text-sm">
                     <div id="receipt-print">
@@ -349,6 +402,7 @@ export default function Sales() {
                         settingMap={settingMap}
                         staffName={detail.sale.staffName}
                         logoUrl={logoUrl}
+                        paymentQrUrl={detailPaymentQrUrl}
                       />
                     </div>
                   </div>
@@ -357,6 +411,12 @@ export default function Sales() {
               <DialogFooter className="shrink-0 flex-wrap border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
                 <Button
                   variant="outline"
+                  disabled={detailNeedsPaymentQr && !detailPaymentQrUrl}
+                  title={
+                    detailNeedsPaymentQr && !detailPaymentQrUrl
+                      ? "รอให้ระบบสร้าง QR โอนจ่ายก่อนพิมพ์"
+                      : undefined
+                  }
                   onClick={() => {
                     const el = document.getElementById("receipt-print");
                     if (el)

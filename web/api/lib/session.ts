@@ -19,20 +19,22 @@ const requestSessions = new WeakMap<Request, StaffSessionClaims>();
 /** Attach a Supabase-authenticated staff profile to this request. */
 export function bindStaffSessionToRequest(
   req: Request,
-  session: StaffSessionClaims,
+  session: StaffSessionClaims
 ): void {
   requestSessions.set(req, session);
 }
 
 /** Return only a profile already verified and bound during this HTTP request. */
 export function boundStaffSessionFromRequest(
-  req: Request,
+  req: Request
 ): StaffSessionClaims | null {
   return requestSessions.get(req) ?? null;
 }
 
 function sign(payload: string): string {
-  return createHmac("sha256", env.appSecret).update(payload).digest("base64url");
+  return createHmac("sha256", env.appSecret)
+    .update(payload)
+    .digest("base64url");
 }
 
 export function issueStaffSession(
@@ -40,9 +42,7 @@ export function issueStaffSession(
     StaffSessionClaims,
     "exp" | "branchId" | "branchCode" | "branchName"
   > &
-    Partial<
-      Pick<StaffSessionClaims, "branchId" | "branchCode" | "branchName">
-    >,
+    Partial<Pick<StaffSessionClaims, "branchId" | "branchCode" | "branchName">>
 ): string {
   const payload = Buffer.from(
     JSON.stringify({
@@ -53,19 +53,20 @@ export function issueStaffSession(
       branchCode: staff.branchCode ?? "MAIN",
       branchName: staff.branchName ?? "สาขาหลัก",
       exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
-    }),
+    })
   ).toString("base64url");
   return `${payload}.${sign(payload)}`;
 }
 
-export function staffSessionFromHeader(req: Request): StaffSessionClaims | null {
+export function staffSessionFromHeader(
+  req: Request
+): StaffSessionClaims | null {
   const bound = requestSessions.get(req);
   if (bound) return bound;
 
-  // The custom HMAC session remains available only to isolated unit tests and
-  // the legacy desktop-offline test harness. Production cloud requests must
-  // authenticate with a Supabase JWT in the Authorization header.
-  if (process.env.NODE_ENV !== "test") return null;
+  // The custom HMAC session is accepted only by tests and the explicitly
+  // enabled self-hosted development mode. Production remains Supabase-only.
+  if (process.env.NODE_ENV !== "test" && !env.localAuthEnabled) return null;
   const token = req.headers.get(SESSION_HEADER);
   if (!token) return null;
   const [payload, suppliedSignature, extra] = token.split(".");
@@ -73,13 +74,16 @@ export function staffSessionFromHeader(req: Request): StaffSessionClaims | null 
 
   const expected = Buffer.from(sign(payload));
   const supplied = Buffer.from(suppliedSignature);
-  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+  if (
+    expected.length !== supplied.length ||
+    !timingSafeEqual(expected, supplied)
+  ) {
     return null;
   }
 
   try {
     const claims = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8"),
+      Buffer.from(payload, "base64url").toString("utf8")
     ) as Partial<StaffSessionClaims>;
     const branchId = claims.branchId ?? 1;
     if (
@@ -101,9 +105,7 @@ export function staffSessionFromHeader(req: Request): StaffSessionClaims | null 
       branchCode:
         typeof claims.branchCode === "string" ? claims.branchCode : "MAIN",
       branchName:
-        typeof claims.branchName === "string"
-          ? claims.branchName
-          : "สาขาหลัก",
+        typeof claims.branchName === "string" ? claims.branchName : "สาขาหลัก",
     };
   } catch {
     return null;

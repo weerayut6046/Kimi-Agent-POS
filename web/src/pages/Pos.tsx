@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 import QRCode from "qrcode";
 import {
   Fuel,
@@ -197,7 +198,13 @@ export default function Pos() {
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
-  const { data: currentShift } = trpc.pos.currentShift.useQuery();
+  const {
+    data: currentShift,
+    isLoading: isShiftLoading,
+    isError: isShiftError,
+    isFetching: isShiftFetching,
+    refetch: refetchCurrentShift,
+  } = trpc.pos.currentShift.useQuery();
 
   const [tab, setTab] = useState("fuel");
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -217,6 +224,9 @@ export default function Pos() {
   const [fuelMode, setFuelMode] = useState<"liters" | "baht">("baht");
   const [fuelValue, setFuelValue] = useState("");
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [receiptPaymentQrUrl, setReceiptPaymentQrUrl] = useState<string | null>(
+    null
+  );
   const [receiptPromotion, setReceiptPromotion] =
     useState<AppliedReceiptPromotion | null>(null);
   const [receiptBillPromotion, setReceiptBillPromotion] =
@@ -347,9 +357,13 @@ export default function Pos() {
   const receivedNum = Number(received) || 0;
   const change = payMethod === "cash" ? Math.max(0, receivedNum - total) : 0;
 
-  // QR พร้อมเพย์ทั่วไป — payload ล็อกยอดตามบิล (ไม่ผ่าน session ถุงเงิน)
+  // QR โอนจ่ายทั่วไป — payload ล็อกยอดตามบิลและใช้การตั้งค่าของสาขา
   const qrAmount = Math.round(total * 100) / 100;
-  const { data: promptpayQr } = trpc.payments.promptpayQr.useQuery(
+  const {
+    data: promptpayQr,
+    isFetching: promptpayQrLoading,
+    isError: promptpayQrError,
+  } = trpc.payments.promptpayQr.useQuery(
     { amount: qrAmount },
     { enabled: payMethod === "qr" && qrAmount > 0 }
   );
@@ -363,8 +377,8 @@ export default function Pos() {
     if (!payload) return;
     let cancelled = false;
     QRCode.toDataURL(payload, {
-      width: 220,
-      margin: 1,
+      width: 384,
+      margin: 2,
       errorCorrectionLevel: "M",
     })
       .then(url => {
@@ -381,6 +395,10 @@ export default function Pos() {
       : null;
 
   const addToCart = (p: Product, qty: number) => {
+    if (!currentShift) {
+      setErr("กรุณาเปิดกะก่อนเริ่มการขาย");
+      return;
+    }
     const existingQty = cart.find(line => line.product.id === p.id)?.qty ?? 0;
     if (p.category !== "fuel") {
       if (p.stockQty <= 0) {
@@ -608,6 +626,9 @@ export default function Pos() {
           }
         : null
     );
+    setReceiptPaymentQrUrl(
+      result.sale.paymentMethod === "qr" ? promptpayQrUrl : null
+    );
     setReceipt(result);
     setCart([]);
     setMember(null);
@@ -709,6 +730,10 @@ export default function Pos() {
   );
 
   const checkout = async () => {
+    if (!currentShift) {
+      setErr("กรุณาเปิดกะก่อนชำระเงิน");
+      return;
+    }
     if (cart.length === 0) return;
     if (!promotionActive && member && !loyaltyChoice) {
       setErr("กรุณาถามลูกค้าและเลือกว่าจะสะสมแต้ม หรือใช้แต้มเป็นส่วนลด");
@@ -735,6 +760,23 @@ export default function Pos() {
       setErr("จำนวนเงินรับไม่พอ");
       return;
     }
+    if (payMethod === "qr" && promptpayQr?.payload === null) {
+      setErr(
+        "ยังไม่ได้ตั้งค่า QR รับเงินของสาขา กรุณาให้ผู้ดูแลตั้งค่าที่ ตั้งค่าระบบ > การชำระเงิน"
+      );
+      return;
+    }
+    if (
+      payMethod === "qr" &&
+      (promptpayQrLoading || promptpayQrError || !promptpayQrUrl)
+    ) {
+      setErr(
+        promptpayQrError
+          ? "โหลด QR รับเงินไม่สำเร็จ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่"
+          : "กำลังสร้าง QR รับเงิน กรุณารอสักครู่แล้วกดชำระเงินอีกครั้ง"
+      );
+      return;
+    }
     if (payMethod === "credit" && !creditCustomer) {
       setErr("ขายเชื่อต้องเลือกลูกค้าก่อนชำระ");
       return;
@@ -752,7 +794,7 @@ export default function Pos() {
     if (payMethod === "thungngern" && syncStatus?.online !== false) {
       setErr("");
       startThungngern.mutate({
-        shiftId: currentShift?.id,
+        shiftId: currentShift.id,
         staffName: staff?.name ?? "",
         memberId: member?.id,
         items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
@@ -765,7 +807,7 @@ export default function Pos() {
     }
 
     const input: DesktopSaleInput = {
-      shiftId: currentShift?.id,
+      shiftId: currentShift.id,
       staffName: staff?.name ?? "",
       memberId: member?.id,
       customerId: payMethod === "credit" ? creditCustomer?.id : undefined,
@@ -813,6 +855,87 @@ export default function Pos() {
       setDesktopSalePending(false);
     }
   };
+
+  if (currentShift === undefined && isShiftLoading) {
+    return (
+      <Card className="mx-auto w-full max-w-2xl overflow-hidden border-violet-100 bg-white/90 shadow-[0_22px_58px_rgba(38,30,90,0.12)]">
+        <CardContent className="grid min-h-72 place-items-center p-8 text-center">
+          <div>
+            <Loader2 className="mx-auto size-9 animate-spin text-violet-600" />
+            <h1 className="mt-5 font-heading text-xl font-bold text-slate-900">
+              กำลังตรวจสอบกะปัจจุบัน
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              กรุณารอสักครู่ก่อนเริ่มทำรายการขาย
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!currentShift && isShiftError) {
+    return (
+      <Card className="mx-auto w-full max-w-2xl overflow-hidden border-red-200 bg-white/90 shadow-[0_22px_58px_rgba(38,30,90,0.12)]">
+        <CardContent className="grid min-h-72 place-items-center p-8 text-center">
+          <div className="max-w-md">
+            <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
+              <CircleAlert className="size-7" />
+            </div>
+            <h1 className="mt-5 font-heading text-xl font-bold text-slate-900">
+              ตรวจสอบสถานะกะไม่สำเร็จ
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              ยังไม่สามารถยืนยันสถานะกะได้ จึงระงับการขายไว้ชั่วคราว
+              กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่
+            </p>
+            <Button
+              type="button"
+              className="mt-5 min-w-36"
+              variant="outline"
+              disabled={isShiftFetching}
+              onClick={() => void refetchCurrentShift()}
+            >
+              {isShiftFetching && <Loader2 className="size-4 animate-spin" />}
+              ตรวจสอบอีกครั้ง
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!currentShift) {
+    return (
+      <Card className="mx-auto w-full max-w-2xl overflow-hidden border-orange-200 bg-white/90 shadow-[0_22px_58px_rgba(38,30,90,0.12)]">
+        <CardContent className="grid min-h-80 place-items-center p-8 text-center sm:p-10">
+          <div className="max-w-md">
+            <div className="mx-auto grid size-16 place-items-center rounded-2xl bg-orange-50 text-orange-600 ring-1 ring-orange-100">
+              <CircleAlert className="size-8" />
+            </div>
+            <Badge
+              variant="outline"
+              className="mt-5 border-orange-200 bg-orange-50 text-orange-700"
+            >
+              ยังไม่มีกะเปิดใช้งาน
+            </Badge>
+            <h1 className="mt-4 font-heading text-2xl font-bold text-slate-900">
+              กรุณาเปิดกะก่อนเริ่มการขาย
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              ต้องบันทึกมิเตอร์และเปิดใช้งานกะปัจจุบันก่อน
+              จึงจะสามารถเพิ่มสินค้าหรือรับชำระเงินได้
+            </p>
+            <Button asChild className="mt-6 h-11 rounded-xl px-5">
+              <Link to="/shifts">
+                ไปที่หน้าจัดการกะ <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div
@@ -1483,7 +1606,7 @@ export default function Pos() {
                     {promptpayQrUrl ? (
                       <img
                         src={promptpayQrUrl}
-                        alt="QR พร้อมเพย์"
+                        alt="QR สำหรับโอนจ่าย"
                         className="size-28 shrink-0 rounded-lg border border-sky-100 bg-white p-1"
                       />
                     ) : (
@@ -1495,11 +1618,14 @@ export default function Pos() {
                     )}
                     <div className="min-w-0 text-xs text-sky-900">
                       <div className="font-bold">
-                        QR พร้อมเพย์ ฿{fmtMoney(qrAmount)}
+                        {promptpayQr?.mode === "merchant"
+                          ? "QR ร้านค้า"
+                          : "QR พร้อมเพย์"}{" "}
+                        ฿{fmtMoney(qrAmount)}
                       </div>
                       <div className="mt-0.5 leading-relaxed text-sky-700">
                         {promptpayQr?.payload === null
-                          ? "ยังไม่ได้ตั้งค่า PromptPay ID — ให้ผู้ดูแลตั้งค่าที่ ตั้งค่าระบบ > การชำระเงิน"
+                          ? "ยังไม่ได้ตั้งค่า QR รับเงินของสาขา — ให้ผู้ดูแลตั้งค่าที่ ตั้งค่าระบบ > การชำระเงิน"
                           : "ให้ลูกค้าสแกนด้วยแอปธนาคารใดก็ได้ แล้วกดชำระเงินเพื่อบันทึกบิล"}
                       </div>
                     </div>
@@ -2161,6 +2287,7 @@ export default function Pos() {
         onOpenChange={open => {
           if (!open) {
             setReceipt(null);
+            setReceiptPaymentQrUrl(null);
             setReceiptPromotion(null);
             setReceiptBillPromotion(null);
           }
@@ -2182,6 +2309,7 @@ export default function Pos() {
                   settingMap={settingMap}
                   staffName={staff?.name}
                   logoUrl={logoUrl}
+                  paymentQrUrl={receiptPaymentQrUrl}
                   promotion={receiptPromotion ?? undefined}
                   billPromotion={receiptBillPromotion ?? undefined}
                 />
@@ -2217,6 +2345,7 @@ export default function Pos() {
             <Button
               onClick={() => {
                 setReceipt(null);
+                setReceiptPaymentQrUrl(null);
                 setReceiptPromotion(null);
                 setReceiptBillPromotion(null);
               }}

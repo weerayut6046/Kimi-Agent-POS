@@ -1,0 +1,23 @@
+name: pumppos-local
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pumppos
+      POSTGRES_USER: pumppos
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:-pumppos_dev_only}
+    ports:
+      - "127.0.0.1:${LOCAL_POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - pumppos_local_postgres:/var/lib/postgresql/data
+      - ./ops/postgres/init-local.sql:/docker-entrypoint-initdb.d/001-pumppos-roles.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pumppos -d pumppos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pumppos_local_postgres:

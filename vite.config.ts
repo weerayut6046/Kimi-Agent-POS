@@ -182,7 +182,7 @@ export default defineConfig(({ mode }) => {
       // ค่าเริ่มต้นผูกเฉพาะ loopback — เปิดขายหลายเครื่องใน LAN ให้รัน npm run dev:lan
       // (ตั้ง BIND_HOST=0.0.0.0) ส่วน production bind 0.0.0.0 อยู่แล้วที่ web/api/boot.ts
       host: viteEnv.BIND_HOST || "127.0.0.1",
-      port: 3000,
+      port: Number(viteEnv.APP_PORT || viteEnv.PORT || 3000),
       strictPort: true,
       proxy: proxyTrpcToSupabase
         ? {

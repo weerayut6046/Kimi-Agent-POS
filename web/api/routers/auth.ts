@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { createHash } from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   anonymousQuery,
@@ -28,6 +27,9 @@ import {
 import { actorFromReq, logAudit } from "../lib/audit";
 import { clientIpFromReq } from "../lib/clientIp";
 import { activeStaffSessionFromRequest } from "../lib/authorization";
+import { env } from "../lib/env";
+import { hashLocalPassword, verifyLocalPassword } from "../lib/localPassword";
+import { issueStaffSession } from "../lib/session";
 import {
   createSupabaseStaffIdentity,
   deleteSupabaseStaffIdentity,
@@ -45,7 +47,6 @@ import {
   type AccessibleBranch,
 } from "../lib/branches";
 
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const LOGIN_REPORT_WINDOW_MS = 60_000;
 const LOGIN_REPORT_MAX_PER_WINDOW = 20;
 const loginReportTimesByKey = new Map<string, number[]>();
@@ -143,7 +144,7 @@ export const authRouter = createRouter({
   login: anonymousQuery
     .input(z.object({ username: z.string().min(1), pin: z.string().min(1) }))
     .mutation(async ({ input }) => {
-      if (process.env.NODE_ENV !== "test") {
+      if (process.env.NODE_ENV !== "test" && !env.localAuthEnabled) {
         throw new Error(
           "This login endpoint is disabled. Sign in with Supabase Auth."
         );
@@ -152,10 +153,26 @@ export const authRouter = createRouter({
       const user = await db.query.staffUsers.findFirst({
         where: eq(staffUsers.username, input.username),
       });
-      if (!user || user.pin !== sha256(input.pin) || !user.active) {
+      if (
+        !user ||
+        !user.active ||
+        !(await verifyLocalPassword(input.pin, user.pin))
+      ) {
         throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
       }
-      return staffSessionResponse(user);
+      const staff = await staffSessionResponse(user);
+      return {
+        ...staff,
+        sessionToken: issueStaffSession({
+          id: staff.id,
+          name: staff.name,
+          role: staff.role,
+          username: staff.username,
+          branchId: staff.branchId,
+          branchCode: staff.branchCode,
+          branchName: staff.branchName,
+        }),
+      };
     }),
 
   // รับรายงานความพยายาม login จากหน้าจอ (ไม่ต้องเข้าสู่ระบบ) — เก็บเฉพาะ
@@ -174,8 +191,8 @@ export const authRouter = createRouter({
       const username = input.username.trim();
       const success = Boolean(
         input.success &&
-          session &&
-          session.username.toLowerCase() === username.toLowerCase()
+        session &&
+        session.username.toLowerCase() === username.toLowerCase()
       );
       const key = `${ip}|${username.toLowerCase()}`;
       const now = Date.now();
@@ -777,12 +794,17 @@ export const authRouter = createRouter({
       const defaultBranchId = branchIds.includes(ctx.staff.branchId)
         ? ctx.staff.branchId
         : branchIds[0];
-      const identity = await createSupabaseStaffIdentity({
-        username,
-        password,
-        name: input.name,
-        role: input.role,
-      });
+      const identity = env.localAuthEnabled
+        ? null
+        : await createSupabaseStaffIdentity({
+            username,
+            password,
+            name: input.name,
+            role: input.role,
+          });
+      const storedPassword = env.localAuthEnabled
+        ? await hashLocalPassword(password)
+        : `supabase-auth:${identity!.id}`;
       let id: number;
       try {
         id = await db.transaction(async tx => {
@@ -794,8 +816,8 @@ export const authRouter = createRouter({
               accessGroupId:
                 input.role === "admin" ? null : input.accessGroupId,
               menuPermissions,
-              pin: `supabase-auth:${identity.id}`,
-              supabaseAuthUserId: identity.id,
+              pin: storedPassword,
+              supabaseAuthUserId: identity?.id ?? null,
             })
             .returning({ id: staffUsers.id });
           await tx.insert(staffBranches).values(
@@ -808,7 +830,9 @@ export const authRouter = createRouter({
           return created.id;
         });
       } catch (error) {
-        await deleteSupabaseStaffIdentity(identity.id).catch(() => undefined);
+        if (identity) {
+          await deleteSupabaseStaffIdentity(identity.id).catch(() => undefined);
+        }
         throw error;
       }
       logAudit({
@@ -856,6 +880,10 @@ export const authRouter = createRouter({
       });
       if (!target) throw new Error("ไม่พบพนักงาน");
       const patch: Record<string, unknown> = { ...rest };
+      if (env.localAuthEnabled && password) {
+        patch.pin = await hashLocalPassword(password);
+        patch.supabaseAuthUserId = null;
+      }
       const nextRole = rest.role ?? target.role;
       const requestedGroupId =
         rest.accessGroupId !== undefined
@@ -934,7 +962,7 @@ export const authRouter = createRouter({
         }
       });
       let authUserId = target.supabaseAuthUserId;
-      if (!authUserId && password) {
+      if (!env.localAuthEnabled && !authUserId && password) {
         const identity = await createSupabaseStaffIdentity({
           username: rest.username ?? target.username,
           password,
@@ -949,7 +977,7 @@ export const authRouter = createRouter({
             pin: `supabase-auth:${identity.id}`,
           })
           .where(eq(staffUsers.id, id));
-      } else if (authUserId) {
+      } else if (!env.localAuthEnabled && authUserId) {
         await updateSupabaseStaffIdentity(authUserId, {
           username: rest.username,
           password,
@@ -981,7 +1009,13 @@ export const authRouter = createRouter({
         );
       }
       if (branchIds) changes.push(`สิทธิ์สาขา ${branchIds.length} สาขา`);
-      if (password) changes.push("รีเซ็ตรหัสผ่าน Supabase Auth");
+      if (password) {
+        changes.push(
+          env.localAuthEnabled
+            ? "รีเซ็ตรหัสผ่าน Local Auth"
+            : "รีเซ็ตรหัสผ่าน Supabase Auth"
+        );
+      }
       logAudit({
         action: "update_staff",
         ...actorFromReq(ctx.req),

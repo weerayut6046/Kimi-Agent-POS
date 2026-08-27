@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "crypto";
 import { getDb } from "../api/queries/connection";
 import { DEFAULT_SETTINGS } from "@contracts/settings";
+import { env } from "../api/lib/env";
+import { hashLocalPassword } from "../api/lib/localPassword";
 import {
   branches,
   staffBranches,
@@ -39,6 +41,11 @@ export async function seedIfEmpty(): Promise<boolean> {
   if (!mainBranch) throw new Error("MAIN branch is missing");
 
   const isTest = process.env.NODE_ENV === "test";
+  if (env.localAuthEnabled && env.localAdminPassword.length < 10) {
+    throw new Error(
+      "LOCAL_ADMIN_PASSWORD must contain at least 10 characters before seeding"
+    );
+  }
   await db.insert(staffUsers).values(
     isTest
       ? [
@@ -61,14 +68,23 @@ export async function seedIfEmpty(): Promise<boolean> {
             role: "cashier" as const,
           },
         ]
-      : [
-          {
-            username: "admin",
-            pin: `supabase-auth-pending:${randomUUID()}`,
-            name: "ผู้ดูแลระบบ",
-            role: "admin" as const,
-          },
-        ],
+      : env.localAuthEnabled
+        ? [
+            {
+              username: "admin",
+              pin: await hashLocalPassword(env.localAdminPassword),
+              name: "ผู้ดูแลระบบ (Local Dev)",
+              role: "admin" as const,
+            },
+          ]
+        : [
+            {
+              username: "admin",
+              pin: `supabase-auth-pending:${randomUUID()}`,
+              name: "ผู้ดูแลระบบ",
+              role: "admin" as const,
+            },
+          ]
   );
   const seededStaff = await db.query.staffUsers.findMany({
     columns: { id: true },
@@ -89,46 +105,170 @@ export async function seedIfEmpty(): Promise<boolean> {
 
   // สินค้า: น้ำมัน — ปั๊มนี้จำหน่ายแก๊สโซฮอล์ 95 และดีเซล B7
   await db.insert(products).values([
-    { code: "GSH95", name: "แก๊สโซฮอล์ 95", category: "fuel", unit: "ลิตร", price: 40.74, cost: 39.2 },
-    { code: "DB7", name: "ดีเซล B7", category: "fuel", unit: "ลิตร", price: 31.94, cost: 30.6 },
+    {
+      code: "GSH95",
+      name: "แก๊สโซฮอล์ 95",
+      category: "fuel",
+      unit: "ลิตร",
+      price: 40.74,
+      cost: 39.2,
+    },
+    {
+      code: "DB7",
+      name: "ดีเซล B7",
+      category: "fuel",
+      unit: "ลิตร",
+      price: 31.94,
+      cost: 30.6,
+    },
   ]);
   // สินค้า: 2T / น้ำมันเครื่อง / อื่นๆ
   await db.insert(products).values([
-    { code: "2T-PTT", name: "น้ำมัน 2T (ขวดเล็ก)", category: "lubricant", unit: "ขวด", price: 45, cost: 32, stockQty: 48, lowStockAt: 12 },
-    { code: "2T-BIG", name: "น้ำมัน 2T (ขวดใหญ่)", category: "lubricant", unit: "ขวด", price: 85, cost: 60, stockQty: 30, lowStockAt: 8 },
-    { code: "LUBE-MC", name: "น้ำมันเครื่องมอเตอร์ไซค์ 0.8L", category: "lubricant", unit: "ขวด", price: 145, cost: 105, stockQty: 24, lowStockAt: 6 },
-    { code: "WATER", name: "น้ำดื่ม 600 มล.", category: "other", unit: "ขวด", price: 10, cost: 5, stockQty: 120, lowStockAt: 24 },
-    { code: "TISSUE", name: "กระดาษทิชชู", category: "other", unit: "ห่อ", price: 20, cost: 12, stockQty: 40, lowStockAt: 10 },
+    {
+      code: "2T-PTT",
+      name: "น้ำมัน 2T (ขวดเล็ก)",
+      category: "lubricant",
+      unit: "ขวด",
+      price: 45,
+      cost: 32,
+      stockQty: 48,
+      lowStockAt: 12,
+    },
+    {
+      code: "2T-BIG",
+      name: "น้ำมัน 2T (ขวดใหญ่)",
+      category: "lubricant",
+      unit: "ขวด",
+      price: 85,
+      cost: 60,
+      stockQty: 30,
+      lowStockAt: 8,
+    },
+    {
+      code: "LUBE-MC",
+      name: "น้ำมันเครื่องมอเตอร์ไซค์ 0.8L",
+      category: "lubricant",
+      unit: "ขวด",
+      price: 145,
+      cost: 105,
+      stockQty: 24,
+      lowStockAt: 6,
+    },
+    {
+      code: "WATER",
+      name: "น้ำดื่ม 600 มล.",
+      category: "other",
+      unit: "ขวด",
+      price: 10,
+      cost: 5,
+      stockQty: 120,
+      lowStockAt: 24,
+    },
+    {
+      code: "TISSUE",
+      name: "กระดาษทิชชู",
+      category: "other",
+      unit: "ห่อ",
+      price: 20,
+      cost: 12,
+      stockQty: 40,
+      lowStockAt: 10,
+    },
   ]);
 
   // ตู้จ่าย 2 ตู้ ตู้ละ 2 หัวจ่าย — ทั้งสองตู้จ่ายแก๊สโซฮอล์ 95 (ซ้าย) และดีเซล B7 (ขวา)
-  const [{ id: pump1 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 1" }).returning({ id: pumps.id });
-  const [{ id: pump2 }] = await db.insert(pumps).values({ name: "ตู้จ่าย 2" }).returning({ id: pumps.id });
+  const [{ id: pump1 }] = await db
+    .insert(pumps)
+    .values({ name: "ตู้จ่าย 1" })
+    .returning({ id: pumps.id });
+  const [{ id: pump2 }] = await db
+    .insert(pumps)
+    .values({ name: "ตู้จ่าย 2" })
+    .returning({ id: pumps.id });
 
   const prodRows = await db.query.products.findMany();
-  const pid = (code: string) => prodRows.find((p) => p.code === code)!.id;
+  const pid = (code: string) => prodRows.find(p => p.code === code)!.id;
 
   // ถังน้ำมัน — ถังละชนิด ป้อนหัวจ่ายชนิดเดียวกันของทั้งสองตู้
   await db.insert(fuelTanks).values([
-    { productId: pid("GSH95"), name: "ถัง GSH95", capacityLiters: 20000, currentLiters: 12450, lowAlertAt: 4000 },
-    { productId: pid("DB7"), name: "ถังดีเซล B7", capacityLiters: 20000, currentLiters: 3100, lowAlertAt: 4000 },
+    {
+      productId: pid("GSH95"),
+      name: "ถัง GSH95",
+      capacityLiters: 20000,
+      currentLiters: 12450,
+      lowAlertAt: 4000,
+    },
+    {
+      productId: pid("DB7"),
+      name: "ถังดีเซล B7",
+      capacityLiters: 20000,
+      currentLiters: 3100,
+      lowAlertAt: 4000,
+    },
   ]);
 
   const tankRows = await db.query.fuelTanks.findMany();
-  const tankId = (code: string) => tankRows.find((tank) => tank.productId === pid(code))!.id;
+  const tankId = (code: string) =>
+    tankRows.find(tank => tank.productId === pid(code))!.id;
 
   await db.insert(nozzles).values([
-    { pumpId: pump1, productId: pid("GSH95"), tankId: tankId("GSH95"), label: "ตู้ 1 (ซ้าย) - GSH95", currentMeter: 152340.5, currentMoney: 6206318.75 },
-    { pumpId: pump1, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 1 (ขวา) - DB7", currentMeter: 98512.25, currentMoney: 3146447.0 },
-    { pumpId: pump2, productId: pid("GSH95"), tankId: tankId("GSH95"), label: "ตู้ 2 (ซ้าย) - GSH95", currentMeter: 76420.0, currentMoney: 2918351.5 },
-    { pumpId: pump2, productId: pid("DB7"), tankId: tankId("DB7"), label: "ตู้ 2 (ขวา) - DB7", currentMeter: 64110.75, currentMoney: 2047969.25 },
+    {
+      pumpId: pump1,
+      productId: pid("GSH95"),
+      tankId: tankId("GSH95"),
+      label: "ตู้ 1 (ซ้าย) - GSH95",
+      currentMeter: 152340.5,
+      currentMoney: 6206318.75,
+    },
+    {
+      pumpId: pump1,
+      productId: pid("DB7"),
+      tankId: tankId("DB7"),
+      label: "ตู้ 1 (ขวา) - DB7",
+      currentMeter: 98512.25,
+      currentMoney: 3146447.0,
+    },
+    {
+      pumpId: pump2,
+      productId: pid("GSH95"),
+      tankId: tankId("GSH95"),
+      label: "ตู้ 2 (ซ้าย) - GSH95",
+      currentMeter: 76420.0,
+      currentMoney: 2918351.5,
+    },
+    {
+      pumpId: pump2,
+      productId: pid("DB7"),
+      tankId: tankId("DB7"),
+      label: "ตู้ 2 (ขวา) - DB7",
+      currentMeter: 64110.75,
+      currentMoney: 2047969.25,
+    },
   ]);
 
   // สมาชิกตัวอย่าง
   await db.insert(members).values([
-    { memberCode: "M0001", name: "สมหญิง ใจดี", phone: "0812345678", points: 320, tier: "gold" },
-    { memberCode: "M0002", name: "วิชัย ขยันขับ", phone: "0898765432", points: 85, tier: "silver" },
-    { memberCode: "M0003", name: "ร้านกาแฟสด (รถตู้)", phone: "0861112222", points: 1240, tier: "platinum" },
+    {
+      memberCode: "M0001",
+      name: "สมหญิง ใจดี",
+      phone: "0812345678",
+      points: 320,
+      tier: "gold",
+    },
+    {
+      memberCode: "M0002",
+      name: "วิชัย ขยันขับ",
+      phone: "0898765432",
+      points: 85,
+      tier: "silver",
+    },
+    {
+      memberCode: "M0003",
+      name: "ร้านกาแฟสด (รถตู้)",
+      phone: "0861112222",
+      points: 1240,
+      tier: "platinum",
+    },
   ]);
 
   // ของรางวัล
@@ -143,7 +283,9 @@ export async function seedIfEmpty(): Promise<boolean> {
   // ตั้งค่าร้าน
   await db
     .insert(settings)
-    .values(Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value })))
+    .values(
+      Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value }))
+    )
     .onConflictDoNothing();
 
   console.log("Seed done.");

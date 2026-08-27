@@ -162,6 +162,8 @@ export default function Workforce() {
   const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
+  const canViewBranchSchedules =
+    staff?.role === "admin" || staff?.role === "manager";
   const canManageCashAdvance =
     staff?.role === "admin" || staff?.role === "manager";
   const [searchParams] = useSearchParams();
@@ -186,8 +188,14 @@ export default function Workforce() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const { data: templates = [] } = trpc.workforce.listTemplates.useQuery();
-  const { data: directory = [] } = trpc.workforce.directory.useQuery();
+  const { data: templates = [] } = trpc.workforce.listTemplates.useQuery(
+    undefined,
+    { enabled: isAdmin }
+  );
+  const { data: directory = [] } = trpc.workforce.directory.useQuery(
+    undefined,
+    { enabled: isAdmin }
+  );
   const { data: schedules = [], isLoading: scheduleLoading } =
     trpc.workforce.scheduleList.useQuery({ startDate, endDate });
   const { data: allProfiles = [] } = trpc.workforce.employeeProfiles.useQuery(
@@ -522,8 +530,10 @@ export default function Workforce() {
                 <ChevronRight />
               </Button>
               <span className="pb-2 text-sm text-muted-foreground">
-                ถึง {fmtDate(endDate)} · {scheduleSummary.staffCount} คน ·{" "}
-                {schedules.length} กะ
+                ถึง {fmtDate(endDate)} ·{" "}
+                {canViewBranchSchedules
+                  ? `${scheduleSummary.staffCount} คน · ${schedules.length} กะ`
+                  : `${schedules.length} กะของฉัน`}
               </span>
             </div>
             {isAdmin && (
@@ -563,7 +573,7 @@ export default function Workforce() {
                     {isAdmin && <TableHead className="w-12">เลือก</TableHead>}
                     <TableHead>วันที่</TableHead>
                     <TableHead>กะงาน</TableHead>
-                    <TableHead>พนักงาน</TableHead>
+                    {canViewBranchSchedules && <TableHead>พนักงาน</TableHead>}
                     <TableHead>สถานะ</TableHead>
                     <TableHead className="text-right">เบิกเงิน</TableHead>
                     <TableHead>หมายเหตุ</TableHead>
@@ -595,12 +605,14 @@ export default function Workforce() {
                           {schedule.startTime}-{schedule.endTime}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{schedule.staffName}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {roleLabel[schedule.staffRole]}
-                        </div>
-                      </TableCell>
+                      {canViewBranchSchedules && (
+                        <TableCell>
+                          <div className="font-medium">{schedule.staffName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {roleLabel[schedule.staffRole]}
+                          </div>
+                        </TableCell>
+                      )}
                       <TableCell>{statusBadge(schedule.status)}</TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         {schedule.cashAdvance > 0
@@ -681,7 +693,12 @@ export default function Workforce() {
                   {!scheduleLoading && schedules.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={isAdmin ? 8 : canManageCashAdvance ? 7 : 6}
+                        colSpan={
+                          5 +
+                          Number(canViewBranchSchedules) +
+                          Number(isAdmin) +
+                          Number(canManageCashAdvance)
+                        }
                         className="py-10 text-center text-muted-foreground"
                       >
                         ยังไม่มีตารางงานในช่วงนี้
@@ -692,9 +709,10 @@ export default function Workforce() {
               </Table>
             </CardContent>
           </Card>
-          {!isAdmin && (
+          {!canViewBranchSchedules && (
             <p className="text-xs text-muted-foreground">
-              คุณกำลังดูเฉพาะตารางงานของตนเอง หากต้องการสลับกะให้แจ้งผู้ดูแลระบบ
+              ตารางนี้แสดงเฉพาะกะการทำงานของคุณเท่านั้น
+              และไม่สามารถดูตารางของพนักงานคนอื่นได้
             </p>
           )}
         </TabsContent>

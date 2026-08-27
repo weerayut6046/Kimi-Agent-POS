@@ -42,6 +42,7 @@ type Props = {
   settingMap?: Record<string, string>;
   staffName?: string;
   logoUrl?: string | null;
+  paymentQrUrl?: string | null;
   promotion?: AppliedReceiptPromotion;
   billPromotion?: AppliedBillThresholdPromotion;
 };
@@ -56,20 +57,23 @@ function MoneyRow({
   bold?: boolean;
 }) {
   return (
-    <div className={`flex justify-between gap-2${bold ? " font-bold" : ""}`}>
-      <span>{label}</span>
-      <span>{value}</span>
+    <div
+      className={`flex items-start justify-between gap-3${bold ? " font-bold" : ""}`}
+    >
+      <span className="min-w-0">{label}</span>
+      <span className="shrink-0 tabular-nums">{value}</span>
     </div>
   );
 }
 
-/** ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ (แบบใบเสร็จม้วน) — ใช้ร่วมกันหน้า POS และหน้าประวัติการขาย */
+/** ใบเสร็จรับเงินแบบม้วน ใช้ร่วมกันทั้ง POS, ประวัติการขาย และ Production */
 export function ReceiptDoc({
   sale,
   items,
   settingMap,
   staffName,
   logoUrl,
+  paymentQrUrl,
   promotion,
   billPromotion,
 }: Props) {
@@ -100,82 +104,117 @@ export function ReceiptDoc({
     0,
     sale.discount - pointDiscount - promotionDiscount - billPromotionDiscount
   );
+  const showPaymentQr =
+    !isReturn && sale.paymentMethod === "qr" && Boolean(paymentQrUrl);
+
   return (
-    <div className="text-sm font-mono">
-      {/* หัวใบเสร็จ — กึ่งกลางทั้งหมด */}
-      <div className="text-center space-y-0.5">
+    <div className="receipt-doc bg-white px-4 py-5 font-mono text-sm text-black sm:px-5">
+      <header className="text-center">
         {logoUrl && (
           <img
             src={logoUrl}
             alt="โลโก้ร้าน"
-            className="h-12 w-auto object-contain mx-auto mb-1"
+            className="receipt-logo mx-auto mb-2 h-14 w-auto object-contain"
           />
         )}
-        <div className="font-bold text-base">
-          {settingMap?.shop_name}
-          {settingMap?.shop_branch ? ` สาขา ${settingMap.shop_branch}` : ""}
+        <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-slate-500">
+          Official receipt
         </div>
+        <div className="mt-1 text-lg font-black leading-tight">
+          {settingMap?.shop_name}
+        </div>
+        {settingMap?.shop_branch && (
+          <div className="mt-0.5 text-xs font-bold">
+            สาขา {settingMap.shop_branch}
+          </div>
+        )}
         {settingMap?.shop_address && (
-          <div className="text-xs whitespace-pre-line">
+          <div className="mx-auto mt-1 max-w-[95%] whitespace-pre-line text-[11px] leading-relaxed text-slate-700">
             {settingMap.shop_address}
           </div>
         )}
-        <div className="text-xs">โทร. {settingMap?.shop_phone}</div>
-        <div className="font-bold pt-1">
+        {settingMap?.shop_phone && (
+          <div className="mt-0.5 text-[11px]">โทร. {settingMap.shop_phone}</div>
+        )}
+        <div className="mt-3 border-y-2 border-black py-1.5 text-sm font-black tracking-wide">
           {isReturn
             ? "ใบรับคืนสินค้า/ใบคืนเงิน"
             : "ใบเสร็จรับเงิน/ใบกำกับภาษีอย่างย่อ"}
         </div>
-        <div className="text-xs">
-          เลขประจำตัวผู้เสียภาษี {settingMap?.tax_id}
+        {settingMap?.tax_id && (
+          <div className="mt-1 text-[10px]">
+            เลขประจำตัวผู้เสียภาษี {settingMap.tax_id}
+          </div>
+        )}
+      </header>
+
+      <section className="mt-3 space-y-1 border-b border-dashed border-black pb-2 text-xs">
+        <div className="flex justify-between gap-3 font-bold">
+          <span>เลขที่บิล</span>
+          <span className="break-all text-right">{sale.receiptNo}</span>
         </div>
-      </div>
-
-      {/* ข้อมูลบิล */}
-      <div className="mt-2 text-xs space-y-0.5">
-        <div>บิลเลขที่ : {sale.receiptNo}</div>
         {isReturn && sale.originalReceiptNo && (
-          <div>อ้างอิงบิล : {sale.originalReceiptNo}</div>
+          <div className="flex justify-between gap-3">
+            <span>อ้างอิงบิล</span>
+            <span className="text-right">{sale.originalReceiptNo}</span>
+          </div>
         )}
-        <div>วันที่ : {fmtDateTimeTH(sale.createdAt)}</div>
-        {staffName && <div>พนักงาน : {staffName}</div>}
-        {sale.memberName && <div>สมาชิก : {sale.memberName}</div>}
+        <div className="flex justify-between gap-3">
+          <span>วันที่</span>
+          <span className="text-right">{fmtDateTimeTH(sale.createdAt)}</span>
+        </div>
+        {staffName && (
+          <div className="flex justify-between gap-3">
+            <span>พนักงาน</span>
+            <span className="text-right">{staffName}</span>
+          </div>
+        )}
+        {sale.memberName && (
+          <div className="flex justify-between gap-3">
+            <span>สมาชิก</span>
+            <span className="text-right">{sale.memberName}</span>
+          </div>
+        )}
         {sale.paymentMethod === "credit" && sale.customerName && (
-          <div>ลูกค้า : {sale.customerName}</div>
+          <div className="flex justify-between gap-3">
+            <span>ลูกค้า</span>
+            <span className="text-right">{sale.customerName}</span>
+          </div>
         )}
-      </div>
+      </section>
 
-      {/* ตารางสินค้า — table-fixed กันคอลัมน์ดันกว้างเกินกรอบ/แคบเกิน (เคยล้นขอบ dialog ในบางเบราว์เซอร์) */}
-      <table className="w-full table-fixed mt-2 border-collapse">
+      <table className="mt-2 w-full table-fixed border-collapse">
         <thead>
-          <tr className="border-t border-b border-black">
-            <th className="py-1 text-left font-bold">รายการสินค้า</th>
-            <th className="py-1 w-14 text-center font-bold">จำนวน</th>
-            <th className="py-1 w-28 text-right font-bold">จำนวนเงิน</th>
+          <tr className="border-b border-black text-[11px] uppercase tracking-wide">
+            <th className="py-1.5 text-left font-black">รายการ</th>
+            <th className="w-14 py-1.5 text-center font-black">จำนวน</th>
+            <th className="w-24 py-1.5 text-right font-black">รวม</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="align-top">
-              <td className="py-0.5 pr-2 break-words">
-                {it.name}
-                <span className="block text-xs">
-                  ฿{fmtMoney(it.unitPrice)}/{it.unit}
+          {items.map((item, index) => (
+            <tr
+              key={index}
+              className="align-top last:border-b last:border-dashed last:border-black"
+            >
+              <td className="break-words py-1.5 pr-2 font-semibold leading-snug">
+                <span>{item.name}</span>
+                <span className="mt-0.5 block text-[10px] font-normal text-slate-600">
+                  {fmtMoney(item.unitPrice)} บาท/{item.unit}
                 </span>
               </td>
-              <td className="py-0.5 text-center whitespace-nowrap">
-                {fmtNum(isReturn ? Math.abs(it.qty) : it.qty)}
+              <td className="whitespace-nowrap py-1.5 text-center tabular-nums">
+                {fmtNum(isReturn ? Math.abs(item.qty) : item.qty)}
               </td>
-              <td className="py-0.5 text-right whitespace-nowrap">
-                {fmtMoney(isReturn ? Math.abs(it.amount) : it.amount)}
+              <td className="whitespace-nowrap py-1.5 text-right font-bold tabular-nums">
+                {fmtMoney(isReturn ? Math.abs(item.amount) : item.amount)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* ยอดรวม */}
-      <div className="mt-1 pt-1 border-t border-black space-y-0.5">
+      <section className="mt-2 space-y-1 text-xs">
         <MoneyRow
           label={isReturn ? "มูลค่าสินค้าคืน" : "รวม"}
           value={fmtMoney(isReturn ? Math.abs(sale.subtotal) : sale.subtotal)}
@@ -197,7 +236,7 @@ export function ReceiptDoc({
               value={fmtMoney(promotionDiscount)}
               bold
             />
-            <div className="text-xs">
+            <div className="text-[10px]">
               ลด {fmtMoney(promotion.discountPerLiter)} บาท/ลิตร ×{" "}
               {fmtNum(promotion.liters)} ลิตร
             </div>
@@ -210,7 +249,7 @@ export function ReceiptDoc({
               value={fmtMoney(billPromotionDiscount)}
               bold
             />
-            <div className="text-xs">
+            <div className="text-[10px]">
               ยอดเติมน้ำมัน {fmtMoney(billPromotion.fuelSpend)} บาท (เกณฑ์{" "}
               {fmtMoney(billPromotion.minimumFuelSpend)} บาท)
             </div>
@@ -224,21 +263,24 @@ export function ReceiptDoc({
           />
         )}
         <MoneyRow
-          label={isReturn ? "ยอดคืนเงิน" : "ยอดเงินสุทธิ"}
-          value={fmtMoney(isReturn ? Math.abs(sale.total) : sale.total)}
-          bold
-        />
-        <MoneyRow
           label={`ภาษีมูลค่าเพิ่ม ${fmtNum(sale.vatRate)}% (รวมใน)`}
           value={fmtMoney(isReturn ? Math.abs(sale.vatAmount) : sale.vatAmount)}
         />
-      </div>
+        <div className="mt-2 flex items-end justify-between gap-3 border-y-2 border-black py-2">
+          <span className="text-sm font-black">
+            {isReturn ? "ยอดคืนเงิน" : "ยอดสุทธิ"}
+          </span>
+          <span className="text-xl font-black tabular-nums">
+            ฿{fmtMoney(isReturn ? Math.abs(sale.total) : sale.total)}
+          </span>
+        </div>
+      </section>
 
-      {/* การชำระเงิน */}
-      <div className="mt-1 pt-1 border-t border-black space-y-0.5 text-xs">
+      <section className="mt-2 rounded-lg border border-black px-2.5 py-2 text-xs">
         <MoneyRow
           label={isReturn ? "คืนเงินโดย" : "ชำระโดย"}
           value={paymentLabel[sale.paymentMethod] ?? sale.paymentMethod}
+          bold
         />
         {sale.paymentMethod === "cash" && !isReturn && (
           <>
@@ -264,12 +306,30 @@ export function ReceiptDoc({
             value={`-${Math.abs(sale.pointsEarned ?? 0)}`}
           />
         )}
-      </div>
+      </section>
 
-      {/* หมายเหตุท้ายใบเสร็จ */}
-      <div className="mt-2 text-xs space-y-0.5">
+      {showPaymentQr && (
+        <section className="receipt-payment-qr-block mt-3 border-y-2 border-dashed border-black py-3 text-center">
+          <div className="text-sm font-black">สแกน QR เพื่อชำระเงิน</div>
+          <div className="mt-0.5 text-[10px]">รองรับทุกแอปธนาคาร</div>
+          <img
+            src={paymentQrUrl ?? undefined}
+            alt={`QR พร้อมเพย์ ยอด ${fmtMoney(sale.total)} บาท`}
+            className="receipt-payment-qr mx-auto my-2 size-40 bg-white object-contain"
+          />
+          <div className="text-base font-black tabular-nums">
+            ยอดชำระ ฿{fmtMoney(sale.total)}
+          </div>
+          <div className="mt-0.5 text-[10px]">อ้างอิงบิล {sale.receiptNo}</div>
+          <div className="mt-1 text-[10px] leading-relaxed">
+            กรุณาตรวจสอบชื่อผู้รับและยอดเงินในแอปธนาคารก่อนยืนยัน
+          </div>
+        </section>
+      )}
+
+      <footer className="mt-3 space-y-1 text-[10px] leading-relaxed">
         {isReturn && sale.returnReason && (
-          <div>เหตุผลคืนสินค้า: {sale.returnReason}</div>
+          <div className="font-bold">เหตุผลคืนสินค้า: {sale.returnReason}</div>
         )}
         <div>* ราคานี้รวมภาษีมูลค่าเพิ่มแล้ว</div>
         {!isReturn && (
@@ -277,10 +337,12 @@ export function ReceiptDoc({
             ** ต้องการใบกำกับภาษีเต็มรูป โปรดแจ้งเจ้าหน้าที่พร้อมใบเสร็จฉบับนี้
           </div>
         )}
-      </div>
-      <div className="text-center text-xs mt-2">
-        {isReturn ? "ดำเนินการคืนสินค้าเรียบร้อยแล้ว" : "ขอบคุณที่ใช้บริการ"}
-      </div>
+        <div className="pt-2 text-center text-xs font-bold">
+          {isReturn
+            ? "ดำเนินการคืนสินค้าเรียบร้อยแล้ว"
+            : "ขอบคุณที่ใช้บริการ • เดินทางปลอดภัย"}
+        </div>
+      </footer>
     </div>
   );
 }

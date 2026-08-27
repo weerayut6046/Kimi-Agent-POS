@@ -8,6 +8,7 @@ import { paymentSessions, settings } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
 import {
   buildPromptPayPayload,
+  extractMerchantBillInfo,
   injectAmountIntoMerchantQr,
 } from "../lib/promptpay";
 import { publishRealtimeInvalidation } from "../lib/realtime";
@@ -118,6 +119,23 @@ export const paymentsRouter = createRouter({
       return { ok: true, config };
     }),
 
+  /** ตรวจ payload ที่อ่านจากรูปอัปโหลดก่อนนำไปบันทึกจริง */
+  validateMerchantQr: adminQuery
+    .input(z.object({ payload: z.string().trim().min(1).max(512) }))
+    .mutation(({ input }) => {
+      try {
+        return extractMerchantBillInfo(input.payload);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "รูปนี้ไม่ใช่ QR ร้านค้าถุงเงิน",
+        });
+      }
+    }),
+
   // ทดสอบการเชื่อมต่อ Slip2Go — ยืนยัน secret ถูกต้องและดูโควตาตรวจสลิปคงเหลือ
   testConnection: adminQuery.mutation(async ({ ctx }) => {
     const branchId = ctx.staff.branchId;
@@ -160,19 +178,32 @@ export const paymentsRouter = createRouter({
   }),
 
   /**
-   * QR พร้อมเพย์ทั่วไป (ไม่ผ่าน session ถุงเงิน) — payload ล็อกยอดตามบิล
-   * ใช้ PromptPay ID จากตั้งค่า; คืน payload: null ถ้ายังไม่ได้ตั้งค่า
+   * QR โอนจ่ายทั่วไป (ไม่ผ่าน session ตรวจสลิป) — payload ล็อกยอดตามบิล
+   * ใช้โหมดรับเงินของสาขา: QR ร้านค้าถุงเงิน หรือ PromptPay
    */
   promptpayQr: publicQuery
     .input(z.object({ amount: z.number().positive().max(999_999_999) }))
     .query(async ({ input, ctx }) => {
       const summary = await getPaymentConfigSummary(ctx.staff.branchId);
-      if (!summary.promptpayId) return { payload: null as string | null };
+      const amount = Math.round(input.amount * 100) / 100;
+      if (summary.qrMode === "merchant") {
+        if (!summary.merchantPayload) {
+          return { payload: null as string | null, mode: "merchant" as const };
+        }
+        return {
+          payload: injectAmountIntoMerchantQr(summary.merchantPayload, amount),
+          mode: "merchant" as const,
+        };
+      }
+      if (!summary.promptpayId) {
+        return { payload: null as string | null, mode: "promptpay" as const };
+      }
       return {
         payload: buildPromptPayPayload({
           promptPayId: summary.promptpayId,
-          amount: Math.round(input.amount * 100) / 100,
+          amount,
         }),
+        mode: "promptpay" as const,
       };
     }),
 

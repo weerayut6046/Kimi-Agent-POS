@@ -45,7 +45,7 @@ function getAuthClient() {
   authClient ??= createClient(
     env.supabaseUrl,
     env.supabasePublishableKey,
-    authOptions,
+    authOptions
   );
   return authClient;
 }
@@ -71,7 +71,7 @@ async function supabaseAuthUserId(request: Request): Promise<{
   if (!token || !env.supabaseUrl || !env.supabasePublishableKey) return null;
   const { data, error } = await getAuthClient().auth.getClaims(
     token,
-    configuredJwks ? { jwks: configuredJwks } : {},
+    configuredJwks ? { jwks: configuredJwks } : {}
   );
   if (
     error ||
@@ -106,11 +106,12 @@ async function resolveActiveStaffSession(
     }
     const legacyBranch = await branchForStaff(
       legacyStaff,
-      legacySession.branchId,
+      requestedBranchId(request) ?? legacySession.branchId
     );
     if (!legacyBranch) return null;
     const activeLegacySession = {
       ...legacySession,
+      branchId: legacyBranch.id,
       branchCode: legacyBranch.code,
       branchName: legacyBranch.name,
     };

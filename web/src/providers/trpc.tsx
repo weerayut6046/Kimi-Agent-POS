@@ -6,6 +6,7 @@ import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
 import { currentSupabaseAccessToken } from "@/lib/supabase";
+import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
 import { resolveTrpcUrl } from "@/lib/trpcUrl";
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -34,10 +35,16 @@ const queryClient = new QueryClient({
 });
 
 async function requestHeaders() {
-  const token = await currentSupabaseAccessToken();
+  const token = isLocalAuthEnabled
+    ? readLocalSessionToken()
+    : await currentSupabaseAccessToken();
   const branchId = localStorage.getItem("pumppos_branch_id");
   return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token
+      ? isLocalAuthEnabled
+        ? { "x-staff-session": token }
+        : { Authorization: `Bearer ${token}` }
+      : {}),
     "x-region": supabaseFunctionRegion,
     ...(branchId && /^[1-9][0-9]*$/.test(branchId)
       ? { "x-branch-id": branchId }

@@ -91,6 +91,10 @@ describe("workforce router", () => {
       ownBefore.find(schedule => schedule.workDate === "2026-07-06")
         ?.cashAdvance
     ).toBe(250);
+    expect(ownBefore.some(schedule => schedule.staffId === 2)).toBe(false);
+    await expect(
+      test.caller("cashier", 3).workforce.directory()
+    ).rejects.toThrow("ผู้ดูแลระบบ");
 
     const manager = test.caller("manager", 2);
     const branchSchedules = await manager.workforce.scheduleList({

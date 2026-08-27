@@ -4,6 +4,8 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { isRealtimeInvalidationEvent } from "@contracts/realtime";
 import { useStaff } from "./useStaff";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
+import { createSseParser } from "@/lib/realtimeSse";
 
 const SUPABASE_TOPIC_PREFIX = "pos-invalidation-v1";
 const SUPABASE_EVENT = "invalidate";
@@ -35,9 +37,78 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       }
       void queryClient.invalidateQueries(
         { refetchType: "active" },
-        { cancelRefetch: false },
+        { cancelRefetch: false }
       );
     };
+
+    if (isLocalAuthEnabled) {
+      let stopped = false;
+      let retryTimer: number | undefined;
+      let retryMs = 1_000;
+      let activeController: AbortController | undefined;
+
+      const scheduleRetry = () => {
+        if (stopped || retryTimer !== undefined) return;
+        retryTimer = window.setTimeout(() => {
+          retryTimer = undefined;
+          void connect();
+        }, retryMs);
+        retryMs = Math.min(retryMs * 2, 30_000);
+      };
+
+      const connect = async () => {
+        const token = readLocalSessionToken();
+        if (stopped || !token) return;
+        const controller = new AbortController();
+        activeController = controller;
+        try {
+          const response = await fetch("/api/realtime", {
+            headers: {
+              "x-staff-session": token,
+              "x-branch-id": String(branchId),
+            },
+            credentials: "omit",
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) {
+            throw new Error(`Realtime HTTP ${response.status}`);
+          }
+          retryMs = 1_000;
+          const decoder = new TextDecoder();
+          const parse = createSseParser(message => {
+            if (message.event !== "invalidate") return;
+            try {
+              invalidate(JSON.parse(message.data));
+            } catch {
+              // Ignore malformed frames; the next valid event still works.
+            }
+          });
+          const reader = response.body.getReader();
+          while (!stopped) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            parse(decoder.decode(value, { stream: true }));
+          }
+        } catch (error) {
+          if (
+            !stopped &&
+            !(error instanceof DOMException && error.name === "AbortError")
+          ) {
+            scheduleRetry();
+          }
+        } finally {
+          if (activeController === controller) activeController = undefined;
+          if (!stopped) scheduleRetry();
+        }
+      };
+
+      void connect();
+      return () => {
+        stopped = true;
+        activeController?.abort();
+        if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      };
+    }
 
     const disconnect = () => {
       const previous = channel;
@@ -66,7 +137,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           config: { private: true },
         })
         .on("broadcast", { event: SUPABASE_EVENT }, message =>
-          invalidate(message.payload),
+          invalidate(message.payload)
         );
       channel = next;
       next.subscribe(status => {
@@ -75,7 +146,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           retryMs = 1_000;
           void queryClient.invalidateQueries(
             { refetchType: "active" },
-            { cancelRefetch: false },
+            { cancelRefetch: false }
           );
           return;
         }

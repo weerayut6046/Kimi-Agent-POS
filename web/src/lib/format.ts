@@ -31,7 +31,7 @@ export const fmtDateTimeTH = (d: Date | string) => {
 
 export const paymentLabel: Record<string, string> = {
   cash: "เงินสด",
-  qr: "QR พร้อมเพย์",
+  qr: "โอนจ่าย / QR",
   card: "บัตร",
   credit: "เครดิต",
   thungngern: "QR ถุงเงิน",

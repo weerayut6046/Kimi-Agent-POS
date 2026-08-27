@@ -1,5 +1,7 @@
 # POS ปั๊มน้ำมัน
 
+สำหรับพัฒนาโดยไม่ใช้ Cloud SQL/Supabase Database ให้ใช้ `npm run dev:local` หรือ `npm run dev:self-hosted` ดูขั้นตอนและข้อควรระวังใน [Local / Self-hosted development](./docs/local-self-hosted-development.md)
+
 เอกสารโครงการ: [`PROJECT.md`](./PROJECT.md) · แผนระบบ: [`plan.md`](./plan.md) · แผน Desktop: [`plan-desktop.md`](./plan-desktop.md)
 
 ## Desktop App (Microsoft Store)
@@ -114,7 +116,7 @@ npx vercel deploy --prod
 ### QR ถุงเงิน (Krungthai Thungngern)
 
 - แคชเชียร์เลือกช่องทาง **QR ถุงเงิน** ในหน้าขายเพื่อสร้าง QR ล็อกยอดของบิลจาก QR ร้านค้าถุงเงิน (EMVCo tag 30 — เงินเข้าบัญชีถุงเงินโดยตรง) หรือพร้อมเพย์ส่วนตัวตามการตั้งค่า จากนั้นสแกน QR บนสลิปของลูกค้าเพื่อให้ระบบตรวจสลิปกับ Slip2Go แล้วปิดบิลแบบ idempotent พร้อมทางเลือกยืนยันเองและโหมดออฟไลน์ผ่าน outbox เดิม
-- ตั้งค่าที่ **ตั้งค่าระบบ > การชำระเงิน** (admin) — เลือกโหมด QR ร้านค้าถุงเงิน (วาง static payload จากแอปถุงเงิน) หรือพร้อมเพย์ส่วนตัว และ Slip2Go API Secret (เขียนอย่างเดียว เข้ารหัส AES-256-GCM ด้วย `APP_SECRET` ก่อนลงฐานข้อมูล client ไม่เห็น secret จริง)
+- ตั้งค่าที่ **ตั้งค่าระบบ > การชำระเงิน** (admin) — เลือกโหมด QR ร้านค้าถุงเงิน (อัปโหลดรูป QR จากแอปถุงเงิน; อ่านรูปใน browser และไม่เก็บรูปบน server) หรือพร้อมเพย์ส่วนตัว และ Slip2Go API Secret (เขียนอย่างเดียว เข้ารหัส AES-256-GCM ด้วย `APP_SECRET` ก่อนลงฐานข้อมูล client ไม่เห็น secret จริง)
 - ตัวแปรเซิร์ฟเวอร์ `SLIP2GO_BASE_URL`, `SLIP2GO_API_SECRET` (fallback), `SLIP2GO_TIMEOUT_MS`, `SLIP2GO_MOCK` — ห้ามใช้ชื่อขึ้นต้น `VITE_`
 - รายละเอียด flow การสแกนสลิป โควตา และ contract ของ Slip2Go ดู [`docs/thungngern-payments.md`](./docs/thungngern-payments.md)
 

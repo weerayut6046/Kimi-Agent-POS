@@ -16,6 +16,7 @@ describe("staff menu permissions", () => {
       pin: "0000",
     });
 
+    expect(session.sessionToken).toMatch(/^[^.]+\.[^.]+$/);
     expect(session.menuPermissions).toContain("pos");
     expect(session.menuPermissions).not.toContain("audit");
   });

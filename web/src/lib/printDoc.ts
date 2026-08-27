@@ -110,7 +110,7 @@ export function parseReceiptPaper(v: string | undefined | null): ReceiptPaper {
  * ม้วนความร้อน: กำหนด @page ตามขนาดม้วน บีบความกว้าง+ลดตัวอักษร (หน้าจอใช้ text-sm/xs ที่ใหญ่เกินกระดาษ)
  * กระดาษแผ่น: พิมพ์ขนาดตัวอักษรปกติ จำกัดแค่ความกว้างใบเสร็จ
  */
-function receiptPrintCss(paper: ReceiptPaper): {
+export function receiptPrintCss(paper: ReceiptPaper): {
   pageCss: string;
   extraCss: string;
 } {
@@ -118,7 +118,11 @@ function receiptPrintCss(paper: ReceiptPaper): {
     const widthMm = paper === "a4" ? 100 : 88;
     return {
       pageCss: `size: ${paper.toUpperCase()} portrait; margin: ${paper === "a4" ? 12 : 8}mm`,
-      extraCss: `#receipt-print{width:${widthMm}mm!important}#receipt-print img{max-height:14mm;width:auto}`,
+      extraCss:
+        `#receipt-print{width:${widthMm}mm!important}` +
+        `#receipt-print .receipt-doc,#receipt-print .receipt-doc *{color:#000!important}` +
+        `#receipt-print .receipt-logo{max-height:14mm!important;width:auto!important}` +
+        `#receipt-print .receipt-payment-qr{width:38mm!important;height:38mm!important;max-height:none!important}`,
     };
   }
   const base = paper === "58" ? 9 : 10.5;
@@ -136,9 +140,12 @@ function receiptPrintCss(paper: ReceiptPaper): {
       `#receipt-print table{width:100%}` +
       // กระดาษ 58 มม. แคบ — บีบคอลัมน์จำนวน/จำนวนเงินให้ชื่อสินค้ามีพื้นที่เหลือ
       (paper === "58"
-        ? `#receipt-print .w-14{width:36px!important}#receipt-print .w-28{width:64px!important}`
+        ? `#receipt-print .w-14{width:34px!important}#receipt-print .w-24{width:58px!important}`
         : "") +
-      `#receipt-print img{max-height:${paper === "58" ? 8 : 11}mm;width:auto}` +
+      `#receipt-print .receipt-doc{padding:0!important;color:#000!important}` +
+      `#receipt-print .receipt-doc *{color:#000!important}` +
+      `#receipt-print .receipt-logo{max-height:${paper === "58" ? 8 : 11}mm!important;width:auto!important}` +
+      `#receipt-print .receipt-payment-qr{width:${paper === "58" ? 30 : 36}mm!important;height:${paper === "58" ? 30 : 36}mm!important;max-height:none!important}` +
       `#receipt-print th,#receipt-print td{padding:1px 2px}`,
   };
 }

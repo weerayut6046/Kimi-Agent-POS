@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { signInStaffWithPassword } from "@/lib/supabase";
+import { isLocalAuthEnabled } from "@/lib/localAuth";
 
 function preloadAuthenticatedApp(): void {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
@@ -55,6 +56,7 @@ export default function Login() {
   const { login } = useStaff();
   const utils = trpc.useUtils();
   const reportAttempt = trpc.auth.reportLoginAttempt.useMutation();
+  const localLogin = trpc.auth.login.useMutation();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
   useEffect(() => {
@@ -62,12 +64,15 @@ export default function Login() {
       ?.getAppVersion()
       .then(setAppVersion)
       .catch(() => {});
-
   }, []);
 
   const finishLogin = async (activePassword: string) => {
-    await signInStaffWithPassword(username, activePassword);
-    const staff = await utils.auth.currentStaff.fetch();
+    const staff = isLocalAuthEnabled
+      ? await localLogin.mutateAsync({ username, pin: activePassword })
+      : await (async () => {
+          await signInStaffWithPassword(username, activePassword);
+          return utils.auth.currentStaff.fetch();
+        })();
     const returnTo = window.sessionStorage.getItem("pos:return-to");
     window.sessionStorage.removeItem("pos:return-to");
     if (
@@ -99,7 +104,7 @@ export default function Login() {
       setError(
         loginError instanceof Error
           ? loginError.message
-          : "เข้าสู่ระบบไม่สำเร็จ",
+          : "เข้าสู่ระบบไม่สำเร็จ"
       );
     } finally {
       setIsSubmitting(false);
@@ -227,7 +232,9 @@ export default function Login() {
               เข้าสู่ระบบพนักงาน
             </CardTitle>
             <CardDescription className="mt-1">
-              เข้าสู่ระบบด้วย Supabase Auth
+              {isLocalAuthEnabled
+                ? "เข้าสู่ระบบด้วย Local Dev Server"
+                : "เข้าสู่ระบบด้วย Supabase Auth"}
             </CardDescription>
           </CardHeader>
           <CardContent className="px-6 py-6 sm:px-8">
@@ -306,11 +313,7 @@ export default function Login() {
               <Button
                 type="submit"
                 className="shine-button h-12 w-full rounded-2xl text-base shadow-lg shadow-violet-600/25"
-                disabled={
-                  isSubmitting ||
-                  !username ||
-                  !password
-                }
+                disabled={isSubmitting || !username || !password}
               >
                 <LogIn className="w-4 h-4 mr-2" />
                 {isSubmitting ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
@@ -319,7 +322,8 @@ export default function Login() {
 
             {isDesktop && appVersion && (
               <p className="mt-4 border-t pt-3 text-right text-xs text-muted-foreground/70">
-                เวอร์ชัน {appVersion} · ฐานข้อมูล Supabase
+                เวอร์ชัน {appVersion} · ฐานข้อมูล{" "}
+                {isLocalAuthEnabled ? "Local PostgreSQL" : "Supabase"}
               </p>
             )}
           </CardContent>

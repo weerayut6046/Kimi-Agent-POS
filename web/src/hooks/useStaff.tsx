@@ -17,6 +17,12 @@ import {
   getSupabaseBrowserClient,
   hasPersistedSupabaseSession,
 } from "@/lib/supabase";
+import {
+  clearLocalSession,
+  hasPersistedLocalSession,
+  installLocalSession,
+  isLocalAuthEnabled,
+} from "@/lib/localAuth";
 
 export type StaffSession = {
   id: number;
@@ -42,7 +48,7 @@ export type BranchSummary = {
   active: boolean;
 };
 
-export type StaffLoginResult = StaffSession;
+export type StaffLoginResult = StaffSession & { sessionToken?: string };
 
 const BRANCH_KEY = "pumppos_branch_id";
 const STAFF_CACHE_KEY = "pumppos_staff_profile_v1";
@@ -63,12 +69,13 @@ const StaffContext = createContext<{
   logout: () => {},
 });
 
-function normalizeStaff<T extends StaffSession>(staff: T): StaffSession {
+function normalizeStaff(staff: StaffLoginResult): StaffSession {
+  const { sessionToken: _sessionToken, ...profile } = staff;
   return {
-    ...staff,
+    ...profile,
     menuPermissions: normalizeMenuPermissions(
-      staff.role,
-      staff.menuPermissions
+      profile.role,
+      profile.menuPermissions
     ),
   };
 }
@@ -154,15 +161,24 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     readCachedStaff
   );
   const [authReady, setAuthReady] = useState(
-    () => !hasPersistedSupabaseSession() && cachedStaff === null
+    () =>
+      isLocalAuthEnabled ||
+      (!hasPersistedSupabaseSession() && cachedStaff === null)
   );
   const [hasAuthSession, setHasAuthSession] = useState(
-    () => cachedStaff !== null || hasPersistedSupabaseSession()
+    () =>
+      cachedStaff !== null ||
+      (isLocalAuthEnabled
+        ? hasPersistedLocalSession()
+        : hasPersistedSupabaseSession())
   );
   const utils = trpc.useUtils();
 
   useEffect(() => {
     if (!hasAuthSession) return;
+    if (isLocalAuthEnabled) {
+      return;
+    }
 
     let stopped = false;
     let unsubscribe: (() => void) | undefined;
@@ -253,11 +269,15 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     if (currentStaff.isError) {
       writeCachedStaff(null);
       localStorage.removeItem(BRANCH_KEY);
+      clearLocalSession();
       void clearSupabaseSession();
     }
   }, [currentStaff.isError]);
 
   const login = async (nextStaff: StaffLoginResult) => {
+    if (isLocalAuthEnabled && nextStaff.sessionToken) {
+      installLocalSession(nextStaff.sessionToken);
+    }
     const normalized = normalizeStaff(nextStaff);
     localStorage.setItem(BRANCH_KEY, String(normalized.branch.id));
     setCachedStaff(normalized);
@@ -291,6 +311,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     setCachedStaff(null);
     writeCachedStaff(null);
     setHasAuthSession(false);
+    clearLocalSession();
     void clearSupabaseSession();
     void utils.invalidate();
   };

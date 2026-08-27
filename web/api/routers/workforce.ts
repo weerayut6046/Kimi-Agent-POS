@@ -1,6 +1,5 @@
 import { and, asc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import {
   employeeProfiles,
   payrollRecords,
@@ -9,9 +8,8 @@ import {
   workSchedules,
   workShiftTemplates,
 } from "@db/schema";
-import { adminQuery, managerQuery, staffIdFromHeader } from "../guard";
+import { adminQuery, managerQuery } from "../guard";
 import { actorFromReq, logAudit } from "../lib/audit";
-import { staffSessionFromHeader } from "../lib/session";
 import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 
@@ -291,7 +289,7 @@ export const workforceRouter = createRouter({
       return { ok: true };
     }),
 
-  directory: publicQuery.query(async ({ ctx }) => {
+  directory: adminQuery.query(async ({ ctx }) => {
     const rows = await getDb()
       .select({
         id: staffUsers.id,
@@ -318,21 +316,16 @@ export const workforceRouter = createRouter({
     .query(async ({ input, ctx }) => {
       if (input.endDate < input.startDate)
         throw new Error("ช่วงวันที่ไม่ถูกต้อง");
-      const role = staffSessionFromHeader(ctx.req)?.role;
-      const currentStaffId = staffIdFromHeader(ctx.req);
-      if (role !== "admin" && currentStaffId == null) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
-        });
-      }
+      const canViewBranchSchedules =
+        ctx.staff.role === "admin" || ctx.staff.role === "manager";
       const filters = [
         eq(workSchedules.branchId, ctx.staff.branchId),
         gte(workSchedules.workDate, input.startDate),
         lte(workSchedules.workDate, input.endDate),
       ];
-      if (role !== "admin" && role !== "manager")
-        filters.push(eq(workSchedules.staffId, currentStaffId!));
+      if (!canViewBranchSchedules) {
+        filters.push(eq(workSchedules.staffId, ctx.staff.id));
+      }
       return getDb()
         .select({
           id: workSchedules.id,
@@ -726,8 +719,6 @@ export const workforceRouter = createRouter({
   }),
 
   myProfile: publicQuery.query(async ({ ctx }) => {
-    const staffId = staffIdFromHeader(ctx.req);
-    if (!staffId) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
     const [row] = await getDb()
       .select({
         staffId: staffUsers.id,
@@ -744,7 +735,7 @@ export const workforceRouter = createRouter({
       })
       .from(staffUsers)
       .leftJoin(employeeProfiles, eq(employeeProfiles.staffId, staffUsers.id))
-      .where(eq(staffUsers.id, staffId));
+      .where(eq(staffUsers.id, ctx.staff.id));
     if (!row) throw new Error("ไม่พบพนักงาน");
     return row;
   }),
@@ -832,13 +823,11 @@ export const workforceRouter = createRouter({
   myPayroll: publicQuery
     .input(z.object({ month: monthText }))
     .query(async ({ input, ctx }) => {
-      const staffId = staffIdFromHeader(ctx.req);
-      if (!staffId) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
       return getDb().query.payrollRecords.findFirst({
         where: and(
           eq(payrollRecords.branchId, ctx.staff.branchId),
           eq(payrollRecords.payrollMonth, input.month),
-          eq(payrollRecords.staffId, staffId)
+          eq(payrollRecords.staffId, ctx.staff.id)
         ),
       });
     }),
