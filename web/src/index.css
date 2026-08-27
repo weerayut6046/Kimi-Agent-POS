@@ -79,6 +79,14 @@
     scroll-behavior: smooth;
   }
 
+  html[data-native-platform] {
+    overscroll-behavior-y: none;
+  }
+
+  html[data-native-platform] body {
+    min-height: 100dvh;
+  }
+
   * {
     @apply border-border;
   }
