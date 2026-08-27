@@ -77,13 +77,18 @@ function requiredMenuForPath(path: string): MenuPermissionKey | null {
   ) {
     return "pos";
   }
+  if (
+    path === "catalog.updateBillPromotion" ||
+    path === "catalog.updatePerLiterPromotion"
+  )
+    return "settings";
   if (path.startsWith("payments.")) return "pos";
   return null;
 }
 
 async function canUseProcedureMenu(
   staff: TrpcContext["staff"] & NonNullable<TrpcContext["staff"]>,
-  path: string,
+  path: string
 ): Promise<boolean> {
   const requiredMenu = requiredMenuForPath(path);
   if (!requiredMenu || staff.role === "admin") return true;

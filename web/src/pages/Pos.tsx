@@ -10,7 +10,6 @@ import {
   UserPlus,
   X,
   Printer,
-  BadgePercent,
   Star,
   FileText,
   Search,
@@ -92,8 +91,11 @@ import {
   positiveSettingNumber,
 } from "@contracts/settings";
 import {
+  activeBillThresholdPromotion,
   activeReceiptPromotion,
+  appliedBillThresholdPromotionDiscount,
   appliedPromotionDiscount,
+  type AppliedBillThresholdPromotion,
   type AppliedReceiptPromotion,
 } from "@contracts/promotion";
 
@@ -201,7 +203,6 @@ export default function Pos() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [member, setMember] = useState<Member | null>(null);
   const [phoneQ, setPhoneQ] = useState("");
-  const [discount, setDiscount] = useState(0);
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [loyaltyChoice, setLoyaltyChoice] = useState<"earn" | "redeem" | null>(
     null
@@ -218,6 +219,8 @@ export default function Pos() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [receiptPromotion, setReceiptPromotion] =
     useState<AppliedReceiptPromotion | null>(null);
+  const [receiptBillPromotion, setReceiptBillPromotion] =
+    useState<AppliedBillThresholdPromotion | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [err, setErr] = useState("");
@@ -295,22 +298,41 @@ export default function Pos() {
     (sum, line) => (line.product.category === "fuel" ? sum + line.qty : sum),
     0
   );
-  const activePromotion = settingMap
-    ? activeReceiptPromotion({ ...DEFAULT_SETTINGS, ...settingMap })
+  const promotionFuelSpend =
+    Math.round(
+      cart.reduce(
+        (sum, line) =>
+          line.product.category === "fuel"
+            ? sum + Math.round(line.product.price * line.qty * 100) / 100
+            : sum,
+        0
+      ) * 100
+    ) / 100;
+  const effectiveSettings = settingMap
+    ? { ...DEFAULT_SETTINGS, ...settingMap }
     : null;
+  const activePromotion = activeReceiptPromotion(effectiveSettings);
+  const activeBillPromotion = activeBillThresholdPromotion(effectiveSettings);
   const promotionDiscount = appliedPromotionDiscount(
     activePromotion,
     promotionFuelLiters,
     subtotal
   );
-  const billDiscount = activePromotion
-    ? promotionDiscount
-    : Math.round(discount * 100) / 100;
+  const billPromotionDiscount = appliedBillThresholdPromotionDiscount(
+    activeBillPromotion,
+    promotionFuelSpend,
+    subtotal,
+    promotionDiscount
+  );
+  const totalPromotionDiscount =
+    Math.round((promotionDiscount + billPromotionDiscount) * 100) / 100;
+  const promotionActive = activePromotion != null || billPromotionDiscount > 0;
+  const billDiscount = promotionActive ? totalPromotionDiscount : 0;
   const memberCardExpired = member
     ? isMemberCardExpired(member.cardExpiresAt)
     : false;
   const maxRedeemablePoints =
-    member && !memberCardExpired && !activePromotion
+    member && !memberCardExpired && !promotionActive
       ? Math.min(
           member.points,
           Math.floor(Math.max(0, subtotal - billDiscount) / pointValue)
@@ -577,10 +599,18 @@ export default function Pos() {
           }
         : null
     );
+    setReceiptBillPromotion(
+      activeBillPromotion && billPromotionDiscount > 0
+        ? {
+            ...activeBillPromotion,
+            fuelSpend: promotionFuelSpend,
+            appliedDiscount: billPromotionDiscount,
+          }
+        : null
+    );
     setReceipt(result);
     setCart([]);
     setMember(null);
-    setDiscount(0);
     setPointsToRedeem(0);
     setLoyaltyChoice(null);
     setReceived("");
@@ -680,12 +710,12 @@ export default function Pos() {
 
   const checkout = async () => {
     if (cart.length === 0) return;
-    if (!activePromotion && member && !loyaltyChoice) {
+    if (!promotionActive && member && !loyaltyChoice) {
       setErr("กรุณาถามลูกค้าและเลือกว่าจะสะสมแต้ม หรือใช้แต้มเป็นส่วนลด");
       return;
     }
     if (
-      !activePromotion &&
+      !promotionActive &&
       member &&
       loyaltyChoice === "redeem" &&
       redeemPoints === 0
@@ -727,9 +757,9 @@ export default function Pos() {
         memberId: member?.id,
         items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
         discount: billDiscount,
-        pointsToRedeem: activePromotion ? 0 : redeemPoints,
+        pointsToRedeem: promotionActive ? 0 : redeemPoints,
         loyaltyChoice:
-          member && !activePromotion ? (loyaltyChoice ?? undefined) : undefined,
+          member && !promotionActive ? (loyaltyChoice ?? undefined) : undefined,
       });
       return;
     }
@@ -743,9 +773,9 @@ export default function Pos() {
       discount: billDiscount,
       paymentMethod: payMethod,
       received: receivedNum,
-      pointsToRedeem: activePromotion ? 0 : redeemPoints,
+      pointsToRedeem: promotionActive ? 0 : redeemPoints,
       loyaltyChoice:
-        member && !activePromotion ? (loyaltyChoice ?? undefined) : undefined,
+        member && !promotionActive ? (loyaltyChoice ?? undefined) : undefined,
     };
 
     if (!window.posDesktop) {
@@ -770,7 +800,7 @@ export default function Pos() {
           vatRate: Number(settingMap?.vat_rate ?? "7"),
           pointEarnPerBaht,
           pointRedeemValue: pointValue,
-          promotionActive: activePromotion != null,
+          promotionActive,
           memberName: member?.name ?? null,
           customerName: creditCustomer?.name ?? null,
         },
@@ -1221,6 +1251,37 @@ export default function Pos() {
                     ฿{fmtMoney(subtotal)}
                   </span>
                 </div>
+                {activeBillPromotion && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-1.5 font-semibold">
+                        <Sparkles className="size-3.5 shrink-0" />
+                        <span className="truncate">
+                          {activeBillPromotion.name}
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-bold number-display">
+                        {billPromotionDiscount > 0
+                          ? `−฿${fmtMoney(billPromotionDiscount)}`
+                          : `ลด ฿${fmtMoney(activeBillPromotion.discount)}`}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-emerald-700">
+                      {promotionFuelSpend >=
+                      activeBillPromotion.minimumFuelSpend
+                        ? `ยอดเติมน้ำมัน ฿${fmtMoney(promotionFuelSpend)} ถึงเกณฑ์แล้ว ระบบสรุปส่วนลดท้ายบิลให้อัตโนมัติ`
+                        : promotionFuelSpend > 0
+                          ? `เติมน้ำมันอีก ฿${fmtMoney(activeBillPromotion.minimumFuelSpend - promotionFuelSpend)} เพื่อรับส่วนลด ฿${fmtMoney(activeBillPromotion.discount)}`
+                          : `เติมน้ำมันครบ ฿${fmtMoney(activeBillPromotion.minimumFuelSpend)} รับส่วนลด ฿${fmtMoney(activeBillPromotion.discount)}`}
+                    </div>
+                    {billPromotionDiscount > 0 && (
+                      <div className="mt-1 text-[11px] font-semibold text-emerald-800">
+                        บิลนี้ใช้ส่วนลดโปรโมชั่น จึงไม่สะสมแต้ม
+                        และไม่สามารถใช้แต้ม/ส่วนลดอื่นร่วมได้
+                      </div>
+                    )}
+                  </div>
+                )}
                 {activePromotion && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
                     <div className="flex items-center justify-between gap-3">
@@ -1245,25 +1306,7 @@ export default function Pos() {
                     </div>
                   </div>
                 )}
-                {!activePromotion && (
-                  <div className="flex justify-between items-center gap-2">
-                    <span className="flex items-center gap-1.5 text-slate-500">
-                      <BadgePercent className="size-3.5" />
-                      ส่วนลดท้ายบิล (บาท)
-                    </span>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={discount || ""}
-                      placeholder="0"
-                      onChange={e =>
-                        setDiscount(Math.max(0, Number(e.target.value) || 0))
-                      }
-                      className="h-9 w-24 text-right"
-                    />
-                  </div>
-                )}
-                {member && !memberCardExpired && !activePromotion && (
+                {member && !memberCardExpired && !promotionActive && (
                   <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3">
                     <div>
                       <div className="flex items-center gap-1.5 font-semibold text-violet-950">
@@ -2119,6 +2162,7 @@ export default function Pos() {
           if (!open) {
             setReceipt(null);
             setReceiptPromotion(null);
+            setReceiptBillPromotion(null);
           }
         }}
       >
@@ -2139,6 +2183,7 @@ export default function Pos() {
                   staffName={staff?.name}
                   logoUrl={logoUrl}
                   promotion={receiptPromotion ?? undefined}
+                  billPromotion={receiptBillPromotion ?? undefined}
                 />
               </div>
             </>
@@ -2173,6 +2218,7 @@ export default function Pos() {
               onClick={() => {
                 setReceipt(null);
                 setReceiptPromotion(null);
+                setReceiptBillPromotion(null);
               }}
             >
               ปิด

@@ -3,7 +3,10 @@ import {
   DEFAULT_POINT_REDEEM_VALUE,
   positiveSettingNumber,
 } from "@contracts/settings";
-import type { AppliedReceiptPromotion } from "@contracts/promotion";
+import type {
+  AppliedBillThresholdPromotion,
+  AppliedReceiptPromotion,
+} from "@contracts/promotion";
 
 type ReceiptSale = {
   receiptNo: string;
@@ -40,6 +43,7 @@ type Props = {
   staffName?: string;
   logoUrl?: string | null;
   promotion?: AppliedReceiptPromotion;
+  billPromotion?: AppliedBillThresholdPromotion;
 };
 
 function MoneyRow({
@@ -67,6 +71,7 @@ export function ReceiptDoc({
   staffName,
   logoUrl,
   promotion,
+  billPromotion,
 }: Props) {
   const isReturn = sale.transactionType === "return";
   const pointValue = positiveSettingNumber(
@@ -85,9 +90,15 @@ export function ReceiptDoc({
         Math.max(0, sale.discount - pointDiscount),
         Math.max(0, promotion?.discount ?? 0)
       );
+  const billPromotionDiscount = isReturn
+    ? 0
+    : Math.min(
+        Math.max(0, sale.discount - pointDiscount - promotionDiscount),
+        Math.max(0, billPromotion?.appliedDiscount ?? 0)
+      );
   const cashDiscount = Math.max(
     0,
-    sale.discount - pointDiscount - promotionDiscount
+    sale.discount - pointDiscount - promotionDiscount - billPromotionDiscount
   );
   return (
     <div className="text-sm font-mono">
@@ -189,6 +200,19 @@ export function ReceiptDoc({
             <div className="text-xs">
               ลด {fmtMoney(promotion.discountPerLiter)} บาท/ลิตร ×{" "}
               {fmtNum(promotion.liters)} ลิตร
+            </div>
+          </>
+        )}
+        {!isReturn && billPromotion && billPromotionDiscount > 0 && (
+          <>
+            <MoneyRow
+              label={billPromotion.name}
+              value={fmtMoney(billPromotionDiscount)}
+              bold
+            />
+            <div className="text-xs">
+              ยอดเติมน้ำมัน {fmtMoney(billPromotion.fuelSpend)} บาท (เกณฑ์{" "}
+              {fmtMoney(billPromotion.minimumFuelSpend)} บาท)
             </div>
           </>
         )}

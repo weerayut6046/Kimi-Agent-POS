@@ -21,7 +21,9 @@ import {
   positiveSettingNumber,
 } from "@contracts/settings";
 import {
+  activeBillThresholdPromotion,
   activeReceiptPromotion,
+  appliedBillThresholdPromotionDiscount,
   appliedPromotionDiscount,
 } from "@contracts/promotion";
 import { getDb } from "../queries/connection";
@@ -111,41 +113,58 @@ export async function computeSaleSnapshot(
     DEFAULT_POINT_REDEEM_VALUE
   );
 
-  const activePromotion = activeReceiptPromotion({
-    ...DEFAULT_SETTINGS,
-    ...settingMap,
-  });
-  const promotionDiscount = appliedPromotionDiscount(
-    activePromotion,
+  const effectiveSettings = { ...DEFAULT_SETTINGS, ...settingMap };
+  const activePerLiterPromotion = activeReceiptPromotion(effectiveSettings);
+  const activeBillPromotion = activeBillThresholdPromotion(effectiveSettings);
+  const perLiterPromotionDiscount = appliedPromotionDiscount(
+    activePerLiterPromotion,
     lines.reduce(
       (sum, line) => (line.product.category === "fuel" ? sum + line.qty : sum),
       0
     ),
     subtotal
   );
-  if (activePromotion && input.pointsToRedeem > 0) {
+  const fuelSpend = r2(
+    lines.reduce(
+      (sum, line) =>
+        line.product.category === "fuel" ? sum + line.amount : sum,
+      0
+    )
+  );
+  const billPromotionDiscount = appliedBillThresholdPromotionDiscount(
+    activeBillPromotion,
+    fuelSpend,
+    subtotal,
+    perLiterPromotionDiscount
+  );
+  const promotionDiscount = r2(
+    perLiterPromotionDiscount + billPromotionDiscount
+  );
+  const promotionActive =
+    activePerLiterPromotion != null || billPromotionDiscount > 0;
+  if (promotionActive && input.pointsToRedeem > 0) {
     throw new Error(
       "ช่วงโปรโมชั่นไม่สามารถใช้แต้มเป็นส่วนลดหรือรับส่วนลดอื่นร่วมได้"
     );
   }
-  const effectivePointsToRedeem = activePromotion ? 0 : input.pointsToRedeem;
+  const effectivePointsToRedeem = promotionActive ? 0 : input.pointsToRedeem;
 
-  const loyaltyChoice = activePromotion
+  const loyaltyChoice = promotionActive
     ? null
     : (input.loyaltyChoice ??
       (effectivePointsToRedeem > 0 ? "redeem" : "earn"));
-  if (!activePromotion && input.loyaltyChoice && !input.memberId) {
+  if (!promotionActive && input.loyaltyChoice && !input.memberId) {
     throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
   }
   if (
-    !activePromotion &&
+    !promotionActive &&
     input.loyaltyChoice === "earn" &&
     effectivePointsToRedeem > 0
   ) {
     throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
   }
   if (
-    !activePromotion &&
+    !promotionActive &&
     input.loyaltyChoice === "redeem" &&
     effectivePointsToRedeem === 0
   ) {
@@ -172,14 +191,14 @@ export async function computeSaleSnapshot(
     }
   }
   const totalDiscount = r2(
-    (activePromotion ? promotionDiscount : input.discount) + redeemDiscount
+    (promotionActive ? promotionDiscount : input.discount) + redeemDiscount
   );
   if (totalDiscount > subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
 
   const total = r2(subtotal - totalDiscount);
   const vatAmount = r2((total * vatRate) / (100 + vatRate)); // VAT รวมใน
   const pointsEarned =
-    !activePromotion && memberId && loyaltyChoice === "earn"
+    !promotionActive && memberId && loyaltyChoice === "earn"
       ? Math.floor(total / earnPer)
       : 0;
 

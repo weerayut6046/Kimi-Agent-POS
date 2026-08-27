@@ -46,11 +46,19 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
   pay_qr_enabled: "1",
   pay_card_enabled: "1",
   pay_credit_enabled: "1",
-  promotion_enabled: "1",
+  // เปิด capability ลดต่อลิตรไว้ และควบคุมการใช้งานจริงด้วย promotion_enabled
+  promotion_per_liter_feature_enabled: "1",
+  promotion_enabled: "0",
   promotion_name: "โปรโมชั่นลดราคาน้ำมัน สิงหาคม 2569",
   promotion_discount: "0.50",
   promotion_start_date: "2026-08-01",
   promotion_end_date: "2026-08-31",
+  bill_promotion_enabled: "1",
+  bill_promotion_name: "เติมน้ำมันครบ 1,000 บาท ลด 20 บาท",
+  bill_promotion_min_fuel_spend: "1000",
+  bill_promotion_discount: "20",
+  bill_promotion_start_date: "2026-08-01",
+  bill_promotion_end_date: "2026-08-31",
   meter_ocr_mode: "local",
 };
 

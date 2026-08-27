@@ -121,11 +121,14 @@ import {
   type StaffRole,
 } from "@contracts/menuPermissions";
 import {
+  DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
 } from "@contracts/settings";
 import {
+  activeBillThresholdPromotion,
   activeReceiptPromotion,
+  billPromotionSettingsValidationMessage,
   promotionSettingsValidationMessage,
 } from "@contracts/promotion";
 
@@ -587,6 +590,8 @@ export default function Settings() {
   } = useDesktopSync();
   const utils = trpc.useUtils();
   const isAdmin = staff?.role === "admin";
+  const canManagePromotions =
+    staff?.role === "admin" || staff?.role === "manager";
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
   // RealtimeProvider refreshes active queries when another station changes
   // data. A five-second poll made this large settings screen reload even while
@@ -797,6 +802,31 @@ export default function Settings() {
     },
     onError: e => fail(e.message),
   });
+  const savePromotionSettings = trpc.catalog.updateBillPromotion.useMutation({
+    onMutate: async () => {
+      await utils.catalog.getSettings.cancel();
+    },
+    onSuccess: result => {
+      setPrevSettingMap(result.settings);
+      setForm(result.settings);
+      utils.catalog.getSettings.setData(undefined, result.settings);
+      ok("บันทึกโปรโมชั่นแล้ว");
+    },
+    onError: e => fail(e.message),
+  });
+  const savePerLiterPromotionSettings =
+    trpc.catalog.updatePerLiterPromotion.useMutation({
+      onMutate: async () => {
+        await utils.catalog.getSettings.cancel();
+      },
+      onSuccess: result => {
+        setPrevSettingMap(result.settings);
+        setForm(result.settings);
+        utils.catalog.getSettings.setData(undefined, result.settings);
+        ok("บันทึกโปรโมชั่นลดราคาต่อลิตรแล้ว");
+      },
+      onError: e => fail(e.message),
+    });
   const saveAiConfig = trpc.assistant.updateConfig.useMutation({
     onSuccess: result => {
       setPrevAiConfig(result.config);
@@ -1234,11 +1264,6 @@ export default function Settings() {
   // กันตัวนับถอยหลังกรณีมีการออกเอกสารระหว่างที่เปิดหน้านี้ค้างไว้
   const COUNTER_KEYS = ["receipt_next_no", "tax_invoice_next_no"];
   const saveAll = () => {
-    const promotionError = promotionSettingsValidationMessage(form);
-    if (promotionError) {
-      fail(promotionError);
-      return;
-    }
     const entries = Object.entries(form)
       .filter(
         ([k, v]) =>
@@ -1248,6 +1273,59 @@ export default function Settings() {
       .map(([key, value]) => ({ key, value }));
     if (logoData !== null) entries.push({ key: "shop_logo", value: logoData });
     saveSettings.mutate({ entries });
+  };
+
+  const savePerLiterPromotion = () => {
+    const promotionError = promotionSettingsValidationMessage(form);
+    if (promotionError) {
+      fail(promotionError);
+      return;
+    }
+    const enabled =
+      form.promotion_per_liter_feature_enabled === "1" &&
+      form.promotion_enabled === "1";
+    const discountPerLiter = Number(form.promotion_discount);
+    savePerLiterPromotionSettings.mutate({
+      enabled,
+      name: form.promotion_name.trim() || DEFAULT_SETTINGS.promotion_name,
+      discountPerLiter:
+        Number.isFinite(discountPerLiter) && discountPerLiter > 0
+          ? discountPerLiter
+          : Number(DEFAULT_SETTINGS.promotion_discount),
+      startDate:
+        form.promotion_start_date || DEFAULT_SETTINGS.promotion_start_date,
+      endDate: form.promotion_end_date || DEFAULT_SETTINGS.promotion_end_date,
+    });
+  };
+
+  const saveBillPromotion = () => {
+    const promotionError = billPromotionSettingsValidationMessage(form);
+    if (promotionError) {
+      fail(promotionError);
+      return;
+    }
+    const enabled = form.bill_promotion_enabled === "1";
+    const minimumFuelSpend = Number(form.bill_promotion_min_fuel_spend);
+    const discount = Number(form.bill_promotion_discount);
+    savePromotionSettings.mutate({
+      enabled,
+      name:
+        form.bill_promotion_name.trim() || DEFAULT_SETTINGS.bill_promotion_name,
+      minimumFuelSpend:
+        Number.isFinite(minimumFuelSpend) && minimumFuelSpend > 0
+          ? minimumFuelSpend
+          : Number(DEFAULT_SETTINGS.bill_promotion_min_fuel_spend),
+      discount:
+        Number.isFinite(discount) && discount > 0
+          ? discount
+          : Number(DEFAULT_SETTINGS.bill_promotion_discount),
+      startDate:
+        form.bill_promotion_start_date ||
+        DEFAULT_SETTINGS.bill_promotion_start_date,
+      endDate:
+        form.bill_promotion_end_date ||
+        DEFAULT_SETTINGS.bill_promotion_end_date,
+    });
   };
 
   const saveAi = () => {
@@ -1309,7 +1387,11 @@ export default function Settings() {
     `${prefix || fallback}${String(Math.max(1, Number(next ?? "1") || 1)).padStart(5, "0")}`;
 
   const logoShown = logoData !== null ? logoData : (shopLogo ?? "");
-  const promotionPreview = activeReceiptPromotion(form);
+  const perLiterPromotionEnabled =
+    form.promotion_per_liter_feature_enabled === "1" &&
+    form.promotion_enabled === "1";
+  const perLiterPromotionPreview = activeReceiptPromotion(form);
+  const promotionPreview = activeBillThresholdPromotion(form);
 
   // ระหว่างโหลด/โหลดพลาด อย่าแสดงฟอร์มค่า default — ผู้ใช้จะเข้าใจผิดว่าค่าที่ตั้งไว้หาย (เคยเกิดเหตุนี้จริง)
   if (settingsPending && !settingMap) {
@@ -1368,6 +1450,11 @@ export default function Settings() {
           <TabsTrigger value="rewards" className="flex-none sm:flex-1">
             <Gift /> ของรางวัล
           </TabsTrigger>
+          {canManagePromotions && (
+            <TabsTrigger value="promotions" className="flex-none sm:flex-1">
+              <BadgePercent /> โปรโมชั่น
+            </TabsTrigger>
+          )}
           {isAdmin && (
             <TabsTrigger value="pumps" className="flex-none sm:flex-1">
               <Gauge /> หัวจ่าย
@@ -1476,118 +1563,6 @@ export default function Settings() {
                   onClick={saveAll}
                 >
                   บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* โปรโมชั่นส่วนลดท้ายบิล */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="font-heading text-base flex items-center gap-2">
-                <BadgePercent className="w-4 h-4" /> โปรโมชั่นส่วนลดท้ายบิล
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-md border p-3">
-                <div className="pr-3">
-                  <Label htmlFor="promotion_enabled" className="cursor-pointer">
-                    เปิดใช้โปรโมชั่นอัตโนมัติ
-                  </Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    ลดตามจำนวนลิตรของสินค้าหมวดน้ำมัน
-                    แล้วสรุปยอดส่วนลดท้ายใบเสร็จ
-                  </p>
-                </div>
-                <Switch
-                  id="promotion_enabled"
-                  disabled={!isAdmin}
-                  checked={form.promotion_enabled === "1"}
-                  onCheckedChange={enabled =>
-                    set("promotion_enabled", enabled ? "1" : "0")
-                  }
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>ชื่อโปรโมชั่น (แสดงบนใบเสร็จ)</Label>
-                  <Input
-                    maxLength={80}
-                    disabled={!isAdmin || form.promotion_enabled !== "1"}
-                    value={form.promotion_name ?? ""}
-                    onChange={event =>
-                      set("promotion_name", event.target.value)
-                    }
-                    placeholder="เช่น โปรโมชั่นประจำเดือน"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>ส่วนลดน้ำมัน (บาท/ลิตร)</Label>
-                  <Input
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    disabled={!isAdmin || form.promotion_enabled !== "1"}
-                    value={form.promotion_discount ?? "0.50"}
-                    onChange={event =>
-                      set("promotion_discount", event.target.value)
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    0.50 บาท เท่ากับ 50 สตางค์
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>วันเริ่ม</Label>
-                    <Input
-                      type="date"
-                      disabled={!isAdmin || form.promotion_enabled !== "1"}
-                      value={form.promotion_start_date ?? ""}
-                      onChange={event =>
-                        set("promotion_start_date", event.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>วันสิ้นสุด</Label>
-                    <Input
-                      type="date"
-                      disabled={!isAdmin || form.promotion_enabled !== "1"}
-                      value={form.promotion_end_date ?? ""}
-                      onChange={event =>
-                        set("promotion_end_date", event.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {form.promotion_enabled === "1" && (
-                <div
-                  className={`rounded-md border px-3 py-2 text-sm ${
-                    promotionPreview
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                      : promotionSettingsValidationMessage(form)
-                        ? "border-red-200 bg-red-50 text-red-700"
-                        : "border-amber-200 bg-amber-50 text-amber-800"
-                  }`}
-                >
-                  {promotionPreview
-                    ? `กำลังใช้งานวันนี้ — ลด ${fmtMoney(promotionPreview.discountPerLiter)} บาทต่อลิตรน้ำมัน`
-                    : (promotionSettingsValidationMessage(form) ??
-                      "โปรโมชั่นยังไม่อยู่ในช่วงวันที่ใช้งาน")}
-                </div>
-              )}
-
-              <div>
-                <Button
-                  disabled={!isAdmin || saveSettings.isPending}
-                  onClick={saveAll}
-                >
-                  <Save className="w-4 h-4 mr-2" /> บันทึกโปรโมชั่น{" "}
-                  {!isAdmin && "(เฉพาะแอดมิน)"}
                 </Button>
               </div>
             </CardContent>
@@ -1795,6 +1770,289 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {canManagePromotions && (
+          <TabsContent value="promotions" className="mt-0 space-y-5">
+            {/* โปรโมชั่นลดราคาต่อลิตร */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-base flex items-center gap-2">
+                  <BadgePercent className="w-4 h-4" />
+                  โปรโมชั่นลดราคาต่อลิตร
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div className="pr-3">
+                    <Label
+                      htmlFor="promotion_enabled"
+                      className="cursor-pointer"
+                    >
+                      เปิดใช้ส่วนลดต่อลิตรอัตโนมัติ
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      คำนวณส่วนลดจากจำนวนลิตรของสินค้าหมวดน้ำมัน
+                      และสรุปส่วนลดท้ายใบเสร็จ
+                    </p>
+                  </div>
+                  <Switch
+                    id="promotion_enabled"
+                    disabled={!canManagePromotions}
+                    checked={perLiterPromotionEnabled}
+                    onCheckedChange={enabled => {
+                      set("promotion_per_liter_feature_enabled", "1");
+                      set("promotion_enabled", enabled ? "1" : "0");
+                    }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>ชื่อโปรโมชั่น (แสดงบนใบเสร็จ)</Label>
+                    <Input
+                      maxLength={80}
+                      disabled={
+                        !canManagePromotions || !perLiterPromotionEnabled
+                      }
+                      value={form.promotion_name ?? ""}
+                      onChange={event =>
+                        set("promotion_name", event.target.value)
+                      }
+                      placeholder="เช่น ลดราคาน้ำมัน 50 สตางค์ต่อลิตร"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>ส่วนลดน้ำมัน (บาท/ลิตร)</Label>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      disabled={
+                        !canManagePromotions || !perLiterPromotionEnabled
+                      }
+                      value={form.promotion_discount ?? "0.50"}
+                      onChange={event =>
+                        set("promotion_discount", event.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      ตัวอย่าง 0.50 บาท เท่ากับส่วนลด 50 สตางค์ต่อลิตร
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+                    <div className="space-y-1.5">
+                      <Label>วันเริ่ม</Label>
+                      <Input
+                        type="date"
+                        disabled={
+                          !canManagePromotions || !perLiterPromotionEnabled
+                        }
+                        value={form.promotion_start_date ?? ""}
+                        onChange={event =>
+                          set("promotion_start_date", event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>วันสิ้นสุด</Label>
+                      <Input
+                        type="date"
+                        disabled={
+                          !canManagePromotions || !perLiterPromotionEnabled
+                        }
+                        value={form.promotion_end_date ?? ""}
+                        onChange={event =>
+                          set("promotion_end_date", event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {perLiterPromotionEnabled && (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      perLiterPromotionPreview
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : promotionSettingsValidationMessage(form)
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    {perLiterPromotionPreview
+                      ? `กำลังใช้งานวันนี้ — ลด ${fmtMoney(perLiterPromotionPreview.discountPerLiter)} บาท/ลิตร`
+                      : (promotionSettingsValidationMessage(form) ??
+                        "โปรโมชั่นยังไม่อยู่ในช่วงวันที่ใช้งาน")}
+                  </div>
+                )}
+
+                {perLiterPromotionEnabled &&
+                  form.bill_promotion_enabled === "1" && (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      หากโปรโมชั่นทั้งสองแบบอยู่ในช่วงวันที่เดียวกัน
+                      ระบบจะรวมส่วนลดทั้งสองรายการในบิลเดียวกัน
+                    </p>
+                  )}
+
+                <div>
+                  <Button
+                    disabled={
+                      !canManagePromotions ||
+                      savePerLiterPromotionSettings.isPending
+                    }
+                    onClick={savePerLiterPromotion}
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    บันทึกโปรโมชั่นต่อลิตร{" "}
+                    {!canManagePromotions && "(เฉพาะแอดมินหรือผู้จัดการ)"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* โปรโมชั่นตามยอดเติมน้ำมัน */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="font-heading text-base flex items-center gap-2">
+                  <BadgePercent className="w-4 h-4" />
+                  โปรโมชั่นตามยอดเติมน้ำมัน
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <div className="pr-3">
+                    <Label
+                      htmlFor="bill_promotion_enabled"
+                      className="cursor-pointer"
+                    >
+                      เปิดใช้โปรโมชั่นอัตโนมัติ
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      เมื่อยอดสินค้าหมวดน้ำมันถึงเกณฑ์ ให้ส่วนลดคงที่ท้ายใบเสร็จ
+                    </p>
+                  </div>
+                  <Switch
+                    id="bill_promotion_enabled"
+                    disabled={!canManagePromotions}
+                    checked={form.bill_promotion_enabled === "1"}
+                    onCheckedChange={enabled =>
+                      set("bill_promotion_enabled", enabled ? "1" : "0")
+                    }
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label>ชื่อโปรโมชั่น (แสดงบนใบเสร็จ)</Label>
+                    <Input
+                      maxLength={80}
+                      disabled={
+                        !canManagePromotions ||
+                        form.bill_promotion_enabled !== "1"
+                      }
+                      value={form.bill_promotion_name ?? ""}
+                      onChange={event =>
+                        set("bill_promotion_name", event.target.value)
+                      }
+                      placeholder="เช่น เติมครบ 1,000 บาท ลด 20 บาท"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ยอดเติมน้ำมันขั้นต่ำ (บาท)</Label>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      disabled={
+                        !canManagePromotions ||
+                        form.bill_promotion_enabled !== "1"
+                      }
+                      value={form.bill_promotion_min_fuel_spend ?? "1000"}
+                      onChange={event =>
+                        set("bill_promotion_min_fuel_spend", event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>ส่วนลดท้ายใบเสร็จ (บาท)</Label>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      disabled={
+                        !canManagePromotions ||
+                        form.bill_promotion_enabled !== "1"
+                      }
+                      value={form.bill_promotion_discount ?? "20"}
+                      onChange={event =>
+                        set("bill_promotion_discount", event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 sm:col-span-2">
+                    <div className="space-y-1.5">
+                      <Label>วันเริ่ม</Label>
+                      <Input
+                        type="date"
+                        disabled={
+                          !canManagePromotions ||
+                          form.bill_promotion_enabled !== "1"
+                        }
+                        value={form.bill_promotion_start_date ?? ""}
+                        onChange={event =>
+                          set("bill_promotion_start_date", event.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>วันสิ้นสุด</Label>
+                      <Input
+                        type="date"
+                        disabled={
+                          !canManagePromotions ||
+                          form.bill_promotion_enabled !== "1"
+                        }
+                        value={form.bill_promotion_end_date ?? ""}
+                        onChange={event =>
+                          set("bill_promotion_end_date", event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {form.bill_promotion_enabled === "1" && (
+                  <div
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      promotionPreview
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : billPromotionSettingsValidationMessage(form)
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : "border-amber-200 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    {promotionPreview
+                      ? `กำลังใช้งานวันนี้ — เติมน้ำมันครบ ${fmtMoney(promotionPreview.minimumFuelSpend)} บาท ลด ${fmtMoney(promotionPreview.discount)} บาท`
+                      : (billPromotionSettingsValidationMessage(form) ??
+                        "โปรโมชั่นยังไม่อยู่ในช่วงวันที่ใช้งาน")}
+                  </div>
+                )}
+
+                <div>
+                  <Button
+                    disabled={
+                      !canManagePromotions || savePromotionSettings.isPending
+                    }
+                    onClick={saveBillPromotion}
+                  >
+                    <Save className="w-4 h-4 mr-2" /> บันทึกโปรโมชั่น{" "}
+                    {!canManagePromotions && "(เฉพาะแอดมินหรือผู้จัดการ)"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="network" className="mt-0">
           {/* เครือข่าย LAN (ขายหลายเครื่องพร้อมกัน) */}

@@ -51,9 +51,9 @@ import { ReceiptDoc } from "@/components/ReceiptDoc";
 import { printReceiptElement, parseReceiptPaper } from "@/lib/printDoc";
 import { fmtMoney, fmtNum, fmtDateTime, paymentLabel } from "@/lib/format";
 import {
-  activeReceiptPromotion,
-  appliedPromotionDiscount,
-  type ActiveReceiptPromotion,
+  activeBillThresholdPromotion,
+  appliedBillThresholdPromotionDiscount,
+  type ActiveBillThresholdPromotion,
 } from "@contracts/promotion";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -100,7 +100,7 @@ export default function Sales() {
     limit: 200,
   });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
-  const activePromotion = activeReceiptPromotion(settingMap);
+  const activePromotion = activeBillThresholdPromotion(settingMap);
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const [detailId, setDetailId] = useState<number | null>(null);
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
@@ -253,15 +253,15 @@ export default function Sales() {
                         s.transactionType !== "return" &&
                         s.returnStatus !== "partial" &&
                         s.returnStatus !== "full" && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => setEditSale(s)}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => setEditSale(s)}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
                       {canManage && (
                         <Button
                           size="icon"
@@ -370,13 +370,13 @@ export default function Sales() {
                 </Button>
                 {detail.sale.status === "completed" &&
                   detail.sale.transactionType !== "return" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setTaxSaleId(detail.sale.id)}
-                  >
-                    <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
-                  </Button>
-                )}
+                    <Button
+                      variant="outline"
+                      onClick={() => setTaxSaleId(detail.sale.id)}
+                    >
+                      <FileText className="w-4 h-4 mr-2" /> ใบกำกับภาษีเต็มรูป
+                    </Button>
+                  )}
                 {detail.sale.status === "completed" &&
                   detail.sale.transactionType !== "return" &&
                   canManage &&
@@ -419,7 +419,10 @@ export default function Sales() {
         <EditSaleDialog
           key={editSale.id}
           sale={editSale}
-          promotionActive={activePromotion != null}
+          promotionActive={
+            activePromotion != null &&
+            Math.abs(editSale.discount - activePromotion.discount) < 0.009
+          }
           saving={updateMut.isPending}
           onClose={() => setEditSale(null)}
           onSave={v => updateMut.mutate({ id: editSale.id, ...v })}
@@ -503,7 +506,9 @@ function ReturnSaleDialog({
   const selectedLines = returnableItems
     .filter(item => selected[item.id] && item.returnable)
     .map(item => ({ item, qty: Number(quantities[item.id] ?? "0") }))
-    .filter(line => line.qty > 0 && line.qty <= line.item.returnableQty + 0.0001);
+    .filter(
+      line => line.qty > 0 && line.qty <= line.item.returnableQty + 0.0001
+    );
   const selectedGross = r2(
     selectedLines.reduce(
       (sum, line) => sum + (line.item.amount * line.qty) / line.item.qty,
@@ -564,7 +569,8 @@ function ReturnSaleDialog({
                 คืนสินค้าในบิล {detail?.sale.receiptNo ?? ""}
               </DialogTitle>
               <DialogDescription className="mt-1 text-xs text-orange-100/80 sm:text-sm">
-                เลือกรายการและจำนวนที่ลูกค้านำมาคืน ระบบจะคืนสต๊อกและปรับแต้มให้อัตโนมัติ
+                เลือกรายการและจำนวนที่ลูกค้านำมาคืน
+                ระบบจะคืนสต๊อกและปรับแต้มให้อัตโนมัติ
               </DialogDescription>
             </div>
           </div>
@@ -602,12 +608,17 @@ function ReturnSaleDialog({
                     <TableHead>สินค้า</TableHead>
                     <TableHead className="text-right">ซื้อ</TableHead>
                     <TableHead className="text-right">คืนแล้ว</TableHead>
-                    <TableHead className="w-32 text-right">คืนครั้งนี้</TableHead>
+                    <TableHead className="w-32 text-right">
+                      คืนครั้งนี้
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {returnableItems.map(item => (
-                    <TableRow key={item.id} className={!item.returnable ? "opacity-55" : ""}>
+                    <TableRow
+                      key={item.id}
+                      className={!item.returnable ? "opacity-55" : ""}
+                    >
                       <TableCell>
                         <input
                           type="checkbox"
@@ -616,7 +627,11 @@ function ReturnSaleDialog({
                           checked={Boolean(selected[item.id])}
                           disabled={!item.returnable}
                           onChange={event =>
-                            toggleItem(item.id, event.target.checked, item.returnableQty)
+                            toggleItem(
+                              item.id,
+                              event.target.checked,
+                              item.returnableQty
+                            )
                           }
                         />
                       </TableCell>
@@ -627,9 +642,12 @@ function ReturnSaleDialog({
                             ไม่รองรับการคืนน้ำมันเชื้อเพลิง
                           </div>
                         )}
-                        {item.productCategory !== "fuel" && item.returnableQty <= 0 && (
-                          <div className="text-[11px] text-muted-foreground">คืนครบแล้ว</div>
-                        )}
+                        {item.productCategory !== "fuel" &&
+                          item.returnableQty <= 0 && (
+                            <div className="text-[11px] text-muted-foreground">
+                              คืนครบแล้ว
+                            </div>
+                          )}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         {fmtNum(item.qty)} {item.unit}
@@ -708,7 +726,9 @@ function ReturnSaleDialog({
             </p>
           </div>
           {invalidSelectedQty && (
-            <p className="text-sm text-destructive">จำนวนคืนต้องมากกว่า 0 และไม่เกินจำนวนที่คืนได้</p>
+            <p className="text-sm text-destructive">
+              จำนวนคืนต้องมากกว่า 0 และไม่เกินจำนวนที่คืนได้
+            </p>
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
         </div>
@@ -913,7 +933,7 @@ function AddSaleDialog({
   onCreated,
 }: {
   staffName: string;
-  promotion: ActiveReceiptPromotion | null;
+  promotion: ActiveBillThresholdPromotion | null;
   payMethods: PayMethod[];
   onClose: () => void;
   onCreated: () => void;
@@ -949,15 +969,21 @@ function AddSaleDialog({
   const activeProducts = (products ?? []).filter(p => p.active);
   const subtotal = r2(lines.reduce((s, l) => s + l.price * l.qty, 0));
   const discountNum = Number(discount) || 0;
-  const promotionDiscount = appliedPromotionDiscount(
+  const promotionDiscount = appliedBillThresholdPromotionDiscount(
     promotion,
-    lines.reduce(
-      (sum, line) => (line.category === "fuel" ? sum + line.qty : sum),
-      0
+    r2(
+      lines.reduce(
+        (sum, line) =>
+          line.category === "fuel" ? sum + r2(line.price * line.qty) : sum,
+        0
+      )
     ),
     subtotal
   );
-  const effectiveDiscount = promotion ? promotionDiscount : discountNum;
+  const promotionQualified = promotionDiscount > 0;
+  const effectiveDiscount = promotionQualified
+    ? promotionDiscount
+    : discountNum;
   const total = r2(Math.max(0, subtotal - effectiveDiscount));
 
   const addLine = () => {
@@ -993,7 +1019,7 @@ function AddSaleDialog({
       setErr("กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ");
       return;
     }
-    if (!promotion && discountNum > subtotal) {
+    if (!promotionQualified && discountNum > subtotal) {
       setErr("ส่วนลดมากกว่ายอดขาย");
       return;
     }
@@ -1027,8 +1053,7 @@ function AddSaleDialog({
                 เพิ่มบิลย้อนหลัง
               </DialogTitle>
               <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                บันทึกรายการขายย้อนหลังพร้อมรายการสินค้า ส่วนลด
-                และการชำระเงิน
+                บันทึกรายการขายย้อนหลังพร้อมรายการสินค้า ส่วนลด และการชำระเงิน
               </DialogDescription>
             </div>
           </div>
@@ -1143,7 +1168,7 @@ function AddSaleDialog({
               <div>
                 <h3 className="text-sm font-bold text-slate-900">สมาชิก</h3>
                 <p className="text-[11px] text-slate-500">
-                  {promotion
+                  {promotionQualified
                     ? "บันทึกสมาชิกได้ แต่ช่วงโปรโมชั่นจะไม่ได้รับแต้ม"
                     : "ค้นหาสมาชิกด้วยเบอร์โทร (ไม่บังคับ)"}
                 </p>
@@ -1211,9 +1236,9 @@ function AddSaleDialog({
               </div>
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-2">
-              {promotion ? (
+              {promotionQualified ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
-                  {promotion.name}: ใช้เฉพาะส่วนลดโปรโมชั่น ไม่สะสมแต้ม
+                  {promotion?.name}: ใช้เฉพาะส่วนลดโปรโมชั่น ไม่สะสมแต้ม
                   และไม่ใช้ส่วนลดอื่นร่วม
                 </div>
               ) : (

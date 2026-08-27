@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { and, desc, eq, ilike, ne, sql } from "drizzle-orm";
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
-import { adminQuery } from "../guard";
+import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { lookupExternalProduct } from "../lib/externalProductLookup";
 import { persistExternalProductImage } from "../lib/productImageStorage";
 import { mergeSettingDefaults } from "@contracts/settings";
+import {
+  billPromotionSettingsValidationMessage,
+  promotionSettingsValidationMessage,
+} from "@contracts/promotion";
 import { getLanUrls, isPublicCloudRuntime } from "../lib/lan";
 import {
   products,
@@ -1194,6 +1198,135 @@ export const catalogRouter = createRouter({
         ok: true,
         settings: mergeSettingDefaults(
           rows.map(r => [r.key, r.value] as const)
+        ),
+      };
+    }),
+
+  updateBillPromotion: managerQuery
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        name: z.string().trim().min(1).max(80),
+        minimumFuelSpend: z.number().positive().max(999_999_999),
+        discount: z.number().positive().max(999_999_999),
+        startDate: z.string(),
+        endDate: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const promotionValues: Record<string, string> = {
+        bill_promotion_enabled: input.enabled ? "1" : "0",
+        bill_promotion_name: input.name,
+        bill_promotion_min_fuel_spend: String(input.minimumFuelSpend),
+        bill_promotion_discount: String(input.discount),
+        bill_promotion_start_date: input.startDate,
+        bill_promotion_end_date: input.endDate,
+      };
+      const validationError =
+        billPromotionSettingsValidationMessage(promotionValues);
+      if (validationError) throw new Error(validationError);
+
+      const db = getDb();
+      await db
+        .insert(settings)
+        .values(
+          Object.entries(promotionValues).map(([key, value]) => ({
+            branchId: ctx.staff.branchId,
+            key,
+            value,
+          }))
+        )
+        .onConflictDoUpdate({
+          target: [settings.branchId, settings.key],
+          set: { value: sql`excluded.value` },
+        });
+
+      logAudit({
+        action: "promotion.settings.update",
+        ...actorFromReq(ctx.req),
+        detail: input.enabled
+          ? `ตั้งโปรโมชั่น ${input.name}: เติมน้ำมันครบ ${input.minimumFuelSpend.toFixed(2)} บาท ลด ${input.discount.toFixed(2)} บาท (${input.startDate} ถึง ${input.endDate})`
+          : `ปิดโปรโมชั่น ${input.name}`,
+        refType: "settings",
+      });
+
+      const rows = await db
+        .select()
+        .from(settings)
+        .where(
+          and(
+            eq(settings.branchId, ctx.staff.branchId),
+            ne(settings.key, "shop_logo")
+          )
+        );
+      return {
+        ok: true,
+        settings: mergeSettingDefaults(
+          rows.map(row => [row.key, row.value] as const)
+        ),
+      };
+    }),
+
+  updatePerLiterPromotion: managerQuery
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        name: z.string().trim().min(1).max(80),
+        discountPerLiter: z.number().positive().max(999_999_999),
+        startDate: z.string(),
+        endDate: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const promotionValues: Record<string, string> = {
+        promotion_per_liter_feature_enabled: "1",
+        promotion_enabled: input.enabled ? "1" : "0",
+        promotion_name: input.name,
+        promotion_discount: String(input.discountPerLiter),
+        promotion_start_date: input.startDate,
+        promotion_end_date: input.endDate,
+      };
+      const validationError =
+        promotionSettingsValidationMessage(promotionValues);
+      if (validationError) throw new Error(validationError);
+
+      const db = getDb();
+      await db
+        .insert(settings)
+        .values(
+          Object.entries(promotionValues).map(([key, value]) => ({
+            branchId: ctx.staff.branchId,
+            key,
+            value,
+          }))
+        )
+        .onConflictDoUpdate({
+          target: [settings.branchId, settings.key],
+          set: { value: sql`excluded.value` },
+        });
+
+      logAudit({
+        action: "promotion.per_liter.settings.update",
+        ...actorFromReq(ctx.req),
+        detail: input.enabled
+          ? `ตั้งโปรโมชั่น ${input.name}: ลด ${input.discountPerLiter.toFixed(2)} บาท/ลิตร (${input.startDate} ถึง ${input.endDate})`
+          : `ปิดโปรโมชั่นต่อลิตร ${input.name}`,
+        refType: "settings",
+      });
+
+      const rows = await db
+        .select()
+        .from(settings)
+        .where(
+          and(
+            eq(settings.branchId, ctx.staff.branchId),
+            ne(settings.key, "shop_logo")
+          )
+        );
+      return {
+        ok: true,
+        settings: mergeSettingDefaults(
+          rows.map(row => [row.key, row.value] as const)
         ),
       };
     }),

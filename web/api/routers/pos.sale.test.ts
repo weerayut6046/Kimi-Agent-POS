@@ -20,11 +20,20 @@ let t: TestDb;
 beforeAll(async () => {
   t = await setupTestDb();
   await t.db
-    .update(settings)
-    .set({ value: "0" })
-    .where(
-      and(eq(settings.branchId, 1), eq(settings.key, "promotion_enabled"))
-    );
+    .insert(settings)
+    .values([
+      { branchId: 1, key: "promotion_enabled", value: "0" },
+      {
+        branchId: 1,
+        key: "promotion_per_liter_feature_enabled",
+        value: "0",
+      },
+      { branchId: 1, key: "bill_promotion_enabled", value: "0" },
+    ])
+    .onConflictDoUpdate({
+      target: [settings.branchId, settings.key],
+      set: { value: "0" },
+    });
 });
 afterAll(() => t.cleanup());
 
@@ -46,7 +55,9 @@ const memberByCode = async (code: string) => {
 const setPromotion = async (enabled: boolean) => {
   const today = bangkokDateKey(new Date());
   const values: Record<string, string> = {
+    promotion_per_liter_feature_enabled: enabled ? "1" : "0",
     promotion_enabled: enabled ? "1" : "0",
+    bill_promotion_enabled: "0",
     promotion_name: "โปรโมชั่นทดสอบ",
     promotion_discount: "0.50",
     promotion_start_date: today,
@@ -58,6 +69,18 @@ const setPromotion = async (enabled: boolean) => {
       .set({ value })
       .where(and(eq(settings.branchId, 1), eq(settings.key, key)));
   }
+};
+
+const setBillPromotion = async (enabled: boolean) => {
+  const today = bangkokDateKey(new Date());
+  await t.caller("manager").catalog.updateBillPromotion({
+    enabled,
+    name: "เติมครบ 1,000 ลด 20",
+    minimumFuelSpend: 1000,
+    discount: 20,
+    startDate: today,
+    endDate: today,
+  });
 };
 
 describe("createSale", () => {
@@ -142,6 +165,45 @@ describe("createSale", () => {
       ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถใช้แต้ม");
     } finally {
       await setPromotion(false);
+    }
+  });
+
+  it("เติมน้ำมันถึงยอดที่กำหนดจึงลดท้ายบิล และยอดต่ำกว่าเกณฑ์ยังใช้ส่วนลดปกติได้", async () => {
+    const fuel = await productByCode("GSH95");
+    const member = await memberByCode("M0001");
+    await setBillPromotion(true);
+
+    try {
+      const below = await t.caller().pos.createSale({
+        items: [{ productId: fuel.id, qty: 10 }],
+        discount: 7,
+        paymentMethod: "qr",
+      });
+      expect(below.sale.subtotal).toBe(407.4);
+      expect(below.sale.discount).toBe(7);
+
+      const qualified = await t.caller().pos.createSale({
+        memberId: member.id,
+        items: [{ productId: fuel.id, qty: 1000 / fuel.price }],
+        discount: 99,
+        loyaltyChoice: "earn",
+        paymentMethod: "qr",
+      });
+      expect(qualified.sale.subtotal).toBe(1000);
+      expect(qualified.sale.discount).toBe(20);
+      expect(qualified.sale.total).toBe(980);
+      expect(qualified.sale.pointsEarned).toBe(0);
+
+      await expect(
+        t.caller().pos.createSale({
+          memberId: member.id,
+          items: [{ productId: fuel.id, qty: 1000 / fuel.price }],
+          pointsToRedeem: 1,
+          loyaltyChoice: "redeem",
+        })
+      ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถใช้แต้ม");
+    } finally {
+      await setBillPromotion(false);
     }
   });
 

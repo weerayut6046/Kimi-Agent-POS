@@ -46,7 +46,9 @@ import {
   positiveSettingNumber,
 } from "@contracts/settings";
 import {
+  activeBillThresholdPromotion,
   activeReceiptPromotion,
+  appliedBillThresholdPromotionDiscount,
   appliedPromotionDiscount,
 } from "@contracts/promotion";
 import { env } from "../lib/env";
@@ -1550,12 +1552,17 @@ export const posRouter = createRouter({
         input.clientReceiptNo && input.clientCreatedAt
           ? input.clientCreatedAt
           : new Date();
-      const activePromotion = activeReceiptPromotion(
-        { ...DEFAULT_SETTINGS, ...settingMap },
+      const effectiveSettings = { ...DEFAULT_SETTINGS, ...settingMap };
+      const activePerLiterPromotion = activeReceiptPromotion(
+        effectiveSettings,
         promotionAt
       );
-      const promotionDiscount = appliedPromotionDiscount(
-        activePromotion,
+      const activeBillPromotion = activeBillThresholdPromotion(
+        effectiveSettings,
+        promotionAt
+      );
+      const perLiterPromotionDiscount = appliedPromotionDiscount(
+        activePerLiterPromotion,
         lines.reduce(
           (sum, line) =>
             line.product.category === "fuel" ? sum + line.qty : sum,
@@ -1563,32 +1570,50 @@ export const posRouter = createRouter({
         ),
         subtotal
       );
-      if (activePromotion && input.pointsToRedeem > 0) {
+      const fuelSpend = r2(
+        lines.reduce(
+          (sum, line) =>
+            line.product.category === "fuel" ? sum + line.amount : sum,
+          0
+        )
+      );
+      const billPromotionDiscount = appliedBillThresholdPromotionDiscount(
+        activeBillPromotion,
+        fuelSpend,
+        subtotal,
+        perLiterPromotionDiscount
+      );
+      const promotionDiscount = r2(
+        perLiterPromotionDiscount + billPromotionDiscount
+      );
+      const promotionActive =
+        activePerLiterPromotion != null || billPromotionDiscount > 0;
+      if (promotionActive && input.pointsToRedeem > 0) {
         throw new Error(
           "ช่วงโปรโมชั่นไม่สามารถใช้แต้มเป็นส่วนลดหรือรับส่วนลดอื่นร่วมได้"
         );
       }
-      const effectivePointsToRedeem = activePromotion
+      const effectivePointsToRedeem = promotionActive
         ? 0
         : input.pointsToRedeem;
 
       // แลกแต้มเป็นส่วนลด
-      const loyaltyChoice = activePromotion
+      const loyaltyChoice = promotionActive
         ? null
         : (input.loyaltyChoice ??
           (effectivePointsToRedeem > 0 ? "redeem" : "earn"));
-      if (!activePromotion && input.loyaltyChoice && !input.memberId) {
+      if (!promotionActive && input.loyaltyChoice && !input.memberId) {
         throw new Error("ต้องเลือกสมาชิกก่อนเลือกวิธีใช้แต้ม");
       }
       if (
-        !activePromotion &&
+        !promotionActive &&
         input.loyaltyChoice === "earn" &&
         effectivePointsToRedeem > 0
       ) {
         throw new Error("ไม่สามารถสะสมแต้มและใช้แต้มในบิลเดียวกันได้");
       }
       if (
-        !activePromotion &&
+        !promotionActive &&
         input.loyaltyChoice === "redeem" &&
         effectivePointsToRedeem === 0
       ) {
@@ -1617,7 +1642,7 @@ export const posRouter = createRouter({
       // ระหว่างโปรโมชั่น ใช้เฉพาะส่วนลดโปรโมชั่นที่คำนวณจากสินค้าในบิล
       // ค่า discount จาก client จะไม่สามารถนำส่วนลดอื่นมาซ้อนได้
       const totalDiscount = r2(
-        (activePromotion ? promotionDiscount : input.discount) + redeemDiscount
+        (promotionActive ? promotionDiscount : input.discount) + redeemDiscount
       );
       if (totalDiscount > subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
 
@@ -1628,7 +1653,7 @@ export const posRouter = createRouter({
           ? r2(Math.max(0, input.received - total))
           : 0;
       const pointsEarned =
-        !activePromotion && member && loyaltyChoice === "earn"
+        !promotionActive && member && loyaltyChoice === "earn"
           ? Math.floor(total / earnPer)
           : 0;
 
@@ -2522,18 +2547,55 @@ export const posRouter = createRouter({
         throw new Error("บิลนี้มีรายการคืนสินค้าแล้ว ไม่สามารถแก้ไขยอดบิลได้");
 
       const settingMap = await getSettingMap(db, branchId);
-      const activePromotion = activeReceiptPromotion({
-        ...DEFAULT_SETTINGS,
-        ...settingMap,
-      });
+      const effectiveSettings = { ...DEFAULT_SETTINGS, ...settingMap };
+      const activePerLiterPromotion = activeReceiptPromotion(
+        effectiveSettings,
+        sale.createdAt
+      );
+      const activeBillPromotion = activeBillThresholdPromotion(
+        effectiveSettings,
+        sale.createdAt
+      );
+      const fuelRows =
+        activePerLiterPromotion || activeBillPromotion
+          ? await db
+              .select({ amount: saleItems.amount, qty: saleItems.qty })
+              .from(saleItems)
+              .innerJoin(products, eq(products.id, saleItems.productId))
+              .where(
+                and(
+                  eq(saleItems.branchId, branchId),
+                  eq(saleItems.saleId, sale.id),
+                  eq(products.branchId, branchId),
+                  eq(products.category, "fuel")
+                )
+              )
+          : [];
+      const perLiterPromotionDiscount = appliedPromotionDiscount(
+        activePerLiterPromotion,
+        fuelRows.reduce((sum, row) => sum + row.qty, 0),
+        sale.subtotal
+      );
+      const billPromotionDiscount = appliedBillThresholdPromotionDiscount(
+        activeBillPromotion,
+        r2(fuelRows.reduce((sum, row) => sum + row.amount, 0)),
+        sale.subtotal,
+        perLiterPromotionDiscount
+      );
+      const promotionDiscount = r2(
+        perLiterPromotionDiscount + billPromotionDiscount
+      );
+      const promotionLocked =
+        promotionDiscount > 0 &&
+        Math.abs(sale.discount - promotionDiscount) < 0.009;
       if (
-        activePromotion &&
+        promotionLocked &&
         input.discount !== undefined &&
         input.discount !== sale.discount
       ) {
         throw new Error("ช่วงโปรโมชั่นไม่สามารถแก้ไขหรือเพิ่มส่วนลดอื่นได้");
       }
-      const discount = activePromotion
+      const discount = promotionLocked
         ? sale.discount
         : (input.discount ?? sale.discount);
       if (discount > sale.subtotal) throw new Error("ส่วนลดมากกว่ายอดขาย");
@@ -2555,7 +2617,7 @@ export const posRouter = createRouter({
         : null;
       const memberCardActive =
         saleMember != null && !isMemberCardExpired(saleMember.cardExpiresAt);
-      const pointsEarned = activePromotion
+      const pointsEarned = promotionLocked
         ? sale.pointsEarned
         : sale.pointsRedeemed > 0
           ? 0

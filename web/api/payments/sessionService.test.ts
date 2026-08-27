@@ -35,7 +35,11 @@ const OFFICIAL_MERCHANT_QR =
   "00020101021130830016A0000006770101120115010753700088205021922141170560220009090317WEERAYUTNAMWONGSA53037645802TH62080704000063046EAD";
 
 let t: TestDb;
-const NO_PROMOTION = { promotion_enabled: "0" };
+const NO_PROMOTION = {
+  promotion_per_liter_feature_enabled: "0",
+  promotion_enabled: "0",
+  bill_promotion_enabled: "0",
+};
 
 beforeAll(async () => {
   t = await setupTestDb();
@@ -134,7 +138,9 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
     if (!member) throw new Error("ไม่พบสมาชิกใน seed");
     const today = bangkokDateKey(new Date());
     const promotionSettings = {
+      promotion_per_liter_feature_enabled: "1",
       promotion_enabled: "1",
+      bill_promotion_enabled: "0",
       promotion_name: "โปรโมชั่นทดสอบ",
       promotion_discount: "0.50",
       promotion_start_date: today,
@@ -176,6 +182,42 @@ describe("computeSaleSnapshot — แต้มสมาชิก", () => {
         promotionSettings
       )
     ).rejects.toThrow("ช่วงโปรโมชั่นไม่สามารถใช้แต้ม");
+  });
+
+  it("ล็อกยอด QR ตามโปรโมชั่นเติมถึงเกณฑ์แล้วลดคงที่", async () => {
+    const product = await fuel();
+    const member = await t.db.query.members.findFirst();
+    if (!member) throw new Error("ไม่พบสมาชิกใน seed");
+    const today = bangkokDateKey(new Date());
+    const promotionSettings = {
+      promotion_per_liter_feature_enabled: "0",
+      promotion_enabled: "0",
+      bill_promotion_enabled: "1",
+      bill_promotion_name: "เติมครบ 1,000 ลด 20",
+      bill_promotion_min_fuel_spend: "1000",
+      bill_promotion_discount: "20",
+      bill_promotion_start_date: today,
+      bill_promotion_end_date: today,
+    };
+
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบโปรโมชั่นตามยอด",
+        memberId: member.id,
+        items: [{ productId: product.id, qty: 1000 / product.price }],
+        discount: 100,
+        pointsToRedeem: 0,
+        loyaltyChoice: "earn",
+      },
+      promotionSettings
+    );
+
+    expect(snapshot.subtotal).toBe(1000);
+    expect(snapshot.discount).toBe(20);
+    expect(snapshot.total).toBe(980);
+    expect(snapshot.pointsEarned).toBe(0);
   });
 
   it("ตรวจยอดแต้มกลางอีกครั้งตอนปิดบิลเพื่อกันสองสาขาใช้แต้มพร้อมกัน", async () => {
