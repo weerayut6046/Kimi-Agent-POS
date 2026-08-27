@@ -4,6 +4,15 @@ export const LOCAL_TOOLING_ORIGINS = [
 ] as const;
 
 /**
+ * Capacitor serves bundled assets from these exact, device-local origins.
+ * They are static app origins, not network endpoints or wildcard hosts.
+ */
+export const NATIVE_APP_ORIGINS = [
+  "capacitor://localhost",
+  "https://localhost",
+] as const;
+
+/**
  * Production origins remain environment-controlled. The two exact loopback
  * origins are reserved for local preview/audit tooling; arbitrary ports and
  * wildcard origins are intentionally not allowed.
@@ -15,6 +24,7 @@ export function createAllowedOrigins(configuredOrigins: string): Set<string> {
       .map(value => value.trim())
       .filter(Boolean),
     ...LOCAL_TOOLING_ORIGINS,
+    ...NATIVE_APP_ORIGINS,
   ]);
 }
 
