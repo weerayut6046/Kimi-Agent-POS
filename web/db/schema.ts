@@ -424,6 +424,10 @@ export const stockCountSessions = posSchema
       branchIdx: index("stockcountsession_branch_idx").on(t.branchId),
       statusIdx: index("stockcountsession_status_idx").on(t.status),
       startedIdx: index("stockcountsession_started_idx").on(t.startedAt),
+      startedByIdx: index("stockcountsession_started_by_idx").on(t.startedById),
+      completedByIdx: index("stockcountsession_completed_by_idx").on(
+        t.completedById
+      ),
       oneOpenPerBranch: uniqueIndex("stockcountsession_open_branch_unique")
         .on(t.branchId)
         .where(sql`${t.status} = 'counting'`),
@@ -476,6 +480,7 @@ export const stockCountItems = posSchema
       branchIdx: index("stockcountitem_branch_idx").on(t.branchId),
       sessionIdx: index("stockcountitem_session_idx").on(t.sessionId),
       productIdx: index("stockcountitem_product_idx").on(t.productId),
+      countedByIdx: index("stockcountitem_counted_by_idx").on(t.countedById),
       sessionProductUnique: uniqueIndex(
         "stockcountitem_session_product_unique"
       ).on(t.sessionId, t.productId),
@@ -1125,6 +1130,7 @@ export const tankReadings = posSchema
       branchIdx: index("tankreading_branch_idx").on(t.branchId),
       tankIdx: index("tankreading_tank_idx").on(t.tankId),
       measuredAtIdx: index("tankreading_measured_at_idx").on(t.measuredAt),
+      staffIdx: index("tankreading_staff_idx").on(t.staffId),
     })
   )
   .enableRLS();
@@ -1566,6 +1572,7 @@ export const securityEvents = posSchema
       severityIdx: index("security_event_severity_idx").on(t.severity),
       statusIdx: index("security_event_status_idx").on(t.status),
       createdIdx: index("security_event_created_idx").on(t.createdAt),
+      actorIdx: index("security_event_actor_idx").on(t.actorId),
     })
   )
   .enableRLS();
@@ -1588,6 +1595,7 @@ export const loginAttempts = posSchema
         .defaultNow(),
     },
     t => ({
+      branchIdx: index("login_attempt_branch_idx").on(t.branchId),
       usernameCreatedIdx: index("login_attempt_username_created_idx").on(
         t.username,
         t.createdAt

@@ -1,0 +1,39 @@
+name: Production smoke
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Public web and API smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'https://kimi-agent-pos.vercel.app' }}
+      SMOKE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SMOKE_SUPABASE_PUBLISHABLE_KEY }}
+      SMOKE_REQUIRE_PUBLISHABLE_KEY: "1"
+      SMOKE_TIMEOUT_MS: "15000"
+      SMOKE_MAX_RESPONSE_MS: "5000"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+
+      - name: Run production smoke checks
+        run: npm run smoke:production

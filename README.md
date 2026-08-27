@@ -177,21 +177,31 @@ npm run audit:serve  # production build ที่ http://127.0.0.1:3000
 
 ## เปลี่ยนโครงสร้างฐานข้อมูล (schema)
 
-ใช้ migration files ใน `web/db/migrations-postgres/` (commit เข้า git ด้วย) ไม่ใช้ `db:push` กับ production:
+ใช้ migration files ใน `web/db/migrations-postgres/` สำหรับ local/self-hosted และ mirror SQL ที่ใช้บน
+Supabase production ไว้ใน `supabase/migrations/` ห้ามใช้ `npm run db:push` กับ production:
 
 ```bash
 # 1. แก้ web/db/schema.ts แล้วสร้าง migration ใหม่
 npm run db:generate   # สร้างไฟล์ SQL ใน web/db/migrations-postgres/
-# 2. ตั้ง DIRECT_URL เป็น Supabase session pooler (:5432) แล้วตรวจ/apply migration ก่อน deploy backend
-# 3. commit ทั้ง schema และ migration
+# 2. สร้าง Supabase migration ด้วย CLI แล้วใส่ SQL ที่เทียบเท่ากัน
+npx supabase migration new <ชื่อ_migration>
+# 3. ตรวจ migration history และทดสอบใน staging ก่อน deploy production
+npx supabase migration list --linked
+# 4. commit schema และ migration ทั้งสองชุด
 ```
+
+`npm run db:push` เป็น Drizzle schema push ซึ่งไม่มี migration history จึงห้ามใช้กับ production
+ส่วน `npx supabase db push` ใช้ได้เฉพาะใน release workflow หลัง review migration และ backup แล้ว
 
 ## ตรวจคุณภาพก่อน commit/release
 
 ```bash
-npm run check
-npm run lint
-npm test
+npm run verify             # typecheck, lint, test, build, Edge bundle และ dependency audit
+npm run smoke:production   # ตรวจ production แบบ read-only
+npm run verify:production  # รันสองชุดด้านบนต่อกัน
 ```
+
+ดู CI gate, authenticated E2E checklist, pilot และ rollback ที่
+[`docs/production-stability-runbook.md`](./docs/production-stability-runbook.md)
 
 ก่อนปล่อย Desktop รุ่นใหม่ให้อ่านขั้นตอนและข้อควรระวังใน [`PROJECT.md`](./PROJECT.md#8-ขั้นตอนปล่อย-desktop-เวอร์ชันใหม่) โดยเฉพาะการเปลี่ยนผ่านจาก GitHub updater รุ่นเก่าไป Google Cloud Storage ในรุ่น `1.0.18`

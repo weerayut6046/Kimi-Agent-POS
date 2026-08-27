@@ -1,10 +1,10 @@
 # ข้อมูลสำหรับนักพัฒนา Kimi-Agent-POS
 
-> อัปเดตล่าสุด: 24 กรกฎาคม 2026 — source `2.1.5`; เว็บออนไลน์ใช้ Vercel + Supabase Edge Functions/Auth/PostgreSQL
+> อัปเดตล่าสุด: 27 สิงหาคม 2026 — source `2.1.11`; เว็บออนไลน์ใช้ Vercel + Supabase Edge Functions/Auth/PostgreSQL
 
 ## Technology stack
 
-- Node.js 20+
+- Node.js 22+
 - React 19 + TypeScript 5.9 + Vite 7
 - Tailwind CSS 3.4 + shadcn/ui/Radix UI
 - Hono + tRPC + Zod
@@ -32,11 +32,12 @@
 - [`plan.md`](./plan.md) — แผนระบบทั้งหมด
 - [`plan-desktop.md`](./plan-desktop.md) — แผน Desktop และ Auto Update
 - [`docs/database-backup-restore.md`](./docs/database-backup-restore.md) — นโยบาย Backup สองชั้น, การตรวจสอบ และ Restore drill
+- [`docs/production-stability-runbook.md`](./docs/production-stability-runbook.md) — CI gate, production smoke, E2E, pilot และ rollback
 
 ## กฎสำคัญ
 
-- เปลี่ยน schema ด้วย migration ใน `web/db/migrations-postgres/`; ห้ามใช้ `db:push` กับ production
-- ก่อนปล่อยเวอร์ชันให้รัน `npm run check`, `npm run lint` และ `npm test`
+- เปลี่ยน schema ด้วย migration ใน `web/db/migrations-postgres/` และ mirror production SQL ใน `supabase/migrations/`; ห้ามใช้ `npm run db:push` กับ production
+- ก่อนปล่อยเวอร์ชันให้รัน `npm run verify:production`
 - Build Desktop ด้วย `npm run dist:exe`
 - NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator
 - รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
