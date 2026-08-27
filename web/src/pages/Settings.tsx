@@ -42,7 +42,6 @@ import {
   Printer,
   Network,
   Copy,
-  Cloud,
   Download,
   RefreshCw,
   ShieldCheck,
@@ -52,7 +51,6 @@ import {
   Wallet,
   BellRing,
   CheckCircle2,
-  ClipboardCheck,
   Eye,
   EyeOff,
   GripVertical,
@@ -89,13 +87,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { useDesktopSync } from "@/hooks/useDesktopSync";
 import { decodeQrImageFile } from "@/lib/qrImageDecoder";
+import { downloadBase64 } from "@/lib/download";
 import {
   fmtMoney,
   fmtNum,
@@ -106,7 +104,6 @@ import {
 import {
   createInitialSettingsForm,
   createProductUpdatePatch,
-  resolveManagedBackupHealth,
   staffMutationErrorMessage,
   staffPasswordValidationMessage,
   type EditableProductValues,
@@ -226,84 +223,21 @@ function fmtFileSize(sizeBytes: number): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function backupTriggerLabel(
-  trigger: "manual" | "scheduled" | "monthly"
-): string {
-  if (trigger === "manual") return "สั่งสำรองเอง";
-  if (trigger === "monthly") return "สำเนารายเดือน";
-  return "อัตโนมัติ";
-}
-
-type BackupSelection = {
-  objectName: string;
+type DatabaseRestoreFile = {
   fileName: string;
-  sha256: string;
-  trigger: "manual" | "scheduled" | "monthly";
+  sizeBytes: number;
+  contentBase64: string;
 };
 
-type RestoreDrillCheckKey =
-  "login" | "dashboard" | "shifts" | "sales" | "stock" | "credit" | "audit";
-
-type RestoreDrillForm = {
-  performedAt: string;
-  result: "passed" | "failed";
-  rpoMinutes: string;
-  rtoMinutes: string;
-  targetProject: string;
-  backupReference: string;
-  notes: string;
-  checks: Record<RestoreDrillCheckKey, boolean>;
-};
-
-const RESTORE_DRILL_CHECKS: Array<{
-  key: RestoreDrillCheckKey;
-  label: string;
-}> = [
-  { key: "login", label: "เข้าสู่ระบบ" },
-  { key: "dashboard", label: "Dashboard และยอดรวม" },
-  { key: "shifts", label: "ข้อมูลกะ" },
-  { key: "sales", label: "รายการขาย" },
-  { key: "stock", label: "สต๊อกสินค้าและถังน้ำมัน" },
-  { key: "credit", label: "ลูกหนี้และเครดิต" },
-  { key: "audit", label: "Audit log" },
-];
-
-function dateTimeLocalValue(date = new Date()): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
-function initialRestoreDrillForm(): RestoreDrillForm {
-  return {
-    performedAt: dateTimeLocalValue(),
-    result: "passed",
-    rpoMinutes: "",
-    rtoMinutes: "",
-    targetProject: "",
-    backupReference: "",
-    notes: "",
-    checks: {
-      login: false,
-      dashboard: false,
-      shifts: false,
-      sales: false,
-      stock: false,
-      credit: false,
-      audit: false,
-    },
-  };
-}
-
-function restoreDrillIsOverdue(
-  performedAt: string | undefined,
-  cadenceDays: number
-): boolean {
-  if (!performedAt) return true;
-  const performed = new Date(performedAt).getTime();
-  return (
-    !Number.isFinite(performed) ||
-    Date.now() - performed > cadenceDays * 24 * 60 * 60 * 1_000
-  );
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize)
+    );
+  }
+  return btoa(binary);
 }
 
 type AiProvider = "ollama" | "deepseek";
@@ -717,16 +651,11 @@ export default function Settings() {
   } | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
-  const [downloadingBackup, setDownloadingBackup] = useState("");
+  const databaseRestoreInputRef = useRef<HTMLInputElement>(null);
   const [restoreBackupTarget, setRestoreBackupTarget] =
-    useState<BackupSelection | null>(null);
-  const [deleteBackupTarget, setDeleteBackupTarget] =
-    useState<BackupSelection | null>(null);
-  const [deleteBackupConfirmation, setDeleteBackupConfirmation] = useState("");
-  const [restoreDrillOpen, setRestoreDrillOpen] = useState(false);
-  const [restoreDrillForm, setRestoreDrillForm] = useState<RestoreDrillForm>(
-    initialRestoreDrillForm
-  );
+    useState<DatabaseRestoreFile | null>(null);
+  const [restoreBackupConfirmation, setRestoreBackupConfirmation] =
+    useState("");
   const [aiProvider, setAiProvider] = useState<AiProvider>(
     () => aiConfig?.provider ?? "ollama"
   );
@@ -1241,7 +1170,7 @@ export default function Settings() {
     onError: e => fail(e.message),
   });
 
-  // ---------- ฐานข้อมูลบน Supabase ----------
+  // ---------- สำรองฐานข้อมูลเป็นไฟล์บนเครื่องผู้ดูแล ----------
   const {
     data: dbInfo,
     isFetching: dbInfoFetching,
@@ -1249,56 +1178,52 @@ export default function Settings() {
   } = trpc.dbadmin.dbInfo.useQuery(undefined, {
     enabled: isAdmin,
   });
-  const managedBackupHealth =
-    dbInfo === undefined
-      ? undefined
-      : resolveManagedBackupHealth(dbInfo.managedBackupHealth);
   const backupNow = trpc.dbadmin.backup.useMutation({
-    onSuccess: async result => {
-      await refetchDbInfo();
-      ok(`สำรองข้อมูลสำเร็จ: ${result.backup.fileName}`);
-    },
-    onError: e => fail(e.message),
-  });
-  const deleteBackup = trpc.dbadmin.deleteBackup.useMutation({
-    onSuccess: async result => {
-      setDeleteBackupTarget(null);
-      setDeleteBackupConfirmation("");
-      await refetchDbInfo();
+    onSuccess: result => {
+      downloadBase64(
+        result.backup.fileName,
+        result.backup.contentBase64,
+        result.backup.mimeType
+      );
       ok(
-        result.backup.warning
-          ? `ลบ ${result.backup.fileName} แล้ว — ${result.backup.warning}`
-          : `ลบไฟล์สำรอง ${result.backup.fileName} แล้ว`
+        `ดาวน์โหลด ${result.backup.fileName} แล้ว (${result.backup.totalRows.toLocaleString("th-TH")} แถว)`
       );
     },
     onError: e => fail(e.message),
   });
-  const recordRestoreDrill = trpc.dbadmin.recordRestoreDrill.useMutation({
-    onSuccess: async () => {
-      setRestoreDrillOpen(false);
-      setRestoreDrillForm(initialRestoreDrillForm());
-      await refetchDbInfo();
-      ok("บันทึกหลักฐานการซ้อมกู้คืนแล้ว");
+  const restoreBackup = trpc.dbadmin.restoreUpload.useMutation({
+    onSuccess: async result => {
+      setRestoreBackupTarget(null);
+      setRestoreBackupConfirmation("");
+      await utils.invalidate();
+      ok(
+        `กู้คืน ${result.restored.totalRows.toLocaleString("th-TH")} แถวจาก ${result.restored.fileName} สำเร็จ`
+      );
     },
     onError: e => fail(e.message),
   });
-  const downloadBackup = async (objectName: string) => {
-    setDownloadingBackup(objectName);
+  const chooseRestoreBackup = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".posbackup")) {
+      fail("กรุณาเลือกไฟล์นามสกุล .posbackup");
+      return;
+    }
+    if (file.size > 32 * 1024 * 1024) {
+      fail("ไฟล์สำรองข้อมูลมีขนาดใหญ่เกิน 32 MB");
+      return;
+    }
     try {
-      const result = await utils.dbadmin.readBackup.fetch({
-        fileName: objectName,
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      setRestoreBackupTarget({
+        fileName: file.name,
+        sizeBytes: file.size,
+        contentBase64: bytesToBase64(bytes),
       });
-      const anchor = document.createElement("a");
-      anchor.href = result.url;
-      anchor.download = "";
-      anchor.rel = "noopener";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
+      setRestoreBackupConfirmation("");
     } catch (e) {
-      fail(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDownloadingBackup("");
+      fail(e instanceof Error ? e.message : "อ่านไฟล์สำรองข้อมูลไม่สำเร็จ");
     }
   };
 
@@ -3322,16 +3247,14 @@ export default function Settings() {
                           </div>
                           <Badge
                             variant={
-                              displayedMerchant
-                                ? "default"
-                                : "destructive"
+                              displayedMerchant ? "default" : "destructive"
                             }
                           >
                             {tngMerchantCandidate
                               ? "พร้อมบันทึก"
                               : displayedMerchant
                                 ? "ตั้งค่าแล้ว"
-                              : "ยังไม่ได้ตั้งค่า"}
+                                : "ยังไม่ได้ตั้งค่า"}
                           </Badge>
                         </div>
 
@@ -3386,8 +3309,8 @@ export default function Settings() {
                             หรือลากรูปมาวางบริเวณนี้
                           </p>
                           <p className="mt-1 text-[11px] text-muted-foreground">
-                            ระบบอ่าน QR ในเครื่องและส่งเฉพาะ payload
-                            ไปตรวจสอบ รูปต้นฉบับจะไม่ถูกอัปโหลดหรือจัดเก็บ
+                            ระบบอ่าน QR ในเครื่องและส่งเฉพาะ payload ไปตรวจสอบ
+                            รูปต้นฉบับจะไม่ถูกอัปโหลดหรือจัดเก็บ
                           </p>
                           {tngMerchantFileName && (
                             <div className="mt-2 text-xs font-medium text-emerald-800">
@@ -3425,8 +3348,8 @@ export default function Settings() {
                         ) : (
                           <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                             ยังไม่มี QR ร้านค้า — เปิดแอปถุงเงิน ไปที่ QR
-                            รับเงินของร้าน บันทึกรูปหรือจับภาพหน้าจอ แล้วอัปโหลดรูป
-                            QR ที่เห็นเต็มกรอบ
+                            รับเงินของร้าน บันทึกรูปหรือจับภาพหน้าจอ
+                            แล้วอัปโหลดรูป QR ที่เห็นเต็มกรอบ
                           </div>
                         )}
                         {tngMerchantCandidate && paymentConfig?.merchant && (
@@ -3688,110 +3611,120 @@ Content-Type: application/json
         </TabsContent>
 
         <TabsContent value="database" className="mt-0">
-          {/* ฐานข้อมูลและ Backup (admin) */}
           {isAdmin && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="font-heading text-base flex items-center gap-2">
-                  <Database className="w-4 h-4" /> ฐานข้อมูลและการสำรองข้อมูล
+                <CardTitle className="flex items-center gap-2 font-heading text-base">
+                  <Database className="size-4" /> ฐานข้อมูลและการสำรองข้อมูล
                   (admin)
                 </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  สำรองเป็นไฟล์ลงเครื่องผู้ดูแลโดยตรง ระบบไม่เก็บสำเนาไว้บน
+                  Supabase หรือ GCS
+                </p>
               </CardHeader>
               <CardContent className="space-y-4">
+                <input
+                  ref={databaseRestoreInputRef}
+                  type="file"
+                  accept=".posbackup,application/gzip"
+                  className="hidden"
+                  onChange={event => void chooseRestoreBackup(event)}
+                />
+
                 <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 font-medium">
-                        <ShieldCheck className="h-4 w-4 text-emerald-600" />{" "}
-                        Supabase Backup
+                        <Download className="size-4 text-emerald-700" />
+                        ไฟล์สำรองบนเครื่อง
                       </div>
-                      <Badge variant="secondary">
-                        แผน {dbInfo?.supabasePlan ?? "Pro"}
-                      </Badge>
+                      <Badge variant="secondary">ไม่เก็บบนคลาวด์</Badge>
                     </div>
-                    <p className="text-sm">สำรองอัตโนมัติรายวันโดย Supabase</p>
-                    <p className="text-xs text-muted-foreground">
-                      กู้คืนย้อนหลังได้{" "}
-                      {dbInfo?.supabaseDailyRetentionDays ?? 7} วัน
+                    <p className="mt-2 text-sm">
+                      ไฟล์ {dbInfo?.backupFormat ?? ".posbackup"} แบบบีบอัด
+                      พร้อมตรวจความถูกต้องด้วย SHA-256
                     </p>
-                    <div className="mt-3 flex items-start gap-2 rounded-md border bg-background/70 p-2.5">
-                      {managedBackupHealth?.status === "healthy" ? (
-                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" />
-                      ) : (
-                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-                      )}
-                      <div className="min-w-0 text-xs">
-                        <p className="font-medium">
-                          {managedBackupHealth?.status === "healthy"
-                            ? "สถานะปกติ"
-                            : managedBackupHealth?.status === "error"
-                              ? "ตรวจสถานะไม่สำเร็จ"
-                              : managedBackupHealth?.status === "warning"
-                                ? "ต้องตรวจสอบ"
-                                : "ยังไม่ได้ตรวจยืนยัน"}
-                        </p>
-                        <p className="text-muted-foreground">
-                          {managedBackupHealth?.message ??
-                            "กำลังตรวจสอบสถานะ Backup"}
-                        </p>
-                        {managedBackupHealth?.latestBackupAt && (
-                          <p className="mt-1 text-muted-foreground">
-                            ล่าสุด{" "}
-                            {fmtDateTime(managedBackupHealth.latestBackupAt)}
-                          </p>
-                        )}
-                        {managedBackupHealth?.pitrEnabled && (
-                          <Badge variant="outline" className="mt-1.5">
-                            PITR เปิดใช้งาน
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      เบราว์เซอร์จะบันทึกลงโฟลเดอร์ดาวน์โหลด
+                      หรือถามตำแหน่งบันทึกตามการตั้งค่าของเครื่อง
+                    </p>
                   </div>
 
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-lg border bg-muted/20 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 font-medium">
-                        <Cloud className="h-4 w-4 text-sky-600" /> Private GCS
+                        <Database className="size-4 text-blue-700" />
+                        ข้อมูลที่รวมในไฟล์
                       </div>
-                      <Badge
-                        variant={
-                          dbInfo?.offsiteConfigured
-                            ? "default"
-                            : dbInfo?.offsiteAvailable
-                              ? "destructive"
-                              : "secondary"
-                        }
-                      >
-                        {dbInfo?.offsiteConfigured
-                          ? "พร้อมใช้งาน"
-                          : dbInfo?.offsiteAvailable
-                            ? "ยังไม่ตั้งค่า"
-                            : "ไม่ได้ใช้ใน Edge"}
+                      <Badge variant="outline">
+                        {dbInfo?.tableCount ?? "—"} ตาราง
                       </Badge>
                     </div>
-                    {dbInfo?.offsiteAvailable !== false ? (
-                      <>
-                        <p className="text-sm">
-                          สำรอง Logical Backup{" "}
-                          {dbInfo?.offsiteSchedule ?? "ทุก 6 ชั่วโมง"}
-                        </p>
-                        <p className="break-all text-xs text-muted-foreground">
-                          {dbInfo?.offsiteBucket ||
-                            "Private bucket กำลังรอการตั้งค่า"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          เก็บชุดปกติ {dbInfo?.offsiteDailyRetentionDays ?? 35}{" "}
-                          วัน · รายเดือน{" "}
-                          {dbInfo?.offsiteMonthlyRetentionDays ?? 370} วัน
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Production ใช้ Supabase Managed Backup โดยตรง หากต้องการ
-                        Off-site copy ต้องรัน worker ภายนอก Edge runtime
-                      </p>
-                    )}
+                    <p className="mt-2 text-sm">
+                      ข้อมูลขาย สต๊อก กะ สมาชิก ลูกหนี้ พนักงาน การตั้งค่า และ
+                      Audit log ใน schema ธุรกิจ
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      จำกัดขนาดไฟล์บีบอัดไม่เกิน{" "}
+                      {dbInfo?.maxCompressedSizeMb ?? 32} MB
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => backupNow.mutate()}
+                    disabled={backupNow.isPending || restoreBackup.isPending}
+                  >
+                    <Download className="mr-1.5 size-4" />
+                    {backupNow.isPending
+                      ? "กำลังสร้างไฟล์สำรอง..."
+                      : "สำรองและดาวน์โหลดไฟล์"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => databaseRestoreInputRef.current?.click()}
+                    disabled={backupNow.isPending || restoreBackup.isPending}
+                  >
+                    <History className="mr-1.5 size-4" />
+                    เลือกไฟล์เพื่อกู้คืน
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => void refetchDbInfo()}
+                    disabled={dbInfoFetching}
+                  >
+                    <RefreshCw
+                      className={`mr-1.5 size-4 ${dbInfoFetching ? "animate-spin" : ""}`}
+                    />
+                    ตรวจสอบระบบ
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border bg-muted/10 p-4">
+                    <p className="text-sm font-medium">วิธีเก็บไฟล์ที่แนะนำ</p>
+                    <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-muted-foreground">
+                      <li>สำรองหลังปิดยอดประจำวันหรือก่อนอัปเดตระบบ</li>
+                      <li>
+                        คัดลอกไฟล์ไปยัง USB หรือไดรฟ์ที่เข้ารหัสอีกหนึ่งชุด
+                      </li>
+                      <li>เก็บไฟล์หลายวันและทดลองกู้คืนเป็นระยะ</li>
+                    </ol>
+                  </div>
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                    <div className="flex items-center gap-2 font-medium">
+                      <AlertTriangle className="size-4" /> ข้อมูลที่ไม่รวมในไฟล์
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed">
+                      ไม่รวมรหัสผ่านบัญชี Auth, ไฟล์รูปจริงใน Storage,
+                      การตั้งค่า Edge Functions/Realtime และ API keys
+                      ของระบบโฮสต์ จึงต้องเก็บข้อมูลเหล่านี้แยกต่างหาก
+                    </p>
                   </div>
                 </div>
 
@@ -3803,7 +3736,7 @@ Content-Type: application/json
                       </p>
                       <p className="text-xs opacity-80">
                         {desktopSyncStatus?.pendingCount
-                          ? `มี ${desktopSyncStatus.pendingCount} บิลรอซิงก์ สามารถส่งออกเป็นไฟล์เข้ารหัสก่อนอัปเดตหรือซ่อมระบบ และนำกลับมาใช้ด้วยบัญชี Windows เดิม`
+                          ? `มี ${desktopSyncStatus.pendingCount} บิลรอซิงก์ ควรส่งออกก่อนอัปเดตหรือซ่อมระบบ`
                           : "ไม่มีบิลค้าง สามารถนำเข้าไฟล์กู้ภัยเดิมได้เมื่อจำเป็น"}
                       </p>
                     </div>
@@ -3816,9 +3749,8 @@ Content-Type: application/json
                         onClick={() =>
                           void exportRecovery()
                             .then(result => {
-                              if (result && !result.canceled) {
+                              if (result && !result.canceled)
                                 ok(`บันทึกไฟล์กู้ภัยแล้ว: ${result.fileName}`);
-                              }
                             })
                             .catch(error =>
                               fail(
@@ -3860,249 +3792,6 @@ Content-Type: application/json
                     </div>
                   </div>
                 )}
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border bg-muted/10 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-medium">
-                        <ClipboardCheck className="size-4 text-blue-600" />
-                        Restore drill
-                      </div>
-                      <Badge
-                        variant={
-                          dbInfo?.lastRestoreDrill?.result === "passed" &&
-                          !restoreDrillIsOverdue(
-                            dbInfo.lastRestoreDrill.performedAt,
-                            dbInfo.restoreDrillCadenceDays
-                          )
-                            ? "default"
-                            : "secondary"
-                        }
-                      >
-                        {dbInfo?.lastRestoreDrill
-                          ? restoreDrillIsOverdue(
-                              dbInfo.lastRestoreDrill.performedAt,
-                              dbInfo.restoreDrillCadenceDays
-                            )
-                            ? "เกินกำหนด"
-                            : dbInfo.lastRestoreDrill.result === "passed"
-                              ? "ผ่าน"
-                              : "ไม่ผ่าน"
-                          : "ยังไม่มีหลักฐาน"}
-                      </Badge>
-                    </div>
-                    {dbInfo?.lastRestoreDrill ? (
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <p>
-                          ซ้อมล่าสุด{" "}
-                          {fmtDateTime(dbInfo.lastRestoreDrill.performedAt)}
-                        </p>
-                        <p>
-                          RPO {dbInfo.lastRestoreDrill.rpoMinutes} นาที · RTO{" "}
-                          {dbInfo.lastRestoreDrill.rtoMinutes} นาที
-                        </p>
-                        <p className="break-all">
-                          ฐานทดสอบ: {dbInfo.lastRestoreDrill.targetProject}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-amber-700">
-                        ควรซ้อมกู้คืนและบันทึกผลอย่างน้อยทุก{" "}
-                        {dbInfo?.restoreDrillCadenceDays ?? 90} วัน
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-                    <div className="flex items-center gap-2 font-medium">
-                      <AlertTriangle className="size-4" />{" "}
-                      ขอบเขตข้อมูลที่ต้องสำรองแยก
-                    </div>
-                    <p className="mt-2 text-xs leading-relaxed">
-                      Database Backup ไม่รวมไฟล์จริงใน Supabase Storage
-                      และการตั้งค่า Edge Functions, Auth, Realtime หรือ API keys
-                      ต้องมีสำเนาและ runbook แยกต่างหาก
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {dbInfo?.offsiteAvailable !== false && (
-                    <Button
-                      type="button"
-                      onClick={() => backupNow.mutate()}
-                      disabled={
-                        !dbInfo?.offsiteConfigured || backupNow.isPending
-                      }
-                    >
-                      <Database className="mr-1.5 h-4 w-4" />
-                      {backupNow.isPending
-                        ? "กำลังสำรองข้อมูล..."
-                        : "สำรองข้อมูลตอนนี้"}
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setRestoreDrillForm(initialRestoreDrillForm());
-                      setRestoreDrillOpen(true);
-                    }}
-                  >
-                    <ClipboardCheck className="mr-1.5 size-4" />
-                    บันทึกผลซ้อมกู้คืน
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void refetchDbInfo()}
-                    disabled={dbInfoFetching}
-                  >
-                    <RefreshCw
-                      className={`mr-1.5 h-4 w-4 ${dbInfoFetching ? "animate-spin" : ""}`}
-                    />
-                    ตรวจสอบสถานะ
-                  </Button>
-                  <Button asChild type="button" variant="outline">
-                    <a
-                      href={
-                        dbInfo?.supabaseDashboardUrl ??
-                        "https://supabase.com/dashboard"
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      เปิด Supabase Backups
-                    </a>
-                  </Button>
-                </div>
-
-                {dbInfo?.backupListError && (
-                  <p className="text-sm text-destructive">
-                    {dbInfo.backupListError}
-                  </p>
-                )}
-
-                {dbInfo?.offsiteAvailable !== false && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium">
-                        ไฟล์สำรองนอกระบบล่าสุด
-                      </p>
-                      <span className="text-xs text-muted-foreground">
-                        ลิงก์ดาวน์โหลดมีอายุ 15 นาที
-                      </span>
-                    </div>
-                    {dbInfo?.backups.length ? (
-                      <div className="overflow-x-auto rounded-lg border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>วันที่สำรอง</TableHead>
-                              <TableHead>ประเภท</TableHead>
-                              <TableHead>ขนาด</TableHead>
-                              <TableHead>SHA-256</TableHead>
-                              <TableHead className="text-right">
-                                จัดการ
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {dbInfo.backups.slice(0, 12).map(backup => (
-                              <TableRow key={backup.objectName}>
-                                <TableCell className="whitespace-nowrap text-sm">
-                                  {fmtDateTime(backup.createdAt)}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline">
-                                    {backupTriggerLabel(backup.trigger)}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="whitespace-nowrap text-sm">
-                                  {fmtFileSize(backup.sizeBytes)}
-                                </TableCell>
-                                <TableCell className="font-mono text-xs">
-                                  {backup.sha256
-                                    ? `${backup.sha256.slice(0, 12)}…`
-                                    : "—"}
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex flex-wrap justify-end gap-1.5">
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() =>
-                                        void downloadBackup(backup.objectName)
-                                      }
-                                      disabled={
-                                        downloadingBackup === backup.objectName
-                                      }
-                                    >
-                                      <Download className="mr-1 h-3.5 w-3.5" />
-                                      {downloadingBackup === backup.objectName
-                                        ? "กำลังเตรียม..."
-                                        : "ดาวน์โหลด"}
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() =>
-                                        setRestoreBackupTarget(backup)
-                                      }
-                                    >
-                                      <History className="mr-1 h-3.5 w-3.5" />
-                                      Restore
-                                    </Button>
-                                    {backup.trigger === "manual" ? (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="text-destructive hover:text-destructive"
-                                        title={
-                                          dbInfo.offsiteDeleteEnabled
-                                            ? "ลบ Manual Backup"
-                                            : "ระบบ Cloud ใช้ Supabase Managed Backups"
-                                        }
-                                        disabled={!dbInfo.offsiteDeleteEnabled}
-                                        onClick={() => {
-                                          setDeleteBackupTarget(backup);
-                                          setDeleteBackupConfirmation("");
-                                        }}
-                                      >
-                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                        ลบ
-                                      </Button>
-                                    ) : (
-                                      <span className="self-center whitespace-nowrap px-1 text-xs text-muted-foreground">
-                                        ลบตาม Lifecycle
-                                      </span>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                        ยังไม่มีไฟล์สำรองนอกระบบ เมื่อระบบพร้อมให้กด
-                        “สำรองข้อมูลตอนนี้”
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p className="text-xs">
-                    {dbInfo?.managedRestoreMessage ??
-                      "การกู้คืนต้องทำลงฐานทดสอบก่อนตรวจสอบและสลับการเชื่อมต่อ ห้ามกู้ทับฐาน production โดยตรง"}
-                  </p>
-                </div>
               </CardContent>
             </Card>
           )}
@@ -4110,432 +3799,72 @@ Content-Type: application/json
       </Tabs>
 
       <Dialog
-        open={restoreDrillOpen}
+        open={!!restoreBackupTarget}
         onOpenChange={open => {
-          if (!recordRestoreDrill.isPending) setRestoreDrillOpen(open);
+          if (!open && !restoreBackup.isPending) {
+            setRestoreBackupTarget(null);
+            setRestoreBackupConfirmation("");
+          }
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ClipboardCheck className="size-5 text-blue-600" />
-              บันทึกผลซ้อมกู้คืนฐานข้อมูล
+              <AlertTriangle className="size-5 text-destructive" />
+              ยืนยันกู้คืนฐานข้อมูลจากไฟล์
             </DialogTitle>
             <DialogDescription>
-              บันทึกเฉพาะการกู้คืนลง Supabase project ทดสอบ
-              ห้ามใช้ขั้นตอนนี้กู้ทับ production โดยตรง
+              การกู้คืนจะแทนที่ข้อมูลธุรกิจทั้งหมดด้วยข้อมูลในไฟล์
+              และไม่สามารถย้อนกลับได้
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="restore-drill-at">วันเวลาที่ซ้อม</Label>
-              <Input
-                id="restore-drill-at"
-                type="datetime-local"
-                value={restoreDrillForm.performedAt}
-                max={dateTimeLocalValue()}
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    performedAt: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>ผลการซ้อม</Label>
-              <Select
-                value={restoreDrillForm.result}
-                disabled={recordRestoreDrill.isPending}
-                onValueChange={value =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    result: value as "passed" | "failed",
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="passed">ผ่าน</SelectItem>
-                  <SelectItem value="failed">ไม่ผ่าน</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="restore-drill-rpo">RPO จริง (นาที)</Label>
-              <Input
-                id="restore-drill-rpo"
-                type="number"
-                min="0"
-                max="10080"
-                value={restoreDrillForm.rpoMinutes}
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    rpoMinutes: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="restore-drill-rto">RTO จริง (นาที)</Label>
-              <Input
-                id="restore-drill-rto"
-                type="number"
-                min="1"
-                max="10080"
-                value={restoreDrillForm.rtoMinutes}
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    rtoMinutes: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="restore-drill-project">
-                Supabase project ทดสอบ
-              </Label>
-              <Input
-                id="restore-drill-project"
-                value={restoreDrillForm.targetProject}
-                placeholder="เช่น restore-drill-20260808"
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    targetProject: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="restore-drill-backup">Backup/Restore point</Label>
-              <Input
-                id="restore-drill-backup"
-                value={restoreDrillForm.backupReference}
-                placeholder="วันที่ เวลา หรือรหัส Backup ที่ใช้"
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    backupReference: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <fieldset className="space-y-2 rounded-lg border p-3 sm:col-span-2">
-              <legend className="px-1 text-sm font-medium">
-                ผลตรวจความถูกต้องหลัง Restore
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {RESTORE_DRILL_CHECKS.map(item => (
-                  <label
-                    key={item.key}
-                    className="flex cursor-pointer items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm"
-                  >
-                    <Checkbox
-                      checked={restoreDrillForm.checks[item.key]}
-                      disabled={recordRestoreDrill.isPending}
-                      onCheckedChange={checked =>
-                        setRestoreDrillForm(current => ({
-                          ...current,
-                          checks: {
-                            ...current.checks,
-                            [item.key]: checked === true,
-                          },
-                        }))
-                      }
-                    />
-                    {item.label}
-                  </label>
-                ))}
+          {restoreBackupTarget && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <p className="text-sm font-medium">ไฟล์ที่เลือก</p>
+                <p className="mt-1 break-all font-mono text-xs">
+                  {restoreBackupTarget.fileName}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  ขนาด {fmtFileSize(restoreBackupTarget.sizeBytes)}
+                </p>
               </div>
-              {restoreDrillForm.result === "passed" &&
-                !Object.values(restoreDrillForm.checks).every(Boolean) && (
-                  <p className="text-xs text-amber-700">
-                    ผล “ผ่าน” ต้องตรวจครบทุกข้อ
-                  </p>
-                )}
-            </fieldset>
 
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="restore-drill-notes">หมายเหตุ</Label>
-              <Textarea
-                id="restore-drill-notes"
-                value={restoreDrillForm.notes}
-                maxLength={1000}
-                placeholder="ปัญหาที่พบ ผลตรวจตัวอย่าง หรือขั้นตอนที่ต้องแก้ไข"
-                disabled={recordRestoreDrill.isPending}
-                onChange={event =>
-                  setRestoreDrillForm(current => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-              />
+              <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <p>
+                  ระบบจะตรวจชนิดไฟล์ เวอร์ชัน และ SHA-256 ก่อนเริ่ม
+                  จากนั้นล้างและกู้คืนทุกตารางใน transaction เดียว
+                  ควรดาวน์โหลดไฟล์สำรองปัจจุบันก่อนดำเนินการ
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="database-restore-confirmation">
+                  พิมพ์ “กู้คืนข้อมูล” เพื่อยืนยัน
+                </Label>
+                <Input
+                  id="database-restore-confirmation"
+                  autoComplete="off"
+                  value={restoreBackupConfirmation}
+                  onChange={event =>
+                    setRestoreBackupConfirmation(event.target.value)
+                  }
+                  disabled={restoreBackup.isPending}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              disabled={recordRestoreDrill.isPending}
-              onClick={() => setRestoreDrillOpen(false)}
-            >
-              ยกเลิก
-            </Button>
-            <Button
-              type="button"
-              disabled={
-                recordRestoreDrill.isPending ||
-                !restoreDrillForm.performedAt ||
-                !restoreDrillForm.targetProject.trim() ||
-                !restoreDrillForm.backupReference.trim() ||
-                !Number.isFinite(Number(restoreDrillForm.rpoMinutes)) ||
-                Number(restoreDrillForm.rpoMinutes) < 0 ||
-                !Number.isFinite(Number(restoreDrillForm.rtoMinutes)) ||
-                Number(restoreDrillForm.rtoMinutes) < 1 ||
-                (restoreDrillForm.result === "passed" &&
-                  !Object.values(restoreDrillForm.checks).every(Boolean))
-              }
-              onClick={() =>
-                recordRestoreDrill.mutate({
-                  performedAt: new Date(
-                    restoreDrillForm.performedAt
-                  ).toISOString(),
-                  result: restoreDrillForm.result,
-                  rpoMinutes: Number(restoreDrillForm.rpoMinutes),
-                  rtoMinutes: Number(restoreDrillForm.rtoMinutes),
-                  targetProject: restoreDrillForm.targetProject,
-                  backupReference: restoreDrillForm.backupReference,
-                  notes: restoreDrillForm.notes,
-                  checks: restoreDrillForm.checks,
-                })
-              }
-            >
-              <Save className="mr-1.5 size-4" />
-              {recordRestoreDrill.isPending ? "กำลังบันทึก..." : "บันทึกผล"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Restore ทำได้ผ่านฐานทดสอบเท่านั้น */}
-      <Dialog
-        open={!!restoreBackupTarget}
-        onOpenChange={open => !open && setRestoreBackupTarget(null)}
-      >
-        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
-          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
-            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
-            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
-            <div className="relative flex items-center gap-3.5">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
-                <Database className="h-6 w-6" />
-              </div>
-              <div className="min-w-0">
-                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
-                    Backup restore
-                  </span>
-                </div>
-                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
-                  Restore ลง Supabase โปรเจกต์ทดสอบ
-                </DialogTitle>
-                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  กู้คืนไฟล์สำรองลงโปรเจกต์ทดสอบอย่างปลอดภัย โดยไม่แตะฐาน
-                  production
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          {restoreBackupTarget && (
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                    <FileText className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      ขั้นตอนการกู้คืนอย่างปลอดภัย
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      ตรวจสอบไฟล์และทำตามลำดับก่อนสลับการเชื่อมต่อ
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-4 p-4 text-sm">
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-                    ระบบจะไม่กู้ไฟล์นี้ทับ production โดยตรง
-                    ต้องตรวจข้อมูลบนโปรเจกต์ทดสอบก่อนทุกครั้ง
-                  </div>
-                  <div className="space-y-1 rounded-lg border p-3">
-                    <p className="font-medium">ไฟล์ที่เลือก</p>
-                    <p className="break-all font-mono text-xs">
-                      {restoreBackupTarget.fileName}
-                    </p>
-                    <p className="break-all font-mono text-xs text-muted-foreground">
-                      SHA-256: {restoreBackupTarget.sha256 || "ไม่ระบุ"}
-                    </p>
-                  </div>
-                  <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
-                    <li>ดาวน์โหลดไฟล์และตรวจ SHA-256 ให้ตรงกับรายการ</li>
-                    <li>
-                      สร้าง Supabase โปรเจกต์ทดสอบ หรือใช้
-                      Restore-to-New-Project จาก Supabase Backup
-                    </li>
-                    <li>
-                      กู้ไฟล์นี้ด้วย <code>pg_restore</code> ไปยัง Session
-                      pooler ของโปรเจกต์ทดสอบเท่านั้น
-                    </li>
-                    <li>
-                      ทดสอบ Login, Dashboard, เปิดกะ, การขาย และรายงาน
-                      ก่อนวางแผนสลับ DATABASE_URL
-                    </li>
-                  </ol>
-                </div>
-              </section>
-            </div>
-          )}
-          <DialogFooter className="shrink-0 flex-wrap gap-2 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:justify-between sm:px-5 sm:pb-3.5">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  restoreBackupTarget &&
-                  void downloadBackup(restoreBackupTarget.objectName)
-                }
-                disabled={
-                  !restoreBackupTarget ||
-                  downloadingBackup === restoreBackupTarget.objectName
-                }
-              >
-                <Download className="mr-1.5 h-4 w-4" /> ดาวน์โหลดไฟล์นี้
-              </Button>
-              <Button asChild type="button" variant="outline">
-                <a
-                  href={
-                    dbInfo?.supabaseRestoreToNewProjectUrl ??
-                    "https://supabase.com/dashboard"
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  เปิด Restore-to-New-Project
-                </a>
-              </Button>
-            </div>
-            <Button type="button" onClick={() => setRestoreBackupTarget(null)}>
-              ปิด
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete เปิดเฉพาะ Manual Backup และต้องพิมพ์ชื่อไฟล์ยืนยัน */}
-      <Dialog
-        open={!!deleteBackupTarget}
-        onOpenChange={open => {
-          if (!open && !deleteBackup.isPending) {
-            setDeleteBackupTarget(null);
-            setDeleteBackupConfirmation("");
-          }
-        }}
-      >
-        <DialogContent className="flex flex-col gap-0 overflow-hidden border-0 bg-slate-50 p-0 shadow-2xl sm:max-w-md sm:rounded-2xl [&_[data-slot=dialog-close]]:right-4 [&_[data-slot=dialog-close]]:top-4 [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:p-2 [&_[data-slot=dialog-close]]:text-white [&_[data-slot=dialog-close]]:opacity-80 [&_[data-slot=dialog-close]]:hover:bg-white/10 [&_[data-slot=dialog-close]]:hover:opacity-100">
-          <DialogHeader className="relative shrink-0 overflow-hidden bg-gradient-to-br from-slate-950 via-blue-950 to-blue-800 px-5 py-5 pr-14 text-left text-white sm:px-6">
-            <div className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-blue-400/15 blur-2xl" />
-            <div className="pointer-events-none absolute -bottom-20 left-1/3 size-44 rounded-full bg-cyan-300/10 blur-3xl" />
-            <div className="relative flex items-center gap-3.5">
-              <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
-                <Trash2 className="h-6 w-6" />
-              </div>
-              <div className="min-w-0">
-                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-200">
-                    Delete backup
-                  </span>
-                </div>
-                <DialogTitle className="font-heading text-xl font-bold leading-tight text-white">
-                  ยืนยันลบ Manual Backup
-                </DialogTitle>
-                <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  ลบไฟล์ dump และ manifest ออกจาก Private GCS อย่างถาวร
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-          {deleteBackupTarget && (
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                    <AlertTriangle className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      ยืนยันการลบไฟล์สำรอง
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      พิมพ์ชื่อไฟล์ให้ตรงเพื่อปลดล็อกปุ่มลบ
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-4 p-4 text-sm">
-                  <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                    <p>
-                      ระบบจะลบทั้งไฟล์ dump และ manifest จาก Private GCS
-                      โดยไฟล์ยังอยู่ใน GCS Soft Delete ตามระยะเวลาที่ bucket
-                      กำหนด
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="backup-delete-confirmation"
-                      className="text-xs font-semibold text-slate-700"
-                    >
-                      พิมพ์ชื่อไฟล์ต่อไปนี้เพื่อยืนยัน
-                    </Label>
-                    <p className="break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
-                      {deleteBackupTarget.fileName}
-                    </p>
-                    <Input
-                      id="backup-delete-confirmation"
-                      autoComplete="off"
-                      className="bg-white"
-                      value={deleteBackupConfirmation}
-                      onChange={event =>
-                        setDeleteBackupConfirmation(event.target.value)
-                      }
-                      placeholder={deleteBackupTarget.fileName}
-                      disabled={deleteBackup.isPending}
-                    />
-                  </div>
-                </div>
-              </section>
-            </div>
-          )}
-          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={deleteBackup.isPending}
+              disabled={restoreBackup.isPending}
               onClick={() => {
-                setDeleteBackupTarget(null);
-                setDeleteBackupConfirmation("");
+                setRestoreBackupTarget(null);
+                setRestoreBackupConfirmation("");
               }}
             >
               ยกเลิก
@@ -4544,25 +3873,27 @@ Content-Type: application/json
               type="button"
               variant="destructive"
               disabled={
-                !deleteBackupTarget ||
-                deleteBackup.isPending ||
-                deleteBackupConfirmation !== deleteBackupTarget.fileName
+                !restoreBackupTarget ||
+                restoreBackup.isPending ||
+                restoreBackupConfirmation !== "กู้คืนข้อมูล"
               }
               onClick={() => {
-                if (!deleteBackupTarget) return;
-                deleteBackup.mutate({
-                  fileName: deleteBackupTarget.objectName,
-                  confirmation: deleteBackupConfirmation,
+                if (!restoreBackupTarget) return;
+                restoreBackup.mutate({
+                  fileName: restoreBackupTarget.fileName,
+                  contentBase64: restoreBackupTarget.contentBase64,
+                  confirmation: "กู้คืนข้อมูล",
                 });
               }}
             >
-              <Trash2 className="mr-1.5 h-4 w-4" />
-              {deleteBackup.isPending ? "กำลังลบ..." : "ลบไฟล์สำรอง"}
+              <History className="mr-1.5 size-4" />
+              {restoreBackup.isPending
+                ? "กำลังกู้คืนข้อมูล..."
+                : "กู้คืนข้อมูล"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       {/* Dialog สินค้า */}
       <Dialog
         open={!!editP}

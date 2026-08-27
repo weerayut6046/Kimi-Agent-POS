@@ -38,7 +38,7 @@ npm run publish:gcs # อัปโหลดไฟล์เวอร์ชัน�
 - **รุ่น 2.0.1**: เพิ่ม Logical Backup ไป Private GCS, แสดงสถานะ/ดาวน์โหลด Backup ใน Settings และลด latency ด้วย Railway Singapore, Dashboard query แบบขนาน และ bulk upsert สำหรับ Settings
 - **รุ่น 2.0.0**: ย้าย schema/ข้อมูลเดิมขึ้น Supabase PostgreSQL, ใช้ backend Railway + frontend Vercel, signed staff session และแก้ Dashboard โหลดค้างด้วย session pooler/แยก tRPC request
 - **ตัวติดตั้งภาษาไทย**: ใช้ Wizard แบบทีละขั้น (ยินดีต้อนรับ → ข้อตกลง → เลือกโฟลเดอร์ → พร้อมติดตั้ง) พร้อมโลโก้ KY; ติดตั้งสำหรับผู้ใช้ทุกคนใน `Program Files` และขอสิทธิ์ผู้ดูแลระบบ
-- Production Edge ใช้ Supabase Managed Backup (Pro Daily Backup 7 วัน หรือ PITR เมื่อเปิด add-on) เป็นระบบหลัก; หน้า Settings ตรวจ Backup Health ผ่าน Management API แบบ read-only, บันทึกหลักฐาน Restore Drill และย้ำให้กู้ลง project ทดสอบก่อนเสมอ ส่วน Node backend เดิมยังรองรับ Logical Backup ไป Private GCS เมื่อเปิดใช้งาน worker ภายนอก Edge ตาม [`docs/database-backup-restore.md`](./docs/database-backup-restore.md)
+- หน้า Settings > ฐานข้อมูล ให้ admin ส่งออก schema ธุรกิจเป็นไฟล์ `.posbackup` ลงเครื่องโดยตรงโดยไม่เก็บสำเนาใน Supabase Storage หรือ GCS พร้อมตรวจ SHA-256 และกู้คืนแบบ transaction ตาม [`docs/database-backup-restore.md`](./docs/database-backup-restore.md)
 - **ขนาดกระดาษใบกำกับภาษี**: หน้า Settings → การพิมพ์เอกสาร → เลือก A4 หรือ A5; พรีวิวและหน้าต่างพิมพ์จะปรับเลย์เอาต์ตามขนาดที่เลือก
 - **รองรับจอขนาดเล็ก**: Desktop ปรับขนาดเริ่มต้นตามพื้นที่จอจริง; เมื่อหน้าต่างแคบจะใช้เมนูแบบสไลด์ และเนื้อหา/หน้าต่าง dialog เลื่อนด้วยล้อเมาส์ได้
 - **UX/UI รุ่น 1.0.20**: ปรับเป็น Station Console แบ่งเมนูตามงาน แสดงสถานะกะ ปุ่ม/ช่องกรอกเหมาะกับจอสัมผัส และใช้ตะกร้าแบบ sheet บนมือถือ

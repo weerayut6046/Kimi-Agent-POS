@@ -1,52 +1,58 @@
-# Database backup and restore runbook
+# Database file backup and restore runbook
 
-Production ใช้ Supabase Managed Backups เป็นระบบสำรองข้อมูลหลัก หน้า Settings
-แสดง Backup Health และลิงก์ไป Supabase Dashboard แต่ไม่รับคำสั่งสร้าง ดาวน์โหลด ลบ
-หรือ restore ฐานข้อมูลจาก Edge runtime หากตั้งค่า
-`PUMPPOS_MANAGEMENT_ACCESS_TOKEN` ต้องใช้ fine-grained token ที่มีเฉพาะสิทธิ์
-`backups_read` ระบบจะอ่านสถานะผ่าน Management API และไม่ส่ง token ไป browser
+หน้า `Settings > ฐานข้อมูล` ใช้การสำรองแบบดาวน์โหลดไฟล์โดยผู้ดูแล ระบบอ่านข้อมูล
+ธุรกิจจาก PostgreSQL แล้วส่งไฟล์ `.posbackup` กลับไปยังเบราว์เซอร์ทันที โดยไม่บันทึก
+สำเนาไว้ใน Supabase Storage, GCS หรือฐานข้อมูลอีกชุดหนึ่ง
 
-Node backend เดิมรองรับ Logical Backup ไป Private GCS แต่ Edge runtime ไม่รองรับ
-`pg_dump` จึงต้องใช้ worker ภายนอก Edge หากต้องการเปิด off-site logical backup อีกครั้ง
+## รูปแบบไฟล์
 
-## Backup policy
+- ไฟล์ `.posbackup` เป็น JSON ที่บีบอัดด้วย gzip
+- ภายในมีชนิดไฟล์ เวอร์ชัน schema วันเวลาสำรอง จำนวนแถว และข้อมูลทุกตารางใน
+  schema `pos`
+- มี SHA-256 ของ payload และระบบจะตรวจ checksum ก่อนกู้คืน
+- จำกัดขนาดไฟล์หลังบีบอัด 32 MB เพื่อให้อยู่ในขอบเขตทรัพยากรของ Edge runtime
+- ไฟล์ไม่ได้เข้ารหัส ควรเก็บใน USB หรือไดรฟ์ที่เปิด disk encryption
 
-- เปิด Scheduled Backups ตามแผน Supabase ของ project
-- เปิด Point-in-Time Recovery เมื่อ RPO/RTO ของธุรกิจกำหนดให้ต้องใช้
-- จำกัดสิทธิ์ Dashboard และ database credentials เฉพาะผู้ดูแลที่จำเป็น
-- เปิด MFA ให้บัญชีผู้ดูแล Supabase ทุกบัญชี
-- ตรวจ backup status อย่างน้อยทุกวัน และทำ restore drill ทุก 90 วัน
-- Backup Health ต้องแจ้งเตือนเมื่อ daily backup ล่าสุดเกิน 36 ชั่วโมงหรือสถานะไม่สำเร็จ
-- บันทึกผล Restore Drill, project ทดสอบ, restore point, checklist, RPO และ RTO ในหน้า Settings
-- สำรอง Supabase Storage objects และ configuration inventory แยกจาก Database Backup
-  ตาม [`supabase-storage-config-backup.md`](./supabase-storage-config-backup.md)
+## การสำรองข้อมูล
 
-## Restore drill
+1. เข้าระบบด้วยบทบาท `admin`
+2. เปิด `Settings > ฐานข้อมูล`
+3. กด `สำรองและดาวน์โหลดไฟล์`
+4. ตรวจว่าเบราว์เซอร์ดาวน์โหลดไฟล์ชื่อ
+   `kimi-agent-pos-<UTC timestamp>.posbackup` สำเร็จ
+5. คัดลอกไฟล์ไปยังสื่ออีกชุดหนึ่งและเก็บไฟล์หลายวันตามนโยบายของกิจการ
 
-1. เลือก backup/restore point จาก Supabase Dashboard
-2. Restore ไป project ทดสอบหรือ project ใหม่ ห้ามทับ production เพื่อการซ้อม
-3. ใช้บัญชีทดสอบตรวจจำนวนตาราง ข้อมูลกะ ยอดขาย สต๊อก ลูกหนี้ เอกสารภาษี และ
-   audit log
-4. รัน smoke test แบบ read-only ก่อน แล้วจึงทดสอบ mutation กับสำเนา
-5. บันทึกเวลา restore, RPO, RTO, ผู้ดำเนินการ และผลตรวจ
-6. ลบ project ทดสอบตามนโยบาย retention เมื่อหลักฐานการซ้อมครบ
+การส่งออกจะถูกบันทึกใน Audit log หลังสร้างไฟล์สำเร็จ เหตุการณ์ Audit log รายการนี้
+จึงจะอยู่ในไฟล์สำรองครั้งถัดไป
 
-หน้า Settings > ฐานข้อมูล > บันทึกผลซ้อมกู้คืน ใช้เก็บหลักฐานต่อสาขา ผล “ผ่าน”
-ต้องตรวจ Login, Dashboard, กะ, รายการขาย, สต๊อก, เครดิต และ audit log ครบทุกข้อ
+## การกู้คืนข้อมูล
 
-## Production recovery
+การกู้คืนแทนที่ข้อมูลธุรกิจทั้งหมด จึงควรดาวน์โหลดไฟล์สำรองสถานะปัจจุบันก่อนทุกครั้ง
 
-เมื่อ production เสียหาย ให้หยุด write traffic ก่อน เลือก restore point ที่ยืนยัน
-แล้ว และทำตาม incident runbook ของ Supabase การสลับไป project ใหม่ต้องอัปเดต
-Edge/Vercel/Desktop configuration พร้อมกันและตรวจ Auth, API, Realtime และ
-business smoke tests ก่อนเปิดขาย
+1. เข้าระบบด้วยบทบาท `admin`
+2. กด `เลือกไฟล์เพื่อกู้คืน` และเลือกไฟล์ `.posbackup`
+3. ตรวจชื่อและขนาดไฟล์ แล้วพิมพ์ `กู้คืนข้อมูล`
+4. ระบบตรวจนามสกุล ชนิดไฟล์ เวอร์ชัน รายการตาราง จำนวนแถว และ SHA-256
+5. ระบบ `TRUNCATE` และนำข้อมูลกลับทุกตารางภายใน transaction เดียว หากขั้นตอนใด
+   ล้มเหลว PostgreSQL จะ rollback ทั้งชุด
+6. หลังสำเร็จ ให้ตรวจ Login, Dashboard, กะ, ยอดขาย, สต๊อก, สมาชิก, ลูกหนี้ และ
+   Audit log
 
-ห้ามพิมพ์หรือบันทึก database URL, service role, access/refresh token หรือข้อมูล
-ลูกค้าใน ticket, chat, screenshot และ log
+## ขอบเขตที่ไม่รวม
 
-## Desktop offline recovery
+ไฟล์นี้สำรองเฉพาะ schema ธุรกิจ `pos` และไม่รวม:
 
-เมื่อเครื่องขายมีบิลรอซิงก์ โปรแกรมจะแจ้งเตือนก่อนปิด และอนุญาตให้ส่งออกไฟล์
-`.posbackup` ที่เข้ารหัสด้วย Electron safeStorage/Windows account เดิม ไฟล์นี้มีไว้กู้คิว
-บนเครื่องหรือ Windows profile เดิม ไม่ใช่ Database Backup และไม่ควรใช้แทนการซิงก์
-หลังนำเข้า server ยังคงใช้ receipt number แบบ idempotent เพื่อป้องกันบิลซ้ำ
+- รหัสผ่านและ identity ใน Supabase Auth
+- bytes ของรูปหรือเอกสารใน Supabase Storage
+- Edge Functions, Realtime configuration, database roles และ extensions
+- secrets และ API keys ที่ตั้งไว้ใน environment ของระบบโฮสต์
+
+ค่า secret ที่แอปเข้ารหัสและบันทึกในตารางธุรกิจจะติดไปกับไฟล์ แต่จะถอดรหัสได้ต่อเมื่อ
+ระบบปลายทางใช้ `APP_SECRET` เดิม
+
+## ฐานข้อมูลขนาดใหญ่
+
+หากไฟล์บีบอัดเกิน 32 MB ให้ใช้ `pg_dump` หรือ `supabase db dump` บนเครื่องผู้ดูแล
+แล้วเก็บผลลัพธ์เป็นไฟล์ภายนอกระบบ แอปจะไม่อัปโหลดไฟล์ดังกล่าวไปยัง Supabase
+Storage การกู้คืนไฟล์ dump ขนาดใหญ่ต้องทำในช่วง maintenance window และทดสอบกับ
+ฐานแยกก่อนใช้งานจริง

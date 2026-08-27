@@ -50,7 +50,7 @@
 - ค่าใช้จ่ายหน้าร้าน การแจ้งเตือนสต็อกต่ำ และ Audit log
 - พนักงานและตารางงาน: แม่แบบกะงาน ตารางเวร สลับเวร โปรไฟล์พนักงาน และเงินเดือน (admin จัดการ พนักงานดูข้อมูลตัวเอง)
 - admin เพิ่ม/แก้ไข/ลบประวัติตัดกะย้อนหลังพร้อมเลขมิเตอร์รายหัวจ่าย บันทึก Audit log ทุกครั้ง
-- Supabase Managed Backups เป็นระบบสำรองหลักของ production; การกู้คืนทำผ่าน Supabase Dashboard ตามสิทธิ์ผู้ดูแลโครงการ
+- admin ส่งออก schema ธุรกิจเป็นไฟล์ `.posbackup` ลงเครื่องโดยตรง และกู้คืนจากไฟล์แบบ transaction พร้อมคำยืนยัน
 - ใช้งานหลายจุดขายผ่าน LAN โดยใช้ฐานข้อมูลและกะร่วมกัน
 - Desktop รองรับจอขนาดเล็ก เมนูแบบสไลด์ และการเลื่อนเนื้อหา/dialog ด้วยล้อเมาส์
 - UX/UI แบบ Station Console: เมนูแบ่งกลุ่ม สถานะกะชัดเจน ปุ่มเหมาะกับจอสัมผัส และตะกร้า POS แบบ sheet บนมือถือ
@@ -106,9 +106,9 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 - การเปลี่ยน schema ต้องสร้าง migration และ commit ไฟล์ใน `web/db/migrations-postgres/`
 - ห้ามใช้ `db:push` กับ production เพราะอาจทำให้โครงสร้างไม่ตรงกับประวัติ migration
 - `0019_station_layout_gsh95_both_pumps` ปรับผังปั๊มของฐานที่ใช้งานอยู่ให้ทั้งสองตู้จ่าย GSH95 + ดีเซล (ดูหัวข้อ 6.1)
-- Supabase Pro Daily Backup เก็บ 7 วันเป็นชั้นหลัก
-- Production ใช้ Supabase Managed Backups; แอปไม่รับคำสั่ง `pg_dump`, restore หรือ delete backup
-- Restore production ต้องทำผ่าน Supabase Dashboard โดยผู้ดูแลโครงการ และควรทดสอบกับ project แยกก่อนเสมอ
+- หน้า admin ส่งออกข้อมูลทุกตารางใน schema `pos` เป็นไฟล์ `.posbackup` แบบ gzip พร้อม SHA-256 โดยไม่เก็บสำเนาใน Supabase Storage หรือ GCS
+- การกู้คืนตรวจชนิดไฟล์ เวอร์ชัน ตาราง จำนวนแถว และ checksum ก่อนแทนที่ข้อมูลทั้งหมดใน transaction เดียว
+- ไฟล์ไม่รวม Supabase Auth identities, Storage object bytes และ configuration/secrets ของระบบโฮสต์ จึงต้องสำรองส่วนเหล่านี้แยก
 
 ### 6.1 Migration ปรับผังปั๊ม (`0019_station_layout_gsh95_both_pumps`)
 

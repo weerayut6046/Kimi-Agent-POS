@@ -40,5 +40,5 @@
 - Build Desktop ด้วย `npm run dist:exe`
 - NSIS installer ใช้โหมด per-machine จึงติดตั้งใน `Program Files` สำหรับทุกผู้ใช้และต้องยืนยันสิทธิ์ Administrator
 - รุ่น `1.0.18` เป็นต้นไปเผยแพร่ Auto Update ด้วย `npm run publish:gcs`
-- Production ใช้ Supabase Managed Backups; ห้าม Restore ทับ production จากหน้าแอป
+- หน้า admin สำรอง schema ธุรกิจเป็นไฟล์ `.posbackup` ลงเครื่องผู้ดูแลโดยตรง และกู้คืนแบบ transaction พร้อมคำยืนยัน
 - อย่า commit ไฟล์ฐานข้อมูล, secrets, `dist/` หรือ `release/`

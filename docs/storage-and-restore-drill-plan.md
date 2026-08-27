@@ -1,19 +1,22 @@
 # Storage and restore drill plan
 
-แผนเดิมสำหรับ logical backup จาก backend ภายนอกถูกยกเลิกหลังย้าย backend ไป
-Supabase Edge Functions แล้ว Production ใช้ Supabase Managed Backups และทำ
-restore drill ตาม [`database-backup-restore.md`](./database-backup-restore.md)
+ฐานข้อมูลธุรกิจสำรองเป็นไฟล์ `.posbackup` จากหน้า admin โดยตรง ไฟล์ถูกดาวน์โหลด
+ไปยังเครื่องผู้ดูแลและไม่ถูกเก็บใน Supabase Storage ดูขั้นตอนสำรองและกู้คืนที่
+[`database-backup-restore.md`](./database-backup-restore.md)
 
-Database Backup ไม่รวม bytes ของไฟล์ใน Supabase Storage และ Restore-to-New-Project
-ไม่คัดลอกการตั้งค่าระบบทั้งหมด จึงต้องทำแผน Storage/config แยกตาม
-[`supabase-storage-config-backup.md`](./supabase-storage-config-backup.md)
+ไฟล์ฐานข้อมูลไม่รวม bytes ของไฟล์ใน Storage และไม่รวม configuration ของ Auth,
+Edge Functions, Realtime, extensions, webhooks หรือ cron จึงต้องสำรองส่วนเหล่านี้แยก
+ตาม [`supabase-storage-config-backup.md`](./supabase-storage-config-backup.md)
 
-ก่อนปิดระบบ backend เดิม ต้องยืนยันว่า:
+## Checklist รายเดือน
 
-- Scheduled Backup/PITR ตามแผนบริการทำงาน
-- เคย restore ไป project แยกและผ่าน data-integrity checks
-- ผู้ดูแลเปิด MFA และจำกัดสิทธิ์ Dashboard
-- Edge Functions ไม่มี database/service-role secrets ใน client หรือ log
-- มีขั้นตอนหยุด write traffic และสลับ project configuration ที่ทดสอบแล้ว
-- มีสำเนา Storage objects นอก Supabase พร้อม manifest/checksum และเคยทดสอบเปิดไฟล์ตัวอย่าง
-- มี configuration inventory ของ Auth, Edge Functions, Realtime, extensions, webhooks และ cron
+- ดาวน์โหลด `.posbackup` ใหม่และคัดลอกไปยังสื่อที่เข้ารหัสอย่างน้อยอีกหนึ่งแห่ง
+- กู้คืนไฟล์ในสภาพแวดล้อมทดสอบและตรวจ Login, Dashboard, กะ, ยอดขาย, สต๊อก,
+  สมาชิก, ลูกหนี้ และ Audit log
+- ตรวจว่าไฟล์รูปตัวอย่างจาก Storage เปิดได้และ checksum ตรงกับ manifest
+- ตรวจ configuration inventory ของ Auth, Edge Functions, Realtime, extensions,
+  webhooks และ cron
+- บันทึกวันเวลา ผู้ทดสอบ ระยะเวลากู้คืน และปัญหาที่พบ
+
+ก่อนกู้คืน production ต้องหยุด write traffic ดาวน์โหลดไฟล์สำรองสถานะปัจจุบัน
+และเตรียม rollback plan เสมอ
