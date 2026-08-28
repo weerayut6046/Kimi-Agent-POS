@@ -102,6 +102,27 @@ describe("workforce router", () => {
       endDate: "2026-07-31",
     });
     expect(branchSchedules).toHaveLength(3);
+    const managerOwnSchedules = await manager.workforce.myScheduleList({
+      startDate: "2026-07-01",
+      endDate: "2026-07-31",
+    });
+    expect(managerOwnSchedules).toHaveLength(1);
+    expect(managerOwnSchedules.every(schedule => schedule.staffId === 2)).toBe(
+      true
+    );
+    expect(managerOwnSchedules.some(schedule => schedule.staffId === 3)).toBe(
+      false
+    );
+    const cashierOwnSchedules = await test
+      .caller("cashier", 3)
+      .workforce.myScheduleList({
+        startDate: "2026-07-01",
+        endDate: "2026-07-31",
+      });
+    expect(cashierOwnSchedules).toHaveLength(2);
+    expect(cashierOwnSchedules.every(schedule => schedule.staffId === 3)).toBe(
+      true
+    );
     await manager.workforce.updateCashAdvance({
       id: third.id,
       cashAdvance: 275,
@@ -236,8 +257,8 @@ describe("workforce router", () => {
     });
     expect(
       (await admin.workforce.payrollList({ month: "2026-07" })).find(
-        row => row.staffId === 3,
-      ),
+        row => row.staffId === 3
+      )
     ).toMatchObject({
       workDays: 3,
       advanceDeduction: 450,
@@ -255,8 +276,8 @@ describe("workforce router", () => {
     expect(updatedRealtimeSchedule).toMatchObject({ payrollUpdated: true });
     expect(
       (await admin.workforce.payrollList({ month: "2026-07" })).find(
-        row => row.staffId === 3,
-      ),
+        row => row.staffId === 3
+      )
     ).toMatchObject({
       advanceDeduction: 475,
       netAmount: 1025,
@@ -267,8 +288,8 @@ describe("workforce router", () => {
     expect(deletedRealtimeSchedule).toMatchObject({ payrollUpdated: true });
     expect(
       (await admin.workforce.payrollList({ month: "2026-07" })).find(
-        row => row.staffId === 3,
-      ),
+        row => row.staffId === 3
+      )
     ).toMatchObject({
       workDays: 2,
       advanceDeduction: 325,
@@ -303,8 +324,8 @@ describe("workforce router", () => {
     expect(monthlyRealtimeSchedule).toMatchObject({ payrollUpdated: true });
     expect(
       (await admin.workforce.payrollList({ month: "2026-07" })).find(
-        row => row.staffId === 2,
-      ),
+        row => row.staffId === 2
+      )
     ).toMatchObject({
       workDays: 3,
       baseAmount: 999.99,

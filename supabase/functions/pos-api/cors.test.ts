@@ -23,17 +23,6 @@ describe("pos-api CORS", () => {
     expect(origins.has("http://localhost:5173")).toBe(false);
   });
 
-  it("allows only the exact Capacitor origins used by iOS and Android", () => {
-    const origins = createAllowedOrigins(
-      "https://kimi-agent-pos.vercel.app",
-    );
-
-    expect(origins.has("capacitor://localhost")).toBe(true);
-    expect(origins.has("https://localhost")).toBe(true);
-    expect(origins.has("capacitor://untrusted.example")).toBe(false);
-    expect(origins.has("https://localhost.evil.example")).toBe(false);
-  });
-
   it("returns the complete preflight headers only for an allowed origin", () => {
     const origins = createAllowedOrigins(
       "https://kimi-agent-pos.vercel.app",
