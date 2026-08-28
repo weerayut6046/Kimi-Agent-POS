@@ -8,6 +8,7 @@ data
 .cache
 .codex-shift-history-ui
 desktop
+mobile
 .git
 .vscode
 .agents
