@@ -285,6 +285,9 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
         title: const Text('ยืนยันปิดกะ'),
         content: Text(
           'ยอดจากมิเตอร์เงิน ${_money(preview.money)}\n'
+          'ยอด POS ทั้งหมด ${_money(shift.posSales)}\n'
+          'รวมยอดกะ (P + POS ทั้งหมด) '
+          '${_money(_shiftSalesTotal(preview, shift.posSales))}\n'
           'ปริมาณรวม ${_quantity(preview.liters)} ลิตร\n\n'
           'ยอดนับได้รวม ${_money(countedTotal)}\n'
           '= เงินสด + โอน + POS − ค่าใช้จ่าย\n\n'
@@ -910,7 +913,11 @@ class _ClosingNozzleCard extends StatelessWidget {
 }
 
 class _ClosePreview {
-  const _ClosePreview({required this.liters, required this.money});
+  const _ClosePreview({
+    required this.liters,
+    required this.amount,
+    required this.money,
+  });
 
   factory _ClosePreview.calculate(
     CurrentShift shift,
@@ -918,17 +925,23 @@ class _ClosePreview {
     Map<int, String> closeMoney,
   ) {
     var liters = 0.0;
+    var amount = 0.0;
     var money = 0.0;
     for (final reading in shift.readings) {
       final meter = double.tryParse(closeMeters[reading.nozzleId] ?? '');
       final pValue = double.tryParse(closeMoney[reading.nozzleId] ?? '');
-      if (meter != null) liters += meter - reading.openMeter;
+      if (meter != null) {
+        final readingLiters = meter - reading.openMeter;
+        liters += readingLiters;
+        amount += readingLiters * reading.pricePerLiter;
+      }
       if (pValue != null) money += pValue - reading.openMoney;
     }
-    return _ClosePreview(liters: liters, money: money);
+    return _ClosePreview(liters: liters, amount: amount, money: money);
   }
 
   final double liters;
+  final double amount;
   final double money;
 }
 
@@ -1016,6 +1029,11 @@ double _shiftCountedTotal({
 }) {
   final total = countedCash + transferAmount + posAmount - expensesTotal;
   return (total * 100).roundToDouble() / 100;
+}
+
+double _shiftSalesTotal(_ClosePreview preview, double posAmount) {
+  final meterAmount = preview.money > 0 ? preview.money : preview.amount;
+  return ((meterAmount + posAmount) * 100).roundToDouble() / 100;
 }
 
 String _cashDenominationLabel(String denomination) {

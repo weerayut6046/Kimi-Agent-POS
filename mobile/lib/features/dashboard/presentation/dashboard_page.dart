@@ -71,7 +71,7 @@ class _DashboardContent extends StatelessWidget {
         AppPageHero(
           eyebrow: 'Live overview',
           title: branchName,
-          subtitle: 'ข้อมูลการขายและสถานะการทำงานวันนี้',
+          subtitle: 'รวมยอดจากกะที่ปิดวันนี้และยอดขาย POS',
           icon: Icons.space_dashboard_rounded,
           status: summary.hasOpenShift ? 'กะเปิดอยู่' : 'รอเปิดกะ',
           statusColor: summary.hasOpenShift
@@ -98,12 +98,30 @@ class _DashboardContent extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  _HeroBreakdown(
+                    label:
+                        'ยอด P จากกะ ${currency.format(summary.todayShiftTotal)}',
+                  ),
+                  _HeroBreakdown(
+                    label: 'ยอด POS ${currency.format(summary.todayPosTotal)}',
+                  ),
+                  _HeroBreakdown(
+                    label:
+                        'ปิดแล้ว ${number.format(summary.todayShiftCount)} กะ',
+                  ),
+                ],
+              ),
               const SizedBox(height: 14),
               Row(
                 children: [
                   Expanded(
                     child: AppHeroStat(
-                      label: 'จำนวนบิล',
+                      label: 'จำนวนบิล POS',
                       value: '${number.format(summary.todayBills)} บิล',
                     ),
                   ),
@@ -132,30 +150,28 @@ class _DashboardContent extends StatelessWidget {
               childAspectRatio: columns == 4 ? 1.45 : 1.25,
               children: [
                 _MetricCard(
-                  label: 'ยอดขายวันนี้',
+                  label: 'รวม P + POS วันนี้',
                   value: currency.format(summary.todayTotal),
                   icon: Icons.payments_rounded,
                   color: const Color(0xFF6656E8),
                 ),
                 _MetricCard(
-                  label: 'จำนวนบิล',
-                  value: number.format(summary.todayBills),
-                  icon: Icons.receipt_long_rounded,
+                  label: 'ยอด P จากกะ',
+                  value: currency.format(summary.todayShiftTotal),
+                  icon: Icons.speed_rounded,
                   color: const Color(0xFF0C91A1),
+                ),
+                _MetricCard(
+                  label: 'ยอดขาย POS',
+                  value: currency.format(summary.todayPosTotal),
+                  icon: Icons.receipt_long_rounded,
+                  color: const Color(0xFFE67E22),
                 ),
                 _MetricCard(
                   label: 'ลิตรวันนี้',
                   value: number.format(summary.litersToday),
                   icon: Icons.local_gas_station_rounded,
-                  color: const Color(0xFFE67E22),
-                ),
-                _MetricCard(
-                  label: 'สถานะกะ',
-                  value: summary.hasOpenShift ? 'เปิดอยู่' : 'ยังไม่เปิด',
-                  icon: Icons.schedule_rounded,
-                  color: summary.hasOpenShift
-                      ? const Color(0xFF138A58)
-                      : const Color(0xFF6B7280),
+                  color: const Color(0xFF138A58),
                 ),
               ],
             );
@@ -177,6 +193,13 @@ class _DashboardContent extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'รวมยอด P จากกะที่ปิดและยอดขาย POS',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                 ),
                 const SizedBox(height: 18),
                 SizedBox(
@@ -202,6 +225,15 @@ class _DashboardContent extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                const SizedBox(height: 3),
+                Text(
+                  summary.fuelSource == 'shift'
+                      ? 'จากมิเตอร์กะที่ปิดวันนี้'
+                      : 'จากรายการขาย POS ระหว่างรอปิดกะ',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+                ),
                 const SizedBox(height: 10),
                 if (summary.fuelSales.isEmpty)
                   const Padding(
@@ -217,6 +249,32 @@ class _DashboardContent extends StatelessWidget {
         ),
         const SizedBox(height: 12),
       ],
+    );
+  }
+}
+
+class _HeroBreakdown extends StatelessWidget {
+  const _HeroBreakdown({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x14FFFFFF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0x1FFFFFFF)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xCCFFFFFF),
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
