@@ -223,7 +223,7 @@ describe("reports.tankReconciliation", () => {
         from: "2026-07-20",
         to: "2026-07-20",
       })
-    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const created = await t.caller("admin").auth.createBranch({
       code: "RECON-BR2",

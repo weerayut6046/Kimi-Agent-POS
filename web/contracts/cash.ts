@@ -18,3 +18,24 @@ export function sumCashCounts(counts: CashCounts): number {
   const total = Object.entries(counts).reduce((s, [denom, n]) => s + Number(denom) * n, 0);
   return Math.round(total * 100) / 100;
 }
+
+/**
+ * ยอดนับได้รวมของกะ
+ * = เงินสดที่นับ + ยอดโอน + ยอดขายหน้า POS ทั้งหมด − ค่าใช้จ่าย
+ *
+ * คืน null เมื่อกะนั้นยังไม่มีการนับเงินจริง เพื่อแยกจากยอด 0 บาท
+ */
+export function shiftCountedTotal(input: {
+  countedCash: number | null;
+  transferAmount?: number | null;
+  posAmount: number;
+  expensesTotal: number;
+}): number | null {
+  if (input.countedCash == null) return null;
+  const total =
+    input.countedCash +
+    (input.transferAmount ?? 0) +
+    input.posAmount -
+    input.expensesTotal;
+  return Math.round(total * 100) / 100;
+}

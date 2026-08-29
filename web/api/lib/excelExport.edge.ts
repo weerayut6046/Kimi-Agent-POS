@@ -35,7 +35,7 @@ const DEBT_LABEL: Record<string, string> = {
 function fmtDateTH(value: Date | string): string {
   const date = new Date(value);
   return `${String(date.getDate()).padStart(2, "0")}/${String(
-    date.getMonth() + 1,
+    date.getMonth() + 1
   ).padStart(2, "0")}/${date.getFullYear() + 543}`;
 }
 
@@ -43,9 +43,9 @@ function fmtDateTimeTH(value: Date | string): string {
   const date = new Date(value);
   return `${fmtDateTH(date)} ${String(date.getHours()).padStart(
     2,
-    "0",
+    "0"
   )}:${String(date.getMinutes()).padStart(2, "0")}:${String(
-    date.getSeconds(),
+    date.getSeconds()
   ).padStart(2, "0")}`;
 }
 
@@ -60,7 +60,11 @@ function xml(value: unknown): string {
 
 function columnName(index: number): string {
   let result = "";
-  for (let current = index + 1; current > 0; current = Math.floor((current - 1) / 26)) {
+  for (
+    let current = index + 1;
+    current > 0;
+    current = Math.floor((current - 1) / 26)
+  ) {
     result = String.fromCharCode(65 + ((current - 1) % 26)) + result;
   }
   return result;
@@ -85,7 +89,7 @@ function worksheetXml(rows: CellValue[][]): string {
       (row, rowIndex) =>
         `<row r="${rowIndex + 1}">${row
           .map((value, columnIndex) => cellXml(value, rowIndex, columnIndex))
-          .join("")}</row>`,
+          .join("")}</row>`
     )
     .join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
@@ -100,7 +104,7 @@ function uint32(value: number): Uint8Array {
     value & 255,
     (value >>> 8) & 255,
     (value >>> 16) & 255,
-    (value >>> 24) & 255,
+    (value >>> 24) & 255
   );
 }
 
@@ -172,7 +176,7 @@ function zipStore(files: Array<{ name: string; content: string }>): Uint8Array {
         uint32(0),
         uint32(localOffset),
         name,
-      ]),
+      ])
     );
     localOffset += local.length;
   }
@@ -195,24 +199,26 @@ function zipStore(files: Array<{ name: string; content: string }>): Uint8Array {
 function workbook(sheets: Sheet[]): Buffer {
   const safeSheets = sheets.map((sheet, index) => ({
     ...sheet,
-    name: sheet.name.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || `Sheet${index + 1}`,
+    name:
+      sheet.name.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) ||
+      `Sheet${index + 1}`,
   }));
   const contentTypes = safeSheets
     .map(
       (_, index) =>
-        `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+        `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
     )
     .join("");
   const workbookSheets = safeSheets
     .map(
       (sheet, index) =>
-        `<sheet name="${xml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`,
+        `<sheet name="${xml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`
     )
     .join("");
   const workbookRelationships = safeSheets
     .map(
       (_, index) =>
-        `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`,
+        `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`
     )
     .join("");
 
@@ -243,7 +249,7 @@ function workbook(sheets: Sheet[]): Buffer {
 }
 
 export async function buildDailyWorkbook(
-  daily: DailyReportData,
+  daily: DailyReportData
 ): Promise<Buffer> {
   return workbook([
     {
@@ -271,7 +277,7 @@ export async function buildDailyWorkbook(
         [],
         ["รับชำระหนี้แยกวิธี", "ยอดเงิน"],
         ...Object.entries(daily.debtPayments.byMethod).map(
-          ([method, value]) => [DEBT_LABEL[method] ?? method, value],
+          ([method, value]) => [DEBT_LABEL[method] ?? method, value]
         ),
       ],
     },
@@ -311,8 +317,9 @@ export async function buildDailyWorkbook(
           "ยอด POS",
           "เงินทอน",
           "เงินสดควรมี",
-          "นับได้",
+          "เงินสดนับได้",
           "ยอดโอน",
+          "ยอดนับได้รวม",
           "ต่าง",
           "ต่างเทียบ P",
         ],
@@ -330,6 +337,7 @@ export async function buildDailyWorkbook(
           shift.cashExpected,
           shift.countedCash,
           shift.transferAmount,
+          shift.countedTotal,
           shift.cashDiff,
           shift.cashDiffP,
         ]),
@@ -403,7 +411,7 @@ export async function buildRangeWorkbook(input: {
       rows: [
         [
           `รายงานยอดขาย ${fmtDateTH(
-            `${input.from}T00:00:00`,
+            `${input.from}T00:00:00`
           )} – ${fmtDateTH(`${input.to}T00:00:00`)}`,
         ],
         [],
@@ -452,32 +460,26 @@ export async function buildRangeWorkbook(input: {
                 input.days.reduce((sum, day) => sum + day.vatTotal, 0),
                 input.days.reduce(
                   (sum, day) => sum + day.byMethod.cash.total,
-                  0,
+                  0
                 ),
-                input.days.reduce(
-                  (sum, day) => sum + day.byMethod.qr.total,
-                  0,
-                ),
+                input.days.reduce((sum, day) => sum + day.byMethod.qr.total, 0),
                 input.days.reduce(
                   (sum, day) => sum + day.byMethod.card.total,
-                  0,
+                  0
                 ),
                 input.days.reduce(
                   (sum, day) => sum + day.byMethod.credit.total,
-                  0,
+                  0
                 ),
                 input.days.reduce(
                   (sum, day) => sum + day.byMethod.thungngern.total,
-                  0,
+                  0
                 ),
                 input.days.reduce((sum, day) => sum + day.totalLiters, 0),
-                input.days.reduce(
-                  (sum, day) => sum + day.expenses.total,
-                  0,
-                ),
+                input.days.reduce((sum, day) => sum + day.expenses.total, 0),
                 input.days.reduce(
                   (sum, day) => sum + day.debtPayments.total,
-                  0,
+                  0
                 ),
                 input.days.reduce((sum, day) => sum + day.expectedCash, 0),
               ],
@@ -510,7 +512,7 @@ export async function buildRangeWorkbook(input: {
             bill.vatAmount,
             bill.total,
             bill.status === "voided" ? "ยกเลิก" : "สำเร็จ",
-          ]),
+          ])
         ),
       ],
     },
@@ -540,12 +542,12 @@ export async function buildRangeWorkbook(input: {
 
 export async function buildFuelStockWorkbook(
   report: FuelStockSummaryData,
-  periodKey: string,
+  periodKey: string
 ): Promise<Buffer> {
   const period = report.periods.find(item => item.key === periodKey);
   if (!period) throw new Error("ไม่พบงวดสำหรับสร้างไฟล์สรุปสต๊อกน้ำมัน");
   const currentByProduct = new Map(
-    report.currentProducts.map(product => [product.productId, product]),
+    report.currentProducts.map(product => [product.productId, product])
   );
   const products = period.products.filter(product => {
     const current = currentByProduct.get(product.productId);

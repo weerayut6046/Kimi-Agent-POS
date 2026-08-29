@@ -70,7 +70,13 @@ export default function Expenses() {
   });
   const items = data?.items ?? [];
 
-  const invalidate = () => utils.expenses.list.invalidate();
+  const invalidate = () => {
+    utils.expenses.list.invalidate();
+    utils.pos.currentShift.invalidate();
+    utils.pos.shiftHistory.invalidate();
+    utils.pos.searchShiftHistory.invalidate();
+    utils.reports.daily.invalidate();
+  };
   const create = trpc.expenses.create.useMutation({
     onSuccess: () => {
       invalidate();

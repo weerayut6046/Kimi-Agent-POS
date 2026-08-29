@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/providers.dart';
+import '../../../core/realtime/branch_realtime.dart';
 import '../data/auth_repository.dart';
 import '../domain/staff_session.dart';
+import '../domain/system_access_status.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(
@@ -14,6 +18,16 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 
 final authControllerProvider =
     AsyncNotifierProvider<AuthController, StaffSession?>(AuthController.new);
+
+final systemAccessProvider = FutureProvider.autoDispose
+    .family<SystemAccessStatus, int>((ref, branchId) async {
+      ref.watch(branchRealtimeRevisionProvider(branchId));
+      final timer = Timer.periodic(const Duration(seconds: 15), (_) {
+        ref.invalidateSelf();
+      });
+      ref.onDispose(timer.cancel);
+      return ref.watch(authRepositoryProvider).systemAccess(branchId: branchId);
+    });
 
 class AuthController extends AsyncNotifier<StaffSession?> {
   @override

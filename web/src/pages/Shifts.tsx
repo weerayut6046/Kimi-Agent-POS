@@ -62,6 +62,7 @@ import CashDenomCounter from "@/components/CashDenomCounter";
 import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
 import {
   CASH_DENOMINATIONS,
+  shiftCountedTotal,
   sumCashCounts,
   type CashCounts,
 } from "@contracts/cash";
@@ -1071,7 +1072,22 @@ export default function Shifts() {
   }, [cashCounts]);
   const lubricantShiftAmount = currentLubricantAmount;
   const expectedCashPreview = currentShift?.cash.expectedCash ?? 0;
+  const posSalesPreview = currentShift?.cash.posSales ?? 0;
+  const expensesPreview = currentShift?.cash.expensesTotal ?? 0;
+  const transferPreview = Number(transferVal) || 0;
+  const countedShiftTotal =
+    shiftCountedTotal({
+      countedCash: countedTotal,
+      transferAmount: transferPreview,
+      posAmount: posSalesPreview,
+      expensesTotal: expensesPreview,
+    }) ?? 0;
   const hasCounts = Object.values(cashCounts).some(v => Number(v) > 0);
+  const hasCountedSummary =
+    hasCounts ||
+    transferVal.trim() !== "" ||
+    posSalesPreview > 0 ||
+    expensesPreview > 0;
   const hasPriceChangeDuringShift =
     currentShift?.readings.some(r => r.priceChangedDuringShift) ?? false;
   const detailHasPriceChange =
@@ -1505,25 +1521,29 @@ export default function Shifts() {
                       ควรมี ฿{fmtMoney(expectedCashPreview)}
                     </div>
                   </div>
-                  {hasCounts && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">
-                        นับได้ <b>฿{fmtMoney(countedTotal)}</b>
-                        {Number(transferVal) > 0 && (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            (+โอน ฿{fmtMoney(Number(transferVal))} = ฿
-                            {fmtMoney(r2(countedTotal + Number(transferVal)))})
-                          </span>
-                        )}
-                      </span>
-                      <DiffBadge
-                        diff={r2(
-                          countedTotal +
-                            (Number(transferVal) || 0) -
-                            expectedCashPreview
-                        )}
-                      />
+                  {hasCountedSummary && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">
+                        เงินสดนับ ฿{fmtMoney(countedTotal)}
+                        {" + "}โอน ฿{fmtMoney(transferPreview)}
+                        {" + "}ขาย POS ฿{fmtMoney(posSalesPreview)}
+                        {" − "}ค่าใช้จ่าย ฿{fmtMoney(expensesPreview)}
+                      </div>
+                      <div className="font-heading text-xl font-semibold text-green-700">
+                        ยอดนับได้รวม ฿{fmtMoney(countedShiftTotal)}
+                      </div>
+                      {hasCounts && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          ส่วนต่างเงินสดเดิม (สด + โอน เทียบเงินสดควรมี)
+                          <DiffBadge
+                            diff={r2(
+                              countedTotal +
+                                transferPreview -
+                                expectedCashPreview
+                            )}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1615,16 +1635,13 @@ export default function Shifts() {
                         )}
                       </div>
                     </div>
-                    {(hasCounts || transferVal) && (
+                    {hasCountedSummary && (
                       <div>
                         <div className="text-xs text-muted-foreground">
-                          รวมเงินที่นับได้ (สด + โอน)
+                          ยอดนับได้รวม (สด + โอน + POS − ค่าใช้จ่าย)
                         </div>
                         <div className="font-heading text-xl font-semibold text-green-700">
-                          ฿
-                          {fmtMoney(
-                            r2(countedTotal + (Number(transferVal) || 0))
-                          )}
+                          ฿{fmtMoney(countedShiftTotal)}
                         </div>
                       </div>
                     )}
@@ -1832,7 +1849,7 @@ export default function Shifts() {
                       <TableHead className="text-right">รวมยอดกะ</TableHead>
                       <TableHead className="text-right">ยอด POS</TableHead>
                       <TableHead className="text-right">เงินทอน</TableHead>
-                      <TableHead className="text-right">เงินสดนับได้</TableHead>
+                      <TableHead className="text-right">ยอดนับได้รวม</TableHead>
                       <TableHead>เงินสดต่าง</TableHead>
                       <TableHead>เงินสดต่างเทียบ P</TableHead>
                       <TableHead className="text-right">ยอดโอน</TableHead>
@@ -1892,8 +1909,8 @@ export default function Shifts() {
                             : "-"}
                         </TableCell>
                         <TableCell className="text-right">
-                          {s.countedCash != null
-                            ? `฿${fmtMoney(s.countedCash)}`
+                          {s.countedTotal != null
+                            ? `฿${fmtMoney(s.countedTotal)}`
                             : "-"}
                         </TableCell>
                         <TableCell>
@@ -2824,7 +2841,7 @@ export default function Shifts() {
                     </span>
                     {detail.countedCash != null && (
                       <span className="flex items-center gap-2">
-                        นับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
+                        เงินสดนับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
                         {detail.transferAmount != null && (
                           <span className="text-muted-foreground">
                             (+โอน ฿{fmtMoney(detail.transferAmount)} = ฿
@@ -2841,6 +2858,14 @@ export default function Shifts() {
                               (detail.expectedCash ?? detail.cash.expectedCash)
                           )}
                         />
+                      </span>
+                    )}
+                    {detail.countedTotal != null && (
+                      <span>
+                        ยอดนับได้รวม: <b>฿{fmtMoney(detail.countedTotal)}</b>{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (เงินสด + โอน + POS − ค่าใช้จ่าย)
+                        </span>
                       </span>
                     )}
                     {detail.cashExpectedP != null && (

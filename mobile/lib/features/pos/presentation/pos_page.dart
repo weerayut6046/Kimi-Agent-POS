@@ -8,6 +8,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../shared/widgets/app_page_hero.dart';
 import '../../auth/domain/staff_session.dart';
 import '../../dashboard/application/dashboard_provider.dart';
+import '../../shifts/application/shift_provider.dart';
 import '../application/pos_provider.dart';
 import '../domain/pos_cart.dart';
 import '../domain/pos_models.dart';
@@ -94,7 +95,7 @@ class _PosPageState extends ConsumerState<PosPage> {
                     child: _MobileCartButton(
                       itemCount: _cart.lineCount,
                       total: _money(_cart.subtotal),
-                      onPressed: () => _openMobileCart(data, stockIssue),
+                      onPressed: () => _openMobileCart(data),
                     ),
                   ),
               ],
@@ -195,37 +196,40 @@ class _PosPageState extends ConsumerState<PosPage> {
     }
   }
 
-  Future<void> _openMobileCart(
-    PosBootstrap bootstrap,
-    String? stockIssue,
-  ) async {
+  Future<void> _openMobileCart(PosBootstrap bootstrap) async {
+    final provider = posBootstrapProvider(widget.staff.branch.id);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (context) => FractionallySizedBox(
-        heightFactor: 0.88,
-        child: StatefulBuilder(
-          builder: (context, setSheetState) => _CartPanel(
-            cart: _cart,
-            settings: bootstrap.settings,
-            stockIssue: stockIssue,
-            onQuantityChanged: (id, quantity) {
-              _setQuantity(id, quantity);
-              setSheetState(() {});
-            },
-            onRemove: (id) {
-              _remove(id);
-              setSheetState(() {});
-              if (_cart.isEmpty) Navigator.pop(context);
-            },
-            onCheckout: () async {
-              Navigator.pop(context);
-              await _checkout(bootstrap);
-            },
-          ),
-        ),
+      builder: (context) => Consumer(
+        builder: (context, ref, _) {
+          final liveBootstrap = ref.watch(provider).value ?? bootstrap;
+          return FractionallySizedBox(
+            heightFactor: 0.88,
+            child: StatefulBuilder(
+              builder: (context, setSheetState) => _CartPanel(
+                cart: _cart,
+                settings: liveBootstrap.settings,
+                stockIssue: _cart.stockIssue(liveBootstrap.products),
+                onQuantityChanged: (id, quantity) {
+                  _setQuantity(id, quantity);
+                  setSheetState(() {});
+                },
+                onRemove: (id) {
+                  _remove(id);
+                  setSheetState(() {});
+                  if (_cart.isEmpty) Navigator.pop(context);
+                },
+                onCheckout: () async {
+                  Navigator.pop(context);
+                  await _checkout(liveBootstrap);
+                },
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -255,6 +259,7 @@ class _PosPageState extends ConsumerState<PosPage> {
 
     setState(() => _cart = const PosCart());
     ref.invalidate(posBootstrapProvider(widget.staff.branch.id));
+    ref.invalidate(shiftBootstrapProvider(widget.staff.branch.id));
     ref.invalidate(dashboardProvider(widget.staff.branch.id));
     await showDialog<void>(
       context: context,

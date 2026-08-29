@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { products, saleItems, sales, shifts } from "@db/schema";
+import { shiftCountedTotal } from "@contracts/cash";
 import { setupTestDb, type TestDb } from "../test/testDb";
-import { attachShiftCashMeter, shiftFuelSalesTotals } from "./cash";
+import {
+  attachShiftCashMeter,
+  shiftCashSummary,
+  shiftFuelSalesTotals,
+} from "./cash";
 
 // เทสต์การคำนวณเงินสดเทียบยอด P บนฐานข้อมูลชั่วคราว (migrate + seed)
 let t: TestDb;
@@ -117,6 +122,36 @@ describe("เงินสดเทียบยอด P", () => {
     expect(map.get(shiftA)).toBe(2040); // 1000 + 500 + 540
     expect(map.get(shiftB)).toBe(300);
     expect(map.size).toBe(2);
+  });
+
+  it("shiftCashSummary รวมยอดขาย POS ทุกสินค้าและทุกช่องทางของกะ", async () => {
+    const summary = await shiftCashSummary(t.db, {
+      id: shiftA,
+      branchId: 1,
+      openingFloat: 0,
+    });
+
+    expect(summary.posSales).toBe(2400); // เงินสด 1,000 + เครดิต 500 + บิลผสมหลังส่วนลด 900
+    expect(summary.cashSales).toBe(1900);
+  });
+
+  it("ยอดนับได้รวม = เงินสด + โอน + POS − ค่าใช้จ่าย", () => {
+    expect(
+      shiftCountedTotal({
+        countedCash: 1000,
+        transferAmount: 250,
+        posAmount: 400,
+        expensesTotal: 75,
+      })
+    ).toBe(1575);
+    expect(
+      shiftCountedTotal({
+        countedCash: null,
+        transferAmount: 250,
+        posAmount: 400,
+        expensesTotal: 75,
+      })
+    ).toBeNull();
   });
 
   it("attachShiftCashMeter คำนวณเงินสดควรมีเทียบ P และส่วนต่าง (ฝั่งนับได้รวมยอดโอน)", async () => {

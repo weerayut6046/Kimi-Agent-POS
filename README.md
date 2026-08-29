@@ -64,7 +64,7 @@ docker compose up --build
 ระบบ deploy ออนไลน์ไว้ที่ https://kimi-agent-pos.vercel.app
 
 - **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` rewrite `/api/*` ไป Supabase และทำ SPA fallback
-- **Backend** — Supabase Edge Functions `pos-api` และ `pos-assistant`; `pos-auth-bootstrap` ปิดถาวรและตอบ 410; ไม่มี Railway proxy
+- **Backend** — Supabase Edge Functions `pos-api`, `pos-loyalty` (public เฉพาะเช็กแต้ม) และ `pos-assistant`; `pos-auth-bootstrap` ปิดถาวรและตอบ 410; ไม่มี Railway proxy
 - **Auth** — Supabase Auth เป็นเจ้าของรหัสผ่านและ session; API ตรวจ JWT แล้วผูกกับพนักงานที่ active และสาขาที่เลือกทุก request
 - **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos`; RLS เปิดทุกตารางและ revoke สิทธิ์ Data API จาก `anon`/`authenticated`
 - Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; admin ต้อง provision identity ใน Supabase Auth และเชื่อมกับ `pos.staff_users` ก่อนเปิดใช้งาน
@@ -78,6 +78,7 @@ npm run build:edge
 npx supabase db push
 npx supabase functions deploy pos-auth-bootstrap
 npx supabase functions deploy pos-api
+npx supabase functions deploy pos-loyalty
 npx supabase functions deploy pos-assistant
 npx vercel deploy --prod
 ```

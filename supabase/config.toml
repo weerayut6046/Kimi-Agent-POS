@@ -429,6 +429,14 @@ verify_jwt = true
 import_map = "./functions/pos-api/deno.json"
 entrypoint = "./functions/pos-api/index.ts"
 
+# Public gateway เฉพาะหน้าตรวจแต้มลูกค้า; ตัว function allow-list ไว้เพียง
+# membership.customerPoints และ API พนักงานยังคงบังคับ JWT ที่ pos-api ตามเดิม
+[functions.pos-loyalty]
+enabled = true
+verify_jwt = false
+import_map = "./functions/pos-api/deno.json"
+entrypoint = "./functions/pos-loyalty/index.ts"
+
 [functions.pos-auth-bootstrap]
 enabled = true
 verify_jwt = false

@@ -281,6 +281,10 @@ class _ShiftHistorySheetState extends State<_ShiftHistorySheet> {
                               Text(
                                 '${_quantity(_num(row['totalLiters']))} ลิตร',
                               ),
+                              if (row['countedTotal'] != null)
+                                Text(
+                                  'ยอดนับได้รวม ${_money(_num(row['countedTotal']))}',
+                                ),
                             ],
                           ),
                         ],
@@ -489,6 +493,14 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
                     _InfoRow(
                       'เงินสดที่นับได้',
                       _nullableMoney(detail['countedCash']),
+                    ),
+                    _InfoRow(
+                      'ยอดนับได้รวม',
+                      _nullableMoney(detail['countedTotal']),
+                    ),
+                    _InfoRow(
+                      'สูตรยอดนับได้รวม',
+                      'เงินสด + โอน + POS − ค่าใช้จ่าย',
                     ),
                     if (_mapOrEmpty(detail['cashCounts']).isNotEmpty) ...[
                       const Divider(height: 22),

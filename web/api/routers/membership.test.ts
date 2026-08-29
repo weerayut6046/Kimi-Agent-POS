@@ -148,6 +148,83 @@ describe("find member for POS", () => {
   });
 });
 
+describe("customer loyalty lookup", () => {
+  it("ให้ลูกค้าตรวจแต้มและประวัติด้วยเบอร์โทรได้โดยไม่ต้องมี session", async () => {
+    const memberCode = generateMemberCode();
+    const [member] = await t.db
+      .insert(members)
+      .values({
+        memberCode,
+        name: "มานี ทดสอบระบบ",
+        phone: "+66 89-123-4567",
+        points: 42,
+        tier: "gold",
+      })
+      .returning();
+    await t.db.insert(pointTransactions).values(
+      Array.from({ length: 12 }, (_, index) => ({
+        branchId: 1,
+        memberId: member!.id,
+        type: index % 3 === 0 ? ("redeem" as const) : ("earn" as const),
+        points: index % 3 === 0 ? -2 : 5,
+        note: `รายการทดสอบ ${index + 1}`,
+      }))
+    );
+
+    const first = await t.anonymousCaller().membership.customerPoints({
+      phone: "0891234567",
+      limit: 10,
+    });
+
+    expect(first.member).toMatchObject({
+      maskedName: "มา***",
+      maskedPhone: "xxx-xxx-4567",
+      points: 42,
+      tier: "gold",
+      expired: false,
+    });
+    expect(first.member).not.toHaveProperty("name");
+    expect(first.member).not.toHaveProperty("phone");
+    expect(first.summary).toEqual({
+      transactionCount: 12,
+      totalEarned: 40,
+      totalUsed: 8,
+    });
+    expect(first.transactions).toHaveLength(10);
+    expect(first.nextCursor).toEqual(expect.any(Number));
+
+    const second = await t.anonymousCaller().membership.customerPoints({
+      phone: "+66 89 123 4567",
+      limit: 10,
+      cursor: first.nextCursor!,
+    });
+    expect(second.transactions).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("ไม่ส่งข้อมูลสมาชิกเมื่อเบอร์โทรไม่ตรง", async () => {
+    const result = await t.anonymousCaller().membership.customerPoints({
+      phone: "0809999999",
+      limit: 10,
+    });
+    expect(result).toEqual({
+      member: null,
+      summary: null,
+      transactions: [],
+      nextCursor: null,
+    });
+  });
+
+  it("ปฏิเสธรูปแบบเบอร์โทรที่ไม่ถูกต้อง", async () => {
+    await expect(
+      t.anonymousCaller().membership.customerPoints({
+        phone: "1234",
+        limit: 10,
+      })
+    ).rejects.toThrow("กรุณากรอกเบอร์โทรศัพท์สมาชิกให้ถูกต้อง");
+  });
+});
+
 describe("adjustPoints", () => {
   it("admin ปรับแต้มและบันทึก transaction", async () => {
     const m = await memberByCode("M0002"); // 85 แต้ม

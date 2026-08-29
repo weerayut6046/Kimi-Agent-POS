@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import {
   and,
   asc,
@@ -7,10 +8,11 @@ import {
   getTableColumns,
   inArray,
   like,
+  lt,
   or,
   sql,
 } from "drizzle-orm";
-import { createRouter, publicQuery } from "../middleware";
+import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import {
@@ -31,6 +33,50 @@ import {
 } from "@contracts/memberCode";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
+import { clientIpFromReq } from "../lib/clientIp";
+
+const CUSTOMER_LOOKUP_WINDOW_MS = 10 * 60_000;
+const CUSTOMER_LOOKUP_MAX_PER_IP = 30;
+const CUSTOMER_LOOKUP_MAX_TRACKED_IPS = 5_000;
+const customerLookupTimesByIp = new Map<string, number[]>();
+
+function normalizeCustomerPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 11 && digits.startsWith("66")
+    ? `0${digits.slice(2)}`
+    : digits;
+}
+
+function enforceCustomerLookupRateLimit(req: Request) {
+  const now = Date.now();
+  const key = clientIpFromReq(req) || "unknown";
+  const recent = (customerLookupTimesByIp.get(key) ?? []).filter(
+    time => now - time < CUSTOMER_LOOKUP_WINDOW_MS
+  );
+  if (recent.length >= CUSTOMER_LOOKUP_MAX_PER_IP) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "ตรวจสอบแต้มถี่เกินไป กรุณารอสักครู่แล้วลองใหม่",
+    });
+  }
+  if (customerLookupTimesByIp.size >= CUSTOMER_LOOKUP_MAX_TRACKED_IPS) {
+    customerLookupTimesByIp.clear();
+  }
+  recent.push(now);
+  customerLookupTimesByIp.set(key, recent);
+}
+
+function maskMemberName(name: string): string {
+  const firstName = name.trim().split(/\s+/u)[0] ?? "";
+  const visible = Array.from(firstName).slice(0, 2).join("");
+  return visible ? `${visible}***` : "สมาชิก";
+}
+
+function maskPhone(phone: string): string {
+  const normalized = normalizeCustomerPhone(phone);
+  const lastFour = normalized.slice(-4);
+  return lastFour ? `xxx-xxx-${lastFour}` : "xxx-xxx-xxxx";
+}
 
 function generateCardBatchCode(now = new Date()) {
   const stamp = now.toISOString().slice(0, 10).replaceAll("-", "");
@@ -38,6 +84,107 @@ function generateCardBatchCode(now = new Date()) {
 }
 
 export const membershipRouter = createRouter({
+  customerPoints: anonymousQuery
+    .input(
+      z.object({
+        phone: z.string().trim().min(1).max(30),
+        cursor: z.number().int().positive().optional(),
+        limit: z.number().int().min(10).max(50).default(30),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      enforceCustomerLookupRateLimit(ctx.req);
+      const phone = normalizeCustomerPhone(input.phone);
+      if (!/^0\d{8,9}$/.test(phone)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "กรุณากรอกเบอร์โทรศัพท์สมาชิกให้ถูกต้อง",
+        });
+      }
+
+      const db = getDb();
+      await expireDueMemberPoints(db);
+      const storedPhoneDigits = sql<string>`regexp_replace(${members.phone}, '[^0-9]', '', 'g')`;
+      const normalizedStoredPhone = sql<string>`case
+        when length(${storedPhoneDigits}) = 11 and left(${storedPhoneDigits}, 2) = '66'
+          then '0' || substring(${storedPhoneDigits} from 3)
+        else ${storedPhoneDigits}
+      end`;
+      const [member] = await db
+        .select({
+          id: members.id,
+          name: members.name,
+          phone: members.phone,
+          points: members.points,
+          tier: members.tier,
+          cardExpiresAt: members.cardExpiresAt,
+        })
+        .from(members)
+        .where(sql`${normalizedStoredPhone} = ${phone}`)
+        .limit(1);
+
+      if (!member) {
+        return {
+          member: null,
+          summary: null,
+          transactions: [],
+          nextCursor: null,
+        };
+      }
+
+      const transactionFilter = input.cursor
+        ? and(
+            eq(pointTransactions.memberId, member.id),
+            lt(pointTransactions.id, input.cursor)
+          )
+        : eq(pointTransactions.memberId, member.id);
+      const [summaryRows, transactionRows] = await Promise.all([
+        db
+          .select({
+            transactionCount: sql<number>`count(*)::int`,
+            totalEarned: sql<number>`coalesce(sum(case when ${pointTransactions.points} > 0 then ${pointTransactions.points} else 0 end), 0)::int`,
+            totalUsed: sql<number>`coalesce(abs(sum(case when ${pointTransactions.type} = 'redeem' then ${pointTransactions.points} else 0 end)), 0)::int`,
+          })
+          .from(pointTransactions)
+          .where(eq(pointTransactions.memberId, member.id)),
+        db
+          .select({
+            id: pointTransactions.id,
+            type: pointTransactions.type,
+            points: pointTransactions.points,
+            note: pointTransactions.note,
+            createdAt: pointTransactions.createdAt,
+            branchName: branches.name,
+          })
+          .from(pointTransactions)
+          .innerJoin(branches, eq(pointTransactions.branchId, branches.id))
+          .where(transactionFilter)
+          .orderBy(desc(pointTransactions.id))
+          .limit(input.limit + 1),
+      ]);
+
+      const hasMore = transactionRows.length > input.limit;
+      const transactions = transactionRows.slice(0, input.limit);
+      const summary = summaryRows[0];
+      return {
+        member: {
+          maskedName: maskMemberName(member.name),
+          maskedPhone: maskPhone(member.phone),
+          points: member.points,
+          tier: member.tier,
+          cardExpiresAt: member.cardExpiresAt,
+          expired: isMemberCardExpired(member.cardExpiresAt),
+        },
+        summary: {
+          transactionCount: Number(summary?.transactionCount ?? 0),
+          totalEarned: Number(summary?.totalEarned ?? 0),
+          totalUsed: Number(summary?.totalUsed ?? 0),
+        },
+        transactions,
+        nextCursor: hasMore ? (transactions.at(-1)?.id ?? null) : null,
+      };
+    }),
+
   listCardBatches: managerQuery.query(async () => {
     const db = getDb();
     const batches = await db

@@ -3,8 +3,9 @@ import Login from "@/pages/Login";
 import { useStaff } from "@/hooks/useStaff";
 
 const AuthenticatedApp = lazy(() => import("@/AuthenticatedApp"));
+const CustomerLoyalty = lazy(() => import("@/pages/CustomerLoyalty"));
 
-export default function Root() {
+function StaffRoot() {
   const { staff, isCheckingSession } = useStaff();
 
   useEffect(() => {
@@ -54,4 +55,26 @@ export default function Root() {
       <AuthenticatedApp />
     </Suspense>
   );
+}
+
+export default function Root() {
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/loyalty") {
+    return (
+      <Suspense
+        fallback={
+          <main className="grid min-h-screen place-items-center bg-slate-950 p-6">
+            <span
+              className="size-7 animate-spin rounded-full border-2 border-blue-200/30 border-t-cyan-300"
+              role="status"
+              aria-label="กำลังโหลดหน้าตรวจสอบแต้ม"
+            />
+          </main>
+        }
+      >
+        <CustomerLoyalty />
+      </Suspense>
+    );
+  }
+  return <StaffRoot />;
 }

@@ -31,6 +31,7 @@ import {
 } from "../lib/cash";
 import {
   isValidCashCounts,
+  shiftCountedTotal,
   sumCashCounts,
   type CashCounts,
 } from "@contracts/cash";
@@ -249,6 +250,12 @@ const historyShifts = alias(shifts, "history_shifts");
 
 const shiftHistorySelection = {
   ...getTableColumns(historyShifts),
+  expensesTotal: sql<number>`(
+    select coalesce(sum("history_expenses"."amount"), 0)
+    from ${expenses} as "history_expenses"
+    where "history_expenses"."branch_id" = "history_shifts"."branch_id"
+      and "history_expenses"."shift_id" = "history_shifts"."id"
+  )`.mapWith(Number),
   priceChangedDuringShift: sql<boolean>`exists (
     select 1
     from ${priceChanges} as "history_price_changes"
@@ -263,6 +270,25 @@ const shiftHistorySelection = {
       and "history_price_changes"."created_at" <= coalesce("history_shifts"."closed_at", current_timestamp)
   )`,
 };
+
+function attachShiftCountedTotals<
+  T extends {
+    countedCash: number | null;
+    transferAmount: number | null;
+    posAmount: number;
+    expensesTotal: number;
+  },
+>(rows: T[]) {
+  return rows.map(row => ({
+    ...row,
+    countedTotal: shiftCountedTotal({
+      countedCash: row.countedCash,
+      transferAmount: row.transferAmount,
+      posAmount: row.posAmount,
+      expensesTotal: row.expensesTotal,
+    }),
+  }));
+}
 
 async function getSettingMap(db: ReturnType<typeof getDb>, branchId: number) {
   const rows = await db
@@ -374,6 +400,7 @@ export const posRouter = createRouter({
     ).get(shift.id) ?? { lubricantAmount: 0, lubricantItems: [] };
     return {
       ...shift,
+      posAmount: cash.posSales,
       cash, // สรุปเงินสดของกะ (ใช้โชว์ยอด "ควรมี" ตอนปิดกะ)
       lubricants: productRows.filter(
         product => product.active && product.category === "lubricant"
@@ -510,7 +537,7 @@ export const posRouter = createRouter({
             .insert(shifts)
             .values({
               branchId,
-              staffId: input.staffId,
+              staffId: input.staffId ?? ctx.staff.id,
               staffName: input.staffName,
               openingFloat: r2(input.openingFloat),
             })
@@ -545,6 +572,7 @@ export const posRouter = createRouter({
       const cash = {
         openingFloat: createdShift.openingFloat,
         cashSales: 0,
+        posSales: 0,
         cashDebtPayments: 0,
         expensesTotal: 0,
         expectedCash: createdShift.openingFloat,
@@ -750,6 +778,7 @@ export const posRouter = createRouter({
       const cash = {
         ...currentCash,
         cashSales: r2(currentCash.cashSales + lubricantAmount),
+        posSales: r2(currentCash.posSales + lubricantAmount),
         expectedCash: r2(currentCash.expectedCash + lubricantAmount),
       };
 
@@ -912,6 +941,12 @@ export const posRouter = createRouter({
       });
 
       // ฝั่งนับได้รวมยอดเงินโอนตอนปิดกะด้วย (นับได้ + โอน)
+      const countedTotal = shiftCountedTotal({
+        countedCash,
+        transferAmount: input.transferAmount,
+        posAmount: cash.posSales,
+        expensesTotal: cash.expensesTotal,
+      });
       const cashDiff =
         countedCash != null
           ? r2(countedCash + (input.transferAmount ?? 0) - cash.expectedCash)
@@ -923,7 +958,8 @@ export const posRouter = createRouter({
           `ปิดกะ #${shift.id} (${shift.staffName}) ลิตร ${totalLiters} ยอด P ${totalMoneyMeter} ` +
           `น้ำมันเครื่อง ${lubricantAmount} ` +
           `เงินทอน ${cash.openingFloat} เงินสดควรมี ${cash.expectedCash} นับได้ ${countedCash ?? "-"} ` +
-          `โอน ${input.transferAmount ?? "-"} ต่าง ${cashDiff ?? "-"}`,
+          `โอน ${input.transferAmount ?? "-"} POS ${cash.posSales} ค่าใช้จ่าย ${cash.expensesTotal} ` +
+          `นับได้รวม ${countedTotal ?? "-"} ต่าง ${cashDiff ?? "-"}`,
         refType: "shift",
         refId: shift.id,
       });
@@ -954,10 +990,12 @@ export const posRouter = createRouter({
         )
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input?.limit ?? 200);
-      return attachShiftLubricantSales(
-        db,
-        ctx.staff.branchId,
-        await attachShiftCashMeter(db, ctx.staff.branchId, rows)
+      return attachShiftCountedTotals(
+        await attachShiftLubricantSales(
+          db,
+          ctx.staff.branchId,
+          await attachShiftCashMeter(db, ctx.staff.branchId, rows)
+        )
       );
     }),
 
@@ -998,10 +1036,12 @@ export const posRouter = createRouter({
         .where(and(...conditions))
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input.limit);
-      return attachShiftLubricantSales(
-        getDb(),
-        ctx.staff.branchId,
-        await attachShiftCashMeter(getDb(), ctx.staff.branchId, rows)
+      return attachShiftCountedTotals(
+        await attachShiftLubricantSales(
+          getDb(),
+          ctx.staff.branchId,
+          await attachShiftCashMeter(getDb(), ctx.staff.branchId, rows)
+        )
       );
     }),
 
@@ -1408,6 +1448,12 @@ export const posRouter = createRouter({
         ...shift,
         cashCounts,
         cash, // สรุปเงินสด (กะเก่าที่ expectedCash เป็น null ใช้ยอดคำนวณย้อนหลังจากตัวนี้)
+        countedTotal: shiftCountedTotal({
+          countedCash: shift.countedCash,
+          transferAmount: shift.transferAmount,
+          posAmount: shift.posAmount,
+          expensesTotal: cash.expensesTotal,
+        }),
         cashExpectedP: cashMeter.cashExpectedP,
         cashDiffP: cashMeter.cashDiffP,
         lubricantAmount: lubricantSales.lubricantAmount,
