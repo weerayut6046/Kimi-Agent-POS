@@ -80,8 +80,8 @@ export interface ShiftRow {
   expensesTotal: number; // ค่าใช้จ่ายที่ผูกกับกะ
   countedTotal: number | null; // เงินสดนับ + โอน + POS − ค่าใช้จ่าย
   cashExpected: number; // เงินสดที่ควรมี (snapshot ตอนปิดกะ หรือคำนวณย้อนหลังสำหรับกะเก่า)
-  cashDiff: number | null; // (นับได้ + โอน) − ควรมี
-  cashDiffP: number | null; // (นับได้ + โอน) − ควรมีเทียบยอด P (null ถ้าไม่มียอด P)
+  cashDiff: number | null; // ยอดนับได้รวม − ควรมี
+  cashDiffP: number | null; // ยอดนับได้รวม − ควรมีเทียบยอด P (null ถ้าไม่มียอด P)
 }
 
 export interface ExpenseRow {

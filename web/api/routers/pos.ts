@@ -31,6 +31,7 @@ import {
 } from "../lib/cash";
 import {
   isValidCashCounts,
+  shiftCashDifference,
   shiftCountedTotal,
   sumCashCounts,
   type CashCounts,
@@ -947,10 +948,10 @@ export const posRouter = createRouter({
         posAmount: cash.posSales,
         expensesTotal: cash.expensesTotal,
       });
-      const cashDiff =
-        countedCash != null
-          ? r2(countedCash + (input.transferAmount ?? 0) - cash.expectedCash)
-          : null;
+      const cashDiff = shiftCashDifference({
+        countedTotal,
+        expectedCash: cash.expectedCash,
+      });
       logAudit({
         action: "close_shift",
         ...actorFromReq(ctx.req),
@@ -990,12 +991,11 @@ export const posRouter = createRouter({
         )
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input?.limit ?? 200);
-      return attachShiftCountedTotals(
-        await attachShiftLubricantSales(
-          db,
-          ctx.staff.branchId,
-          await attachShiftCashMeter(db, ctx.staff.branchId, rows)
-        )
+      const countedRows = attachShiftCountedTotals(rows);
+      return attachShiftLubricantSales(
+        db,
+        ctx.staff.branchId,
+        await attachShiftCashMeter(db, ctx.staff.branchId, countedRows)
       );
     }),
 
@@ -1036,12 +1036,11 @@ export const posRouter = createRouter({
         .where(and(...conditions))
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input.limit);
-      return attachShiftCountedTotals(
-        await attachShiftLubricantSales(
-          getDb(),
-          ctx.staff.branchId,
-          await attachShiftCashMeter(getDb(), ctx.staff.branchId, rows)
-        )
+      const countedRows = attachShiftCountedTotals(rows);
+      return attachShiftLubricantSales(
+        getDb(),
+        ctx.staff.branchId,
+        await attachShiftCashMeter(getDb(), ctx.staff.branchId, countedRows)
       );
     }),
 
@@ -1397,6 +1396,12 @@ export const posRouter = createRouter({
           )
         );
       const cash = await shiftCashSummary(db, shift);
+      const countedTotal = shiftCountedTotal({
+        countedCash: shift.countedCash,
+        transferAmount: shift.transferAmount,
+        posAmount: shift.posAmount,
+        expensesTotal: cash.expensesTotal,
+      });
       const [lubricantSales] = await attachShiftLubricantSales(db, branchId, [
         { id: shift.id },
       ]);
@@ -1406,8 +1411,7 @@ export const posRouter = createRouter({
           id: shift.id,
           expectedCash: shift.expectedCash ?? cash.expectedCash,
           totalMoneyMeter: shift.totalMoneyMeter,
-          countedCash: shift.countedCash,
-          transferAmount: shift.transferAmount,
+          countedTotal,
         },
       ]);
       // parse JSON การนับแบงก์/เหรียญ (กะเก่า/ข้อมูลเสีย → null)
@@ -1448,12 +1452,7 @@ export const posRouter = createRouter({
         ...shift,
         cashCounts,
         cash, // สรุปเงินสด (กะเก่าที่ expectedCash เป็น null ใช้ยอดคำนวณย้อนหลังจากตัวนี้)
-        countedTotal: shiftCountedTotal({
-          countedCash: shift.countedCash,
-          transferAmount: shift.transferAmount,
-          posAmount: shift.posAmount,
-          expensesTotal: cash.expensesTotal,
-        }),
+        countedTotal,
         cashExpectedP: cashMeter.cashExpectedP,
         cashDiffP: cashMeter.cashDiffP,
         lubricantAmount: lubricantSales.lubricantAmount,
@@ -2843,68 +2842,138 @@ export const posRouter = createRouter({
     const chartStart = bangkokMidnight(-6);
     const endOfToday = bangkokMidnight(1);
     const saleDate = sql<string>`to_char(${sales.createdAt} at time zone 'Asia/Bangkok', 'YYYY-MM-DD')`;
+    const shiftDate = sql<string>`to_char(${shifts.closedAt} at time zone 'Asia/Bangkok', 'YYYY-MM-DD')`;
 
     // ทุก query เป็นอิสระต่อกัน จึงทำพร้อมกันเพื่อลด network round-trip
-    const [dailyRows, fuelRows, openShift, tankRows, productRows, recent] =
-      await Promise.all([
-        // รวมกราฟ 7 วันและยอดวันนี้ด้วย query เดียว
-        db
-          .select({
-            date: saleDate,
-            total: sql<number>`coalesce(sum(${sales.total}), 0)`,
-            bills: sql<number>`count(*)`,
-          })
-          .from(sales)
-          .where(
-            and(
-              eq(sales.branchId, branchId),
-              gte(sales.createdAt, chartStart),
-              lt(sales.createdAt, endOfToday),
-              eq(sales.status, "completed")
-            )
+    const [
+      dailyRows,
+      shiftDailyRows,
+      fuelRows,
+      shiftFuelRows,
+      openShift,
+      tankRows,
+      productRows,
+      recent,
+    ] = await Promise.all([
+      // รวมกราฟ 7 วันและยอดวันนี้ด้วย query เดียว
+      db
+        .select({
+          date: saleDate,
+          total: sql<number>`coalesce(sum(${sales.total}), 0)`,
+          bills: sql<number>`count(*)`,
+        })
+        .from(sales)
+        .where(
+          and(
+            eq(sales.branchId, branchId),
+            gte(sales.createdAt, chartStart),
+            lt(sales.createdAt, endOfToday),
+            eq(sales.status, "completed")
           )
-          .groupBy(saleDate),
-        // รวมรายการขายกับสินค้าในฐานข้อมูล ไม่ต้องโหลดทุก row มาหาใน Node
-        db
-          .select({
-            code: products.code,
-            name: saleItems.name,
-            liters: sql<number>`coalesce(sum(${saleItems.qty}), 0)`,
-            amount: sql<number>`coalesce(sum(${saleItems.amount}), 0)`,
-          })
-          .from(saleItems)
-          .innerJoin(sales, eq(saleItems.saleId, sales.id))
-          .leftJoin(products, eq(saleItems.productId, products.id))
-          .where(
-            and(
-              eq(sales.branchId, branchId),
-              eq(saleItems.branchId, branchId),
-              gte(sales.createdAt, startOfDay),
-              lt(sales.createdAt, endOfToday),
-              eq(sales.status, "completed"),
-              eq(saleItems.unit, "ลิตร")
-            )
+        )
+        .groupBy(saleDate),
+      // ยอดจากกะที่ปิดแล้ว ใช้ P เป็นหลักและยอดลิตร×ราคาเป็น fallback สำหรับกะเก่า
+      db
+        .select({
+          date: shiftDate,
+          total: sql<number>`coalesce(sum(case when ${shifts.totalMoneyMeter} > 0 then ${shifts.totalMoneyMeter} else ${shifts.totalAmount} end), 0)`,
+          liters: sql<number>`coalesce(sum(${shifts.totalLiters}), 0)`,
+          count: sql<number>`count(*)`,
+        })
+        .from(shifts)
+        .where(
+          and(
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "closed"),
+            gte(shifts.closedAt, chartStart),
+            lt(shifts.closedAt, endOfToday)
           )
-          .groupBy(products.code, saleItems.name),
-        db.query.shifts.findFirst({
-          where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
-          orderBy: (s, { desc: d }) => [d(s.openedAt)],
-        }),
-        db.query.fuelTanks.findMany({
-          where: eq(fuelTanks.branchId, branchId),
-        }),
-        db.query.products.findMany({
-          where: eq(products.branchId, branchId),
-        }),
-        db
-          .select()
-          .from(sales)
-          .where(eq(sales.branchId, branchId))
-          .orderBy(desc(sales.createdAt))
-          .limit(8),
-      ]);
+        )
+        .groupBy(shiftDate),
+      // รวมรายการขายกับสินค้าในฐานข้อมูล ไม่ต้องโหลดทุก row มาหาใน Node
+      db
+        .select({
+          code: products.code,
+          name: saleItems.name,
+          liters: sql<number>`coalesce(sum(${saleItems.qty}), 0)`,
+          amount: sql<number>`coalesce(sum(${saleItems.amount}), 0)`,
+        })
+        .from(saleItems)
+        .innerJoin(sales, eq(saleItems.saleId, sales.id))
+        .leftJoin(products, eq(saleItems.productId, products.id))
+        .where(
+          and(
+            eq(sales.branchId, branchId),
+            eq(saleItems.branchId, branchId),
+            gte(sales.createdAt, startOfDay),
+            lt(sales.createdAt, endOfToday),
+            eq(sales.status, "completed"),
+            eq(saleItems.unit, "ลิตร")
+          )
+        )
+        .groupBy(products.code, saleItems.name),
+      // แยกยอดน้ำมันจากมิเตอร์ของกะที่ปิดวันนี้เพื่อใช้ใน fuel mix
+      db
+        .select({
+          code: products.code,
+          name: products.name,
+          liters: sql<number>`coalesce(sum(${shiftReadings.closeMeter} - ${shiftReadings.openMeter}), 0)`,
+          amount: sql<number>`coalesce(sum(case when ${shiftReadings.closeMoney} is not null and ${shiftReadings.openMoney} > 0 then ${shiftReadings.closeMoney} - ${shiftReadings.openMoney} else (${shiftReadings.closeMeter} - ${shiftReadings.openMeter}) * ${shiftReadings.pricePerLiter} end), 0)`,
+        })
+        .from(shiftReadings)
+        .innerJoin(
+          shifts,
+          and(
+            eq(shiftReadings.shiftId, shifts.id),
+            eq(shiftReadings.branchId, shifts.branchId)
+          )
+        )
+        .innerJoin(
+          nozzles,
+          and(
+            eq(shiftReadings.nozzleId, nozzles.id),
+            eq(nozzles.branchId, branchId)
+          )
+        )
+        .innerJoin(
+          products,
+          and(
+            eq(nozzles.productId, products.id),
+            eq(products.branchId, branchId)
+          )
+        )
+        .where(
+          and(
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "closed"),
+            gte(shifts.closedAt, startOfDay),
+            lt(shifts.closedAt, endOfToday),
+            sql`${shiftReadings.closeMeter} is not null`
+          )
+        )
+        .groupBy(products.code, products.name),
+      db.query.shifts.findFirst({
+        where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
+        orderBy: (s, { desc: d }) => [d(s.openedAt)],
+      }),
+      db.query.fuelTanks.findMany({
+        where: eq(fuelTanks.branchId, branchId),
+      }),
+      db.query.products.findMany({
+        where: eq(products.branchId, branchId),
+      }),
+      db
+        .select()
+        .from(sales)
+        .where(eq(sales.branchId, branchId))
+        .orderBy(desc(sales.createdAt))
+        .limit(8),
+    ]);
 
     const dailyByDate = new Map(dailyRows.map(row => [row.date, row]));
+    const shiftDailyByDate = new Map(
+      shiftDailyRows.map(row => [row.date, row])
+    );
     const chart = Array.from({ length: 7 }, (_, index) => {
       const daysAgo = 6 - index;
       const date = new Date(
@@ -2912,21 +2981,36 @@ export const posRouter = createRouter({
       );
       const dateKey = date.toISOString().slice(0, 10);
       const row = dailyByDate.get(dateKey);
+      const shiftRow = shiftDailyByDate.get(dateKey);
+      const posTotal = r2(Number(row?.total ?? 0));
+      const shiftTotal = r2(Number(shiftRow?.total ?? 0));
       return {
         date: dateKey,
         label: `${date.getUTCDate()}/${date.getUTCMonth() + 1}`,
-        total: r2(Number(row?.total ?? 0)),
+        total: r2(posTotal + shiftTotal),
+        posTotal,
+        shiftTotal,
         bills: Number(row?.bills ?? 0),
+        shifts: Number(shiftRow?.count ?? 0),
       };
     });
-    const today = dailyByDate.get(bangkokNow.toISOString().slice(0, 10));
+    const todayKey = bangkokNow.toISOString().slice(0, 10);
+    const today = dailyByDate.get(todayKey);
+    const todayShift = shiftDailyByDate.get(todayKey);
+    const todayPosTotal = r2(Number(today?.total ?? 0));
+    const todayShiftTotal = r2(Number(todayShift?.total ?? 0));
+    const todayShiftCount = Number(todayShift?.count ?? 0);
+    const shiftLitersToday = r3(Number(todayShift?.liters ?? 0));
 
     let litersToday = 0;
     const fuelByCode: Record<
       string,
       { name: string; liters: number; amount: number }
     > = {};
-    for (const row of fuelRows) {
+    const fuelSource = shiftFuelRows.length > 0 ? "shift" : "pos";
+    const effectiveFuelRows =
+      shiftFuelRows.length > 0 ? shiftFuelRows : fuelRows;
+    for (const row of effectiveFuelRows) {
       const code = row.code ?? "OTHER";
       const liters = Number(row.liters);
       const amount = Number(row.amount);
@@ -2940,6 +3024,7 @@ export const posRouter = createRouter({
       current.amount = r2(current.amount + amount);
       fuelByCode[code] = current;
     }
+    if (shiftLitersToday > 0) litersToday = shiftLitersToday;
 
     const tanks = tankRows.map(tank => ({
       ...tank,
@@ -2957,9 +3042,14 @@ export const posRouter = createRouter({
     );
 
     return {
-      todayTotal: r2(Number(today?.total ?? 0)),
+      todayTotal: r2(todayPosTotal + todayShiftTotal),
+      todayPosTotal,
+      todayShiftTotal,
+      todayShiftCount,
       todayBills: Number(today?.bills ?? 0),
       litersToday,
+      shiftLitersToday,
+      fuelSource,
       fuelByCode,
       chart,
       openShift: openShift ?? null,

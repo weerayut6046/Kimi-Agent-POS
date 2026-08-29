@@ -62,6 +62,7 @@ import CashDenomCounter from "@/components/CashDenomCounter";
 import ShiftMeterImageScanner from "@/components/ShiftMeterImageScanner";
 import {
   CASH_DENOMINATIONS,
+  shiftCashDifference,
   shiftCountedTotal,
   sumCashCounts,
   type CashCounts,
@@ -1622,7 +1623,7 @@ export default function Shifts() {
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">
-                        รวมยอดกะ (P + น้ำมันเครื่อง)
+                        รวมยอดกะ (P + POS ทั้งหมด)
                       </div>
                       <div className="font-heading text-xl font-semibold text-violet-700">
                         ฿
@@ -1630,7 +1631,7 @@ export default function Shifts() {
                           r2(
                             (closePreview.money > 0
                               ? closePreview.money
-                              : closePreview.amountL) + lubricantShiftAmount
+                              : closePreview.amountL) + posSalesPreview
                           )
                         )}
                       </div>
@@ -1896,7 +1897,7 @@ export default function Shifts() {
                             r2(
                               (s.totalMoneyMeter > 0
                                 ? s.totalMoneyMeter
-                                : s.totalAmount) + (s.lubricantAmount ?? 0)
+                                : s.totalAmount) + s.posAmount
                             )
                           )}
                         </TableCell>
@@ -1914,13 +1915,12 @@ export default function Shifts() {
                             : "-"}
                         </TableCell>
                         <TableCell>
-                          {s.countedCash != null && s.expectedCash != null ? (
+                          {s.countedTotal != null && s.expectedCash != null ? (
                             <DiffBadge
-                              diff={r2(
-                                s.countedCash +
-                                  (s.transferAmount ?? 0) -
-                                  s.expectedCash
-                              )}
+                              diff={shiftCashDifference({
+                                countedTotal: s.countedTotal,
+                                expectedCash: s.expectedCash,
+                              })!}
                             />
                           ) : (
                             "-"
@@ -2724,8 +2724,7 @@ export default function Shifts() {
                           r2(
                             (detail.totalMoneyMeter > 0
                               ? detail.totalMoneyMeter
-                              : detail.totalAmount) +
-                              (detail.lubricantAmount ?? 0)
+                              : detail.totalAmount) + detail.posAmount
                           )
                         )}
                       </b>
@@ -2839,27 +2838,6 @@ export default function Shifts() {
                         </span>
                       )}
                     </span>
-                    {detail.countedCash != null && (
-                      <span className="flex items-center gap-2">
-                        เงินสดนับได้: <b>฿{fmtMoney(detail.countedCash)}</b>
-                        {detail.transferAmount != null && (
-                          <span className="text-muted-foreground">
-                            (+โอน ฿{fmtMoney(detail.transferAmount)} = ฿
-                            {fmtMoney(
-                              r2(detail.countedCash + detail.transferAmount)
-                            )}
-                            )
-                          </span>
-                        )}
-                        <DiffBadge
-                          diff={r2(
-                            detail.countedCash +
-                              (detail.transferAmount ?? 0) -
-                              (detail.expectedCash ?? detail.cash.expectedCash)
-                          )}
-                        />
-                      </span>
-                    )}
                     {detail.countedTotal != null && (
                       <span>
                         ยอดนับได้รวม: <b>฿{fmtMoney(detail.countedTotal)}</b>{" "}

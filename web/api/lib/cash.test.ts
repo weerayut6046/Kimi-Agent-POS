@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { products, saleItems, sales, shifts } from "@db/schema";
-import { shiftCountedTotal } from "@contracts/cash";
+import { shiftCashDifference, shiftCountedTotal } from "@contracts/cash";
 import { setupTestDb, type TestDb } from "../test/testDb";
 import {
   attachShiftCashMeter,
@@ -154,49 +154,53 @@ describe("เงินสดเทียบยอด P", () => {
     ).toBeNull();
   });
 
-  it("attachShiftCashMeter คำนวณเงินสดควรมีเทียบ P และส่วนต่าง (ฝั่งนับได้รวมยอดโอน)", async () => {
+  it("เงินสดต่าง = ยอดนับได้รวม − เงินสดควรมี", () => {
+    expect(
+      shiftCashDifference({ countedTotal: 1575, expectedCash: 1200 })
+    ).toBe(375);
+    expect(
+      shiftCashDifference({ countedTotal: null, expectedCash: 1200 })
+    ).toBeNull();
+  });
+
+  it("attachShiftCashMeter คำนวณเงินสดควรมีเทียบ P และหักจากยอดนับได้รวม", async () => {
     const rows = await attachShiftCashMeter(t.db, 1, [
       // expectedCash 2900 = ทอน 1000 + ขายเงินสด 1900 (บิล 1 และ 3)
       // ยอด P 2100 = น้ำมันที่ออกจริง (1000 + 500 เครดิต + 600 ในบิลปน)
-      // นับได้ 2960 + โอน 500 → ต่าง = 3460 − 2960 = 500
+      // ยอดนับได้รวม 3460 → ต่าง = 3460 − 2960 = 500
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedCash: 2960,
-        transferAmount: 500,
+        countedTotal: 3460,
       },
       // ไม่มี snapshot expectedCash → null
       {
         id: shiftB,
         expectedCash: null,
         totalMoneyMeter: 300,
-        countedCash: 300,
-        transferAmount: 50,
+        countedTotal: 350,
       },
       // ไม่มียอด P (กะเก่าก่อนระบบ P) → null
       {
         id: shiftB,
         expectedCash: 100,
         totalMoneyMeter: 0,
-        countedCash: 100,
-        transferAmount: 100,
+        countedTotal: 200,
       },
       // ไม่ได้นับเงินสด → ได้ cashExpectedP แต่ cashDiffP เป็น null
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedCash: null,
-        transferAmount: 500,
+        countedTotal: null,
       },
-      // ไม่มียอดโอน → เท่ากับสูตรเดิมที่ใช้เฉพาะยอดนับ
+      // ยอดนับได้รวมเท่ากับยอดที่ควรมีเทียบ P
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedCash: 2960,
-        transferAmount: null,
+        countedTotal: 2960,
       },
     ]);
 
@@ -208,7 +212,7 @@ describe("เงินสดเทียบยอด P", () => {
     expect(rows[4]).toMatchObject({ cashExpectedP: 2960, cashDiffP: 0 });
   });
 
-  it("shiftHistory แนบ cashExpectedP/cashDiffP จาก snapshot ของกะ (รวมยอดโอน)", async () => {
+  it("shiftHistory แนบ cashExpectedP/cashDiffP จาก snapshot ของกะและยอดนับได้รวม", async () => {
     await t.db
       .update(shifts)
       .set({
@@ -222,7 +226,7 @@ describe("เงินสดเทียบยอด P", () => {
     const hist = await t.caller().pos.shiftHistory();
     const row = hist.find(s => s.id === shiftA)!;
     expect(row.cashExpectedP).toBe(2960);
-    expect(row.cashDiffP).toBe(500); // (2960 + 500) − 2960
+    expect(row.cashDiffP).toBe(500); // ยอดนับได้รวม 3460 − 2960
 
     // กะที่ไม่มี snapshot expectedCash → เป็น null ทั้งคู่
     const legacy = hist.find(s => s.id === shiftB)!;
