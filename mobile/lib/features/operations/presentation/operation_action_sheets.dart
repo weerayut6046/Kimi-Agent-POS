@@ -2263,6 +2263,7 @@ _MutationSpec _tankSpec({
 
 _MutationSpec _refillTankSpec(Map<String, dynamic> tank) => _MutationSpec(
   title: 'รับน้ำมันเข้า ${_text(tank['name'])}',
+  description: 'ต้นทุนต่อลิตรจะอัปเดตเป็นต้นทุนสินค้าล่าสุดอัตโนมัติ',
   procedure: 'catalog.refillTank',
   successMessage: 'บันทึกรับน้ำมันเข้าถังแล้ว',
   fields: const [
