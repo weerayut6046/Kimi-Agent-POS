@@ -23,8 +23,13 @@ function createDashboardPlaceholder() {
   const now = new Date();
   return {
     todayTotal: 0,
+    todayPosTotal: 0,
+    todayShiftTotal: 0,
+    todayShiftCount: 0,
     todayBills: 0,
     litersToday: 0,
+    shiftLitersToday: 0,
+    fuelSource: "pos" as "pos" | "shift",
     fuelByCode: {} as Record<
       string,
       { name: string; liters: number; amount: number }
@@ -36,7 +41,10 @@ function createDashboardPlaceholder() {
         date: date.toISOString().slice(0, 10),
         label: `${date.getDate()}/${date.getMonth() + 1}`,
         total: 0,
+        posTotal: 0,
+        shiftTotal: 0,
         bills: 0,
+        shifts: 0,
       };
     }),
     openShift: null,
@@ -78,7 +86,14 @@ export default function Dashboard() {
     );
   }
 
-  const averageBill = data.todayBills ? data.todayTotal / data.todayBills : 0;
+  // รองรับช่วงที่ frontend โหลดใหม่ก่อน backend ระหว่าง dev/hot reload
+  const todayTotal = Number(data.todayTotal ?? 0);
+  const todayPosTotal = Number(data.todayPosTotal ?? todayTotal);
+  const todayShiftTotal = Number(data.todayShiftTotal ?? 0);
+  const todayShiftCount = Number(data.todayShiftCount ?? 0);
+  const todayBills = Number(data.todayBills ?? 0);
+  const litersToday = Number(data.litersToday ?? 0);
+  const averageBill = todayBills ? todayPosTotal / todayBills : 0;
   const lowStockCount = data.lowTanks.length + data.lowProducts.length;
   const fuelTotal = Object.values(data.fuelByCode).reduce(
     (sum, fuel) => sum + fuel.amount,
@@ -87,7 +102,7 @@ export default function Dashboard() {
   const stats = [
     {
       label: "น้ำมันที่จ่ายแล้ว",
-      value: `${fmtNum(data.litersToday)} ลิตร`,
+      value: `${fmtNum(litersToday)} ลิตร`,
       icon: Droplet,
       color: "text-cyan-700",
       iconBg: "from-cyan-100 to-blue-50",
@@ -95,14 +110,14 @@ export default function Dashboard() {
     },
     {
       label: "จำนวนธุรกรรม",
-      value: `${data.todayBills} บิล`,
+      value: `${todayBills} บิล`,
       icon: ReceiptText,
       color: "text-violet-700",
       iconBg: "from-violet-100 to-fuchsia-50",
       glow: "bg-violet-400/15",
     },
     {
-      label: "ยอดเฉลี่ยต่อบิล",
+      label: "เฉลี่ยต่อบิล POS",
       value: `฿${fmtMoney(averageBill)}`,
       icon: Banknote,
       color: "text-orange-700",
@@ -145,7 +160,7 @@ export default function Dashboard() {
               </h1>
               <div className="mt-2 flex flex-wrap items-end gap-3">
                 <div className="font-heading text-3xl font-extrabold leading-none tracking-[-0.04em] number-display">
-                  ฿{fmtMoney(data.todayTotal)}
+                  ฿{fmtMoney(todayTotal)}
                 </div>
                 <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
                   <TrendingUp className="size-3" />{" "}
@@ -155,8 +170,19 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="mt-3 max-w-xl text-sm leading-6 text-white/50">
-                ดูยอดขาย สถานะกะ และสัญญาณสำคัญของสถานีได้จากหน้าจอเดียว
+                รวมยอดจากกะที่ปิดวันนี้และยอดขาย POS
               </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
+                  ยอด P จากกะ ฿{fmtMoney(todayShiftTotal)}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
+                  ยอด POS ฿{fmtMoney(todayPosTotal)}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
+                  ปิดแล้ว {todayShiftCount} กะ
+                </span>
+              </div>
             </div>
 
             <div className="mt-auto flex flex-wrap items-end justify-between gap-5 pt-8">
@@ -166,7 +192,7 @@ export default function Dashboard() {
                     ปริมาณจ่าย
                   </div>
                   <div className="mt-1 font-heading text-lg font-bold number-display">
-                    {fmtNum(data.litersToday)} ลิตร
+                    {fmtNum(litersToday)} ลิตร
                   </div>
                 </div>
                 <div className="h-10 w-px bg-white/10" />
@@ -175,7 +201,7 @@ export default function Dashboard() {
                     ธุรกรรม
                   </div>
                   <div className="mt-1 font-heading text-lg font-bold number-display">
-                    {data.todayBills} บิล
+                    {todayBills} บิล
                   </div>
                 </div>
               </div>
@@ -246,7 +272,7 @@ export default function Dashboard() {
               <div className="rounded-2xl bg-[#ecfbf9] p-4">
                 <ReceiptText className="size-5 text-cyan-600" />
                 <div className="mt-3 text-2xl font-extrabold text-slate-900 number-display">
-                  {data.todayBills}
+                  {todayBills}
                 </div>
                 <div className="text-[11px] text-slate-500">บิลวันนี้</div>
               </div>
@@ -343,7 +369,7 @@ export default function Dashboard() {
                 จังหวะยอดขาย 7 วัน
               </CardTitle>
               <p className="mt-1 text-xs text-slate-400">
-                แนวโน้มยอดขายรวมรายวัน
+                ยอด P จากกะที่ปิด + ยอด POS รายวัน
               </p>
             </div>
             <div className="grid size-10 place-items-center rounded-2xl bg-violet-50 text-violet-600">
@@ -361,7 +387,11 @@ export default function Dashboard() {
             <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
               สัดส่วนน้ำมันวันนี้
             </CardTitle>
-            <p className="text-xs text-slate-400">ยอดขายแยกตามชนิดเชื้อเพลิง</p>
+            <p className="text-xs text-slate-400">
+              {data.fuelSource === "shift"
+                ? "จากมิเตอร์กะที่ปิดวันนี้"
+                : "จากรายการขาย POS ระหว่างรอปิดกะ"}
+            </p>
           </CardHeader>
           <CardContent className="space-y-4 px-5">
             {Object.keys(data.fuelByCode).length === 0 && (

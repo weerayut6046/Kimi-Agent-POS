@@ -3,17 +3,15 @@ import { fmtMoney } from "@/lib/format";
 type SalesTrendPoint = {
   label: string;
   total: number;
+  posTotal?: number;
+  shiftTotal?: number;
 };
 
 const WIDTH = 700;
 const HEIGHT = 250;
 const PADDING = { top: 14, right: 18, bottom: 38, left: 64 };
 
-export default function SalesTrendChart({
-  data,
-}: {
-  data: SalesTrendPoint[];
-}) {
+export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
   const plotWidth = WIDTH - PADDING.left - PADDING.right;
   const plotHeight = HEIGHT - PADDING.top - PADDING.bottom;
   const largestValue = Math.max(0, ...data.map(point => point.total));
@@ -22,7 +20,9 @@ export default function SalesTrendChart({
     ...point,
     x:
       PADDING.left +
-      (data.length <= 1 ? plotWidth / 2 : (plotWidth * index) / (data.length - 1)),
+      (data.length <= 1
+        ? plotWidth / 2
+        : (plotWidth * index) / (data.length - 1)),
     y: PADDING.top + plotHeight * (1 - point.total / chartMax),
   }));
   const linePath = points
@@ -94,7 +94,9 @@ export default function SalesTrendChart({
           <g key={point.label}>
             <circle cx={point.x} cy={point.y} r="4" fill="#18c7bf">
               <title>
-                {point.label}: ฿{fmtMoney(point.total)}
+                {point.label}: รวม ฿{fmtMoney(point.total)} · P จากกะ ฿
+                {fmtMoney(point.shiftTotal ?? 0)} · POS ฿
+                {fmtMoney(point.posTotal ?? 0)}
               </title>
             </circle>
             <text
@@ -118,6 +120,8 @@ export default function SalesTrendChart({
           <tr>
             <th scope="col">วันที่</th>
             <th scope="col">ยอดขาย</th>
+            <th scope="col">ยอด P จากกะ</th>
+            <th scope="col">ยอด POS</th>
           </tr>
         </thead>
         <tbody>
@@ -125,6 +129,8 @@ export default function SalesTrendChart({
             <tr key={point.label}>
               <th scope="row">{point.label}</th>
               <td>฿{fmtMoney(point.total)}</td>
+              <td>฿{fmtMoney(point.shiftTotal ?? 0)}</td>
+              <td>฿{fmtMoney(point.posTotal ?? 0)}</td>
             </tr>
           ))}
         </tbody>

@@ -19,7 +19,7 @@ import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
 import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
-import { shiftCountedTotal } from "@contracts/cash";
+import { shiftCashDifference, shiftCountedTotal } from "@contracts/cash";
 import {
   debtPayments,
   fuelTanks,
@@ -817,21 +817,22 @@ export async function queryDailyReport(
     // ใช้ snapshot ตอนปิดกะถ้ามี; กะเก่า (null) คำนวณย้อนหลังจากข้อมูลปัจจุบัน
     const cashExpected = s.expectedCash ?? cashSummary.expectedCash;
     const posAmount = s.status === "open" ? cashSummary.posSales : s.posAmount;
+    const countedTotal = shiftCountedTotal({
+      countedCash: s.countedCash,
+      transferAmount: s.transferAmount,
+      posAmount,
+      expensesTotal: cashSummary.expensesTotal,
+    });
     return {
       ...s,
       posAmount,
       expensesTotal: cashSummary.expensesTotal,
-      countedTotal: shiftCountedTotal({
-        countedCash: s.countedCash,
-        transferAmount: s.transferAmount,
-        posAmount,
-        expensesTotal: cashSummary.expensesTotal,
-      }),
+      countedTotal,
       cashExpected,
-      cashDiff:
-        s.countedCash != null
-          ? r2(s.countedCash + (s.transferAmount ?? 0) - cashExpected)
-          : null,
+      cashDiff: shiftCashDifference({
+        countedTotal,
+        expectedCash: cashExpected,
+      }),
     };
   });
   // เงินสดเทียบยอด P — ใช้ cashExpected ที่ resolve แล้วเป็นฐาน โดยไม่เขียนทับ expectedCash เดิม
@@ -842,8 +843,7 @@ export async function queryDailyReport(
       id: s.id,
       expectedCash: s.cashExpected,
       totalMoneyMeter: s.totalMoneyMeter,
-      countedCash: s.countedCash,
-      transferAmount: s.transferAmount,
+      countedTotal: s.countedTotal,
     }))
   );
   const shiftsWithCash = baseShifts.map((s, i) => ({
