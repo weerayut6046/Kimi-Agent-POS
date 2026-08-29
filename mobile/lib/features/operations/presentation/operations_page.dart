@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/providers.dart';
+import '../../../core/realtime/branch_realtime.dart';
 import '../../../shared/widgets/app_page_hero.dart';
 import '../../auth/domain/staff_session.dart';
 import '../application/operations_provider.dart';
 import '../domain/operations_models.dart';
+import 'customer_loyalty_qr_sheet.dart';
 import 'operation_action_sheets.dart';
 import 'settings_mobile_content.dart';
 
@@ -66,6 +69,7 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
   late Future<OperationsSnapshot> _snapshot;
   String _query = '';
   final Set<int> _deletingStaffIds = <int>{};
+  bool _realtimeRefreshQueued = false;
 
   bool get _canManageStaff =>
       widget.module == OperationsModule.workforce &&
@@ -102,6 +106,18 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
       _snapshot = next;
     });
     await next;
+  }
+
+  void _scheduleRealtimeRefresh() {
+    if (_realtimeRefreshQueued) return;
+    _realtimeRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _realtimeRefreshQueued = false;
+      if (!mounted) return;
+      setState(() {
+        _snapshot = _load();
+      });
+    });
   }
 
   Future<void> _pickDate() async {
@@ -296,6 +312,25 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
     if (changed && mounted) await _refresh();
   }
 
+  Future<void> _openCustomerLoyaltyQr() async {
+    try {
+      final loyaltyUri = ref.read(appConfigProvider).customerLoyaltyUri;
+      await showCustomerLoyaltyQrSheet(
+        context: context,
+        loyaltyUri: loyaltyUri,
+        stationName: widget.staff.branch.name,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('เปิด QR ตรวจแต้มไม่สำเร็จ: $error'),
+          backgroundColor: const Color(0xFFC94B4B),
+        ),
+      );
+    }
+  }
+
   Future<void> _manageOperationItem(OperationItem item) async {
     final changed = await showOperationItemActions(
       context: context,
@@ -308,11 +343,24 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(branchRealtimeRevisionProvider(widget.staff.branch.id), (
+      previous,
+      next,
+    ) {
+      if (previous != null && next > previous) _scheduleRealtimeRefresh();
+    });
     final module = widget.module;
     return Scaffold(
       appBar: AppBar(
         title: Text(module.title),
         actions: [
+          if (module == OperationsModule.members)
+            IconButton(
+              key: const Key('customer-loyalty-qr-action'),
+              tooltip: 'QR ให้ลูกค้าเช็กแต้ม',
+              onPressed: _openCustomerLoyaltyQr,
+              icon: const Icon(Icons.qr_code_2_rounded),
+            ),
           if (_canManageStaff)
             IconButton(
               key: const Key('add-staff'),

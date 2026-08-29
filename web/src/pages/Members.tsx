@@ -10,6 +10,7 @@ import {
   Trash2,
   CreditCard,
   ScanLine,
+  QrCode,
   CircleCheck,
   CircleAlert,
 } from "lucide-react";
@@ -45,6 +46,7 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { MemberCardDialog } from "@/components/MemberCardDialog";
+import { CustomerLoyaltyQrDialog } from "@/components/CustomerLoyaltyQrDialog";
 import { fmtDateTH, fmtDateTime, tierLabel } from "@/lib/format";
 import {
   extractMemberCardCode,
@@ -71,6 +73,7 @@ export default function Members() {
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
 
   const [showCreate, setShowCreate] = useState(false);
+  const [showCustomerQr, setShowCustomerQr] = useState(false);
   const [cardInput, setCardInput] = useState("");
   const [autoGenerateCode, setAutoGenerateCode] = useState(false);
   const [name, setName] = useState("");
@@ -200,6 +203,9 @@ export default function Members() {
     gold: "bg-amber-500",
     platinum: "bg-indigo-500",
   };
+  const configuredCustomerUrl =
+    import.meta.env.VITE_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? "";
+  const customerLoyaltyUrl = `${configuredCustomerUrl || window.location.origin}/loyalty`;
 
   return (
     <div className="space-y-5">
@@ -214,6 +220,13 @@ export default function Members() {
           >
             สมาชิกและแต้มใช้ร่วมกันทุกสาขา
           </Badge>
+          <Button
+            variant="outline"
+            className="flex-1 border-violet-200 bg-white text-violet-700 hover:bg-violet-50 sm:flex-none"
+            onClick={() => setShowCustomerQr(true)}
+          >
+            <QrCode className="mr-2 size-4" /> QR เช็กแต้ม
+          </Button>
           <Button
             className="flex-1 sm:flex-none"
             onClick={() => setCreateDialogOpen(true)}
@@ -968,6 +981,12 @@ export default function Members() {
         onOpenChange={open => !open && setCardMember(null)}
         settingMap={settingMap}
         logoUrl={logoUrl}
+      />
+      <CustomerLoyaltyQrDialog
+        open={showCustomerQr}
+        onOpenChange={setShowCustomerQr}
+        url={customerLoyaltyUrl}
+        shopName={settingMap?.shop_name?.trim() || "MEMBER CLUB"}
       />
     </div>
   );

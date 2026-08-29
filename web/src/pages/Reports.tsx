@@ -385,7 +385,7 @@ export default function Reports() {
                     <TableHead className="text-right">ยอด P</TableHead>
                     <TableHead className="text-right">ยอด POS</TableHead>
                     <TableHead className="text-right">เงินทอน</TableHead>
-                    <TableHead className="text-right">เงินสดนับได้</TableHead>
+                    <TableHead className="text-right">ยอดนับได้รวม</TableHead>
                     <TableHead className="text-right">เงินสดต่าง</TableHead>
                     <TableHead className="text-right">เงินสดต่างเทียบ P</TableHead>
                   </TableRow>
@@ -428,8 +428,8 @@ export default function Reports() {
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {s.countedCash != null
-                          ? `฿${fmtMoney(s.countedCash)}`
+                        {s.countedTotal != null
+                          ? `฿${fmtMoney(s.countedTotal)}`
                           : "-"}
                       </TableCell>
                       <TableCell className="text-right">

@@ -19,6 +19,13 @@ const trpcUrl = resolveTrpcUrl({
   isDev: import.meta.env.DEV,
   supabaseUrl,
 });
+const customerLoyaltyTrpcUrl =
+  typeof window !== "undefined" &&
+  !window.posDesktop &&
+  !import.meta.env.DEV &&
+  supabaseUrl
+    ? `${supabaseUrl}/functions/v1/pos-loyalty`
+    : trpcUrl;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,21 +71,31 @@ function trpcFetch(input: RequestInfo | URL, init?: RequestInit) {
 const trpcClient = trpc.createClient({
   links: [
     splitLink({
-      condition: operation => operation.context.skipBatch === true,
-      true: httpLink({
-        url: trpcUrl,
-        transformer: superjson,
-        headers: requestHeaders,
-        fetch: trpcFetch,
-      }),
-      false: httpBatchLink({
-        // Web production calls Supabase directly. Desktop stays same-origin so
-        // its local offline runtime can proxy/cache requests without CORS.
-        url: trpcUrl,
+      condition: operation => operation.path === "membership.customerPoints",
+      true: httpBatchLink({
+        url: customerLoyaltyTrpcUrl,
         transformer: superjson,
         maxURLLength: 2_048,
         headers: requestHeaders,
         fetch: trpcFetch,
+      }),
+      false: splitLink({
+        condition: operation => operation.context.skipBatch === true,
+        true: httpLink({
+          url: trpcUrl,
+          transformer: superjson,
+          headers: requestHeaders,
+          fetch: trpcFetch,
+        }),
+        false: httpBatchLink({
+          // Web production calls Supabase directly. Desktop stays same-origin so
+          // its local offline runtime can proxy/cache requests without CORS.
+          url: trpcUrl,
+          transformer: superjson,
+          maxURLLength: 2_048,
+          headers: requestHeaders,
+          fetch: trpcFetch,
+        }),
       }),
     }),
   ],

@@ -46,6 +46,7 @@ import {
   accessibleBranchesForStaff,
   type AccessibleBranch,
 } from "../lib/branches";
+import { systemAccessForRequest } from "../lib/systemAccess";
 
 const LOGIN_REPORT_WINDOW_MS = 60_000;
 const LOGIN_REPORT_MAX_PER_WINDOW = 20;
@@ -246,6 +247,10 @@ export const authRouter = createRouter({
         ...staff,
       };
     }),
+
+  systemAccess: authenticatedStaffAction.query(({ ctx }) =>
+    systemAccessForRequest(ctx.req, ctx.staff)
+  ),
 
   switchBranch: authenticatedStaffAction
     .input(z.object({ branchId: z.number().int().positive() }))

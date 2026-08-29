@@ -16,7 +16,11 @@ void main() {
             'staffName': 'สมชาย',
             'openedAt': '2026-08-28T01:00:00.000Z',
             'openingFloat': 500,
-            'cash': {'expectedCash': 1250},
+            'cash': {
+              'expectedCash': 1250,
+              'posSales': 980,
+              'expensesTotal': 75,
+            },
             'readings': [
               {
                 'nozzleId': 7,
@@ -55,6 +59,8 @@ void main() {
 
     expect(data.currentShift?.id, 14);
     expect(data.currentShift?.expectedCash, 1250);
+    expect(data.currentShift?.posSales, 980);
+    expect(data.currentShift?.expensesTotal, 75);
     expect(data.currentShift?.readings.single.label, 'หัว 1');
     expect(data.nozzles.single.pumpName, 'ตู้ 1');
   });

@@ -657,6 +657,7 @@ export default function Pos() {
       }, 300);
     }
     utils.pos.dashboard.invalidate();
+    utils.pos.currentShift.invalidate();
     utils.pos.salesHistory.invalidate();
     if (syncStatus?.online !== false) {
       utils.catalog.listProducts.invalidate();

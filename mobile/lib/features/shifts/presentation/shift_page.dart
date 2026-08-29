@@ -273,6 +273,12 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
     }
 
     final preview = _ClosePreview.calculate(shift, _closeMeters, _closeMoney);
+    final countedTotal = _shiftCountedTotal(
+      countedCash: countedCash ?? 0,
+      transferAmount: transfer ?? 0,
+      posAmount: shift.posSales,
+      expensesTotal: shift.expensesTotal,
+    );
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -280,6 +286,8 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
         content: Text(
           'ยอดจากมิเตอร์เงิน ${_money(preview.money)}\n'
           'ปริมาณรวม ${_quantity(preview.liters)} ลิตร\n\n'
+          'ยอดนับได้รวม ${_money(countedTotal)}\n'
+          '= เงินสด + โอน + POS − ค่าใช้จ่าย\n\n'
           'เมื่อปิดกะแล้ว ระบบจะปรับมิเตอร์และสต็อกถังอัตโนมัติ',
         ),
         actions: [
@@ -622,6 +630,47 @@ class _CloseShiftForm extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 10),
+            AnimatedBuilder(
+              animation: Listenable.merge([countedCash, transferAmount]),
+              builder: (context, _) {
+                final cash = _optionalNumber(countedCash.text) ?? 0;
+                final transfer = _optionalNumber(transferAmount.text) ?? 0;
+                final total = _shiftCountedTotal(
+                  countedCash: cash,
+                  transferAmount: transfer,
+                  posAmount: shift.posSales,
+                  expensesTotal: shift.expensesTotal,
+                );
+                return Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF8EF),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFB8E2C8)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'เงินสด ${_money(cash)} + โอน ${_money(transfer)} '
+                        '+ POS ${_money(shift.posSales)} − ค่าใช้จ่าย ${_money(shift.expensesTotal)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'ยอดนับได้รวม ${_money(total)}',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: const Color(0xFF087443),
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: submitting ? null : onScanMeters,
@@ -956,6 +1005,16 @@ double _cashCountTotal(Map<String, String> counts) {
         (double.tryParse(denomination) ?? 0) *
         (int.tryParse(counts[denomination] ?? '') ?? 0);
   }
+  return (total * 100).roundToDouble() / 100;
+}
+
+double _shiftCountedTotal({
+  required double countedCash,
+  required double transferAmount,
+  required double posAmount,
+  required double expensesTotal,
+}) {
+  final total = countedCash + transferAmount + posAmount - expensesTotal;
   return (total * 100).roundToDouble() / 100;
 }
 

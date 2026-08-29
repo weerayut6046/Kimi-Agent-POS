@@ -80,6 +80,8 @@ class CurrentShift {
     required this.openedAt,
     required this.openingFloat,
     required this.expectedCash,
+    required this.posSales,
+    required this.expensesTotal,
     required this.readings,
   });
 
@@ -95,6 +97,8 @@ class CurrentShift {
       openedAt: DateTime.tryParse(_requiredString(json, 'openedAt')),
       openingFloat: _number(json['openingFloat']),
       expectedCash: _number(cash?['expectedCash']),
+      posSales: _number(cash?['posSales']),
+      expensesTotal: _number(cash?['expensesTotal']),
       readings: List<ShiftReading>.unmodifiable(
         readings.map((item) => ShiftReading.fromJson(_requiredMap(item))),
       ),
@@ -106,6 +110,8 @@ class CurrentShift {
   final DateTime? openedAt;
   final double openingFloat;
   final double expectedCash;
+  final double posSales;
+  final double expensesTotal;
   final List<ShiftReading> readings;
 }
 

@@ -15,6 +15,7 @@ const r3 = (n: number) => Math.round(n * 1000) / 1000;
 export interface ShiftCashSummary {
   openingFloat: number;
   cashSales: number; // ยอดขายเงินสดในกะ (บิล completed)
+  posSales: number; // ยอดขายหน้า POS ทุกช่องทางและทุกสินค้าในกะ (บิล completed)
   cashDebtPayments: number; // รับชำระหนี้เงินสดในกะ
   expensesTotal: number; // ค่าใช้จ่ายในกะ
   expectedCash: number; // เงินสดที่ควรมีในลิ้นชัก
@@ -28,7 +29,7 @@ export async function shiftCashSummary(
   db: ReturnType<typeof getDb>,
   shift: Pick<Shift, "id" | "branchId" | "openingFloat">
 ): Promise<ShiftCashSummary> {
-  const [[saleRow], [debtRow], [expenseRow]] = await Promise.all([
+  const [[saleRow], [posRow], [debtRow], [expenseRow]] = await Promise.all([
     db
       .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
       .from(sales)
@@ -38,6 +39,16 @@ export async function shiftCashSummary(
           eq(sales.shiftId, shift.id),
           eq(sales.status, "completed"),
           eq(sales.paymentMethod, "cash")
+        )
+      ),
+    db
+      .select({ sum: sql<number>`coalesce(sum(${sales.total}),0)` })
+      .from(sales)
+      .where(
+        and(
+          eq(sales.branchId, shift.branchId),
+          eq(sales.shiftId, shift.id),
+          eq(sales.status, "completed")
         )
       ),
     db
@@ -62,11 +73,13 @@ export async function shiftCashSummary(
   ]);
 
   const cashSales = r2(saleRow?.sum ?? 0);
+  const posSales = r2(posRow?.sum ?? 0);
   const cashDebtPayments = r2(debtRow?.sum ?? 0);
   const expensesTotal = r2(expenseRow?.sum ?? 0);
   return {
     openingFloat: shift.openingFloat,
     cashSales,
+    posSales,
     cashDebtPayments,
     expensesTotal,
     expectedCash: r2(

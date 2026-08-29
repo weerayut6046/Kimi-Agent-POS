@@ -141,6 +141,7 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 | `npx vercel deploy --prod`              | deploy frontend ขึ้น Vercel (ต้องมี token)       |
 | `npx supabase db push`                  | apply Supabase migrations (ต้อง link project)    |
 | `npx supabase functions deploy pos-api` | deploy backend ขึ้น Supabase Edge                |
+| `npx supabase functions deploy pos-loyalty` | deploy API เช็กแต้มลูกค้าแบบจำกัด procedure  |
 
 ## 8. ขั้นตอนปล่อย Desktop เวอร์ชันใหม่
 
@@ -194,7 +195,7 @@ Auto Update แยกจากเส้นทางข้อมูลธุร�
 | ส่วน     | บริการ   | รายละเอียด                                                                                      |
 | -------- | -------- | ----------------------------------------------------------------------------------------------- |
 | Frontend | Vercel   | static build จาก `npx vite build`; `vercel.json` rewrite API ไป Supabase และทำ SPA fallback     |
-| Backend  | Supabase | Edge Functions `pos-api`, `pos-assistant`; `pos-auth-bootstrap` เป็น tombstone ที่ปิดถาวร       |
+| Backend  | Supabase | Edge Functions `pos-api`, `pos-loyalty`, `pos-assistant`; `pos-auth-bootstrap` เป็น tombstone   |
 | Auth     | Supabase | Email/password identities ที่สร้างจาก username แบบ deterministic; admin เป็นผู้ provision/reset |
 | Database | Supabase | PostgreSQL project `Kimi-Agent-POS`; ตารางแอปอยู่ใน private schema `pos` พร้อม RLS              |
 
@@ -211,7 +212,7 @@ Supabase Edge runtime มี `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERV
 1. รัน `npm run check`, `npm run lint` และ `npm test`
 2. สร้าง Edge bundle ด้วย `npm run build:edge`
 3. Apply migration ด้วย `npx supabase db push`
-4. Deploy `pos-api` และ `pos-assistant`; `pos-auth-bootstrap` ต้องคงเป็น tombstone ที่ตอบ 410
+4. Deploy `pos-api`, `pos-loyalty` และ `pos-assistant`; `pos-auth-bootstrap` ต้องคงเป็น tombstone ที่ตอบ 410
 5. ตรวจ Supabase Auth settings: ปิด signup, password ขั้นต่ำ 10 ตัว, ต้องมีตัวพิมพ์เล็ก/ใหญ่/ตัวเลข, เปิด refresh-token rotation และตั้ง session timeout
 6. สร้างหรือรีเซ็ตรหัสพนักงานจากหน้า Workforce/Settings โดย admin; ห้ามเปิด PIN bootstrap กลับมา
 7. Deploy frontend ด้วย `npx vercel deploy --prod --yes --token=<VERCEL_TOKEN>`

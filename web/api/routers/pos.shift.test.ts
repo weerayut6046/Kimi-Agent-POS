@@ -239,9 +239,12 @@ describe("openShift / closeShift", () => {
     const nz = await allNozzles();
     const tankBefore = (await tankOf("GSH95"))!;
 
-    // ขายในกะ 20 บาท → posAmount ของกะ
+    // ขายในกะผ่าน POS ทั้งสินค้าและน้ำมัน → ต้องรวมใน posAmount ของกะ
     const water = await t.db.query.products.findFirst({
       where: eq(products.code, "WATER"),
+    });
+    const fuel = await t.db.query.products.findFirst({
+      where: eq(products.code, "GSH95"),
     });
     const lubricant = await t.db.query.products.findFirst({
       where: eq(products.code, "LUBE-MC"),
@@ -250,10 +253,12 @@ describe("openShift / closeShift", () => {
     await t.caller().pos.createSale({
       shiftId: cur!.id,
       items: [
+        { productId: fuel!.id, qty: 1 },
         { productId: water!.id, qty: 2 },
         { productId: lubricant!.id, qty: 2 },
       ],
     });
+    expect((await t.caller().pos.currentShift())!.cash.posSales).toBe(350.74);
 
     // หัวจ่าย 1 ขายไป 25 ลิตร (25 × 40.74 = 1,018.50) หัวจ่ายอื่นไม่ขาย
     const res = await t.caller().pos.closeShift({
@@ -277,11 +282,12 @@ describe("openShift / closeShift", () => {
     const hist = await t.caller().pos.shiftHistory();
     const closed = hist.find(s => s.id === cur!.id)!;
     expect(closed.status).toBe("closed");
-    expect(closed.posAmount).toBe(310);
+    expect(closed.posAmount).toBe(350.74);
     expect(closed.lubricantAmount).toBe(290);
-    expect(closed.expectedCash).toBe(310);
+    expect(closed.expectedCash).toBe(350.74);
     expect(closed.countedCash).toBe(700);
     expect(closed.transferAmount).toBe(318.5);
+    expect(closed.countedTotal).toBe(1369.24);
     expect(closed.priceChangedDuringShift).toBe(true);
 
     const detail = await t.caller().pos.shiftDetail({ id: cur!.id });
@@ -413,6 +419,7 @@ describe("เงินทอนเริ่มกะและนับเงิ�
     expect(cur!.cash).toEqual({
       openingFloat: 500,
       cashSales: 0,
+      posSales: 0,
       cashDebtPayments: 0,
       expensesTotal: 0,
       expectedCash: 500,
@@ -437,6 +444,7 @@ describe("เงินทอนเริ่มกะและนับเงิ�
 
     const after = await t.caller().pos.currentShift();
     expect(after!.cash.cashSales).toBe(20);
+    expect(after!.cash.posSales).toBe(20);
     expect(after!.cash.expensesTotal).toBe(30);
     expect(after!.cash.expectedCash).toBe(490); // 500 + 20 − 30
   });
@@ -475,6 +483,7 @@ describe("เงินทอนเริ่มกะและนับเงิ�
     const hist = await t.caller().pos.shiftHistory();
     const closed = hist.find(s => s.id === cur!.id)!;
     expect(closed.countedCash).toBe(460);
+    expect(closed.countedTotal).toBe(450); // 460 + POS 20 − ค่าใช้จ่าย 30
     expect(closed.expectedCash).toBe(490);
     expect(closed.openingFloat).toBe(500);
     expect(closed.priceChangedDuringShift).toBe(false);

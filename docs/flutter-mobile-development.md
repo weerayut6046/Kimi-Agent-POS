@@ -12,11 +12,12 @@
 - รองรับสินค้าเชื้อเพลิงแบบระบุยอดบาท/ลิตร สินค้าทั่วไป ตะกร้า และตรวจสต็อก
 - คำนวณโปรโมชั่นต่อลิตรและโปรโมชั่นยอดเติมตามกติกาเดียวกับ backend
 - ชำระด้วยเงินสด บัตร และ QR ของสาขาจาก `payments.promptpayQr`
+- จัดการสมาชิก คะแนนสะสม ของรางวัล และสร้าง QR ให้ลูกค้าเปิดหน้าตรวจแต้มบนเว็บ
 - เปิด–ปิดกะพร้อมบันทึกมิเตอร์ L/P เงินทอน เงินสด และยอดโอน
 - แจ้งสถานะออฟไลน์จากการเชื่อมต่อของอุปกรณ์
 - App Shell และรายการเมนูตามสิทธิ์สำหรับย้ายฟังก์ชัน POS ส่วนที่เหลือต่อ
 
-การขายสมาชิก/แลกแต้ม ขายเชื่อ QR ถุงเงินตรวจสลิป ออกใบกำกับภาษี พิมพ์ใบเสร็จ และเมนูหลังร้านอื่นยังไม่ได้ย้ายมา Mobile จึงควรทดสอบ workflow หน้างานบนอุปกรณ์จริงก่อนนำไปแทนเครื่องขาย production
+การพิมพ์ใบเสร็จแบบเครื่องพิมพ์ความร้อนอัตโนมัติและ workflow เฉพาะอุปกรณ์บางส่วนยังต้องทดสอบบนเครื่องจริงก่อนนำ Mobile ไปแทนเครื่องขาย production
 
 ## ตั้งค่าสภาพแวดล้อม
 
@@ -28,7 +29,8 @@ flutter pub get
 flutter run `
   --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co `
   --dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY `
-  --dart-define=SUPABASE_FUNCTION_REGION=ap-northeast-1
+  --dart-define=SUPABASE_FUNCTION_REGION=ap-northeast-1 `
+  --dart-define=PUBLIC_WEB_URL=https://YOUR_POS_WEB_DOMAIN
 ```
 
 หากโปรเจกต์ยังใช้ legacy anon key ให้ส่งค่านั้นผ่าน `SUPABASE_PUBLISHABLE_KEY`; แอปใช้ค่าเป็น public `apikey` และยังบังคับ JWT ของพนักงานทุกคำขอ
@@ -55,7 +57,8 @@ npm run mobile:build:ios
 cd mobile
 flutter build appbundle --release `
   --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY `
+  --dart-define=PUBLIC_WEB_URL=https://YOUR_POS_WEB_DOMAIN
 ```
 
 บน macOS เปลี่ยนคำสั่งเป็น `flutter build ipa --release` สำหรับ iOS

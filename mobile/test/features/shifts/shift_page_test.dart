@@ -33,6 +33,34 @@ void main() {
     expect(find.text('เงินทอนเริ่มกะ (บาท)'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('shows counted total with POS sales and expenses', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          shiftBootstrapProvider(
+            3,
+          ).overrideWith((ref) async => _activeBootstrap),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: ShiftPage(staff: _staff)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('POS ฿500.00'), findsOneWidget);
+    expect(find.textContaining('ค่าใช้จ่าย ฿60.00'), findsOneWidget);
+    expect(find.text('ยอดนับได้รวม ฿440.00'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 const _bootstrap = ShiftBootstrap(
@@ -48,6 +76,31 @@ const _bootstrap = ShiftBootstrap(
       active: true,
     ),
   ],
+);
+
+final _activeBootstrap = ShiftBootstrap(
+  currentShift: CurrentShift(
+    id: 14,
+    staffName: 'แคชเชียร์',
+    openedAt: null,
+    openingFloat: 500,
+    expectedCash: 940,
+    posSales: 500,
+    expensesTotal: 60,
+    readings: const [
+      ShiftReading(
+        nozzleId: 7,
+        label: 'หัว 1',
+        pumpName: 'ตู้ 1',
+        productName: 'แก๊สโซฮอล์ 95',
+        openMeter: 1000,
+        openMoney: 37000,
+        pricePerLiter: 37,
+        priceChangedDuringShift: false,
+      ),
+    ],
+  ),
+  nozzles: _bootstrap.nozzles,
 );
 
 const _staff = StaffSession(

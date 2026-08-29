@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers.dart';
+import '../../../core/realtime/branch_realtime.dart';
 import '../data/dashboard_repository.dart';
 import '../domain/dashboard_summary.dart';
 
@@ -10,5 +11,6 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>(
 
 final dashboardProvider = FutureProvider.autoDispose
     .family<DashboardSummary, int>((ref, branchId) {
+      ref.watch(branchRealtimeRevisionProvider(branchId));
       return ref.watch(dashboardRepositoryProvider).load(branchId);
     });

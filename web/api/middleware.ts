@@ -13,6 +13,7 @@ import {
   hasMenuPermission,
   type MenuPermissionKey,
 } from "@contracts/menuPermissions";
+import { systemAccessForRequest } from "./lib/systemAccess";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -120,6 +121,15 @@ export const publicQuery = authenticatedStaffAction.use(
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "สิทธิ์ไม่เพียงพอสำหรับเมนูที่ร้องขอ",
+      });
+    }
+    const systemAccess = await systemAccessForRequest(ctx.req, ctx.staff);
+    if (!systemAccess.allowed) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message:
+          systemAccess.message ??
+          "ไม่สามารถเข้าใช้งานระบบได้ในขณะที่กะของพนักงานคนอื่นกำลังทำงานอยู่",
       });
     }
     const result = await next();

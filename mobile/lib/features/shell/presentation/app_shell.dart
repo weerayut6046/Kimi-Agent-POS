@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/realtime/branch_realtime.dart';
 import '../../../shared/widgets/app_page_hero.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/staff_session.dart';
@@ -116,6 +117,8 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep one branch-scoped Realtime channel alive for the authenticated app.
+    ref.watch(branchRealtimeRevisionProvider(widget.staff.branch.id));
     final destinations = _destinations;
     final selectedIndex = _selectedIndex.clamp(0, destinations.length - 1);
 
