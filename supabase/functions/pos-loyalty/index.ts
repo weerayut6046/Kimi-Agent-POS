@@ -6,7 +6,7 @@ import {
   createAllowedOrigins,
   createCorsResponseHeaders,
 } from "../pos-api/cors.ts";
-import { isCustomerPointsRequestPath } from "./path.ts";
+import { isCustomerPointsRequestPath, resolveLoyaltyEndpoint } from "./path.ts";
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 type ApiRuntime = {
@@ -77,7 +77,7 @@ Deno.serve(async request => {
     );
   }
 
-  const endpoint = pathname.split("/").slice(0, 4).join("/");
+  const endpoint = resolveLoyaltyEndpoint(pathname);
   const response = await fetchRequestHandler({
     endpoint,
     req: request,
