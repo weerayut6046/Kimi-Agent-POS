@@ -972,6 +972,15 @@ export const catalogRouter = createRouter({
               eq(fuelTanks.branchId, branchId)
             )
           );
+        await tx
+          .update(products)
+          .set({ cost: input.costPerLiter })
+          .where(
+            and(
+              eq(products.id, tank.productId),
+              eq(products.branchId, branchId)
+            )
+          );
       });
       return { ok: true, currentLiters: next };
     }),

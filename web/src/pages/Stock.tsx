@@ -263,6 +263,7 @@ export default function Stock() {
     onSuccess: () => {
       utils.catalog.listTanks.invalidate();
       utils.catalog.listRefills.invalidate();
+      utils.catalog.listProducts.invalidate();
       setRefillTank(null);
       setLiters("");
       setCost("");
@@ -890,7 +891,7 @@ export default function Stock() {
                   รับน้ำมันเข้า{refillTank?.name}
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  บันทึกจำนวนลิตรและต้นทุนต่อลิตรที่รับเข้าถัง
+                  บันทึกจำนวนลิตรและอัปเดตต้นทุนสินค้าอัตโนมัติ
                 </DialogDescription>
               </div>
             </div>
@@ -906,7 +907,7 @@ export default function Stock() {
                     รายละเอียดการรับเข้า
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    จำนวนลิตรและต้นทุนของล็อตที่รับ
+                    ต้นทุนของล็อตนี้จะใช้เป็นต้นทุนสินค้าล่าสุด
                   </p>
                 </div>
               </div>
