@@ -9,7 +9,6 @@ import {
 import {
   ArrowLeft,
   Camera,
-  CheckCircle2,
   Clock3,
   ExternalLink,
   ImageUp,
@@ -17,14 +16,22 @@ import {
   LogOut,
   QrCode,
   RefreshCw,
+  ScanFace,
   ShieldCheck,
   Smartphone,
+  Trash2,
+  UserRoundCheck,
   Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  FaceCapture,
+  type FaceCaptureResult,
+  type FaceLivenessAction,
+} from "@/components/FaceCapture";
 import {
   Card,
   CardContent,
@@ -46,6 +53,13 @@ type Challenge = {
   expiresAt: Date;
   branchId: number;
   branchName: string;
+};
+type FaceChallenge = {
+  token: string;
+  expiresAt: Date;
+  livenessAction: FaceLivenessAction;
+  attendanceAction: AttendanceAction;
+  staffName: string;
 };
 
 function bangkokToday(): string {
@@ -192,14 +206,14 @@ function AttendanceKiosk() {
                 })}
               </div>
               <p className="mt-3 text-lg text-indigo-100">
-                เปิดแอป PumpPOS บนโทรศัพท์ แล้วสแกน QR เพื่อเข้างานหรือออกงาน
+                เปิดแอป PumpPOS สแกน QR แล้วสแกนใบหน้าเพื่อเข้างานหรือออกงาน
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               {[
                 [Smartphone, "1", "เข้าสู่ระบบบนมือถือ"],
                 [QrCode, "2", "สแกน QR บนจอนี้"],
-                [CheckCircle2, "3", "ตรวจสอบแล้วกดยืนยัน"],
+                [ScanFace, "3", "สแกนใบหน้าให้ผ่าน"],
               ].map(([Icon, step, label]) => {
                 const StepIcon = Icon as typeof Smartphone;
                 return (
@@ -273,6 +287,9 @@ function AttendanceSelfService() {
   const [pendingToken, setPendingToken] = useState<string | null>(
     tokenFromLocation
   );
+  const [faceChallenge, setFaceChallenge] = useState<FaceChallenge | null>(
+    null
+  );
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -280,6 +297,7 @@ function AttendanceSelfService() {
   const streamRef = useRef<MediaStream | null>(null);
   const scanTimerRef = useRef<number | null>(null);
   const scanBusyRef = useRef(false);
+  const requestedTokenRef = useRef<string | null>(null);
 
   const stopCamera = useCallback(() => {
     if (scanTimerRef.current !== null) {
@@ -290,6 +308,49 @@ function AttendanceSelfService() {
     streamRef.current = null;
     setCameraActive(false);
   }, []);
+
+  const beginFaceVerification =
+    trpc.attendance.beginFaceVerification.useMutation({
+      onSuccess: value => setFaceChallenge(value),
+      onError: error => {
+        setPendingToken(null);
+        requestedTokenRef.current = null;
+        window.history.replaceState(null, "", "/attendance");
+        setCameraError(error.message);
+        toast.error(error.message);
+      },
+    });
+
+  const completeFaceVerification =
+    trpc.attendance.completeFaceVerification.useMutation({
+      onSuccess: result => {
+        stopCamera();
+        setPendingToken(null);
+        setFaceChallenge(null);
+        requestedTokenRef.current = null;
+        window.history.replaceState(null, "", "/attendance");
+        void status.refetch();
+        void branchAttendance.refetch();
+        void utils.workforce.scheduleList.invalidate();
+        toast.success(
+          result.duplicate
+            ? `รายการ${actionText(result.action)}ถูกบันทึกไว้แล้ว`
+            : `${actionText(result.action)}สำเร็จ เวลา ${thaiTime(
+                result.action === "clock_in"
+                  ? result.session.clockInAt
+                  : result.session.clockOutAt
+              )}`
+        );
+      },
+      onError: error => {
+        setPendingToken(null);
+        setFaceChallenge(null);
+        requestedTokenRef.current = null;
+        window.history.replaceState(null, "", "/attendance");
+        setCameraError(error.message);
+        toast.error(error.message);
+      },
+    });
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -302,6 +363,8 @@ function AttendanceSelfService() {
       }
       stopCamera();
       setCameraError("");
+      requestedTokenRef.current = null;
+      setFaceChallenge(null);
       setPendingToken(token);
       return true;
     },
@@ -382,31 +445,25 @@ function AttendanceSelfService() {
     }
   };
 
-  const redeem = trpc.attendance.redeemQr.useMutation({
-    onSuccess: result => {
-      stopCamera();
-      setPendingToken(null);
-      window.history.replaceState(null, "", "/attendance");
-      void status.refetch();
-      void branchAttendance.refetch();
-      void utils.workforce.scheduleList.invalidate();
-      toast.success(
-        result.duplicate
-          ? `รายการ${actionText(result.action)}ถูกบันทึกไว้แล้ว`
-          : `${actionText(result.action)}สำเร็จ เวลา ${thaiTime(
-              result.action === "clock_in"
-                ? result.session.clockInAt
-                : result.session.clockOutAt
-            )}`
-      );
-    },
-    onError: error => toast.error(error.message),
-  });
+  useEffect(() => {
+    if (!pendingToken || requestedTokenRef.current === pendingToken) return;
+    requestedTokenRef.current = pendingToken;
+    beginFaceVerification.mutate({ qrToken: pendingToken });
+    // mutate is stable for the lifetime of this mounted mutation observer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingToken]);
 
-  const confirmAttendance = () => {
-    if (!pendingToken || !status.data) return;
-    redeem.mutate({ token: pendingToken, action: status.data.nextAction });
-  };
+  const finishFaceCapture = useCallback(
+    (result: FaceCaptureResult) => {
+      if (!faceChallenge) return;
+      completeFaceVerification.mutate({
+        challengeToken: faceChallenge.token,
+        embedding: result.embeddings[0]!,
+        quality: result.quality,
+      });
+    },
+    [completeFaceVerification, faceChallenge]
+  );
 
   const nextAction = status.data?.nextAction ?? "clock_in";
   const openSession = status.data?.openSession;
@@ -428,11 +485,18 @@ function AttendanceSelfService() {
           </div>
           <div className="flex flex-wrap gap-2">
             {canManage && (
-              <Button asChild>
-                <a href="/attendance/kiosk" target="_blank" rel="noreferrer">
-                  <ExternalLink /> เปิดจอ QR ประจำสาขา
-                </a>
-              </Button>
+              <>
+                <Button variant="outline" asChild>
+                  <a href="/attendance/enroll">
+                    <UserRoundCheck /> ลงทะเบียนใบหน้า
+                  </a>
+                </Button>
+                <Button asChild>
+                  <a href="/attendance/kiosk" target="_blank" rel="noreferrer">
+                    <ExternalLink /> เปิดจอ QR ประจำสาขา
+                  </a>
+                </Button>
+              </>
             )}
             <Button variant="outline" asChild>
               <a href="/">
@@ -458,7 +522,7 @@ function AttendanceSelfService() {
                   <CardDescription className="mt-2">
                     {openSession
                       ? `เข้างานเมื่อ ${thaiDateTime(openSession.clockInAt)}`
-                      : "สแกน QR ประจำสาขาเพื่อบันทึกเวลาเข้างาน"}
+                      : "สแกน QR ประจำสาขา แล้วสแกนใบหน้าเพื่อเข้างาน"}
                   </CardDescription>
                 </div>
                 <Badge
@@ -475,42 +539,46 @@ function AttendanceSelfService() {
             </CardHeader>
             <CardContent className="space-y-4">
               {pendingToken ? (
-                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 text-center">
-                  <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-white text-violet-700 shadow-sm">
-                    <QrCode className="size-7" />
-                  </div>
-                  <h2 className="mt-3 text-lg font-bold text-slate-900">
-                    พบ QR ลงเวลาของสาขาแล้ว
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-600">
-                    ตรวจสอบรายการแล้วกดยืนยัน{actionText(nextAction)}
-                  </p>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    <Button
-                      size="lg"
-                      onClick={confirmAttendance}
-                      disabled={redeem.isPending || status.isPending}
-                    >
-                      {redeem.isPending ? (
-                        <RefreshCw className="animate-spin" />
-                      ) : nextAction === "clock_in" ? (
-                        <LogIn />
-                      ) : (
-                        <LogOut />
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:p-5">
+                  <div className="mb-4 text-center">
+                    <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-white text-violet-700 shadow-sm">
+                      <ScanFace className="size-7" />
+                    </div>
+                    <h2 className="mt-3 text-lg font-bold text-slate-900">
+                      สแกนใบหน้าเพื่อ
+                      {actionText(
+                        faceChallenge?.attendanceAction ?? nextAction
                       )}
-                      ยืนยัน{actionText(nextAction)}
-                    </Button>
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      onClick={() => {
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-600">
+                      QR ใช้สำหรับเปิดขั้นตอนนี้เท่านั้น
+                      ระบบจะลงเวลาหลังใบหน้าผ่าน
+                    </p>
+                  </div>
+                  {faceChallenge ? (
+                    <FaceCapture
+                      mode="verify"
+                      action={faceChallenge.livenessAction}
+                      onComplete={finishFaceCapture}
+                      onCancel={() => {
                         setPendingToken(null);
+                        setFaceChallenge(null);
+                        requestedTokenRef.current = null;
                         window.history.replaceState(null, "", "/attendance");
                       }}
-                    >
-                      <X /> ยกเลิก
-                    </Button>
-                  </div>
+                    />
+                  ) : (
+                    <div className="py-10 text-center text-sm text-slate-600">
+                      <RefreshCw className="mx-auto mb-3 size-7 animate-spin text-violet-600" />
+                      กำลังตรวจสอบ QR และเตรียมคำทดสอบใบหน้า...
+                    </div>
+                  )}
+                  {completeFaceVerification.isPending && (
+                    <div className="mt-3 rounded-xl bg-white p-3 text-center text-sm font-medium text-violet-700">
+                      <RefreshCw className="mr-2 inline size-4 animate-spin" />
+                      กำลังเปรียบเทียบใบหน้าและบันทึกเวลา...
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -570,6 +638,12 @@ function AttendanceSelfService() {
               {cameraError && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   {cameraError}
+                </div>
+              )}
+              {!status.isPending && !status.data?.faceProfile.enrolled && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  บัญชีนี้ยังไม่ได้ลงทะเบียนใบหน้า จึงยังลงเวลาไม่ได้
+                  กรุณาติดต่อผู้จัดการสาขา
                 </div>
               )}
               {openSession?.reviewStatus === "pending" && (
@@ -729,11 +803,275 @@ function AttendanceSelfService() {
   );
 }
 
-export default function Attendance() {
-  return window.location.pathname.replace(/\/+$/, "") ===
-    "/attendance/kiosk" ? (
-    <AttendanceKiosk />
-  ) : (
-    <AttendanceSelfService />
+function FaceEnrollmentManager() {
+  const { staff } = useStaff();
+  const canManage = staff?.role === "admin" || staff?.role === "manager";
+  const utils = trpc.useUtils();
+  const profiles = trpc.attendance.faceProfileList.useQuery(undefined, {
+    enabled: canManage,
+  });
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const activeStaffId = selectedStaffId ?? profiles.data?.[0]?.staffId ?? null;
+
+  const enrollFace = trpc.attendance.enrollFace.useMutation({
+    onSuccess: result => {
+      setCapturing(false);
+      setConsentConfirmed(false);
+      void profiles.refetch();
+      if (result.staffId === staff?.id)
+        void utils.attendance.myStatus.invalidate();
+      toast.success("ลงทะเบียนใบหน้าสำเร็จ");
+    },
+    onError: error => {
+      setCapturing(false);
+      toast.error(error.message);
+    },
+  });
+  const deleteFace = trpc.attendance.deleteFaceProfile.useMutation({
+    onSuccess: result => {
+      if (result.deleted) toast.success("ลบข้อมูลใบหน้าแล้ว");
+      void profiles.refetch();
+      void utils.attendance.myStatus.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const finishEnrollment = useCallback(
+    (result: FaceCaptureResult) => {
+      if (activeStaffId == null || !consentConfirmed) return;
+      enrollFace.mutate({
+        staffId: activeStaffId,
+        embeddings: result.embeddings,
+        consentConfirmed: true,
+      });
+    },
+    [activeStaffId, consentConfirmed, enrollFace]
   );
+
+  if (!canManage) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-white">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>ไม่มีสิทธิ์ลงทะเบียนใบหน้าพนักงาน</CardTitle>
+            <CardDescription>
+              เฉพาะผู้ดูแลระบบหรือผู้จัดการสาขาเท่านั้น
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" asChild>
+              <a href="/attendance">
+                <ArrowLeft /> กลับหน้าลงเวลา
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+      </main>
+    );
+  }
+
+  const selected = profiles.data?.find(row => row.staffId === activeStaffId);
+
+  return (
+    <main className="min-h-screen bg-[#f6f5fb] px-4 py-5 sm:px-6 sm:py-8">
+      <div className="mx-auto max-w-5xl space-y-5">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-violet-600">
+              <ScanFace className="size-4" /> Face enrollment
+            </div>
+            <h1 className="mt-1 font-heading text-2xl font-bold text-slate-950 sm:text-3xl">
+              ลงทะเบียนใบหน้าพนักงาน
+            </h1>
+            <p className="mt-1 text-sm text-slate-600">
+              {staff?.branch.name} · เก็บเฉพาะข้อมูลตัวเลขที่เข้ารหัส
+              ไม่เก็บรูปภาพ
+            </p>
+          </div>
+          <Button variant="outline" asChild>
+            <a href="/attendance">
+              <ArrowLeft /> กลับหน้าลงเวลา
+            </a>
+          </Button>
+        </header>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(320px,.85fr)_minmax(0,1.15fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserRoundCheck className="size-5 text-violet-600" />{" "}
+                เลือกพนักงาน
+              </CardTitle>
+              <CardDescription>
+                พนักงานต้องอยู่ต่อหน้ากล้องและยินยอมก่อนลงทะเบียน
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                value={activeStaffId ?? ""}
+                disabled={capturing || profiles.isPending}
+                onChange={event => {
+                  setSelectedStaffId(Number(event.target.value));
+                  setConsentConfirmed(false);
+                }}
+              >
+                {profiles.data?.map(row => (
+                  <option key={row.staffId} value={row.staffId}>
+                    {row.staffName} {row.enrolledAt ? "(ลงทะเบียนแล้ว)" : ""}
+                  </option>
+                ))}
+              </select>
+              {selected && (
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <div className="font-semibold text-slate-900">
+                    {selected.staffName}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    สถานะ:{" "}
+                    {selected.enrolledAt ? "ลงทะเบียนแล้ว" : "ยังไม่ลงทะเบียน"}
+                  </div>
+                  {selected.updatedAt && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      อัปเดต {thaiDateTime(selected.updatedAt)}
+                    </div>
+                  )}
+                </div>
+              )}
+              <label className="flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50 p-4 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 accent-violet-600"
+                  checked={consentConfirmed}
+                  disabled={capturing}
+                  onChange={event => setConsentConfirmed(event.target.checked)}
+                />
+                <span>
+                  พนักงานได้รับคำอธิบายและยินยอมให้เก็บ Face Embedding
+                  เพื่อใช้ลงเวลา โดยสามารถขอลบหรือลงทะเบียนใหม่ได้
+                </span>
+              </label>
+              {!capturing && (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  disabled={activeStaffId == null || !consentConfirmed}
+                  onClick={() => setCapturing(true)}
+                >
+                  <Camera /> เริ่มสแกนใบหน้า
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {capturing
+                  ? `กำลังลงทะเบียน ${selected?.staffName ?? ""}`
+                  : "กล้องลงทะเบียน"}
+              </CardTitle>
+              <CardDescription>
+                ระบบจะตรวจคนจริงและเก็บตัวอย่างใบหน้า 3 ครั้ง
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {capturing ? (
+                <FaceCapture
+                  mode="enroll"
+                  onComplete={finishEnrollment}
+                  onCancel={() => setCapturing(false)}
+                />
+              ) : (
+                <div className="grid min-h-72 place-items-center rounded-3xl border border-dashed border-slate-300 bg-slate-50 text-center">
+                  <div>
+                    <ScanFace className="mx-auto size-14 text-slate-400" />
+                    <p className="mt-3 text-sm text-slate-600">
+                      เลือกพนักงานและยืนยันความยินยอมเพื่อเปิดกล้อง
+                    </p>
+                  </div>
+                </div>
+              )}
+              {enrollFace.isPending && (
+                <div className="mt-3 rounded-xl bg-violet-50 p-3 text-center text-sm font-medium text-violet-700">
+                  <RefreshCw className="mr-2 inline size-4 animate-spin" />
+                  กำลังเข้ารหัสและบันทึกข้อมูลใบหน้า...
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>สถานะใบหน้าพนักงานในสาขา</CardTitle>
+            <CardDescription>
+              ลบข้อมูลได้ทันที
+              เมื่อลบแล้วพนักงานจะลงเวลาไม่ได้จนกว่าจะลงทะเบียนใหม่
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-slate-100">
+              {profiles.data?.map(row => (
+                <div
+                  key={row.staffId}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3"
+                >
+                  <div>
+                    <div className="font-medium text-slate-900">
+                      {row.staffName}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {row.enrolledAt
+                        ? `ลงทะเบียนเมื่อ ${thaiDateTime(row.enrolledAt)}`
+                        : "ยังไม่ลงทะเบียน"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={
+                        row.enrolledAt
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-slate-200 bg-slate-50 text-slate-600"
+                      }
+                    >
+                      {row.enrolledAt ? "พร้อมใช้งาน" : "ยังไม่มีใบหน้า"}
+                    </Badge>
+                    {row.enrolledAt && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={deleteFace.isPending}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `ยืนยันลบข้อมูลใบหน้าของ ${row.staffName} หรือไม่?`
+                            )
+                          ) {
+                            deleteFace.mutate({ staffId: row.staffId });
+                          }
+                        }}
+                      >
+                        <Trash2 /> ลบ
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
+  );
+}
+
+export default function Attendance() {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === "/attendance/kiosk") return <AttendanceKiosk />;
+  if (path === "/attendance/enroll") return <FaceEnrollmentManager />;
+  return <AttendanceSelfService />;
 }

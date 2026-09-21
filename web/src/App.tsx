@@ -96,6 +96,7 @@ export default function App() {
         <Route path="/login" element={<Navigate to={fallbackPath} replace />} />
         <Route path="/attendance" element={<Attendance />} />
         <Route path="/attendance/kiosk" element={<Attendance />} />
+        <Route path="/attendance/enroll" element={<Attendance />} />
         <Route element={<Layout />}>
           <Route
             path="/"

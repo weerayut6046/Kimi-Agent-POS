@@ -1,0 +1,108 @@
+import type { Human } from "@vladmandic/human";
+
+export type FaceFrame = {
+  embedding: number[];
+  faceScore: number;
+  real: number;
+  live: number;
+  faceSize: number;
+  gestures: string[];
+};
+
+let enginePromise: Promise<Human> | null = null;
+
+export function loadFaceEngine(): Promise<Human> {
+  if (enginePromise) return enginePromise;
+  enginePromise = import("@vladmandic/human")
+    .then(async ({ Human }) => {
+      const engine = new Human({
+        backend: "webgl",
+        debug: false,
+        async: true,
+        warmup: "face",
+        cacheModels: true,
+        cacheSensitivity: 0.01,
+        modelBasePath: "/models/human/",
+        filter: { enabled: true, equalization: true, flip: false },
+        face: {
+          enabled: true,
+          detector: {
+            modelPath: "blazeface.json",
+            maxDetected: 1,
+            minConfidence: 0.6,
+            minSize: 80,
+            rotation: true,
+            return: false,
+            skipFrames: 1,
+            skipTime: 100,
+          },
+          mesh: {
+            enabled: true,
+            modelPath: "facemesh.json",
+            keepInvalid: false,
+          },
+          iris: { enabled: true, modelPath: "iris.json" },
+          description: {
+            enabled: true,
+            modelPath: "faceres.json",
+            minConfidence: 0.5,
+            skipFrames: 1,
+            skipTime: 250,
+          },
+          emotion: { enabled: false },
+          antispoof: {
+            enabled: true,
+            modelPath: "antispoof.json",
+            skipFrames: 1,
+            skipTime: 500,
+          },
+          liveness: {
+            enabled: true,
+            modelPath: "liveness.json",
+            skipFrames: 1,
+            skipTime: 500,
+          },
+        },
+        body: { enabled: false },
+        hand: { enabled: false },
+        object: { enabled: false },
+        segmentation: { enabled: false },
+        gesture: { enabled: true },
+      });
+      await engine.load();
+      await engine.warmup();
+      return engine;
+    })
+    .catch(error => {
+      enginePromise = null;
+      throw error;
+    });
+  return enginePromise;
+}
+
+export async function detectFaceFrame(
+  engine: Human,
+  video: HTMLVideoElement
+): Promise<{ frame: FaceFrame | null; faceCount: number }> {
+  const result = await engine.detect(video);
+  if (result.face.length !== 1) {
+    return { frame: null, faceCount: result.face.length };
+  }
+  const face = result.face[0]!;
+  const embedding = face.embedding ? [...face.embedding] : [];
+  const gestures = result.gesture.map(item => item.gesture);
+  return {
+    faceCount: 1,
+    frame:
+      embedding.length >= 128
+        ? {
+            embedding,
+            faceScore: face.faceScore || face.boxScore || 0,
+            real: face.real || 0,
+            live: face.live || 0,
+            faceSize: Math.min(face.box[2], face.box[3]),
+            gestures,
+          }
+        : null,
+  };
+}

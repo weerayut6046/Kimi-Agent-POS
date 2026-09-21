@@ -40,6 +40,44 @@ describe("attendance QR token", () => {
     );
   });
 
+  it("binds a face challenge to the QR, employee, action, and expiry", async () => {
+    const {
+      attendanceFaceIdempotencyKey,
+      issueAttendanceFaceToken,
+      issueAttendanceQrToken,
+      verifyAttendanceFaceToken,
+      verifyAttendanceQrToken,
+    } = await import("./attendanceToken");
+    const now = new Date("2026-09-21T03:00:00.000Z");
+    const qr = verifyAttendanceQrToken(
+      issueAttendanceQrToken(4, now).token,
+      now
+    );
+    const issued = issueAttendanceFaceToken(
+      { qrClaims: qr, staffId: 8, attendanceAction: "clock_in" },
+      now
+    );
+    const claims = verifyAttendanceFaceToken(issued.token, now);
+
+    expect(claims).toMatchObject({
+      branchId: 4,
+      staffId: 8,
+      attendanceAction: "clock_in",
+      qrNonce: qr.nonce,
+    });
+    expect(["blink", "turn_left", "turn_right"]).toContain(
+      claims.livenessAction
+    );
+    expect(issued.expiresAt.toISOString()).toBe("2026-09-21T03:03:00.000Z");
+    expect(attendanceFaceIdempotencyKey(claims)).toMatch(/^face:/);
+    expect(() =>
+      verifyAttendanceFaceToken(
+        issued.token,
+        new Date("2026-09-21T03:03:01.000Z")
+      )
+    ).toThrow("หมดอายุ");
+  });
+
   it("issues and verifies tokens without a global Buffer", async () => {
     const { issueAttendanceQrToken, verifyAttendanceQrToken } =
       await import("./attendanceToken");
