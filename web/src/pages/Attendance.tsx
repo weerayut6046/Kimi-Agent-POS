@@ -44,6 +44,7 @@ import {
   attendanceQrUrl,
   attendanceTokenFromPayload,
 } from "@/lib/attendanceQr";
+import { loadFaceEngine } from "@/lib/faceRecognition";
 import { decodeQrImageFile, decodeQrPixels } from "@/lib/qrImageDecoder";
 import { trpc } from "@/providers/trpc";
 
@@ -299,6 +300,12 @@ function AttendanceSelfService() {
   const scanBusyRef = useRef(false);
   const requestedTokenRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    // Download and initialize local face models while the employee scans QR.
+    // FaceCapture reuses this promise, removing most of the perceived wait.
+    void loadFaceEngine().catch(() => undefined);
+  }, []);
+
   const stopCamera = useCallback(() => {
     if (scanTimerRef.current !== null) {
       window.clearInterval(scanTimerRef.current);
@@ -539,21 +546,22 @@ function AttendanceSelfService() {
             </CardHeader>
             <CardContent className="space-y-4">
               {pendingToken ? (
-                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:p-5">
-                  <div className="mb-4 text-center">
-                    <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-white text-violet-700 shadow-sm">
-                      <ScanFace className="size-7" />
+                <div className="rounded-[2rem] border border-slate-200 bg-white p-3 shadow-xl shadow-slate-900/5 sm:p-4">
+                  <div className="mb-3 flex items-center gap-3 px-1">
+                    <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-violet-600 to-cyan-500 text-white shadow-lg shadow-violet-500/20">
+                      <ScanFace className="size-6" />
                     </div>
-                    <h2 className="mt-3 text-lg font-bold text-slate-900">
-                      สแกนใบหน้าเพื่อ
-                      {actionText(
-                        faceChallenge?.attendanceAction ?? nextAction
-                      )}
-                    </h2>
-                    <p className="mt-1 text-sm text-slate-600">
-                      QR ใช้สำหรับเปิดขั้นตอนนี้เท่านั้น
-                      ระบบจะลงเวลาหลังใบหน้าผ่าน
-                    </p>
+                    <div>
+                      <h2 className="font-bold text-slate-900">
+                        สแกนใบหน้าเพื่อ
+                        {actionText(
+                          faceChallenge?.attendanceAction ?? nextAction
+                        )}
+                      </h2>
+                      <p className="text-xs text-slate-500">
+                        ทำตามคำแนะนำบนหน้าจอ ระบบจะบันทึกเวลาให้อัตโนมัติ
+                      </p>
+                    </div>
                   </div>
                   {faceChallenge ? (
                     <FaceCapture
@@ -814,6 +822,11 @@ function FaceEnrollmentManager() {
   const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const activeStaffId = selectedStaffId ?? profiles.data?.[0]?.staffId ?? null;
+
+  useEffect(() => {
+    // Prepare the models before the manager presses the capture button.
+    void loadFaceEngine().catch(() => undefined);
+  }, []);
 
   const enrollFace = trpc.attendance.enrollFace.useMutation({
     onSuccess: result => {
