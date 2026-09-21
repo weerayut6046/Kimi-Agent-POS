@@ -314,6 +314,47 @@ export const attendanceEvents = posSchema
   )
   .enableRLS();
 
+// เก็บเฉพาะ face embeddings ที่เข้ารหัสแล้ว ไม่เก็บภาพใบหน้าต้นฉบับ
+export const employeeFaceProfiles = posSchema
+  .table(
+    "employee_face_profiles",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "cascade" }),
+      templateEncrypted: text("template_encrypted").notNull(),
+      model: text("model").notNull().default("human-faceres-v1"),
+      embeddingCount: integer("embedding_count").notNull(),
+      embeddingDimensions: integer("embedding_dimensions").notNull(),
+      consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+      enrolledByStaffId: integer("enrolled_by_staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "restrict" }),
+      enrolledAt: timestamp("enrolled_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      staffUnique: uniqueIndex("employee_face_profile_staff_unique").on(
+        t.staffId
+      ),
+      branchIdx: index("employee_face_profile_branch_idx").on(t.branchId),
+      validDimensions: check(
+        "employee_face_profile_dimensions_check",
+        sql`${t.embeddingCount} between 3 and 5 and ${t.embeddingDimensions} between 128 and 4096`
+      ),
+    })
+  )
+  .enableRLS();
+
 export const employeeProfiles = posSchema
   .table(
     "employee_profiles",
@@ -1757,6 +1798,7 @@ export type WorkShiftTemplate = typeof workShiftTemplates.$inferSelect;
 export type WorkSchedule = typeof workSchedules.$inferSelect;
 export type AttendanceSession = typeof attendanceSessions.$inferSelect;
 export type AttendanceEvent = typeof attendanceEvents.$inferSelect;
+export type EmployeeFaceProfile = typeof employeeFaceProfiles.$inferSelect;
 export type EmployeeProfile = typeof employeeProfiles.$inferSelect;
 export type PayrollRecord = typeof payrollRecords.$inferSelect;
 export type Product = typeof products.$inferSelect;
