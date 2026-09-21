@@ -226,9 +226,9 @@ export default function Login() {
   };
 
   const pressDigit = (digit: string) => {
-    if (!qrToken || isSubmitting || pin.length >= 6) return;
+    if (isSubmitting || pin.length >= 6) return;
     setError("");
-    setPin(current => `${current}${digit}`);
+    setPin(current => (current.length >= 6 ? current : `${current}${digit}`));
   };
 
   useEffect(() => {
@@ -437,8 +437,8 @@ export default function Login() {
                 }}
               >
                 <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3.5 text-sm leading-6 text-blue-900">
-                  ทางเข้านี้ใช้เฉพาะผู้ดูแลระบบหรือผู้จัดการสาขา
-                  เพื่อออก QR และเตรียมบัญชีพนักงานเท่านั้น
+                  ทางเข้านี้ใช้เฉพาะผู้ดูแลระบบหรือผู้จัดการสาขา เพื่อออก QR
+                  และเตรียมบัญชีพนักงานเท่านั้น
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="admin-username">ชื่อผู้ใช้ผู้ดูแล</Label>
@@ -480,9 +480,7 @@ export default function Login() {
                   type="submit"
                   className="shine-button h-12 w-full rounded-2xl text-base"
                   disabled={
-                    isSubmitting ||
-                    !adminUsername.trim() ||
-                    !adminPassword
+                    isSubmitting || !adminUsername.trim() || !adminPassword
                   }
                 >
                   {isSubmitting ? (
@@ -565,7 +563,7 @@ export default function Login() {
                     <button
                       key={digit}
                       type="button"
-                      disabled={!qrToken || isSubmitting}
+                      disabled={isSubmitting || pin.length >= 6}
                       onClick={() => pressDigit(digit)}
                       className="h-14 rounded-2xl border border-slate-200 bg-white text-xl font-bold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={`เลข ${digit}`}
@@ -575,7 +573,7 @@ export default function Login() {
                   ))}
                   <button
                     type="button"
-                    disabled={!qrToken || isSubmitting || pin.length === 0}
+                    disabled={isSubmitting || pin.length === 0}
                     onClick={() => setPin("")}
                     className="h-14 rounded-2xl border border-slate-200 bg-slate-100 text-sm font-bold text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -583,7 +581,7 @@ export default function Login() {
                   </button>
                   <button
                     type="button"
-                    disabled={!qrToken || isSubmitting}
+                    disabled={isSubmitting || pin.length >= 6}
                     onClick={() => pressDigit("0")}
                     className="h-14 rounded-2xl border border-slate-200 bg-white text-xl font-bold text-slate-800 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="เลข 0"
@@ -592,7 +590,7 @@ export default function Login() {
                   </button>
                   <button
                     type="button"
-                    disabled={!qrToken || isSubmitting || pin.length === 0}
+                    disabled={isSubmitting || pin.length === 0}
                     onClick={() => setPin(current => current.slice(0, -1))}
                     className="grid h-14 place-items-center rounded-2xl border border-slate-200 bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label="ลบตัวเลขล่าสุด"
@@ -611,7 +609,7 @@ export default function Login() {
                 <Button
                   type="submit"
                   className="shine-button h-12 w-full rounded-2xl text-base shadow-lg shadow-violet-600/25"
-                  disabled={isSubmitting || !qrToken || pin.length < 4}
+                  disabled={isSubmitting || pin.length < 4}
                 >
                   {isSubmitting ? (
                     <RefreshCw className="mr-2 size-4 animate-spin" />

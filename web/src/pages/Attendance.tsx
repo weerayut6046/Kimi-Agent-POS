@@ -108,12 +108,19 @@ function tokenFromLocation(): string | null {
 function AttendanceKiosk() {
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
+  const kioskToken =
+    new URLSearchParams(window.location.search).get("access")?.trim() || null;
+  const canDisplay = canManage || Boolean(kioskToken);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [qrImage, setQrImage] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const issueChallenge = trpc.attendance.issueQrChallenge.useMutation({
+  const issueManagerChallenge = trpc.attendance.issueQrChallenge.useMutation({
     onSuccess: value => setChallenge(value),
   });
+  const issuePublicChallenge =
+    trpc.attendance.issuePublicQrChallenge.useMutation({
+      onSuccess: value => setChallenge(value),
+    });
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -121,13 +128,20 @@ function AttendanceKiosk() {
   }, []);
 
   useEffect(() => {
-    if (!canManage) return;
-    issueChallenge.mutate();
-    const timer = window.setInterval(() => issueChallenge.mutate(), 30_000);
+    if (!canDisplay) return;
+    const refresh = () => {
+      if (kioskToken) {
+        issuePublicChallenge.mutate({ kioskToken });
+      } else {
+        issueManagerChallenge.mutate();
+      }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
     return () => window.clearInterval(timer);
     // mutate is stable for the lifetime of this mounted mutation observer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage]);
+  }, [canDisplay, kioskToken]);
 
   useEffect(() => {
     let active = true;
@@ -144,14 +158,14 @@ function AttendanceKiosk() {
     };
   }, [challenge]);
 
-  if (!canManage) {
+  if (!canDisplay) {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-950 p-6 text-center text-white">
         <Card className="w-full max-w-md border-white/10 bg-white/10 text-white">
           <CardHeader>
-            <CardTitle>ไม่มีสิทธิ์เปิดจอ QR ประจำสาขา</CardTitle>
+            <CardTitle>ลิงก์จอ QR ไม่ถูกต้อง</CardTitle>
             <CardDescription className="text-slate-300">
-              ให้ผู้ดูแลระบบหรือผู้จัดการสาขาเข้าสู่ระบบบนเครื่องนี้
+              ให้ผู้ดูแลระบบหรือผู้จัดการเปิดจอนี้จากหน้าลงเวลาอีกครั้ง
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -181,18 +195,20 @@ function AttendanceKiosk() {
               <ShieldCheck className="size-4" /> QR ลงเวลาประจำสาขา
             </div>
             <h1 className="mt-1 font-heading text-3xl font-bold sm:text-4xl">
-              {challenge?.branchName ?? staff?.branch.name}
+              {challenge?.branchName ?? staff?.branch.name ?? "จอ QR ประจำสาขา"}
             </h1>
           </div>
-          <Button
-            variant="outline"
-            className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            asChild
-          >
-            <a href="/attendance">
-              <ArrowLeft /> กลับหน้าลงเวลา
-            </a>
-          </Button>
+          {staff && (
+            <Button
+              variant="outline"
+              className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+              asChild
+            >
+              <a href="/attendance">
+                <ArrowLeft /> กลับหน้าลงเวลา
+              </a>
+            </Button>
+          )}
         </div>
 
         <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -249,7 +265,8 @@ function AttendanceKiosk() {
               />
             ) : (
               <div className="grid aspect-square place-items-center rounded-2xl bg-slate-100 text-slate-500">
-                {issueChallenge.isPending ? (
+                {issueManagerChallenge.isPending ||
+                issuePublicChallenge.isPending ? (
                   <RefreshCw className="size-10 animate-spin" />
                 ) : (
                   <QrCode className="size-16" />
@@ -262,9 +279,12 @@ function AttendanceKiosk() {
                 ? `QR ชุดใหม่ใน ${secondsLeft} วินาที`
                 : "กำลังสร้าง QR ชุดใหม่"}
             </div>
-            {issueChallenge.error && (
+            {(issueManagerChallenge.error || issuePublicChallenge.error) && (
               <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-                {issueChallenge.error.message}
+                {
+                  (issueManagerChallenge.error || issuePublicChallenge.error)
+                    ?.message
+                }
               </div>
             )}
           </div>
@@ -285,6 +305,7 @@ function AttendanceSelfService() {
     { workDate: bangkokToday() },
     { enabled: canManage, refetchInterval: 30_000 }
   );
+  const issueKioskAccess = trpc.attendance.issueKioskAccess.useMutation();
   const [pendingToken, setPendingToken] = useState<string | null>(
     tokenFromLocation
   );
@@ -299,6 +320,29 @@ function AttendanceSelfService() {
   const scanTimerRef = useRef<number | null>(null);
   const scanBusyRef = useRef(false);
   const requestedTokenRef = useRef<string | null>(null);
+
+  const openKioskScreen = () => {
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      toast.error(
+        "เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาต Pop-up แล้วลองอีกครั้ง"
+      );
+      return;
+    }
+    popup.document.title = "กำลังเปิดจอ QR";
+    popup.document.body.textContent = "กำลังสร้างลิงก์จอ QR ประจำสาขา...";
+    issueKioskAccess.mutate(undefined, {
+      onSuccess: value => {
+        const url = new URL("/attendance/kiosk", window.location.origin);
+        url.searchParams.set("access", value.token);
+        popup.location.replace(url.toString());
+      },
+      onError: error => {
+        popup.close();
+        toast.error(error.message);
+      },
+    });
+  };
 
   useEffect(() => {
     // Download and initialize local face models while the employee scans QR.
@@ -498,10 +542,17 @@ function AttendanceSelfService() {
                     <UserRoundCheck /> ลงทะเบียนใบหน้า
                   </a>
                 </Button>
-                <Button asChild>
-                  <a href="/attendance/kiosk" target="_blank" rel="noreferrer">
-                    <ExternalLink /> เปิดจอ QR ประจำสาขา
-                  </a>
+                <Button
+                  type="button"
+                  disabled={issueKioskAccess.isPending}
+                  onClick={openKioskScreen}
+                >
+                  {issueKioskAccess.isPending ? (
+                    <RefreshCw className="animate-spin" />
+                  ) : (
+                    <ExternalLink />
+                  )}
+                  เปิดจอ QR ประจำสาขา
                 </Button>
               </>
             )}

@@ -40,6 +40,29 @@ describe("attendance QR token", () => {
     );
   });
 
+  it("issues a signed branch kiosk link that lasts 30 days", async () => {
+    const { issueAttendanceKioskToken, verifyAttendanceKioskToken } =
+      await import("./attendanceToken");
+    const now = new Date("2026-09-21T03:00:00.000Z");
+    const issued = issueAttendanceKioskToken(4, now);
+
+    expect(issued.token).toMatch(/^PUMPKIOSK1\./);
+    expect(verifyAttendanceKioskToken(issued.token, now)).toMatchObject({
+      branchId: 4,
+      version: 1,
+    });
+    expect(issued.expiresAt.toISOString()).toBe("2026-10-21T03:00:00.000Z");
+    expect(() =>
+      verifyAttendanceKioskToken(
+        issued.token,
+        new Date("2026-10-21T03:00:01.000Z")
+      )
+    ).toThrow("หมดอายุ");
+    expect(() => verifyAttendanceKioskToken(`${issued.token}x`, now)).toThrow(
+      "ไม่ถูกต้อง"
+    );
+  });
+
   it("binds a face challenge to the QR, employee, action, and expiry", async () => {
     const {
       attendanceFaceIdempotencyKey,
