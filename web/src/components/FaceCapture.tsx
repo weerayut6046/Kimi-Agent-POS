@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Camera,
+  Check,
   LoaderCircle,
   RefreshCw,
   ScanFace,
@@ -34,10 +35,26 @@ type Props = {
   onCancel: () => void;
 };
 
+type ScanUi = {
+  message: string;
+  progress: number;
+  faceReady: boolean;
+  clarityReady: boolean;
+  livenessReady: boolean;
+};
+
 const actionLabel: Record<FaceLivenessAction, string> = {
   blink: "กะพริบตา 1 ครั้ง",
-  turn_left: "หันหน้าไปทางซ้าย",
-  turn_right: "หันหน้าไปทางขวา",
+  turn_left: "หันหน้าไปทางซ้ายเล็กน้อย",
+  turn_right: "หันหน้าไปทางขวาเล็กน้อย",
+};
+
+const initialScanUi: ScanUi = {
+  message: "กำลังเตรียมระบบสแกนใบหน้า...",
+  progress: 8,
+  faceReady: false,
+  clarityReady: false,
+  livenessReady: false,
 };
 
 function qualityReady(frame: FaceFrame): boolean {
@@ -50,15 +67,29 @@ function qualityReady(frame: FaceFrame): boolean {
 }
 
 function frameStatus(frame: FaceFrame | null, faceCount: number): string {
-  if (faceCount === 0) return "วางใบหน้าให้อยู่ในกรอบ";
-  if (faceCount > 1) return "กรุณาให้มีเพียง 1 คนในภาพ";
+  if (faceCount === 0) return "วางใบหน้าให้อยู่กลางกรอบ";
+  if (faceCount > 1) return "ให้มีเพียง 1 คนอยู่ในภาพ";
   if (!frame) return "กำลังอ่านรายละเอียดใบหน้า...";
-  if (frame.faceSize < 160) return "ขยับเข้าใกล้กล้องอีกเล็กน้อย";
-  if (frame.faceScore < 0.6) return "หันหน้าเข้าหากล้องและเพิ่มแสงสว่าง";
+  if (frame.faceSize < 160) return "ขยับเข้าใกล้กล้องอีกนิด";
+  if (frame.faceScore < 0.6) return "มองกล้องตรง ๆ และเพิ่มแสงสว่าง";
   if (frame.real < 0.6 || frame.live < 0.6) {
-    return "กำลังตรวจว่าเป็นบุคคลจริง...";
+    return "อยู่นิ่ง ๆ กำลังตรวจสอบบุคคลจริง";
   }
   return "ตรวจพบใบหน้าแล้ว";
+}
+
+function scanUiEqual(left: ScanUi, right: ScanUi): boolean {
+  return (
+    left.message === right.message &&
+    left.progress === right.progress &&
+    left.faceReady === right.faceReady &&
+    left.clarityReady === right.clarityReady &&
+    left.livenessReady === right.livenessReady
+  );
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
 }
 
 export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
@@ -76,10 +107,9 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
   const [phase, setPhase] = useState<"loading" | "scanning" | "done" | "error">(
     "loading"
   );
-  const [message, setMessage] = useState("กำลังโหลดโมเดลตรวจใบหน้า...");
+  const [scanUi, setScanUi] = useState<ScanUi>(initialScanUi);
   const [error, setError] = useState("");
   const [samples, setSamples] = useState(0);
-  const [scores, setScores] = useState({ real: 0, live: 0 });
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -97,11 +127,17 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
   useEffect(() => {
     cancelledRef.current = false;
     const startedAt = Date.now();
+    const requestedAction = mode === "enroll" ? "blink" : action;
+
+    const updateScanUi = (next: ScanUi) => {
+      setScanUi(current => (scanUiEqual(current, next) ? current : next));
+    };
 
     const fail = (value: string) => {
       stopCamera();
       setError(value);
       setPhase("error");
+      updateScanUi({ ...initialScanUi, message: "สแกนไม่สำเร็จ", progress: 0 });
     };
 
     const run = async () => {
@@ -118,8 +154,9 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             audio: false,
             video: {
               facingMode: "user",
-              width: { ideal: 720 },
-              height: { ideal: 720 },
+              width: { ideal: 480 },
+              height: { ideal: 640 },
+              frameRate: { ideal: 24, max: 30 },
             },
           }),
         ]);
@@ -133,13 +170,13 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
         video.srcObject = stream;
         await video.play();
         setPhase("scanning");
-        setMessage(
-          mode === "enroll"
-            ? "มองตรงและกะพริบตา 1 ครั้ง"
-            : action
-              ? actionLabel[action]
-              : "มองตรงเข้าหากล้อง"
-        );
+        updateScanUi({
+          ...initialScanUi,
+          message: requestedAction
+            ? actionLabel[requestedAction]
+            : "มองตรงเข้าหากล้อง",
+          progress: 18,
+        });
 
         while (!cancelledRef.current) {
           if (Date.now() - startedAt > 60_000) {
@@ -147,7 +184,7 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             return;
           }
           if (processingRef.current || video.readyState < 2) {
-            await new Promise(resolve => window.setTimeout(resolve, 120));
+            await delay(80);
             continue;
           }
           processingRef.current = true;
@@ -156,16 +193,24 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             if (cancelledRef.current) return;
             if (!frame) {
               stableFramesRef.current = 0;
-              setMessage(frameStatus(frame, faceCount));
+              updateScanUi({
+                message: frameStatus(frame, faceCount),
+                progress: faceCount === 1 ? 28 : 18,
+                faceReady: false,
+                clarityReady: false,
+                livenessReady: false,
+              });
               continue;
             }
-            setScores({ real: frame.real, live: frame.live });
+
+            const faceReady = frame.faceSize >= 160;
+            const clarityReady = frame.faceScore >= 0.6;
+            const livenessReady = frame.real >= 0.6 && frame.live >= 0.6;
             const blinkNow = frame.gestures.some(gesture =>
               gesture.startsWith("blink ")
             );
             if (blinkNow) blinkStartedRef.current = true;
             const blinkComplete = blinkStartedRef.current && !blinkNow;
-            const requestedAction = mode === "enroll" ? "blink" : action;
             const actionObserved =
               requestedAction === "blink"
                 ? blinkComplete
@@ -178,39 +223,68 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
 
             if (!qualityReady(frame)) {
               stableFramesRef.current = 0;
-              setMessage(frameStatus(frame, faceCount));
+              updateScanUi({
+                message: frameStatus(frame, faceCount),
+                progress: !faceReady ? 36 : !clarityReady ? 46 : 58,
+                faceReady,
+                clarityReady,
+                livenessReady,
+              });
               continue;
             }
             if (!actionDoneRef.current) {
-              setMessage(
-                requestedAction
+              updateScanUi({
+                message: requestedAction
                   ? actionLabel[requestedAction]
-                  : "มองตรงเข้าหากล้อง"
-              );
+                  : "มองตรงเข้าหากล้อง",
+                progress: 68,
+                faceReady,
+                clarityReady,
+                livenessReady,
+              });
               continue;
             }
             const facingCenter = frame.gestures.includes("facing center");
             if (!facingCenter) {
               stableFramesRef.current = 0;
-              setMessage("ดีมาก ตอนนี้กลับมามองตรงเข้าหากล้อง");
+              updateScanUi({
+                message: "ดีมาก ตอนนี้กลับมามองตรง",
+                progress: 82,
+                faceReady,
+                clarityReady,
+                livenessReady,
+              });
               continue;
             }
+
             stableFramesRef.current += 1;
-            if (stableFramesRef.current < 2) {
-              setMessage("อยู่นิ่ง ๆ กำลังเก็บข้อมูลใบหน้า...");
+            const stableFramesRequired = mode === "verify" ? 1 : 2;
+            if (stableFramesRef.current < stableFramesRequired) {
+              updateScanUi({
+                message: "อยู่นิ่ง ๆ อีกนิด กำลังยืนยันใบหน้า",
+                progress: 92,
+                faceReady,
+                clarityReady,
+                livenessReady,
+              });
               continue;
             }
 
             if (mode === "enroll") {
-              if (Date.now() - lastSampleAtRef.current < 650) continue;
+              if (Date.now() - lastSampleAtRef.current < 450) continue;
               lastSampleAtRef.current = Date.now();
               samplesRef.current.push(frame.embedding);
-              setSamples(samplesRef.current.length);
+              const sampleCount = samplesRef.current.length;
+              setSamples(sampleCount);
               stableFramesRef.current = 0;
-              if (samplesRef.current.length < 3) {
-                setMessage(
-                  `เก็บตัวอย่าง ${samplesRef.current.length}/3 แล้ว ขยับใบหน้าเล็กน้อยและมองตรง`
-                );
+              if (sampleCount < 3) {
+                updateScanUi({
+                  message: `บันทึกครั้งที่ ${sampleCount}/3 แล้ว ขยับหน้าเล็กน้อย`,
+                  progress: 70 + sampleCount * 9,
+                  faceReady,
+                  clarityReady,
+                  livenessReady,
+                });
                 continue;
               }
             }
@@ -219,7 +293,13 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             stream.getTracks().forEach(track => track.stop());
             streamRef.current = null;
             setPhase("done");
-            setMessage("ตรวจใบหน้าสำเร็จ");
+            updateScanUi({
+              message: "ยืนยันใบหน้าสำเร็จ",
+              progress: 100,
+              faceReady: true,
+              clarityReady: true,
+              livenessReady: true,
+            });
             onCompleteRef.current({
               embeddings:
                 mode === "enroll" ? samplesRef.current : [frame.embedding],
@@ -234,6 +314,7 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             return;
           } finally {
             processingRef.current = false;
+            if (!cancelledRef.current) await delay(70);
           }
         }
       } catch (cause) {
@@ -249,89 +330,177 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
     return stopCamera;
   }, [action, mode, stopCamera]);
 
+  const ringTone =
+    phase === "done"
+      ? "border-emerald-300 shadow-[0_0_42px_rgba(52,211,153,0.38)]"
+      : phase === "error"
+        ? "border-rose-300 shadow-[0_0_42px_rgba(251,113,133,0.3)]"
+        : "border-cyan-300 shadow-[0_0_42px_rgba(34,211,238,0.28)]";
+  const statusTone =
+    phase === "done"
+      ? "bg-emerald-400/15 text-emerald-100 ring-emerald-300/30"
+      : phase === "error"
+        ? "bg-rose-400/15 text-rose-100 ring-rose-300/30"
+        : "bg-slate-950/55 text-white ring-white/15";
+  const qualityChecks = [
+    { label: "อยู่ในกรอบ", ready: scanUi.faceReady },
+    { label: "ภาพชัด", ready: scanUi.clarityReady },
+    { label: "บุคคลจริง", ready: scanUi.livenessReady },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-slate-950">
+    <div
+      className="overflow-hidden rounded-[2rem] bg-slate-950 text-white shadow-2xl shadow-slate-950/25 ring-1 ring-white/10"
+      aria-busy={phase === "loading" || phase === "scanning"}
+    >
+      <div className="relative aspect-[3/4] min-h-[30rem] overflow-hidden sm:aspect-[4/3] sm:min-h-0">
         <video
           ref={videoRef}
           muted
           playsInline
           className="size-full -scale-x-100 object-cover"
         />
-        <div className="pointer-events-none absolute inset-[12%_20%] rounded-[45%] border-2 border-cyan-300 shadow-[0_0_0_999px_rgba(2,6,23,0.42)]" />
-        <div className="absolute inset-x-4 top-4 flex justify-center">
-          <div className="rounded-full bg-slate-950/75 px-4 py-2 text-center text-sm font-semibold text-white backdrop-blur">
-            {phase === "loading" && (
-              <LoaderCircle className="mr-2 inline size-4 animate-spin" />
-            )}
-            {phase === "done" && (
-              <ShieldCheck className="mr-2 inline size-4 text-emerald-300" />
-            )}
-            {message}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,.68)_0%,transparent_24%,transparent_55%,rgba(2,6,23,.92)_100%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_43%,rgba(34,211,238,.08),transparent_44%)]" />
+
+        <div className="absolute inset-x-4 top-4 z-20 flex items-center justify-between gap-3">
+          <div className="rounded-full bg-slate-950/55 px-3.5 py-2 text-xs font-semibold text-white/90 ring-1 ring-white/15 backdrop-blur-xl">
+            <ShieldCheck className="mr-1.5 inline size-3.5 text-cyan-300" />
+            {mode === "enroll" ? "ลงทะเบียนใบหน้า" : "ยืนยันตัวตน"}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              stopCamera();
+              onCancelRef.current();
+            }}
+            className="grid size-10 place-items-center rounded-full bg-slate-950/55 text-white ring-1 ring-white/15 backdrop-blur-xl transition hover:bg-slate-900/80"
+            aria-label="ยกเลิกการสแกนใบหน้า"
+          >
+            <X className="size-5" />
+          </button>
         </div>
+
+        <div
+          className={`pointer-events-none absolute left-1/2 top-[43%] h-[55%] w-[62%] -translate-x-1/2 -translate-y-1/2 rounded-[48%] border-[3px] transition-all duration-500 ${ringTone}`}
+        >
+          <span className="absolute -left-1 -top-1 size-10 rounded-tl-[2rem] border-l-4 border-t-4 border-white" />
+          <span className="absolute -right-1 -top-1 size-10 rounded-tr-[2rem] border-r-4 border-t-4 border-white" />
+          <span className="absolute -bottom-1 -left-1 size-10 rounded-bl-[2rem] border-b-4 border-l-4 border-white" />
+          <span className="absolute -bottom-1 -right-1 size-10 rounded-br-[2rem] border-b-4 border-r-4 border-white" />
+          {phase === "scanning" && (
+            <div className="absolute inset-x-[9%] inset-y-[12%] overflow-hidden rounded-[48%]">
+              <div className="face-scan-beam" />
+            </div>
+          )}
+        </div>
+
         {phase === "loading" && (
-          <div className="absolute inset-0 grid place-items-center text-white">
+          <div className="absolute inset-0 z-10 grid place-items-center">
             <div className="text-center">
-              <ScanFace className="mx-auto size-14 text-cyan-300" />
-              <p className="mt-3 text-sm text-slate-300">
-                ครั้งแรกอาจใช้เวลาสักครู่
-              </p>
+              <div className="mx-auto grid size-20 place-items-center rounded-full bg-cyan-300/10 ring-1 ring-cyan-200/25 backdrop-blur">
+                <ScanFace className="size-10 text-cyan-200" />
+              </div>
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-white/90">
+                <LoaderCircle className="size-4 animate-spin text-cyan-300" />
+                โหลดระบบครั้งแรก
+              </div>
             </div>
           </div>
         )}
-      </div>
 
-      {mode === "enroll" && (
-        <div>
-          <div className="mb-1 flex justify-between text-xs text-slate-600">
-            <span>ตัวอย่างใบหน้า</span>
-            <span>{samples}/3</span>
+        {phase === "done" && (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-emerald-950/35 backdrop-blur-[2px]">
+            <div className="text-center">
+              <div className="mx-auto grid size-24 place-items-center rounded-full bg-emerald-400 text-emerald-950 shadow-2xl shadow-emerald-400/30">
+                <ShieldCheck className="size-12" />
+              </div>
+              <div className="mt-5 text-xl font-bold">ยืนยันสำเร็จ</div>
+            </div>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+        )}
+
+        <div className="absolute inset-x-3 bottom-3 z-20 rounded-2xl bg-slate-950/72 p-4 ring-1 ring-white/10 backdrop-blur-xl sm:inset-x-5 sm:bottom-5">
+          <div className="flex items-center justify-between gap-3">
+            <div aria-live="polite" className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">
+                {mode === "enroll"
+                  ? `ตัวอย่าง ${Math.min(samples + 1, 3)}/3`
+                  : "สแกนอัตโนมัติ"}
+              </div>
+              <div className="mt-1 truncate text-sm font-semibold sm:text-base">
+                {scanUi.message}
+              </div>
+            </div>
             <div
-              className="h-full bg-violet-600 transition-all"
-              style={{ width: `${(samples / 3) * 100}%` }}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${statusTone}`}
+            >
+              {phase === "loading"
+                ? "กำลังโหลด"
+                : phase === "done"
+                  ? "สำเร็จ"
+                  : phase === "error"
+                    ? "ลองใหม่"
+                    : `${scanUi.progress}%`}
+            </div>
+          </div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className={`h-full rounded-full transition-[width,background-color] duration-500 ${
+                phase === "done" ? "bg-emerald-400" : "bg-cyan-300"
+              }`}
+              style={{ width: `${scanUi.progress}%` }}
             />
           </div>
-        </div>
-      )}
-
-      {phase === "scanning" && (
-        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-          <div className="rounded-xl bg-slate-100 p-2 text-center">
-            บุคคลจริง {Math.round(scores.real * 100)}%
+          <div className="mt-3 grid grid-cols-3 gap-1.5">
+            {qualityChecks.map(item => (
+              <div
+                key={item.label}
+                className={`flex items-center justify-center gap-1 rounded-full px-2 py-1.5 text-[10px] font-medium transition sm:text-xs ${
+                  item.ready
+                    ? "bg-emerald-400/15 text-emerald-200"
+                    : "bg-white/[0.07] text-slate-400"
+                }`}
+              >
+                <span
+                  className={`grid size-3.5 place-items-center rounded-full ${
+                    item.ready
+                      ? "bg-emerald-400 text-emerald-950"
+                      : "bg-white/10"
+                  }`}
+                >
+                  {item.ready && <Check className="size-2.5" strokeWidth={3} />}
+                </span>
+                {item.label}
+              </div>
+            ))}
           </div>
-          <div className="rounded-xl bg-slate-100 p-2 text-center">
-            การเคลื่อนไหว {Math.round(scores.live * 100)}%
-          </div>
         </div>
-      )}
+      </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+        <div className="space-y-3 border-t border-white/10 bg-slate-950 p-4">
+          <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-100">
+            {error}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button onClick={() => window.location.reload()}>
+              <RefreshCw /> ลองใหม่
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/15 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+              onClick={() => {
+                stopCamera();
+                onCancelRef.current();
+              }}
+            >
+              <Camera /> ปิดกล้อง
+            </Button>
+          </div>
         </div>
       )}
-
-      <div className="flex gap-2">
-        {phase === "error" && (
-          <Button className="flex-1" onClick={() => window.location.reload()}>
-            <RefreshCw /> ลองใหม่
-          </Button>
-        )}
-        <Button
-          className="flex-1"
-          type="button"
-          variant="outline"
-          onClick={() => {
-            stopCamera();
-            onCancelRef.current();
-          }}
-        >
-          {phase === "error" ? <Camera /> : <X />} ยกเลิก
-        </Button>
-      </div>
     </div>
   );
 }

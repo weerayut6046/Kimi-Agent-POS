@@ -24,7 +24,9 @@ export function loadFaceEngine(): Promise<Human> {
         // the first camera frame initializes the inference kernels instead.
         warmup: "none",
         cacheModels: true,
-        cacheSensitivity: 0.01,
+        // Reuse results for near-identical camera frames. Head turns and
+        // blinks still exceed this threshold, while sensor noise does not.
+        cacheSensitivity: 0.05,
         modelBasePath: "/models/human/",
         filter: { enabled: true, equalization: true, flip: false },
         face: {
@@ -44,26 +46,28 @@ export function loadFaceEngine(): Promise<Human> {
             modelPath: "facemesh.json",
             keepInvalid: false,
           },
-          iris: { enabled: true, modelPath: "iris.json" },
+          // Face mesh already provides every landmark used by our blink and
+          // head-turn challenges, so the separate iris model only adds work.
+          iris: { enabled: false, modelPath: "iris.json" },
           description: {
             enabled: true,
             modelPath: "faceres.json",
             minConfidence: 0.5,
-            skipFrames: 1,
-            skipTime: 250,
+            skipFrames: 2,
+            skipTime: 350,
           },
           emotion: { enabled: false },
           antispoof: {
             enabled: true,
             modelPath: "antispoof.json",
-            skipFrames: 1,
-            skipTime: 500,
+            skipFrames: 2,
+            skipTime: 350,
           },
           liveness: {
             enabled: true,
             modelPath: "liveness.json",
-            skipFrames: 1,
-            skipTime: 500,
+            skipFrames: 2,
+            skipTime: 350,
           },
         },
         body: { enabled: false },
