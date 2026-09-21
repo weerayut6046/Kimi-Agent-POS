@@ -39,4 +39,30 @@ describe("attendance QR token", () => {
       "ไม่ถูกต้อง"
     );
   });
+
+  it("issues and verifies tokens without a global Buffer", async () => {
+    const { issueAttendanceQrToken, verifyAttendanceQrToken } =
+      await import("./attendanceToken");
+    const bufferDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "Buffer"
+    );
+    expect(bufferDescriptor).toBeDefined();
+
+    Object.defineProperty(globalThis, "Buffer", {
+      configurable: true,
+      value: undefined,
+      writable: true,
+    });
+    try {
+      const now = new Date("2026-09-21T03:00:00.000Z");
+      const issued = issueAttendanceQrToken(4, now);
+      expect(verifyAttendanceQrToken(issued.token, now)).toMatchObject({
+        branchId: 4,
+        version: 1,
+      });
+    } finally {
+      Object.defineProperty(globalThis, "Buffer", bufferDescriptor!);
+    }
+  });
 });

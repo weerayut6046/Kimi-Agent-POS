@@ -26,6 +26,30 @@ function sign(payload: string): string {
     .digest("base64url");
 }
 
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function decodeBase64Url(value: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error("Invalid base64url payload");
+  }
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "="
+  );
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
 export function issueAttendanceQrToken(
   branchId: number,
   now = new Date()
@@ -41,7 +65,7 @@ export function issueAttendanceQrToken(
     issuedAt,
     expiresAt: issuedAt + TOKEN_TTL_SECONDS,
   };
-  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const payload = encodeBase64Url(JSON.stringify(claims));
   return {
     token: `${TOKEN_PREFIX}.${payload}.${sign(payload)}`,
     expiresAt: new Date(claims.expiresAt * 1000),
@@ -62,8 +86,9 @@ export function verifyAttendanceQrToken(
     throw new Error("QR ลงเวลามีรูปแบบไม่ถูกต้อง");
   }
 
-  const expected = Buffer.from(sign(payload));
-  const supplied = Buffer.from(suppliedSignature);
+  const encoder = new TextEncoder();
+  const expected = encoder.encode(sign(payload));
+  const supplied = encoder.encode(suppliedSignature);
   if (
     expected.length !== supplied.length ||
     !timingSafeEqual(expected, supplied)
@@ -74,7 +99,7 @@ export function verifyAttendanceQrToken(
   let claims: Partial<AttendanceQrClaims>;
   try {
     claims = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8")
+      decodeBase64Url(payload)
     ) as Partial<AttendanceQrClaims>;
   } catch {
     throw new Error("อ่านข้อมูล QR ลงเวลาไม่สำเร็จ");
