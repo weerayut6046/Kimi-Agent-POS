@@ -1,10 +1,12 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { and, eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import * as schema from "@db/schema";
 import * as relations from "@db/relations";
+import { bangkokDateKey } from "@contracts/promotion";
 
 /**
  * ตั้ง PostgreSQL แบบ in-memory สำหรับ integration test ด้วย PGlite
@@ -82,9 +84,39 @@ export async function setupTestDb() {
       resHeaders: new Headers(),
     });
 
+  /** ลงเวลาเข้างานด้วยใบหน้าให้พนักงานทดสอบก่อนเรียกเปิดกะ */
+  const faceClockIn = async (
+    staffId = 3,
+    branchId = 1,
+    occurredAt = new Date()
+  ) => {
+    const workDate = bangkokDateKey(occurredAt);
+    const existing = await db.query.attendanceSessions.findFirst({
+      where: and(
+        eq(schema.attendanceSessions.staffId, staffId),
+        eq(schema.attendanceSessions.branchId, branchId),
+        eq(schema.attendanceSessions.workDate, workDate),
+        eq(schema.attendanceSessions.status, "open")
+      ),
+    });
+    if (existing) return existing;
+    const [session] = await db
+      .insert(schema.attendanceSessions)
+      .values({
+        branchId,
+        staffId,
+        workDate,
+        clockInAt: occurredAt,
+        clockInMethod: "face",
+        status: "open",
+      })
+      .returning();
+    return session!;
+  };
+
   const cleanup = () => resetDb();
 
-  return { db, caller, anonymousCaller, cleanup };
+  return { db, caller, anonymousCaller, faceClockIn, cleanup };
 }
 
 export type TestDb = Awaited<ReturnType<typeof setupTestDb>>;

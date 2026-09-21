@@ -50,6 +50,17 @@ void main() {
               ],
             },
           ]),
+          'attendance.myStatus' => _response({
+            'openSession': {
+              'workDate': DateTime.now()
+                  .toUtc()
+                  .add(const Duration(hours: 7))
+                  .toIso8601String()
+                  .substring(0, 10),
+              'clockInMethod': 'face',
+              'clockInAt': '2026-08-28T00:55:00.000Z',
+            },
+          }),
           _ => http.Response('Not found', 404),
         };
       }),
@@ -63,6 +74,8 @@ void main() {
     expect(data.currentShift?.expensesTotal, 75);
     expect(data.currentShift?.readings.single.label, 'หัว 1');
     expect(data.nozzles.single.pumpName, 'ตู้ 1');
+    expect(data.faceClockedIn, isTrue);
+    expect(data.faceClockInAt, DateTime.parse('2026-08-28T00:55:00.000Z'));
   });
 
   test('sends rounded readings when closing a shift', () async {
