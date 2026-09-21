@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  ArrowLeft,
+  CheckCircle2,
   Droplet,
   LogIn,
   ShieldCheck,
@@ -12,6 +14,9 @@ import {
   Activity,
   Sparkles,
   Fingerprint,
+  QrCode,
+  RefreshCw,
+  ScanFace,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,10 +28,55 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  FaceCapture,
+  type FaceCaptureResult,
+  type FaceLivenessAction,
+} from "@/components/FaceCapture";
 import { trpc } from "@/providers/trpc";
-import { useStaff } from "@/hooks/useStaff";
-import { signInStaffWithPassword } from "@/lib/supabase";
-import { isLocalAuthEnabled } from "@/lib/localAuth";
+import { useStaff, type StaffLoginResult } from "@/hooks/useStaff";
+import { clearSupabaseSession, signInStaffWithPassword } from "@/lib/supabase";
+import {
+  clearLocalSession,
+  installLocalSession,
+  isLocalAuthEnabled,
+} from "@/lib/localAuth";
+import { attendanceTokenFromPayload } from "@/lib/attendanceQr";
+import { loadFaceEngine } from "@/lib/faceRecognition";
+import {
+  clearFaceLoginPending,
+  hasPendingFaceLogin,
+  markFaceLoginPending,
+} from "@/lib/faceLogin";
+
+type LoginFaceChallenge = {
+  token: string;
+  expiresAt: Date;
+  livenessAction: FaceLivenessAction;
+  attendanceAction: "clock_in" | "clock_out";
+  staffName: string;
+};
+
+function attendanceTokenForLogin(): string | null {
+  const direct = attendanceTokenFromPayload(window.location.href);
+  if (direct) return direct;
+  const returnTo = window.sessionStorage.getItem("pos:return-to");
+  return returnTo ? attendanceTokenFromPayload(returnTo) : null;
+}
+
+function destinationAfterLogin(): string {
+  const returnTo = window.sessionStorage.getItem("pos:return-to");
+  if (
+    !returnTo ||
+    !returnTo.startsWith("/") ||
+    returnTo.startsWith("//") ||
+    returnTo === "/login" ||
+    attendanceTokenFromPayload(returnTo)
+  ) {
+    return "/";
+  }
+  return returnTo;
+}
 
 function preloadAuthenticatedApp(): void {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
@@ -53,10 +103,22 @@ export default function Login() {
   const [showPin, setShowPin] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [qrToken] = useState(attendanceTokenForLogin);
+  const [pendingStaff, setPendingStaff] = useState<StaffLoginResult | null>(
+    null
+  );
+  const [faceChallenge, setFaceChallenge] = useState<LoginFaceChallenge | null>(
+    null
+  );
+  const [faceCaptureKey, setFaceCaptureKey] = useState(0);
   const { login } = useStaff();
   const utils = trpc.useUtils();
   const reportAttempt = trpc.auth.reportLoginAttempt.useMutation();
   const localLogin = trpc.auth.login.useMutation();
+  const beginFaceVerification =
+    trpc.attendance.beginFaceVerification.useMutation();
+  const completeFaceVerification =
+    trpc.attendance.completeFaceVerification.useMutation();
   const isDesktop = typeof window !== "undefined" && !!window.posDesktop;
 
   useEffect(() => {
@@ -66,24 +128,52 @@ export default function Login() {
       .catch(() => {});
   }, []);
 
-  const finishLogin = async (activePassword: string) => {
+  useEffect(() => {
+    if (!hasPendingFaceLogin()) return;
+    // A browser refresh during the face step must not turn a password-only
+    // Supabase session into a completed employee login.
+    clearFaceLoginPending();
+    clearLocalSession();
+    window.localStorage.removeItem("pumppos_branch_id");
+    void clearSupabaseSession();
+  }, []);
+
+  useEffect(() => {
+    if (qrToken) void loadFaceEngine().catch(() => undefined);
+  }, [qrToken]);
+
+  const clearStagedSession = async () => {
+    clearFaceLoginPending();
+    clearLocalSession();
+    window.localStorage.removeItem("pumppos_branch_id");
+    await clearSupabaseSession();
+    setPendingStaff(null);
+    setFaceChallenge(null);
+  };
+
+  const completeLogin = async (staff: StaffLoginResult) => {
+    const destination = destinationAfterLogin();
+    window.sessionStorage.removeItem("pos:return-to");
+    clearFaceLoginPending();
+    window.history.replaceState(null, "", destination);
+    await login(staff);
+  };
+
+  const authenticateStaff = async (
+    activePassword: string
+  ): Promise<StaffLoginResult> => {
+    markFaceLoginPending();
     const staff = isLocalAuthEnabled
       ? await localLogin.mutateAsync({ username, pin: activePassword })
       : await (async () => {
           await signInStaffWithPassword(username, activePassword);
           return utils.auth.currentStaff.fetch();
         })();
-    const returnTo = window.sessionStorage.getItem("pos:return-to");
-    window.sessionStorage.removeItem("pos:return-to");
-    if (
-      returnTo &&
-      returnTo.startsWith("/") &&
-      !returnTo.startsWith("//") &&
-      returnTo !== "/login"
-    ) {
-      window.history.replaceState(null, "", returnTo);
+    if (isLocalAuthEnabled && "sessionToken" in staff && staff.sessionToken) {
+      installLocalSession(staff.sessionToken);
     }
-    await login(staff);
+    window.localStorage.setItem("pumppos_branch_id", String(staff.branch.id));
+    return staff;
   };
 
   // รายงานความพยายาม login แบบ fire-and-forget — ไม่ส่งรหัสผ่าน
@@ -97,10 +187,26 @@ export default function Login() {
     setIsSubmitting(true);
     preloadAuthenticatedApp();
     try {
-      await finishLogin(password);
-      reportLoginAttempt(true);
+      const staff = await authenticateStaff(password);
+      const requiresFaceClockIn = staff.role === "cashier" || Boolean(qrToken);
+      if (!requiresFaceClockIn) {
+        reportLoginAttempt(true);
+        await completeLogin(staff);
+        return;
+      }
+      if (!qrToken) {
+        throw new Error("พนักงานประจำกะต้องสแกน QR ของสาขาก่อนเข้าสู่ระบบ");
+      }
+      setPendingStaff(staff);
+      setPassword("");
+      const challenge = await beginFaceVerification.mutateAsync({
+        qrToken,
+        purpose: "login",
+      });
+      setFaceChallenge(challenge);
     } catch (loginError) {
       reportLoginAttempt(false);
+      await clearStagedSession();
       setError(
         loginError instanceof Error
           ? loginError.message
@@ -109,6 +215,37 @@ export default function Login() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const finishFaceLogin = async (result: FaceCaptureResult) => {
+    if (!pendingStaff || !faceChallenge) return;
+    setError("");
+    try {
+      const verified = await completeFaceVerification.mutateAsync({
+        challengeToken: faceChallenge.token,
+        embedding: result.embeddings[0]!,
+        quality: result.quality,
+      });
+      if (verified.action !== "clock_in") {
+        throw new Error("ระบบไม่สามารถยืนยันเวลาเข้างานสำหรับการล็อกอินนี้ได้");
+      }
+      await utils.attendance.myStatus.invalidate();
+      reportLoginAttempt(true);
+      await completeLogin(pendingStaff);
+    } catch (faceError) {
+      setError(
+        faceError instanceof Error
+          ? faceError.message
+          : "ยืนยันใบหน้าไม่สำเร็จ กรุณาลองใหม่"
+      );
+      setFaceCaptureKey(value => value + 1);
+    }
+  };
+
+  const cancelFaceLogin = async () => {
+    reportLoginAttempt(false);
+    await clearStagedSession();
+    setError("ยกเลิกการสแกนใบหน้า กรุณาเข้าสู่ระบบใหม่");
   };
 
   return (
@@ -220,7 +357,11 @@ export default function Login() {
         <div className="floating-chip absolute bottom-[15%] right-[7%] hidden items-center gap-2 rounded-2xl border border-white/80 bg-white/75 px-3 py-2 text-xs font-semibold text-cyan-700 ring-1 ring-cyan-100 backdrop-blur-xl [animation-delay:-2.5s] xl:flex">
           <ShieldCheck className="size-4" /> ข้อมูลปลอดภัย
         </div>
-        <Card className="aurora-border glass-panel relative z-0 w-full max-w-md gap-0 overflow-hidden rounded-[30px] border-0 py-0 ring-1 ring-white/70">
+        <Card
+          className={`aurora-border glass-panel relative z-0 w-full gap-0 overflow-hidden rounded-[30px] border-0 py-0 ring-1 ring-white/70 ${
+            pendingStaff ? "max-w-xl" : "max-w-md"
+          }`}
+        >
           <CardHeader className="border-b border-slate-100/80 px-6 pb-5 pt-7 text-center sm:px-8 sm:pt-8">
             <div className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-violet-500 to-cyan-500 text-white shadow-lg shadow-violet-500/25 lg:hidden">
               <Droplet className="size-7" />
@@ -229,96 +370,186 @@ export default function Login() {
               <Fingerprint className="size-6" />
             </div>
             <CardTitle className="font-heading text-2xl font-bold text-slate-900">
-              เข้าสู่ระบบพนักงาน
+              {pendingStaff ? "ยืนยันใบหน้าเข้างาน" : "เข้าสู่ระบบพนักงาน"}
             </CardTitle>
             <CardDescription className="mt-1">
-              {isLocalAuthEnabled
-                ? "เข้าสู่ระบบด้วย Local Dev Server"
-                : "เข้าสู่ระบบด้วย Supabase Auth"}
+              {pendingStaff
+                ? `${pendingStaff.name} · ${pendingStaff.branch.name}`
+                : isLocalAuthEnabled
+                  ? "เข้าสู่ระบบด้วย Local Dev Server"
+                  : "เข้าสู่ระบบด้วย Supabase Auth"}
             </CardDescription>
           </CardHeader>
           <CardContent className="px-6 py-6 sm:px-8">
-            <form
-              className="space-y-5"
-              onSubmit={e => {
-                e.preventDefault();
-                void submitLogin();
-              }}
-            >
-              <div className="space-y-2">
-                <Label
-                  htmlFor="login-username"
-                  className="font-semibold text-slate-700"
-                >
-                  ชื่อผู้ใช้
-                </Label>
-                <div className="relative">
-                  <UserRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" />
-                  <Input
-                    id="login-username"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    placeholder="เช่น admin"
-                    autoFocus
-                    autoComplete="username"
-                    className="h-12 bg-slate-50/80 pl-11 pr-4 focus:bg-white"
-                  />
+            {pendingStaff ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 text-emerald-900">
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                  <div>
+                    <div className="text-sm font-bold">
+                      ตรวจสอบบัญชีและ QR ประจำสาขาแล้ว
+                    </div>
+                    <div className="mt-0.5 text-xs text-emerald-700">
+                      สแกนใบหน้าให้สำเร็จเพื่อบันทึกเข้างานและเข้าสู่ระบบ
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label
-                  htmlFor="login-pin"
-                  className="font-semibold text-slate-700"
-                >
-                  รหัสผ่าน
-                </Label>
-                <div className="relative">
-                  <KeyRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" />
-                  <Input
-                    id="login-pin"
-                    type={showPin ? "text" : "password"}
-                    inputMode="text"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="อย่างน้อย 10 ตัวอักษร"
-                    autoComplete="current-password"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="h-12 bg-slate-50/80 pl-11 pr-12 text-lg tracking-[0.22em] focus:bg-white"
+                {faceChallenge ? (
+                  <FaceCapture
+                    key={faceCaptureKey}
+                    mode="verify"
+                    action={faceChallenge.livenessAction}
+                    onComplete={finishFaceLogin}
+                    onCancel={() => void cancelFaceLogin()}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPin(show => !show)}
-                    aria-label={showPin ? "ซ่อนรหัส PIN" : "แสดงรหัส PIN"}
-                    aria-pressed={showPin}
-                    className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/30"
+                ) : (
+                  <div className="rounded-2xl border border-violet-100 bg-violet-50/70 py-12 text-center text-sm font-medium text-violet-800">
+                    <RefreshCw className="mx-auto mb-3 size-7 animate-spin" />
+                    กำลังตรวจสอบ QR และเตรียมกล้องสแกนใบหน้า...
+                  </div>
+                )}
+                {completeFaceVerification.isPending && (
+                  <div className="rounded-xl bg-violet-50 p-3 text-center text-sm font-semibold text-violet-700">
+                    <RefreshCw className="mr-2 inline size-4 animate-spin" />
+                    กำลังเปรียบเทียบใบหน้าและบันทึกเวลาเข้างาน...
+                  </div>
+                )}
+                {error && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
                   >
-                    {showPin ? (
-                      <EyeOff className="size-[18px]" />
-                    ) : (
-                      <Eye className="size-[18px]" />
-                    )}
-                  </button>
-                </div>
-              </div>
-              {error && (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+                    {error}
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={completeFaceVerification.isPending}
+                  onClick={() => void cancelFaceLogin()}
                 >
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                className="shine-button h-12 w-full rounded-2xl text-base shadow-lg shadow-violet-600/25"
-                disabled={isSubmitting || !username || !password}
+                  <ArrowLeft /> ยกเลิกและกลับไปหน้ากรอกรหัส
+                </Button>
+              </div>
+            ) : (
+              <form
+                className="space-y-5"
+                onSubmit={e => {
+                  e.preventDefault();
+                  void submitLogin();
+                }}
               >
-                <LogIn className="w-4 h-4 mr-2" />
-                {isSubmitting ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
-              </Button>
-            </form>
+                <div
+                  className={`flex items-start gap-3 rounded-2xl border p-3.5 ${
+                    qrToken
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : "border-amber-200 bg-amber-50 text-amber-950"
+                  }`}
+                >
+                  {qrToken ? (
+                    <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+                  ) : (
+                    <QrCode className="mt-0.5 size-5 shrink-0 text-amber-700" />
+                  )}
+                  <div>
+                    <div className="text-sm font-bold">
+                      {qrToken
+                        ? "สแกน QR ประจำสาขาแล้ว"
+                        : "พนักงานประจำกะให้สแกน QR ก่อน"}
+                    </div>
+                    <div className="mt-0.5 text-xs leading-5 opacity-80">
+                      {qrToken
+                        ? "กรอกบัญชี จากนั้นระบบจะเปิดกล้องสแกนใบหน้าในหน้านี้"
+                        : "ใช้กล้องโทรศัพท์สแกน QR ที่สาขา แล้วลิงก์จะกลับมายังหน้า Login"}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="login-username"
+                    className="font-semibold text-slate-700"
+                  >
+                    ชื่อผู้ใช้
+                  </Label>
+                  <div className="relative">
+                    <UserRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" />
+                    <Input
+                      id="login-username"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      placeholder="เช่น admin"
+                      autoFocus
+                      autoComplete="username"
+                      className="h-12 bg-slate-50/80 pl-11 pr-4 focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="login-pin"
+                    className="font-semibold text-slate-700"
+                  >
+                    รหัสผ่าน
+                  </Label>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-slate-400" />
+                    <Input
+                      id="login-pin"
+                      type={showPin ? "text" : "password"}
+                      inputMode="text"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="อย่างน้อย 10 ตัวอักษร"
+                      autoComplete="current-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="h-12 bg-slate-50/80 pl-11 pr-12 text-lg tracking-[0.22em] focus:bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(show => !show)}
+                      aria-label={showPin ? "ซ่อนรหัส PIN" : "แสดงรหัส PIN"}
+                      aria-pressed={showPin}
+                      className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/30"
+                    >
+                      {showPin ? (
+                        <EyeOff className="size-[18px]" />
+                      ) : (
+                        <Eye className="size-[18px]" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {error && (
+                  <p
+                    role="alert"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+                  >
+                    {error}
+                  </p>
+                )}
+                <Button
+                  type="submit"
+                  className="shine-button h-12 w-full rounded-2xl text-base shadow-lg shadow-violet-600/25"
+                  disabled={isSubmitting || !username || !password}
+                >
+                  {isSubmitting ? (
+                    <RefreshCw className="mr-2 size-4 animate-spin" />
+                  ) : qrToken ? (
+                    <ScanFace className="mr-2 size-4" />
+                  ) : (
+                    <LogIn className="mr-2 size-4" />
+                  )}
+                  {isSubmitting
+                    ? "กำลังตรวจสอบบัญชี..."
+                    : qrToken
+                      ? "ดำเนินการต่อเพื่อสแกนหน้า"
+                      : "เข้าสู่ระบบ"}
+                </Button>
+              </form>
+            )}
 
             {isDesktop && appVersion && (
               <p className="mt-4 border-t pt-3 text-right text-xs text-muted-foreground/70">

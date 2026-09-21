@@ -158,6 +158,26 @@ describe("attendance router", () => {
     expect(openStatus.openSession?.id).toBe(clockIn.session.id);
     expect(openStatus.faceProfile.enrolled).toBe(true);
 
+    const loginQr = await manager.attendance.issueQrChallenge();
+    const loginFace = await cashier.attendance.beginFaceVerification({
+      qrToken: loginQr.token,
+      purpose: "login",
+    });
+    expect(loginFace.attendanceAction).toBe("clock_in");
+    const loginVerification = await cashier.attendance.completeFaceVerification(
+      {
+        challengeToken: loginFace.token,
+        embedding: embedding(),
+        quality,
+      }
+    );
+    expect(loginVerification).toMatchObject({
+      ok: true,
+      duplicate: true,
+      action: "clock_in",
+      session: { id: clockIn.session.id, status: "open" },
+    });
+
     const secondQr = await manager.attendance.issueQrChallenge();
     const secondFace = await cashier.attendance.beginFaceVerification({
       qrToken: secondQr.token,

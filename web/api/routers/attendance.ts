@@ -529,7 +529,12 @@ export const attendanceRouter = createRouter({
     }),
 
   beginFaceVerification: authenticatedStaffAction
-    .input(z.object({ qrToken: z.string().trim().min(20).max(2_048) }))
+    .input(
+      z.object({
+        qrToken: z.string().trim().min(20).max(2_048),
+        purpose: z.enum(["attendance", "login"]).default("attendance"),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       let qrClaims;
       try {
@@ -574,9 +579,15 @@ export const attendanceRouter = createRouter({
           eq(attendanceSessions.status, "open")
         ),
       });
-      const attendanceAction: AttendanceAction = openSession
-        ? "clock_out"
-        : "clock_in";
+      // Login always verifies/creates a clock-in. If an open attendance
+      // session already exists, recordFaceAttendance returns it as a safe
+      // duplicate instead of accidentally clocking the employee out.
+      const attendanceAction: AttendanceAction =
+        input.purpose === "login"
+          ? "clock_in"
+          : openSession
+            ? "clock_out"
+            : "clock_in";
       const challenge = issueAttendanceFaceToken({
         qrClaims,
         staffId: ctx.staff.id,
