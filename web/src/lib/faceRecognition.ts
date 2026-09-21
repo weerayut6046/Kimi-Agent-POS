@@ -19,7 +19,10 @@ export function loadFaceEngine(): Promise<Human> {
         backend: "webgl",
         debug: false,
         async: true,
-        warmup: "face",
+        // Human's browser warmup fetches an embedded `data:` image. Keep it
+        // disabled so the face scanner works with our strict connect-src CSP;
+        // the first camera frame initializes the inference kernels instead.
+        warmup: "none",
         cacheModels: true,
         cacheSensitivity: 0.01,
         modelBasePath: "/models/human/",
@@ -70,7 +73,6 @@ export function loadFaceEngine(): Promise<Human> {
         gesture: { enabled: true },
       });
       await engine.load();
-      await engine.warmup();
       return engine;
     })
     .catch(error => {
