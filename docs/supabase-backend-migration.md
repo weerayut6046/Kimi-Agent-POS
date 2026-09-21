@@ -7,7 +7,7 @@ PumpPOS production ย้าย backend cloud จาก Railway ไป Supabase 
 
 - Frontend: `https://kimi-agent-pos.vercel.app`
 - Backend: Supabase Edge Functions `pos-api` และ `pos-assistant`
-- Auth: Supabase Auth email/password; หน้า Login ไม่มีโหมด PIN เดิม
+- Auth: พนักงานใช้ PIN 4-6 หลัก + สแกนใบหน้าหลังสแกน QR ประจำสาขา แล้วระบบออก Supabase session แบบใช้ครั้งเดียวจากฝั่งเซิร์ฟเวอร์
 - Database: Supabase PostgreSQL ใน private schema `pos`
 - Railway: ไม่มี active deployment และ URL เดิมตอบ 404; service record กับ detached
   volume เก็บไว้ชั่วคราวสำหรับ rollback แบบควบคุม

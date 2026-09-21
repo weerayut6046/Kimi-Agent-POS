@@ -105,7 +105,7 @@ import {
   createInitialSettingsForm,
   createProductUpdatePatch,
   staffMutationErrorMessage,
-  staffPasswordValidationMessage,
+  staffPinValidationMessage,
   type EditableProductValues,
 } from "./settingsForm";
 import type { Product } from "@db/schema";
@@ -616,7 +616,7 @@ export default function Settings() {
     useState<AccessGroupForm | null>(null);
   const [newStaff, setNewStaff] = useState({
     username: "",
-    password: "",
+    pin: "",
     name: "",
     role: "cashier" as "admin" | "manager" | "cashier",
     accessGroupId: null as number | null,
@@ -629,7 +629,7 @@ export default function Settings() {
     name: string;
     role: "admin" | "manager" | "cashier";
     accessGroupId: number | null;
-    password: string;
+    pin: string;
     menuPermissions: MenuPermissionKey[];
     branchIds: number[];
   } | null>(null);
@@ -1021,7 +1021,7 @@ export default function Settings() {
       setShowStaff(false);
       setNewStaff({
         username: "",
-        password: "",
+        pin: "",
         name: "",
         role: "cashier",
         accessGroupId: null,
@@ -2491,6 +2491,11 @@ export default function Settings() {
                     <div className="text-xs text-muted-foreground">
                       @{s.username}
                     </div>
+                    {"pinReady" in s && !s.pinReady && (
+                      <div className="mt-1 text-xs font-medium text-amber-700">
+                        ยังไม่ได้ตั้ง PIN ใหม่ · กดแก้ไขเพื่อตั้ง PIN 4-6 หลัก
+                      </div>
+                    )}
                     {isAdmin && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
                         <span>
@@ -2537,7 +2542,7 @@ export default function Settings() {
                                 typeof s.accessGroupId === "number"
                                   ? s.accessGroupId
                                   : null,
-                              password: "",
+                              pin: "",
                               menuPermissions: staffMenuPermissions(
                                 s.role,
                                 "menuPermissions" in s
@@ -4595,7 +4600,7 @@ Content-Type: application/json
                     ข้อมูลบัญชีพนักงาน
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    ชื่อ ชื่อผู้ใช้ รหัสผ่าน และระดับสิทธิ์
+                    ชื่อ ชื่อผู้ใช้ PIN และระดับสิทธิ์
                   </p>
                 </div>
               </div>
@@ -4626,24 +4631,29 @@ Content-Type: application/json
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-semibold text-slate-700">
-                    รหัสผ่าน Supabase Auth (อย่างน้อย 10 ตัว)
+                    PIN สำหรับเข้าระบบ (ตัวเลข 4-6 หลัก)
                   </Label>
                   <Input
                     type="password"
                     className="bg-white"
-                    value={newStaff.password}
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={newStaff.pin}
                     onChange={e =>
-                      setNewStaff({ ...newStaff, password: e.target.value })
+                      setNewStaff({
+                        ...newStaff,
+                        pin: e.target.value.replace(/\D/g, "").slice(0, 6),
+                      })
                     }
                     aria-invalid={
-                      newStaff.password.length > 0 &&
-                      staffPasswordValidationMessage(newStaff.password) !== null
+                      newStaff.pin.length > 0 &&
+                      staffPinValidationMessage(newStaff.pin) !== null
                     }
                   />
-                  {newStaff.password.length > 0 &&
-                    staffPasswordValidationMessage(newStaff.password) && (
+                  {newStaff.pin.length > 0 &&
+                    staffPinValidationMessage(newStaff.pin) && (
                       <p className="text-xs font-medium text-destructive">
-                        {staffPasswordValidationMessage(newStaff.password)}
+                        {staffPinValidationMessage(newStaff.pin)}
                       </p>
                     )}
                 </div>
@@ -4698,7 +4708,7 @@ Content-Type: application/json
               disabled={
                 !newStaff.name ||
                 newStaff.username.length < 3 ||
-                staffPasswordValidationMessage(newStaff.password) !== null ||
+                staffPinValidationMessage(newStaff.pin) !== null ||
                 newStaff.branchIds.length === 0 ||
                 (newStaff.role !== "admin" &&
                   newStaff.accessGroupId === null &&
@@ -4750,7 +4760,7 @@ Content-Type: application/json
                       ข้อมูลบัญชีพนักงาน
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      ชื่อ ชื่อผู้ใช้ รหัสผ่าน และระดับสิทธิ์
+                      ชื่อ ชื่อผู้ใช้ PIN และระดับสิทธิ์
                     </p>
                   </div>
                 </div>
@@ -4781,25 +4791,30 @@ Content-Type: application/json
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-slate-700">
-                      รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)
+                      PIN ใหม่ (เว้นว่างถ้าไม่เปลี่ยน)
                     </Label>
                     <Input
                       type="password"
                       className="bg-white"
-                      value={editS.password}
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={editS.pin}
                       onChange={e =>
-                        setEditS({ ...editS, password: e.target.value })
+                        setEditS({
+                          ...editS,
+                          pin: e.target.value.replace(/\D/g, "").slice(0, 6),
+                        })
                       }
-                      placeholder="อย่างน้อย 10 ตัวอักษร"
+                      placeholder="ตัวเลข 4-6 หลัก"
                       aria-invalid={
-                        editS.password.length > 0 &&
-                        staffPasswordValidationMessage(editS.password) !== null
+                        editS.pin.length > 0 &&
+                        staffPinValidationMessage(editS.pin) !== null
                       }
                     />
-                    {editS.password.length > 0 &&
-                      staffPasswordValidationMessage(editS.password) && (
+                    {editS.pin.length > 0 &&
+                      staffPinValidationMessage(editS.pin) && (
                         <p className="text-xs font-medium text-destructive">
-                          {staffPasswordValidationMessage(editS.password)}
+                          {staffPinValidationMessage(editS.pin)}
                         </p>
                       )}
                   </div>
@@ -4857,8 +4872,8 @@ Content-Type: application/json
               disabled={
                 !editS?.name ||
                 editS.branchIds.length === 0 ||
-                (editS.password.length > 0 &&
-                  staffPasswordValidationMessage(editS.password) !== null) ||
+                (editS.pin.length > 0 &&
+                  staffPinValidationMessage(editS.pin) !== null) ||
                 (editS.role !== "admin" &&
                   editS.accessGroupId === null &&
                   editS.menuPermissions.length === 0) ||
@@ -4874,7 +4889,7 @@ Content-Type: application/json
                   accessGroupId: editS.accessGroupId,
                   menuPermissions: editS.menuPermissions,
                   branchIds: editS.branchIds,
-                  ...(editS.password ? { password: editS.password } : {}),
+                  ...(editS.pin ? { pin: editS.pin } : {}),
                 })
               }
             >

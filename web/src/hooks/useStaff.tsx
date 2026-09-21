@@ -23,7 +23,6 @@ import {
   installLocalSession,
   isLocalAuthEnabled,
 } from "@/lib/localAuth";
-import { hasPendingFaceLogin } from "@/lib/faceLogin";
 
 export type StaffSession = {
   id: number;
@@ -164,16 +163,14 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(
     () =>
       isLocalAuthEnabled ||
-      hasPendingFaceLogin() ||
       (!hasPersistedSupabaseSession() && cachedStaff === null)
   );
   const [hasAuthSession, setHasAuthSession] = useState(
     () =>
-      !hasPendingFaceLogin() &&
-      (cachedStaff !== null ||
-        (isLocalAuthEnabled
-          ? hasPersistedLocalSession()
-          : hasPersistedSupabaseSession()))
+      cachedStaff !== null ||
+      (isLocalAuthEnabled
+        ? hasPersistedLocalSession()
+        : hasPersistedSupabaseSession())
   );
   const utils = trpc.useUtils();
 
