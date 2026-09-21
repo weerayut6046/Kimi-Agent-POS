@@ -5,6 +5,7 @@ let test: TestDb;
 
 beforeAll(async () => {
   test = await setupTestDb();
+  await test.faceClockIn(1);
 });
 
 afterAll(() => test.cleanup());

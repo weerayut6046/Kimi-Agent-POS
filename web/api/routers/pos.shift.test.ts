@@ -9,6 +9,7 @@ let t: TestDb;
 
 beforeAll(async () => {
   t = await setupTestDb();
+  await t.faceClockIn();
 });
 afterAll(() => t.cleanup());
 
@@ -38,7 +39,7 @@ describe("openShift / closeShift", () => {
     const cur = await t.caller().pos.currentShift();
     expect(cur!.id).toBe(shiftId);
     expect(shift.id).toBe(shiftId);
-    expect(shift.staffName).toBe("สมชาย");
+    expect(shift.staffName).toBe("สมชาย (พนักงาน)");
     expect(shift.cash.expectedCash).toBe(0);
     expect(shift.readings).toHaveLength(4);
     expect(cur!.readings).toHaveLength(4);

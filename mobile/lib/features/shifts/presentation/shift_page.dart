@@ -137,6 +137,8 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
             if (data.currentShift == null)
               _OpenShiftForm(
                 nozzles: data.nozzles,
+                faceClockedIn: data.faceClockedIn,
+                faceClockInAt: data.faceClockInAt,
                 openingFloat: _openingFloat,
                 openMeters: _openMeters,
                 openMoney: _openMoney,
@@ -172,6 +174,10 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
   }
 
   Future<void> _openShift(ShiftBootstrap data) async {
+    if (!data.faceClockedIn) {
+      setState(() => _error = 'กรุณาสแกน QR และยืนยันใบหน้าเข้างานก่อนเปิดกะ');
+      return;
+    }
     if (data.nozzles.isEmpty) {
       setState(() => _error = 'ไม่พบหัวจ่ายที่เปิดใช้งาน');
       return;
@@ -371,6 +377,8 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
 class _OpenShiftForm extends StatelessWidget {
   const _OpenShiftForm({
     required this.nozzles,
+    required this.faceClockedIn,
+    required this.faceClockInAt,
     required this.openingFloat,
     required this.openMeters,
     required this.openMoney,
@@ -379,6 +387,8 @@ class _OpenShiftForm extends StatelessWidget {
   });
 
   final List<ShiftNozzle> nozzles;
+  final bool faceClockedIn;
+  final DateTime? faceClockInAt;
   final TextEditingController openingFloat;
   final Map<int, String> openMeters;
   final Map<int, String> openMoney;
@@ -414,6 +424,57 @@ class _OpenShiftForm extends StatelessWidget {
             const SizedBox(height: 8),
             const Text(
               'ตรวจเลขสะสมหน้าตู้ก่อนเปิดกะ: L คือปริมาณลิตร และ P คือยอดเงิน',
+            ),
+            const SizedBox(height: 12),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: faceClockedIn
+                    ? const Color(0xFFE8F8F0)
+                    : const Color(0xFFFFF7E6),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: faceClockedIn
+                      ? const Color(0xFFA7E3C5)
+                      : const Color(0xFFF2D18A),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(13),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      faceClockedIn
+                          ? Icons.verified_user_rounded
+                          : Icons.face_retouching_natural_rounded,
+                      color: faceClockedIn
+                          ? const Color(0xFF138A58)
+                          : const Color(0xFFB76E00),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            faceClockedIn
+                                ? 'ยืนยันใบหน้าเข้างานแล้ว'
+                                : 'ต้องสแกนใบหน้าเข้างานก่อนเปิดกะ',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            faceClockedIn && faceClockInAt != null
+                                ? 'ลงเวลาเมื่อ ${DateFormat('HH:mm', 'th_TH').format(faceClockInAt!.toLocal())} น.'
+                                : 'สแกน QR ประจำสาขาและยืนยันใบหน้า แล้วดึงหน้าจอนี้ลงเพื่อรีเฟรช',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 15),
             if (nozzles.isEmpty)
@@ -459,7 +520,9 @@ class _OpenShiftForm extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             FilledButton.icon(
-              onPressed: submitting || nozzles.isEmpty ? null : onOpen,
+              onPressed: submitting || nozzles.isEmpty || !faceClockedIn
+                  ? null
+                  : onOpen,
               icon: submitting
                   ? const SizedBox.square(
                       dimension: 18,
@@ -468,7 +531,13 @@ class _OpenShiftForm extends StatelessWidget {
                   : const Icon(Icons.play_circle_outline_rounded),
               label: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 13),
-                child: Text(submitting ? 'กำลังเปิดกะ...' : 'เปิดกะ'),
+                child: Text(
+                  submitting
+                      ? 'กำลังเปิดกะ...'
+                      : faceClockedIn
+                      ? 'เปิดกะ'
+                      : 'สแกนหน้าเข้างานก่อน',
+                ),
               ),
             ),
           ],
