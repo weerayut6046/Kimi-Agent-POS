@@ -10,8 +10,8 @@ import { eq } from "drizzle-orm";
 import { staffAccessGroups, staffUsers } from "@db/schema";
 import { getDb } from "./queries/connection";
 import {
+  getApiMenuPermissions,
   hasMenuPermission,
-  type MenuPermissionKey,
 } from "@contracts/menuPermissions";
 import { systemAccessForRequest } from "./lib/systemAccess";
 
@@ -44,55 +44,12 @@ export const authenticatedStaffAction = t.procedure.use(
   }
 );
 
-function requiredMenuForPath(path: string): MenuPermissionKey | null {
-  if (path.startsWith("membership.")) return "members";
-  if (path.startsWith("customers.")) return "customers";
-  if (path.startsWith("credit.")) return "debts";
-  if (path.startsWith("expenses.")) return "expenses";
-  if (path.startsWith("reports.")) return "reports";
-  if (path.startsWith("taxInvoice.")) return "tax_invoices";
-  if (path.startsWith("audit.")) return "audit";
-  if (path.startsWith("security.")) return "security";
-  if (path.startsWith("workforce.")) return "workforce";
-  if (path.startsWith("stockCount.")) return "stock";
-  if (
-    path.startsWith("pos.shift") ||
-    path === "pos.openShift" ||
-    path === "pos.closeShift"
-  ) {
-    return "shifts";
-  }
-  if (
-    path === "pos.salesHistory" ||
-    path === "pos.saleDetail" ||
-    path === "pos.returnSale" ||
-    path === "pos.updateSale" ||
-    path === "pos.voidSale"
-  ) {
-    return "sales";
-  }
-  if (path === "pos.createSale" || path === "pos.dashboard") return "pos";
-  if (
-    path === "catalog.searchExternalProduct" ||
-    path === "catalog.importExternalProduct"
-  ) {
-    return "pos";
-  }
-  if (
-    path === "catalog.updateBillPromotion" ||
-    path === "catalog.updatePerLiterPromotion"
-  )
-    return "settings";
-  if (path.startsWith("payments.")) return "pos";
-  return null;
-}
-
 async function canUseProcedureMenu(
   staff: TrpcContext["staff"] & NonNullable<TrpcContext["staff"]>,
   path: string
 ): Promise<boolean> {
-  const requiredMenu = requiredMenuForPath(path);
-  if (!requiredMenu || staff.role === "admin") return true;
+  const requiredMenus = getApiMenuPermissions(path);
+  if (requiredMenus.length === 0 || staff.role === "admin") return true;
   const user = await getDb().query.staffUsers.findFirst({
     columns: {
       role: true,
@@ -112,7 +69,9 @@ async function canUseProcedureMenu(
     accessGroup?.role === user.role
       ? accessGroup.menuPermissions
       : user.menuPermissions;
-  return hasMenuPermission(user.role, stored, requiredMenu);
+  return requiredMenus.some(requiredMenu =>
+    hasMenuPermission(user.role, stored, requiredMenu)
+  );
 }
 
 export const publicQuery = authenticatedStaffAction.use(

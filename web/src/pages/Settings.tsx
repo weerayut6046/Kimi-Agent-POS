@@ -337,9 +337,12 @@ function MenuPermissionEditor({
     <div className="space-y-3 rounded-2xl border bg-slate-50/70 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <div className="text-sm font-semibold">เมนูที่อนุญาตให้ใช้งาน</div>
+          <div className="text-sm font-semibold">
+            ฟังก์ชันและเมนูที่อนุญาตให้ใช้งาน
+          </div>
           <div className="text-xs text-muted-foreground">
-            เมนูที่ปิดจะไม่แสดงและเปิดด้วย URL โดยตรงไม่ได้
+            รายการสร้างอัตโนมัติจากทะเบียนฟังก์ชันกลาง
+            ฟังก์ชันที่ปิดจะไม่แสดงและเรียกใช้งานผ่าน API ไม่ได้
           </div>
         </div>
         <div className="flex gap-2">
@@ -397,7 +400,7 @@ function MenuPermissionEditor({
       </div>
       {value.length === 0 && (
         <p className="text-xs font-medium text-destructive">
-          กรุณาเปิดอย่างน้อย 1 เมนูก่อนบันทึก
+          กรุณาเปิดอย่างน้อย 1 ฟังก์ชันก่อนบันทึก
         </p>
       )}
     </div>

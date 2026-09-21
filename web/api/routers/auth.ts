@@ -37,6 +37,7 @@ import {
 } from "../lib/supabaseAuth";
 import { isValidStaffUsername, normalizeStaffUsername } from "@contracts/auth";
 import {
+  MENU_PERMISSION_DEFINITIONS,
   MENU_PERMISSION_KEYS,
   normalizeMenuPermissions,
   type StaffRole,
@@ -627,6 +628,15 @@ export const authRouter = createRouter({
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "th"));
   }),
+
+  permissionCatalog: adminQuery.query(() =>
+    MENU_PERMISSION_DEFINITIONS.map(definition => ({
+      key: definition.key,
+      label: definition.label,
+      group: definition.group,
+      roles: [...definition.roles],
+    }))
+  ),
 
   createAccessGroup: adminQuery
     .input(

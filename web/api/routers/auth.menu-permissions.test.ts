@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTestDb, type TestDb } from "../test/testDb";
+import { MENU_PERMISSION_KEYS } from "@contracts/menuPermissions";
 
 let t: TestDb;
 
@@ -33,9 +34,7 @@ describe("staff menu permissions", () => {
       "shifts",
     ]);
 
-    const current = await t
-      .caller("cashier", 3)
-      .auth.currentStaff();
+    const current = await t.caller("cashier", 3).auth.currentStaff();
     expect(current.authenticated).toBe(true);
     if (current.authenticated) {
       expect(current.menuPermissions).toEqual(["pos", "shifts"]);
@@ -71,9 +70,7 @@ describe("staff menu permissions", () => {
       id: created.id,
       menuPermissions: ["reports"],
     });
-    const refreshed = await t
-      .caller("cashier", 3)
-      .auth.currentStaff();
+    const refreshed = await t.caller("cashier", 3).auth.currentStaff();
     expect(refreshed.authenticated).toBe(true);
     if (refreshed.authenticated) {
       expect(refreshed.menuPermissions).toEqual(["reports"]);
@@ -89,9 +86,7 @@ describe("staff menu permissions", () => {
     ).rejects.toThrow("กลุ่มสิทธิ์ไม่ตรงกับระดับผู้ใช้");
 
     await t.caller("admin").auth.deleteAccessGroup({ id: created.id });
-    const fallback = await t
-      .caller("cashier", 3)
-      .auth.currentStaff();
+    const fallback = await t.caller("cashier", 3).auth.currentStaff();
     expect(fallback.authenticated).toBe(true);
     if (fallback.authenticated) {
       expect(fallback.accessGroup).toBeNull();
@@ -113,11 +108,30 @@ describe("staff menu permissions", () => {
     await expect(t.caller("cashier").auth.listAccessGroups()).rejects.toThrow(
       "สิทธิ์ไม่เพียงพอ"
     );
+    await expect(t.caller("cashier").auth.permissionCatalog()).rejects.toThrow(
+      "สิทธิ์ไม่เพียงพอ"
+    );
 
-    await expect(t.caller("cashier", 3).auth.currentStaff()).resolves.toMatchObject({
+    await expect(
+      t.caller("cashier", 3).auth.currentStaff()
+    ).resolves.toMatchObject({
       authenticated: true,
       id: 3,
     });
+  });
+
+  it("serves the central permission catalog to admin clients", async () => {
+    const catalog = await t.caller("admin").auth.permissionCatalog();
+
+    expect(catalog.map(permission => permission.key)).toEqual(
+      MENU_PERMISSION_KEYS
+    );
+    expect(catalog.find(permission => permission.key === "documents")).toEqual(
+      expect.objectContaining({
+        label: "เอกสาร",
+        roles: ["admin", "manager"],
+      })
+    );
   });
 
   it("uses HTTP-compatible auth error codes for expired or insufficient sessions", async () => {

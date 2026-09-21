@@ -38,6 +38,20 @@ class _StaffAccessGroupOption {
   final String role;
 }
 
+class _StaffPermissionOption {
+  const _StaffPermissionOption({
+    required this.key,
+    required this.label,
+    required this.roles,
+  });
+
+  final String key;
+  final String label;
+  final Set<String> roles;
+
+  bool isEligibleFor(String role) => roles.contains(role);
+}
+
 List<Map<String, dynamic>> _staffMaps(Object? value) {
   if (value is! List) return const <Map<String, dynamic>>[];
   return value
@@ -52,6 +66,9 @@ int _staffInt(Object? value) => switch (value) {
   final String text => int.tryParse(text) ?? 0,
   _ => 0,
 };
+
+Set<String> _staffStrings(Object? value) =>
+    value is List ? value.whereType<String>().toSet() : const <String>{};
 
 class OperationsPage extends ConsumerStatefulWidget {
   const OperationsPage({required this.module, required this.staff, super.key});
@@ -142,6 +159,7 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
     final repository = ref.read(operationsRepositoryProvider);
     late final List<_StaffBranchOption> branches;
     late final List<_StaffAccessGroupOption> accessGroups;
+    late final List<_StaffPermissionOption> permissionOptions;
     try {
       final responses = await Future.wait<Object?>([
         repository.queryProcedure(
@@ -150,6 +168,10 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
         ),
         repository.queryProcedure(
           'auth.listAccessGroups',
+          branchId: widget.staff.branch.id,
+        ),
+        repository.queryProcedure(
+          'auth.permissionCatalog',
           branchId: widget.staff.branch.id,
         ),
       ]);
@@ -184,6 +206,22 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
           )
           .where((group) => group.id > 0)
           .toList();
+      permissionOptions = _staffMaps(responses[2])
+          .map(
+            (row) => _StaffPermissionOption(
+              key: '${row['key'] ?? ''}',
+              label: '${row['label'] ?? row['key'] ?? ''}',
+              roles: _staffStrings(row['roles']),
+            ),
+          )
+          .where(
+            (permission) =>
+                permission.key.isNotEmpty && permission.roles.isNotEmpty,
+          )
+          .toList();
+      if (permissionOptions.isEmpty) {
+        throw StateError('ไม่พบทะเบียนสิทธิ์จากเซิร์ฟเวอร์');
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -208,6 +246,7 @@ class _OperationsPageState extends ConsumerState<OperationsPage> {
         currentBranchId: widget.staff.branch.id,
         branches: branches,
         accessGroups: accessGroups,
+        permissionOptions: permissionOptions,
         onSave: (value, password) async {
           if (existing == null) {
             await repository.createStaff(
@@ -1868,37 +1907,6 @@ class _DetailsSheet extends StatelessWidget {
   }
 }
 
-const _staffPermissionLabels = <String, String>{
-  'dashboard': 'ภาพรวมสถานี',
-  'pos': 'ขายหน้าลาน',
-  'shifts': 'จัดการกะ',
-  'workforce': 'พนักงานและตารางงาน',
-  'stock': 'สต็อกและถัง',
-  'members': 'สมาชิก',
-  'customers': 'ลูกค้าธุรกิจ',
-  'debts': 'ลูกหนี้เครดิต',
-  'sales': 'ประวัติการขาย',
-  'reports': 'รายงาน',
-  'expenses': 'ค่าใช้จ่าย',
-  'tax_invoices': 'ใบกำกับภาษี',
-  'documents': 'เอกสาร',
-  'audit': 'บันทึกการใช้งาน',
-  'security': 'ความปลอดภัย',
-  'settings': 'ตั้งค่าระบบ',
-};
-
-List<String> _defaultStaffPermissions(String role) {
-  return _staffPermissionLabels.keys.where((permission) {
-    if (role == 'admin') return true;
-    if (role == 'manager') {
-      return permission != 'audit' && permission != 'security';
-    }
-    return permission != 'documents' &&
-        permission != 'audit' &&
-        permission != 'security';
-  }).toList();
-}
-
 class _StaffEditorSheet extends StatefulWidget {
   const _StaffEditorSheet({
     required this.existing,
@@ -1906,6 +1914,7 @@ class _StaffEditorSheet extends StatefulWidget {
     required this.currentBranchId,
     required this.branches,
     required this.accessGroups,
+    required this.permissionOptions,
     required this.onSave,
   });
 
@@ -1914,6 +1923,7 @@ class _StaffEditorSheet extends StatefulWidget {
   final int currentBranchId;
   final List<_StaffBranchOption> branches;
   final List<_StaffAccessGroupOption> accessGroups;
+  final List<_StaffPermissionOption> permissionOptions;
   final Future<void> Function(StaffRecordData value, String password) onSave;
 
   @override
@@ -1936,6 +1946,11 @@ class _StaffEditorSheetState extends State<_StaffEditorSheet> {
 
   bool get _isEditing => widget.existing != null;
   bool get _isEditingSelf => widget.existing?.id == widget.currentStaffId;
+
+  List<String> _defaultStaffPermissions(String role) => widget.permissionOptions
+      .where((permission) => permission.isEligibleFor(role))
+      .map((permission) => permission.key)
+      .toList();
 
   @override
   void initState() {
@@ -2362,28 +2377,29 @@ class _StaffEditorSheetState extends State<_StaffEditorSheet> {
                                 child: Wrap(
                                   spacing: 7,
                                   runSpacing: 7,
-                                  children: _defaultStaffPermissions(_role)
+                                  children: widget.permissionOptions
+                                      .where(
+                                        (permission) =>
+                                            permission.isEligibleFor(_role),
+                                      )
                                       .map(
                                         (permission) => FilterChip(
                                           key: ValueKey(
-                                            'staff-permission-$permission',
+                                            'staff-permission-${permission.key}',
                                           ),
-                                          label: Text(
-                                            _staffPermissionLabels[permission] ??
-                                                permission,
-                                          ),
+                                          label: Text(permission.label),
                                           selected: _menuPermissions.contains(
-                                            permission,
+                                            permission.key,
                                           ),
                                           onSelected: (selected) {
                                             setState(() {
                                               if (selected) {
                                                 _menuPermissions.add(
-                                                  permission,
+                                                  permission.key,
                                                 );
                                               } else {
                                                 _menuPermissions.remove(
-                                                  permission,
+                                                  permission.key,
                                                 );
                                               }
                                             });
