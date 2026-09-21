@@ -55,6 +55,7 @@ void main() {
             },
           ],
           'auth.listAccessGroups' => <Object?>[],
+          'auth.permissionCatalog' => _permissionCatalog,
           'workforce.scheduleList' => <Object?>[],
           'workforce.listTemplates' => <Object?>[],
           'workforce.employeeProfiles' => <Object?>[],
@@ -138,6 +139,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('add-staff')));
     await tester.pumpAndSettle();
+    expect(find.text('ขายหน้าลาน'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('staff-name')), 'มาลี ใหม่');
     await tester.enterText(find.byKey(const Key('staff-username')), 'Mali.01');
     await tester.enterText(
@@ -179,6 +181,27 @@ void main() {
     expect(staffRows.any((row) => row['id'] == 3), isFalse);
   });
 }
+
+const _permissionCatalog = <Object?>[
+  <String, Object?>{
+    'key': 'dashboard',
+    'label': 'ภาพรวมสถานี',
+    'group': 'station',
+    'roles': <String>['admin', 'manager', 'cashier'],
+  },
+  <String, Object?>{
+    'key': 'pos',
+    'label': 'ขายหน้าลาน',
+    'group': 'station',
+    'roles': <String>['admin', 'manager', 'cashier'],
+  },
+  <String, Object?>{
+    'key': 'documents',
+    'label': 'เอกสาร',
+    'group': 'document',
+    'roles': <String>['admin', 'manager'],
+  },
+];
 
 StaffSession _admin() => const StaffSession(
   id: 1,

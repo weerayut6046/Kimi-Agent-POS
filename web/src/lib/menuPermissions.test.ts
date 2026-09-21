@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getApiMenuPermissions,
   getFirstAllowedMenuPath,
   getRoleMenuPermissions,
   hasMenuPermission,
@@ -30,5 +31,33 @@ describe("menu permissions", () => {
   it("uses the first explicitly allowed menu as the landing page", () => {
     expect(getFirstAllowedMenuPath("cashier", ["stock", "pos"])).toBe("/pos");
     expect(getFirstAllowedMenuPath("cashier", [])).toBeNull();
+  });
+
+  it("automatically applies a module permission to new API procedures", () => {
+    expect(getApiMenuPermissions("workforce.futureFeature")).toEqual([
+      "workforce",
+    ]);
+    expect(getApiMenuPermissions("membership.futureFeature")).toEqual([
+      "members",
+    ]);
+    expect(getApiMenuPermissions("stockCount.futureFeature")).toEqual([
+      "stock",
+    ]);
+  });
+
+  it("maps shared routers to every feature that legitimately consumes them", () => {
+    expect(getApiMenuPermissions("pos.dashboard")).toEqual(["dashboard"]);
+    expect(getApiMenuPermissions("pos.deleteSale")).toEqual(["sales"]);
+    expect(getApiMenuPermissions("payments.promptpayQr")).toEqual([
+      "pos",
+      "sales",
+      "settings",
+    ]);
+    expect(getApiMenuPermissions("catalog.getSettings")).toEqual([]);
+    expect(getApiMenuPermissions("catalog.lowStockAlerts")).toEqual(["stock"]);
+    expect(getApiMenuPermissions("catalog.futureManagementFeature")).toEqual([
+      "settings",
+    ]);
+    expect(getApiMenuPermissions("pos.currentShift")).toEqual([]);
   });
 });

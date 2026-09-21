@@ -278,6 +278,9 @@ export default function Layout() {
   const [commandOpen, setCommandOpen] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState(false);
   const shopName = settingMap?.shop_name ?? "PumpPOS";
+  const canSeeStockAlerts = Boolean(
+    staff && hasMenuPermission(staff.role, staff.menuPermissions, "stock")
+  );
   const visibleMenus = useMemo(() => {
     if (!staff) return [];
     return menus.filter(
@@ -450,7 +453,7 @@ export default function Layout() {
                   </div>
                 </div>
               </div>
-              {loadSecondaryData && (
+              {loadSecondaryData && canSeeStockAlerts && (
                 <Suspense fallback={null}>
                   <LowStockAlert />
                 </Suspense>
@@ -575,7 +578,7 @@ export default function Layout() {
                 </div>
                 <div className="text-[11px] text-slate-500">{dateLabel}</div>
               </div>
-              {loadSecondaryData && (
+              {loadSecondaryData && canSeeStockAlerts && (
                 <Suspense fallback={null}>
                   <LowStockAlert />
                 </Suspense>
@@ -621,7 +624,7 @@ export default function Layout() {
             >
               <Search className="size-[18px]" />
             </button>
-            {loadSecondaryData && (
+            {loadSecondaryData && canSeeStockAlerts && (
               <Suspense fallback={null}>
                 <LowStockAlert />
               </Suspense>
