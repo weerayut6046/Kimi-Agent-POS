@@ -4,6 +4,8 @@ import {
   attendanceEvents,
   attendanceSessions,
   employeeFaceProfiles,
+  loginAttempts,
+  staffUsers,
   workSchedules,
   workShiftTemplates,
 } from "@db/schema";
@@ -110,6 +112,80 @@ describe("attendance router", () => {
     );
   });
 
+  it("accepts a numeric PIN keypad flow, then requires the enrolled face before login", async () => {
+    const { hashStaffPin } = await import("../lib/staffPin");
+    await test.db
+      .update(staffUsers)
+      .set({ pin: hashStaffPin("2048") })
+      .where(eq(staffUsers.id, 3));
+
+    const qr = await test.caller("manager", 2).attendance.issueQrChallenge();
+    const anonymous = test.anonymousCaller();
+    await expect(
+      anonymous.attendance.beginPinFaceLogin({
+        qrToken: qr.token,
+        pin: "9999",
+      })
+    ).rejects.toThrow("PIN ไม่ถูกต้อง");
+
+    const challenge = await anonymous.attendance.beginPinFaceLogin({
+      qrToken: qr.token,
+      pin: "2048",
+    });
+    expect(challenge).toMatchObject({
+      attendanceAction: "clock_in",
+      staffName: "สมชาย (พนักงาน)",
+    });
+
+    await expect(
+      anonymous.attendance.completePinFaceLogin({
+        challengeToken: challenge.token,
+        embedding: Array.from({ length: 128 }, (_, index) =>
+          index % 2 === 0 ? 1 : -1
+        ),
+        quality,
+      })
+    ).rejects.toThrow("ใบหน้าไม่ตรง");
+
+    const signedIn = await anonymous.attendance.completePinFaceLogin({
+      challengeToken: challenge.token,
+      embedding: embedding(),
+      quality,
+    });
+    expect(signedIn).toMatchObject({
+      ok: true,
+      action: "clock_in",
+      authSession: null,
+      staff: {
+        id: 3,
+        branchId: 1,
+      },
+      session: {
+        staffId: 3,
+        status: "open",
+        clockInMethod: "face",
+      },
+    });
+    expect(signedIn.staff.sessionToken).toMatch(/\./);
+
+    const attempts = await test.db.query.loginAttempts.findMany({
+      where: eq(loginAttempts.branchId, 1),
+    });
+    expect(attempts.some(attempt => !attempt.success)).toBe(true);
+    expect(
+      attempts.some(
+        attempt => attempt.success && attempt.username === "somchai"
+      )
+    ).toBe(true);
+
+    await test.db
+      .delete(attendanceEvents)
+      .where(eq(attendanceEvents.sessionId, signedIn.session.id));
+    await test.db
+      .delete(attendanceSessions)
+      .where(eq(attendanceSessions.id, signedIn.session.id));
+  });
+
   it("clocks in through QR plus face, links the schedule, and completes it", async () => {
     const manager = test.caller("manager", 2);
     const cashier = test.caller("cashier", 3);
@@ -157,6 +233,26 @@ describe("attendance router", () => {
     expect(openStatus.nextAction).toBe("clock_out");
     expect(openStatus.openSession?.id).toBe(clockIn.session.id);
     expect(openStatus.faceProfile.enrolled).toBe(true);
+
+    const loginQr = await manager.attendance.issueQrChallenge();
+    const loginFace = await cashier.attendance.beginFaceVerification({
+      qrToken: loginQr.token,
+      purpose: "login",
+    });
+    expect(loginFace.attendanceAction).toBe("clock_in");
+    const loginVerification = await cashier.attendance.completeFaceVerification(
+      {
+        challengeToken: loginFace.token,
+        embedding: embedding(),
+        quality,
+      }
+    );
+    expect(loginVerification).toMatchObject({
+      ok: true,
+      duplicate: true,
+      action: "clock_in",
+      session: { id: clockIn.session.id, status: "open" },
+    });
 
     const secondQr = await manager.attendance.issueQrChallenge();
     const secondFace = await cashier.attendance.beginFaceVerification({

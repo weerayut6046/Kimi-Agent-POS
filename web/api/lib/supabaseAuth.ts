@@ -22,18 +22,32 @@ function requireAdminClient() {
   return createClient(env.supabaseUrl, env.supabaseSecretKey, authOptions);
 }
 
+function requireUserClient() {
+  if (!env.supabaseUrl || !env.supabasePublishableKey) {
+    throw new Error("Supabase Auth user client is not configured");
+  }
+  return createClient(env.supabaseUrl, env.supabasePublishableKey, authOptions);
+}
+
 export type ProvisionedStaffIdentity = {
   id: string;
   email: string;
 };
 
+export type IssuedSupabaseStaffSession = {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+};
+
 /**
- * Create the canonical Supabase Auth identity for a staff account. Passwords
- * are sent only to Supabase Auth and are never written to the POS database.
+ * Create the canonical Supabase Auth identity for a staff account. New PIN +
+ * face accounts are passwordless; the optional password exists only for
+ * controlled migration/recovery and is never written to the POS database.
  */
 export async function createSupabaseStaffIdentity(input: {
   username: string;
-  password: string;
+  password?: string;
   name: string;
   role: "admin" | "manager" | "cashier";
 }): Promise<ProvisionedStaffIdentity> {
@@ -41,7 +55,7 @@ export async function createSupabaseStaffIdentity(input: {
   const admin = requireAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
     email,
-    password: input.password,
+    ...(input.password ? { password: input.password } : {}),
     email_confirm: true,
     app_metadata: {
       pos_staff: true,
@@ -57,6 +71,46 @@ export async function createSupabaseStaffIdentity(input: {
   return { id: data.user.id, email };
 }
 
+/**
+ * Mint a normal Supabase user session only after the POS has independently
+ * verified both the employee PIN and face. generateLink does not send email;
+ * its one-time token is immediately exchanged on the server and never exposed
+ * to the browser.
+ */
+export async function issueSupabaseStaffSession(
+  username: string,
+  expectedUserId: string
+): Promise<IssuedSupabaseStaffSession> {
+  const email = staffAuthEmail(username);
+  const admin = requireAdminClient();
+  const generated = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+  });
+  const tokenHash = generated.data.properties?.hashed_token;
+  if (generated.error || !tokenHash) {
+    throw new Error(
+      generated.error?.message || "Unable to create staff sign-in token"
+    );
+  }
+  const verified = await requireUserClient().auth.verifyOtp({
+    token_hash: tokenHash,
+    type: "email",
+  });
+  const session = verified.data.session;
+  if (verified.error || !session || verified.data.user?.id !== expectedUserId) {
+    throw new Error(
+      verified.error?.message || "Unable to create staff sign-in session"
+    );
+  }
+  return {
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    expiresAt:
+      session.expires_at ?? Math.floor(Date.now() / 1_000) + session.expires_in,
+  };
+}
+
 export async function updateSupabaseStaffIdentity(
   userId: string,
   input: {
@@ -65,7 +119,7 @@ export async function updateSupabaseStaffIdentity(
     name?: string;
     role?: "admin" | "manager" | "cashier";
     active?: boolean;
-  },
+  }
 ): Promise<void> {
   const admin = requireAdminClient();
   const attributes: {
@@ -98,7 +152,7 @@ export async function updateSupabaseStaffIdentity(
 }
 
 export async function deleteSupabaseStaffIdentity(
-  userId: string,
+  userId: string
 ): Promise<void> {
   const admin = requireAdminClient();
   const { error } = await admin.auth.admin.deleteUser(userId, false);

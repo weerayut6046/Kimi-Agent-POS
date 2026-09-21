@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { env } from "./env";
 
 const TOKEN_PREFIX = "PUMPATT1";
-const TOKEN_TTL_SECONDS = 45;
+const TOKEN_TTL_SECONDS = 90;
 const MAX_TOKEN_TTL_SECONDS = 90;
 const FACE_TOKEN_PREFIX = "PUMPFACE1";
 const FACE_TOKEN_TTL_SECONDS = 180;

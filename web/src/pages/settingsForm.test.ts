@@ -4,7 +4,7 @@ import {
   createProductUpdatePatch,
   resolveManagedBackupHealth,
   staffMutationErrorMessage,
-  staffPasswordValidationMessage,
+  staffPinValidationMessage,
   type EditableProductValues,
 } from "./settingsForm";
 
@@ -95,18 +95,17 @@ describe("createProductUpdatePatch", () => {
   });
 });
 
-describe("staff password validation", () => {
-  it("rejects short passwords before sending the mutation", () => {
-    expect(staffPasswordValidationMessage("Short1")).toBe(
-      "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร"
-    );
+describe("staff PIN validation", () => {
+  it("rejects short PINs before sending the mutation", () => {
+    expect(staffPinValidationMessage("123")).toBe("PIN ต้องมีอย่างน้อย 4 หลัก");
   });
 
-  it("requires lowercase, uppercase, and a number", () => {
-    expect(staffPasswordValidationMessage("alllowercase1")).toBe(
-      "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข"
+  it("accepts only 4-6 numeric digits", () => {
+    expect(staffPinValidationMessage("12a4")).toBe(
+      "PIN ต้องเป็นตัวเลขเท่านั้น"
     );
-    expect(staffPasswordValidationMessage("ValidPass1")).toBeNull();
+    expect(staffPinValidationMessage("1234567")).toBe("PIN ต้องไม่เกิน 6 หลัก");
+    expect(staffPinValidationMessage("2048")).toBeNull();
   });
 
   it("turns the raw Zod issue shown in Settings into a Thai message", () => {
@@ -116,13 +115,13 @@ describe("staff password validation", () => {
         code: "too_small",
         minimum: 10,
         inclusive: true,
-        path: ["password"],
-        message: "Too small: expected string to have >=10 characters",
+        path: ["pin"],
+        message: "Invalid string: must match pattern /^\\d{4,6}$/",
       },
     ]);
 
     expect(staffMutationErrorMessage(new Error(rawIssue))).toBe(
-      "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร"
+      "PIN ต้องเป็นตัวเลข 4-6 หลัก"
     );
   });
 

@@ -102,6 +102,8 @@ export async function clearSupabaseSession(): Promise<void> {
   await client.auth.signOut({ scope: "local" });
 }
 
+/** Bootstrap/recovery login for an administrator who needs to issue the
+ * branch QR or configure employee PINs. Employee login never uses this path. */
 export async function signInStaffWithPassword(
   username: string,
   password: string

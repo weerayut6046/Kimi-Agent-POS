@@ -6,7 +6,7 @@ export function attendanceTokenFromPayload(payload: string): string | null {
     return trimmed;
   }
   try {
-    const url = new URL(trimmed);
+    const url = new URL(trimmed, "https://pumppos.invalid");
     if (url.pathname.replace(/\/+$/, "") !== "/attendance") return null;
     const token = url.searchParams.get("token")?.trim() ?? "";
     return token.startsWith(TOKEN_PREFIX) && token.length <= 2_048

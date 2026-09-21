@@ -1,16 +1,21 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   attendanceEvents,
   attendanceSessions,
   employeeFaceProfiles,
+  loginAttempts,
   staffBranches,
   staffUsers,
   workSchedules,
   workShiftTemplates,
 } from "@db/schema";
-import { authenticatedStaffAction, createRouter } from "../middleware";
+import {
+  anonymousQuery,
+  authenticatedStaffAction,
+  createRouter,
+} from "../middleware";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import {
@@ -30,6 +35,12 @@ import {
   normalizeFaceEmbeddings,
 } from "../lib/faceBiometrics";
 import { publishRealtimeInvalidation } from "../lib/realtime";
+import { clientIpFromReq } from "../lib/clientIp";
+import { env } from "../lib/env";
+import { hashStaffPin, verifyStaffPin } from "../lib/staffPin";
+import { issueStaffSession } from "../lib/session";
+import { issueSupabaseStaffSession } from "../lib/supabaseAuth";
+import { staffSessionResponse } from "./auth";
 
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
 const SCHEDULE_EARLY_WINDOW_MS = 2 * 60 * 60 * 1000;
@@ -38,6 +49,8 @@ const MIN_FACE_SCORE = 0.6;
 const MIN_REAL_SCORE = 0.6;
 const MIN_LIVE_SCORE = 0.6;
 const MIN_FACE_SIZE = 160;
+const PIN_FAILURE_WINDOW_MS = 5 * 60_000;
+const PIN_FAILURE_LIMIT = 8;
 
 const dateText = z
   .string()
@@ -181,6 +194,94 @@ async function requireBranchStaff(db: Db, branchId: number, staffId: number) {
     });
   }
   return staff;
+}
+
+async function assertPinAttemptAllowed(
+  db: Db,
+  branchId: number,
+  ip: string
+): Promise<void> {
+  const recent = await db
+    .select({ id: loginAttempts.id })
+    .from(loginAttempts)
+    .where(
+      and(
+        eq(loginAttempts.branchId, branchId),
+        eq(loginAttempts.ip, ip),
+        eq(loginAttempts.success, false),
+        gte(
+          loginAttempts.createdAt,
+          new Date(Date.now() - PIN_FAILURE_WINDOW_MS)
+        )
+      )
+    )
+    .limit(PIN_FAILURE_LIMIT);
+  if (recent.length >= PIN_FAILURE_LIMIT) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "กรอก PIN ผิดหลายครั้ง กรุณารอ 5 นาทีแล้วลองใหม่",
+    });
+  }
+}
+
+async function recordPinAttempt(input: {
+  db: Db;
+  branchId: number;
+  username: string;
+  success: boolean;
+  ip: string;
+}) {
+  await input.db.insert(loginAttempts).values({
+    branchId: input.branchId,
+    username: input.username,
+    success: input.success,
+    ip: input.ip,
+  });
+}
+
+async function staffForPin(
+  db: Db,
+  branchId: number,
+  pin: string
+): Promise<typeof staffUsers.$inferSelect | null> {
+  const pinHash = hashStaffPin(pin);
+  const exact = await db
+    .select({ staff: staffUsers })
+    .from(staffUsers)
+    .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+    .where(
+      and(
+        eq(staffBranches.branchId, branchId),
+        eq(staffUsers.pin, pinHash),
+        eq(staffUsers.active, true)
+      )
+    )
+    .limit(2);
+  if (exact.length === 1) return exact[0]!.staff;
+  if (exact.length > 1) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "พบ PIN ซ้ำในสาขา กรุณาติดต่อผู้ดูแลระบบเพื่อตั้ง PIN ใหม่",
+    });
+  }
+
+  // Legacy Local Dev/test accounts used scrypt or SHA-256. This fallback is
+  // intentionally limited to those environments and disappears after reset.
+  if (process.env.NODE_ENV !== "test" && !env.localAuthEnabled) return null;
+  const candidates = await db
+    .select({ staff: staffUsers })
+    .from(staffUsers)
+    .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+    .where(
+      and(eq(staffBranches.branchId, branchId), eq(staffUsers.active, true))
+    );
+  const matches = [];
+  for (const candidate of candidates) {
+    if (await verifyStaffPin(pin, candidate.staff.pin)) {
+      matches.push(candidate.staff);
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 async function recordFaceAttendance(input: {
@@ -376,6 +477,246 @@ async function recordFaceAttendance(input: {
 }
 
 export const attendanceRouter = createRouter({
+  beginPinFaceLogin: anonymousQuery
+    .input(
+      z.object({
+        qrToken: z.string().trim().min(20).max(2_048),
+        pin: z.string().regex(/^\d{4,6}$/, "PIN ต้องเป็นตัวเลข 4-6 หลัก"),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      let qrClaims;
+      try {
+        qrClaims = verifyAttendanceQrToken(input.qrToken);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "ตรวจสอบ QR ลงเวลาไม่สำเร็จ",
+        });
+      }
+      const db = getDb();
+      const ip = clientIpFromReq(ctx.req);
+      await assertPinAttemptAllowed(db, qrClaims.branchId, ip);
+      const user = await staffForPin(db, qrClaims.branchId, input.pin);
+      if (!user) {
+        await recordPinAttempt({
+          db,
+          branchId: qrClaims.branchId,
+          username: "pin-face",
+          success: false,
+          ip,
+        });
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "PIN ไม่ถูกต้อง กรุณาลองใหม่",
+        });
+      }
+      if (!env.localAuthEnabled && process.env.NODE_ENV !== "test") {
+        if (!user.supabaseAuthUserId) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "บัญชีนี้ยังไม่พร้อมเข้าสู่ระบบ กรุณาติดต่อผู้ดูแลระบบ",
+          });
+        }
+      }
+      const faceProfile = await db.query.employeeFaceProfiles.findFirst({
+        columns: { id: true, model: true },
+        where: eq(employeeFaceProfiles.staffId, user.id),
+      });
+      if (!faceProfile) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ยังไม่ได้ลงทะเบียนใบหน้า กรุณาติดต่อผู้จัดการสาขา",
+        });
+      }
+      if (faceProfile.model !== FACE_MODEL) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "รูปแบบข้อมูลใบหน้าเดิมไม่รองรับ กรุณาลงทะเบียนใบหน้าใหม่",
+        });
+      }
+      const challenge = issueAttendanceFaceToken({
+        qrClaims,
+        staffId: user.id,
+        attendanceAction: "clock_in",
+      });
+      return {
+        ...challenge,
+        attendanceAction: "clock_in" as const,
+        staffName: user.name,
+      };
+    }),
+
+  completePinFaceLogin: anonymousQuery
+    .input(
+      z.object({
+        challengeToken: z.string().trim().min(20).max(2_048),
+        embedding: faceEmbedding,
+        quality: faceQuality,
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      let claims;
+      try {
+        claims = verifyAttendanceFaceToken(input.challengeToken);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "ตรวจสอบคำทดสอบใบหน้าไม่สำเร็จ",
+        });
+      }
+      if (claims.attendanceAction !== "clock_in") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "คำทดสอบนี้ไม่ใช่การยืนยันใบหน้าเพื่อเข้าสู่ระบบ",
+        });
+      }
+      if (
+        input.quality.faceScore < MIN_FACE_SCORE ||
+        input.quality.real < MIN_REAL_SCORE ||
+        input.quality.live < MIN_LIVE_SCORE ||
+        input.quality.faceSize < MIN_FACE_SIZE
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "คุณภาพหรือความเป็นบุคคลจริงของใบหน้ายังไม่ผ่าน กรุณาลองใหม่",
+        });
+      }
+
+      const db = getDb();
+      const membership = await db
+        .select({ staff: staffUsers })
+        .from(staffUsers)
+        .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+        .where(
+          and(
+            eq(staffUsers.id, claims.staffId),
+            eq(staffUsers.active, true),
+            eq(staffBranches.branchId, claims.branchId)
+          )
+        )
+        .limit(1);
+      const user = membership[0]?.staff;
+      if (!user) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "บัญชีพนักงานถูกปิดใช้งานหรือไม่มีสิทธิ์ในสาขานี้",
+        });
+      }
+      const faceProfile = await db.query.employeeFaceProfiles.findFirst({
+        where: eq(employeeFaceProfiles.staffId, user.id),
+      });
+      if (!faceProfile || faceProfile.model !== FACE_MODEL) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ไม่พบข้อมูลใบหน้าที่รองรับ กรุณาลงทะเบียนใบหน้าใหม่",
+        });
+      }
+      const candidate = normalizeFaceEmbeddings([input.embedding])[0]!;
+      const enrolled = await decryptFaceEmbeddings(
+        user.id,
+        faceProfile.templateEncrypted
+      );
+      const similarity = bestFaceSimilarity(candidate, enrolled);
+      const ip = clientIpFromReq(ctx.req);
+      if (similarity < FACE_MATCH_THRESHOLD) {
+        await recordPinAttempt({
+          db,
+          branchId: claims.branchId,
+          username: user.username,
+          success: false,
+          ip,
+        });
+        logAudit({
+          action: "login_face_rejected",
+          ...actorFromReq(ctx.req),
+          detail: `ตรวจใบหน้าเพื่อเข้าสู่ระบบของ ${user.name} ไม่ผ่าน คะแนน ${similarity.toFixed(2)}`,
+          refType: "staff_user",
+          refId: user.id,
+        });
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message:
+            "ใบหน้าไม่ตรงกับข้อมูลที่ลงทะเบียน กรุณาลองใหม่หรือติดต่อผู้จัดการ",
+        });
+      }
+
+      const occurredAt = new Date();
+      const result = await recordFaceAttendance({
+        db,
+        branchId: claims.branchId,
+        staffId: user.id,
+        action: "clock_in",
+        idempotencyKey: attendanceFaceIdempotencyKey(claims),
+        occurredAt,
+        metadata: {
+          faceModel: FACE_MODEL,
+          similarity,
+          threshold: FACE_MATCH_THRESHOLD,
+          livenessAction: claims.livenessAction,
+          faceScore: input.quality.faceScore,
+          real: input.quality.real,
+          live: input.quality.live,
+          faceSize: input.quality.faceSize,
+          login: true,
+        },
+      });
+      const staff = await staffSessionResponse(user, claims.branchId);
+      const useLocalSession =
+        env.localAuthEnabled || process.env.NODE_ENV === "test";
+      const sessionToken = useLocalSession
+        ? issueStaffSession({
+            id: staff.id,
+            name: staff.name,
+            role: staff.role,
+            username: staff.username,
+            branchId: staff.branchId,
+            branchCode: staff.branchCode,
+            branchName: staff.branchName,
+          })
+        : null;
+      const authSession = useLocalSession
+        ? null
+        : await issueSupabaseStaffSession(
+            user.username,
+            user.supabaseAuthUserId!
+          );
+      await recordPinAttempt({
+        db,
+        branchId: claims.branchId,
+        username: user.username,
+        success: true,
+        ip,
+      });
+      publishRealtimeInvalidation(claims.branchId);
+      logAudit({
+        action: "pin_face_login",
+        ...actorFromReq(ctx.req),
+        detail: `${user.name} เข้าสู่ระบบและลงเวลาเข้างานด้วย PIN และใบหน้า เวลา ${occurredAt.toISOString()} คะแนน ${similarity.toFixed(2)}`,
+        refType: "attendance_session",
+        refId: result.session.id,
+      });
+      return {
+        ok: true as const,
+        duplicate: result.duplicate,
+        action: result.action,
+        similarity,
+        session: sessionView(result.session),
+        staff: {
+          ...staff,
+          ...(sessionToken ? { sessionToken } : {}),
+        },
+        authSession,
+      };
+    }),
+
   myStatus: authenticatedStaffAction.query(async ({ ctx }) => {
     const db = getDb();
     const openSession = await db.query.attendanceSessions.findFirst({
@@ -529,7 +870,12 @@ export const attendanceRouter = createRouter({
     }),
 
   beginFaceVerification: authenticatedStaffAction
-    .input(z.object({ qrToken: z.string().trim().min(20).max(2_048) }))
+    .input(
+      z.object({
+        qrToken: z.string().trim().min(20).max(2_048),
+        purpose: z.enum(["attendance", "login"]).default("attendance"),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       let qrClaims;
       try {
@@ -574,9 +920,15 @@ export const attendanceRouter = createRouter({
           eq(attendanceSessions.status, "open")
         ),
       });
-      const attendanceAction: AttendanceAction = openSession
-        ? "clock_out"
-        : "clock_in";
+      // Login always verifies/creates a clock-in. If an open attendance
+      // session already exists, recordFaceAttendance returns it as a safe
+      // duplicate instead of accidentally clocking the employee out.
+      const attendanceAction: AttendanceAction =
+        input.purpose === "login"
+          ? "clock_in"
+          : openSession
+            ? "clock_out"
+            : "clock_in";
       const challenge = issueAttendanceFaceToken({
         qrClaims,
         staffId: ctx.staff.id,

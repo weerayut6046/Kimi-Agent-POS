@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
 import {
   anonymousQuery,
   authenticatedStaffAction,
@@ -28,8 +29,8 @@ import { actorFromReq, logAudit } from "../lib/audit";
 import { clientIpFromReq } from "../lib/clientIp";
 import { activeStaffSessionFromRequest } from "../lib/authorization";
 import { env } from "../lib/env";
-import { hashLocalPassword, verifyLocalPassword } from "../lib/localPassword";
 import { issueStaffSession } from "../lib/session";
+import { hashStaffPin, verifyStaffPin } from "../lib/staffPin";
 import {
   createSupabaseStaffIdentity,
   deleteSupabaseStaffIdentity,
@@ -53,14 +54,32 @@ const LOGIN_REPORT_WINDOW_MS = 60_000;
 const LOGIN_REPORT_MAX_PER_WINDOW = 20;
 const loginReportTimesByKey = new Map<string, number[]>();
 const menuPermissionsInput = z.array(z.enum(MENU_PERMISSION_KEYS)).min(1);
-const staffPasswordInput = z
+const staffPinInput = z
   .string()
-  .min(10, "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร")
-  .max(128, "รหัสผ่านต้องไม่เกิน 128 ตัวอักษร")
-  .refine(
-    value => /[a-z]/.test(value) && /[A-Z]/.test(value) && /\d/.test(value),
-    "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข"
-  );
+  .regex(/^\d{4,6}$/, "PIN ต้องเป็นตัวเลข 4-6 หลัก");
+
+async function ensureStaffPinAvailable(
+  pinHash: string,
+  branchIds: number[],
+  excludeStaffId?: number
+) {
+  const matches = await getDb()
+    .select({ id: staffUsers.id, name: staffUsers.name })
+    .from(staffUsers)
+    .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
+    .where(
+      and(
+        eq(staffUsers.pin, pinHash),
+        inArray(staffBranches.branchId, branchIds)
+      )
+    );
+  const conflict = matches.find(staff => staff.id !== excludeStaffId);
+  if (conflict) {
+    throw new Error(
+      `PIN นี้ถูกใช้โดย ${conflict.name} ในสาขาที่เลือกแล้ว กรุณาตั้ง PIN อื่น`
+    );
+  }
+}
 
 function effectiveMenuPermissions(
   role: StaffRole,
@@ -104,7 +123,7 @@ function branchSummary(branch: AccessibleBranch) {
   };
 }
 
-async function staffSessionResponse(
+export async function staffSessionResponse(
   user: typeof staffUsers.$inferSelect,
   requestedBranchId?: number
 ) {
@@ -158,7 +177,7 @@ export const authRouter = createRouter({
       if (
         !user ||
         !user.active ||
-        !(await verifyLocalPassword(input.pin, user.pin))
+        !(await verifyStaffPin(input.pin, user.pin))
       ) {
         throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
       }
@@ -573,11 +592,14 @@ export const authRouter = createRouter({
     });
     return rows.map(
       ({
-        pin: _pin,
+        pin,
         menuPermissions: _menuPermissions,
         supabaseAuthUserId: _supabaseAuthUserId,
         ...rest
-      }) => rest
+      }) => ({
+        ...rest,
+        pinReady: pin.startsWith("staff-pin-hmac-v1:"),
+      })
     );
   }),
 
@@ -590,12 +612,13 @@ export const authRouter = createRouter({
     ]);
     const groupsById = new Map(groups.map(group => [group.id, group]));
     return rows.map(
-      ({ pin: _pin, supabaseAuthUserId: _supabaseAuthUserId, ...rest }) => {
+      ({ pin, supabaseAuthUserId: _supabaseAuthUserId, ...rest }) => {
         const accessGroup = rest.accessGroupId
           ? groupsById.get(rest.accessGroupId)
           : null;
         return {
           ...rest,
+          pinReady: pin.startsWith("staff-pin-hmac-v1:"),
           menuPermissions: effectiveMenuPermissions(
             rest.role,
             rest.menuPermissions,
@@ -755,7 +778,7 @@ export const authRouter = createRouter({
             isValidStaffUsername,
             "Username must use English letters and numbers"
           ),
-        password: staffPasswordInput,
+        pin: staffPinInput,
         name: z.string().min(1),
         role: z.enum(["admin", "manager", "cashier"]).default("cashier"),
         accessGroupId: z.number().int().positive().nullable().optional(),
@@ -802,24 +825,23 @@ export const authRouter = createRouter({
       }
       const {
         branchIds: _branchIds,
-        password,
+        pin,
         username: _username,
         ...staffInput
       } = input;
       const defaultBranchId = branchIds.includes(ctx.staff.branchId)
         ? ctx.staff.branchId
         : branchIds[0];
-      const identity = env.localAuthEnabled
-        ? null
-        : await createSupabaseStaffIdentity({
-            username,
-            password,
-            name: input.name,
-            role: input.role,
-          });
-      const storedPassword = env.localAuthEnabled
-        ? await hashLocalPassword(password)
-        : `supabase-auth:${identity!.id}`;
+      const storedPin = hashStaffPin(pin);
+      await ensureStaffPinAvailable(storedPin, branchIds);
+      const identity =
+        env.localAuthEnabled || process.env.NODE_ENV === "test"
+          ? null
+          : await createSupabaseStaffIdentity({
+              username,
+              name: input.name,
+              role: input.role,
+            });
       let id: number;
       try {
         id = await db.transaction(async tx => {
@@ -831,7 +853,7 @@ export const authRouter = createRouter({
               accessGroupId:
                 input.role === "admin" ? null : input.accessGroupId,
               menuPermissions,
-              pin: storedPassword,
+              pin: storedPin,
               supabaseAuthUserId: identity?.id ?? null,
             })
             .returning({ id: staffUsers.id });
@@ -873,7 +895,7 @@ export const authRouter = createRouter({
             "Username must use English letters and numbers"
           )
           .optional(),
-        password: staffPasswordInput.optional(),
+        pin: staffPinInput.optional(),
         role: z.enum(["admin", "manager", "cashier"]).optional(),
         active: z.boolean().optional(),
         accessGroupId: z.number().int().positive().nullable().optional(),
@@ -882,7 +904,7 @@ export const authRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, password, branchIds: requestedBranchIds, ...rawRest } = input;
+      const { id, pin, branchIds: requestedBranchIds, ...rawRest } = input;
       const rest = {
         ...rawRest,
         ...(rawRest.username !== undefined
@@ -895,10 +917,7 @@ export const authRouter = createRouter({
       });
       if (!target) throw new Error("ไม่พบพนักงาน");
       const patch: Record<string, unknown> = { ...rest };
-      if (env.localAuthEnabled && password) {
-        patch.pin = await hashLocalPassword(password);
-        patch.supabaseAuthUserId = null;
-      }
+      if (pin) patch.pin = hashStaffPin(pin);
       const nextRole = rest.role ?? target.role;
       const requestedGroupId =
         rest.accessGroupId !== undefined
@@ -952,6 +971,18 @@ export const authRouter = createRouter({
           throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
         }
       }
+      const nextBranchIds =
+        branchIds ??
+        (
+          await db.query.staffBranches.findMany({
+            where: eq(staffBranches.staffId, id),
+            columns: { branchId: true },
+          })
+        ).map(membership => membership.branchId);
+      const nextPinHash = pin ? hashStaffPin(pin) : target.pin;
+      if (nextPinHash.startsWith("staff-pin-hmac-v1:")) {
+        await ensureStaffPinAvailable(nextPinHash, nextBranchIds, id);
+      }
       await db.transaction(async tx => {
         await tx.update(staffUsers).set(patch).where(eq(staffUsers.id, id));
         if (branchIds) {
@@ -977,10 +1008,13 @@ export const authRouter = createRouter({
         }
       });
       let authUserId = target.supabaseAuthUserId;
-      if (!env.localAuthEnabled && !authUserId && password) {
+      if (
+        !env.localAuthEnabled &&
+        process.env.NODE_ENV !== "test" &&
+        !authUserId
+      ) {
         const identity = await createSupabaseStaffIdentity({
           username: rest.username ?? target.username,
-          password,
           name: rest.name ?? target.name,
           role: rest.role ?? target.role,
         });
@@ -989,13 +1023,21 @@ export const authRouter = createRouter({
           .update(staffUsers)
           .set({
             supabaseAuthUserId: identity.id,
-            pin: `supabase-auth:${identity.id}`,
           })
           .where(eq(staffUsers.id, id));
-      } else if (!env.localAuthEnabled && authUserId) {
+      } else if (
+        !env.localAuthEnabled &&
+        process.env.NODE_ENV !== "test" &&
+        authUserId
+      ) {
         await updateSupabaseStaffIdentity(authUserId, {
           username: rest.username,
-          password,
+          // Once PIN + face login is configured, invalidate any historical
+          // password so it cannot bypass the face-verification step through
+          // Supabase Auth directly.
+          password: pin
+            ? `${randomBytes(32).toString("base64url")}Aa1!`
+            : undefined,
           name: rest.name,
           role: rest.role,
           active: rest.active,
@@ -1024,13 +1066,7 @@ export const authRouter = createRouter({
         );
       }
       if (branchIds) changes.push(`สิทธิ์สาขา ${branchIds.length} สาขา`);
-      if (password) {
-        changes.push(
-          env.localAuthEnabled
-            ? "รีเซ็ตรหัสผ่าน Local Auth"
-            : "รีเซ็ตรหัสผ่าน Supabase Auth"
-        );
-      }
+      if (pin) changes.push("รีเซ็ต PIN");
       logAudit({
         action: "update_staff",
         ...actorFromReq(ctx.req),

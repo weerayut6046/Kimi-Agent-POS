@@ -12,7 +12,6 @@ import {
   PlayCircle,
   ReceiptText,
   Save,
-  ScanFace,
   StopCircle,
   UserRound,
   WalletCards,
@@ -118,11 +117,6 @@ type HistoryReadingForm = {
 function currentBangkokMonth() {
   const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
   return new Date(Date.now() + bangkokOffsetMs).toISOString().slice(0, 7);
-}
-
-function currentBangkokDate() {
-  const bangkokOffsetMs = 7 * 60 * 60 * 1_000;
-  return new Date(Date.now() + bangkokOffsetMs).toISOString().slice(0, 10);
 }
 
 function defaultHistoryFilters(): HistoryFilters {
@@ -752,16 +746,6 @@ export default function Shifts() {
     undefined,
     { trpc: { context: { skipBatch: true } } }
   );
-  const { data: attendanceStatus, isLoading: attendanceLoading } =
-    trpc.attendance.myStatus.useQuery(undefined, {
-      enabled: currentShift === null,
-      refetchOnWindowFocus: true,
-    });
-  const faceClockIn =
-    attendanceStatus?.openSession?.workDate === currentBangkokDate() &&
-    attendanceStatus.openSession.clockInMethod === "face"
-      ? attendanceStatus.openSession
-      : null;
   const currentLubricantAmount =
     currentShift?.lubricantSales?.lubricantAmount ?? 0;
   const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
@@ -1173,42 +1157,6 @@ export default function Shifts() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {faceClockIn ? (
-                  <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
-                    <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
-                    <div>
-                      <div className="font-semibold">
-                        ยืนยันใบหน้าเข้างานแล้ว
-                      </div>
-                      <div className="mt-0.5 text-xs text-emerald-700">
-                        ลงเวลาเมื่อ {fmtDateTime(faceClockIn.clockInAt)} ·
-                        สามารถเปิดกะได้
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700">
-                        <ScanFace className="size-5" />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-amber-950">
-                          ต้องสแกนใบหน้าเข้างานก่อนเปิดกะ
-                        </div>
-                        <div className="mt-0.5 text-xs leading-5 text-amber-800">
-                          สแกน QR ประจำสาขาและยืนยันใบหน้าให้สำเร็จ
-                          แล้วจึงกลับมาเปิดกะ
-                        </div>
-                      </div>
-                    </div>
-                    <Button variant="outline" className="shrink-0" asChild>
-                      <a href="/attendance">
-                        <ScanFace /> ไปหน้าลงเวลา
-                      </a>
-                    </Button>
-                  </div>
-                )}
                 <p className="text-sm text-muted-foreground">
                   พนักงาน: <b>{staff?.name}</b> ·
                   ระบบดึงเลขมิเตอร์ล่าสุดมาให้แล้ว
@@ -1275,12 +1223,7 @@ export default function Shifts() {
                 </div>
                 <Button
                   className="w-full sm:w-auto h-11"
-                  disabled={
-                    openShift.isPending ||
-                    attendanceLoading ||
-                    !faceClockIn ||
-                    nozzleList.length === 0
-                  }
+                  disabled={openShift.isPending || nozzleList.length === 0}
                   onClick={() =>
                     openShift.mutate({
                       staffId: staff?.id,
@@ -1294,18 +1237,12 @@ export default function Shifts() {
                     })
                   }
                 >
-                  {openShift.isPending || attendanceLoading ? (
+                  {openShift.isPending ? (
                     <LoaderCircle className="mr-2 h-5 w-5 animate-spin" />
                   ) : (
                     <PlayCircle className="mr-2 h-5 w-5" />
                   )}
-                  {openShift.isPending
-                    ? "กำลังเปิดกะ..."
-                    : attendanceLoading
-                      ? "กำลังตรวจสอบเวลาเข้างาน..."
-                      : !faceClockIn
-                        ? "สแกนหน้าเข้างานก่อน"
-                        : "เปิดกะ"}
+                  {openShift.isPending ? "กำลังเปิดกะ..." : "เปิดกะ"}
                 </Button>
               </CardContent>
             </Card>

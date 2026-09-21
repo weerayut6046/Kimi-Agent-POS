@@ -11,6 +11,9 @@ describe("attendance QR payload", () => {
       "https://pos.example.com/attendance?token=PUMPATT1.payload.signature"
     );
     expect(attendanceTokenFromPayload(url)).toBe(token);
+    expect(attendanceTokenFromPayload(`/attendance?token=${token}`)).toBe(
+      token
+    );
   });
 
   it("rejects unrelated links and payloads", () => {

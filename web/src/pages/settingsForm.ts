@@ -33,28 +33,20 @@ export function resolveManagedBackupHealth(
   );
 }
 
-export const STAFF_PASSWORD_MIN_LENGTH = 10;
-export const STAFF_PASSWORD_MAX_LENGTH = 128;
+export const STAFF_PIN_MIN_LENGTH = 4;
+export const STAFF_PIN_MAX_LENGTH = 6;
 
 /**
- * Keep the staff password rules in one place so the Settings form can stop an
+ * Keep the staff PIN rules in one place so the Settings form can stop an
  * invalid request before tRPC serializes the Zod issues into a JSON message.
  */
-export function staffPasswordValidationMessage(
-  password: string
-): string | null {
-  if (password.length < STAFF_PASSWORD_MIN_LENGTH) {
-    return `รหัสผ่านต้องมีอย่างน้อย ${STAFF_PASSWORD_MIN_LENGTH} ตัวอักษร`;
+export function staffPinValidationMessage(pin: string): string | null {
+  if (!/^\d*$/.test(pin)) return "PIN ต้องเป็นตัวเลขเท่านั้น";
+  if (pin.length < STAFF_PIN_MIN_LENGTH) {
+    return `PIN ต้องมีอย่างน้อย ${STAFF_PIN_MIN_LENGTH} หลัก`;
   }
-  if (password.length > STAFF_PASSWORD_MAX_LENGTH) {
-    return `รหัสผ่านต้องไม่เกิน ${STAFF_PASSWORD_MAX_LENGTH} ตัวอักษร`;
-  }
-  if (
-    !/[a-z]/.test(password) ||
-    !/[A-Z]/.test(password) ||
-    !/\d/.test(password)
-  ) {
-    return "รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข";
+  if (pin.length > STAFF_PIN_MAX_LENGTH) {
+    return `PIN ต้องไม่เกิน ${STAFF_PIN_MAX_LENGTH} หลัก`;
   }
   return null;
 }
@@ -95,13 +87,9 @@ export function staffMutationErrorMessage(error: unknown): string {
       message: string;
       path?: unknown;
     };
-    const isPasswordIssue =
-      Array.isArray(issue.path) && issue.path[0] === "password";
-    if (isPasswordIssue && issue.code === "too_small") {
-      return `รหัสผ่านต้องมีอย่างน้อย ${STAFF_PASSWORD_MIN_LENGTH} ตัวอักษร`;
-    }
-    if (isPasswordIssue && issue.code === "too_big") {
-      return `รหัสผ่านต้องไม่เกิน ${STAFF_PASSWORD_MAX_LENGTH} ตัวอักษร`;
+    const isPinIssue = Array.isArray(issue.path) && issue.path[0] === "pin";
+    if (isPinIssue) {
+      return "PIN ต้องเป็นตัวเลข 4-6 หลัก";
     }
     return issue.message;
   } catch {

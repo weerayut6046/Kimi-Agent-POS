@@ -17,7 +17,7 @@ describe("attendance QR token", () => {
     const claims = verifyAttendanceQrToken(issued.token, now);
 
     expect(claims).toMatchObject({ branchId: 4, version: 1 });
-    expect(issued.expiresAt.toISOString()).toBe("2026-09-21T03:00:45.000Z");
+    expect(issued.expiresAt.toISOString()).toBe("2026-09-21T03:01:30.000Z");
     expect(attendanceQrIdempotencyKey(claims, 8)).not.toBe(
       attendanceQrIdempotencyKey(claims, 9)
     );
@@ -32,7 +32,7 @@ describe("attendance QR token", () => {
     expect(() =>
       verifyAttendanceQrToken(
         issued.token,
-        new Date("2026-09-21T03:00:46.000Z")
+        new Date("2026-09-21T03:01:31.000Z")
       )
     ).toThrow("หมดอายุ");
     expect(() => verifyAttendanceQrToken(`${issued.token}x`, now)).toThrow(

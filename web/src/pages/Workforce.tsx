@@ -108,7 +108,7 @@ type CashAdvanceForm = {
 
 type StaffForm = {
   username: string;
-  password: string;
+  pin: string;
   name: string;
   role: "admin" | "manager" | "cashier";
 };
@@ -725,7 +725,7 @@ export default function Workforce() {
                   onClick={() =>
                     setStaffForm({
                       username: "",
-                      password: "",
+                      pin: "",
                       name: "",
                       role: "cashier",
                     })
@@ -1753,14 +1753,17 @@ export default function Workforce() {
                     <Input
                       type="password"
                       inputMode="numeric"
-                      value={staffForm.password}
+                      maxLength={6}
+                      value={staffForm.pin}
                       onChange={event =>
                         setStaffForm({
                           ...staffForm,
-                          password: event.target.value,
+                          pin: event.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 6),
                         })
                       }
-                      placeholder="อย่างน้อย 4 หลัก"
+                      placeholder="ตัวเลข 4-6 หลัก"
                       className="bg-white"
                     />
                   </div>
@@ -1796,7 +1799,7 @@ export default function Workforce() {
               disabled={
                 !staffForm?.name.trim() ||
                 (staffForm?.username.length ?? 0) < 3 ||
-                (staffForm?.password.length ?? 0) < 10 ||
+                (staffForm?.pin.length ?? 0) < 4 ||
                 createStaff.isPending
               }
               onClick={() => staffForm && createStaff.mutate(staffForm)}

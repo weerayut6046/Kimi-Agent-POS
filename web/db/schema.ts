@@ -75,7 +75,7 @@ export const staffUsers = posSchema
     {
       id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
       username: text("username").notNull().unique(),
-      pin: text("pin").notNull(), // legacy hash or non-login Supabase Auth marker
+      pin: text("pin").notNull(), // keyed staff PIN digest; legacy hashes migrate on reset
       name: text("name").notNull(),
       role: text("role", { enum: ["admin", "manager", "cashier"] })
         .notNull()
