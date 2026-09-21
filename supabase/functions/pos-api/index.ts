@@ -110,7 +110,12 @@ Deno.serve(async request => {
     }
     if (apiKeyStatus !== "ok") {
       return Response.json(
-        { error: { message: "Invalid or missing API key" } },
+        {
+          error: {
+            code: "UNAUTHORIZED_API_KEY",
+            message: "Invalid or missing API key",
+          },
+        },
         { status: 401, headers }
       );
     }
