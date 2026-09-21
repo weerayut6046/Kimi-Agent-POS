@@ -4,16 +4,13 @@ import { useStaff } from "@/hooks/useStaff";
 
 const AuthenticatedApp = lazy(() => import("@/AuthenticatedApp"));
 const CustomerLoyalty = lazy(() => import("@/pages/CustomerLoyalty"));
+const Attendance = lazy(() => import("@/pages/Attendance"));
 
 function StaffRoot() {
   const { staff, isCheckingSession } = useStaff();
 
   useEffect(() => {
-    if (
-      !isCheckingSession &&
-      !staff &&
-      window.location.pathname !== "/login"
-    ) {
+    if (!isCheckingSession && !staff && window.location.pathname !== "/login") {
       const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
       if (returnTo.startsWith("/") && !returnTo.startsWith("//")) {
         window.sessionStorage.setItem("pos:return-to", returnTo);
@@ -59,6 +56,23 @@ function StaffRoot() {
 
 export default function Root() {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/attendance/kiosk") {
+    return (
+      <Suspense
+        fallback={
+          <main className="grid min-h-screen place-items-center bg-slate-950 p-6">
+            <span
+              className="size-7 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-300"
+              role="status"
+              aria-label="กำลังโหลดจอ QR ประจำสาขา"
+            />
+          </main>
+        }
+      >
+        <Attendance />
+      </Suspense>
+    );
+  }
   if (pathname === "/loyalty") {
     return (
       <Suspense

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   attendanceEvents,
   attendanceSessions,
+  branches,
   employeeFaceProfiles,
   loginAttempts,
   staffBranches,
@@ -21,8 +22,10 @@ import { actorFromReq, logAudit } from "../lib/audit";
 import {
   attendanceFaceIdempotencyKey,
   issueAttendanceFaceToken,
+  issueAttendanceKioskToken,
   issueAttendanceQrToken,
   verifyAttendanceFaceToken,
+  verifyAttendanceKioskToken,
   verifyAttendanceQrToken,
   type AttendanceAction,
 } from "../lib/attendanceToken";
@@ -759,6 +762,51 @@ export const attendanceRouter = createRouter({
     branchId: ctx.staff.branchId,
     branchName: ctx.staff.branchName,
   })),
+
+  issueKioskAccess: managerAttendanceAction.mutation(({ ctx }) => ({
+    ...issueAttendanceKioskToken(ctx.staff.branchId),
+    branchId: ctx.staff.branchId,
+    branchName: ctx.staff.branchName,
+  })),
+
+  issuePublicQrChallenge: anonymousQuery
+    .input(
+      z.object({
+        kioskToken: z.string().trim().min(20).max(2_048),
+      })
+    )
+    .mutation(async ({ input }) => {
+      let kioskClaims;
+      try {
+        kioskClaims = verifyAttendanceKioskToken(input.kioskToken);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? error.message
+              : "ตรวจสอบลิงก์จอ QR ไม่สำเร็จ",
+        });
+      }
+      const branch = await getDb().query.branches.findFirst({
+        columns: { id: true, name: true },
+        where: and(
+          eq(branches.id, kioskClaims.branchId),
+          eq(branches.active, true)
+        ),
+      });
+      if (!branch) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "ไม่พบสาขาที่เปิดใช้งานสำหรับจอ QR นี้",
+        });
+      }
+      return {
+        ...issueAttendanceQrToken(branch.id),
+        branchId: branch.id,
+        branchName: branch.name,
+      };
+    }),
 
   faceProfileList: managerAttendanceAction.query(async ({ ctx }) =>
     getDb()

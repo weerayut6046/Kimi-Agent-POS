@@ -4,6 +4,9 @@ import { env } from "./env";
 const TOKEN_PREFIX = "PUMPATT1";
 const TOKEN_TTL_SECONDS = 90;
 const MAX_TOKEN_TTL_SECONDS = 90;
+const KIOSK_TOKEN_PREFIX = "PUMPKIOSK1";
+const KIOSK_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const MAX_KIOSK_TOKEN_TTL_SECONDS = KIOSK_TOKEN_TTL_SECONDS;
 const FACE_TOKEN_PREFIX = "PUMPFACE1";
 const FACE_TOKEN_TTL_SECONDS = 180;
 const MAX_FACE_TOKEN_TTL_SECONDS = 240;
@@ -12,6 +15,14 @@ export type AttendanceAction = "clock_in" | "clock_out";
 export type FaceLivenessAction = "blink" | "turn_left" | "turn_right";
 
 export type AttendanceQrClaims = {
+  version: 1;
+  branchId: number;
+  nonce: string;
+  issuedAt: number;
+  expiresAt: number;
+};
+
+export type AttendanceKioskClaims = {
   version: 1;
   branchId: number;
   nonce: string;
@@ -47,6 +58,12 @@ function sign(payload: string): string {
 function signFace(payload: string): string {
   return createHmac("sha256", signingSecret())
     .update(`${FACE_TOKEN_PREFIX}.${payload}`)
+    .digest("base64url");
+}
+
+function signKiosk(payload: string): string {
+  return createHmac("sha256", signingSecret())
+    .update(`${KIOSK_TOKEN_PREFIX}.${payload}`)
     .digest("base64url");
 }
 
@@ -152,6 +169,87 @@ export function verifyAttendanceQrToken(
   }
 
   return claims as AttendanceQrClaims;
+}
+
+export function issueAttendanceKioskToken(
+  branchId: number,
+  now = new Date()
+): { token: string; expiresAt: Date } {
+  if (!Number.isInteger(branchId) || branchId <= 0) {
+    throw new Error("สาขาสำหรับเปิดจอ QR ไม่ถูกต้อง");
+  }
+  const issuedAt = Math.floor(now.getTime() / 1_000);
+  const claims: AttendanceKioskClaims = {
+    version: 1,
+    branchId,
+    nonce: randomBytes(18).toString("base64url"),
+    issuedAt,
+    expiresAt: issuedAt + KIOSK_TOKEN_TTL_SECONDS,
+  };
+  const payload = encodeBase64Url(JSON.stringify(claims));
+  return {
+    token: `${KIOSK_TOKEN_PREFIX}.${payload}.${signKiosk(payload)}`,
+    expiresAt: new Date(claims.expiresAt * 1_000),
+  };
+}
+
+export function verifyAttendanceKioskToken(
+  token: string,
+  now = new Date()
+): AttendanceKioskClaims {
+  const [prefix, payload, suppliedSignature, extra] = token.split(".");
+  if (
+    prefix !== KIOSK_TOKEN_PREFIX ||
+    !payload ||
+    !suppliedSignature ||
+    extra !== undefined
+  ) {
+    throw new Error("ลิงก์จอ QR มีรูปแบบไม่ถูกต้อง");
+  }
+
+  const encoder = new TextEncoder();
+  const expected = encoder.encode(signKiosk(payload));
+  const supplied = encoder.encode(suppliedSignature);
+  if (
+    expected.length !== supplied.length ||
+    !timingSafeEqual(expected, supplied)
+  ) {
+    throw new Error("ลิงก์จอ QR ไม่ถูกต้องหรือถูกแก้ไข");
+  }
+
+  let claims: Partial<AttendanceKioskClaims>;
+  try {
+    claims = JSON.parse(
+      decodeBase64Url(payload)
+    ) as Partial<AttendanceKioskClaims>;
+  } catch {
+    throw new Error("อ่านข้อมูลลิงก์จอ QR ไม่สำเร็จ");
+  }
+
+  if (
+    claims.version !== 1 ||
+    !Number.isInteger(claims.branchId) ||
+    Number(claims.branchId) <= 0 ||
+    typeof claims.nonce !== "string" ||
+    !/^[A-Za-z0-9_-]{20,64}$/.test(claims.nonce) ||
+    !Number.isInteger(claims.issuedAt) ||
+    !Number.isInteger(claims.expiresAt) ||
+    Number(claims.expiresAt) <= Number(claims.issuedAt) ||
+    Number(claims.expiresAt) - Number(claims.issuedAt) >
+      MAX_KIOSK_TOKEN_TTL_SECONDS
+  ) {
+    throw new Error("ข้อมูลภายในลิงก์จอ QR ไม่ถูกต้อง");
+  }
+
+  const nowSeconds = Math.floor(now.getTime() / 1_000);
+  if (Number(claims.issuedAt) > nowSeconds + 5) {
+    throw new Error("ลิงก์จอ QR ถูกสร้างจากเวลาที่ไม่ถูกต้อง");
+  }
+  if (Number(claims.expiresAt) <= nowSeconds) {
+    throw new Error("ลิงก์จอ QR หมดอายุ กรุณาเปิดลิงก์ใหม่จากระบบ");
+  }
+
+  return claims as AttendanceKioskClaims;
 }
 
 export function attendanceQrIdempotencyKey(

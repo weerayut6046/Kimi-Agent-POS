@@ -76,6 +76,30 @@ describe("attendance router", () => {
     expect(challenge.expiresAt).toBeInstanceOf(Date);
   });
 
+  it("lets a signed public kiosk refresh its branch QR without login", async () => {
+    await expect(
+      test.caller("cashier", 3).attendance.issueKioskAccess()
+    ).rejects.toThrow("ผู้จัดการ");
+
+    const kiosk = await test.caller("manager", 2).attendance.issueKioskAccess();
+    expect(kiosk.token).toMatch(/^PUMPKIOSK1\./);
+
+    const challenge = await test
+      .anonymousCaller()
+      .attendance.issuePublicQrChallenge({ kioskToken: kiosk.token });
+    expect(challenge).toMatchObject({
+      branchId: 1,
+      branchName: "สาขาหลัก",
+    });
+    expect(challenge.token).toMatch(/^PUMPATT1\./);
+
+    await expect(
+      test.anonymousCaller().attendance.issuePublicQrChallenge({
+        kioskToken: `${kiosk.token}x`,
+      })
+    ).rejects.toThrow("ไม่ถูกต้อง");
+  });
+
   it("requires enrollment and stores only an encrypted face template", async () => {
     const manager = test.caller("manager", 2);
     const cashier = test.caller("cashier", 3);
