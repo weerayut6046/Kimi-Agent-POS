@@ -425,7 +425,7 @@ entrypoint = "./functions/pos-assistant/index.ts"
 
 [functions.pos-api]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/pos-api/deno.json"
 entrypoint = "./functions/pos-api/index.ts"
 

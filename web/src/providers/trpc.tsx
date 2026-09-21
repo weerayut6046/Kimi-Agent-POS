@@ -7,17 +7,33 @@ import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
 import { currentSupabaseAccessToken } from "@/lib/supabase";
 import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
-import { resolveTrpcUrl } from "@/lib/trpcUrl";
+import {
+  resolveTrpcUrl,
+  trpcAuthHeaders,
+  usesSupabaseEdgeGateway,
+} from "@/lib/trpcUrl";
 
 export const trpc = createTRPCReact<AppRouter>();
 const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "") ?? "";
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 const supabaseFunctionRegion =
   import.meta.env.VITE_SUPABASE_FUNCTION_REGION?.trim() || "ap-northeast-1";
+const isDesktopRuntime =
+  typeof window !== "undefined" && Boolean(window.posDesktop);
+const proxyToSupabaseInDev =
+  import.meta.env.VITE_USE_SUPABASE_EDGE_API?.trim().toLowerCase() === "true";
 const trpcUrl = resolveTrpcUrl({
-  isDesktop: typeof window !== "undefined" && Boolean(window.posDesktop),
+  isDesktop: isDesktopRuntime,
   isDev: import.meta.env.DEV,
   supabaseUrl,
+});
+const usesSupabaseGateway = usesSupabaseEdgeGateway({
+  isDesktop: isDesktopRuntime,
+  isDev: import.meta.env.DEV,
+  supabaseUrl,
+  proxyToSupabaseInDev,
 });
 const customerLoyaltyTrpcUrl =
   typeof window !== "undefined" &&
@@ -47,11 +63,13 @@ async function requestHeaders() {
     : await currentSupabaseAccessToken();
   const branchId = localStorage.getItem("pumppos_branch_id");
   return {
-    ...(token
-      ? isLocalAuthEnabled
-        ? { "x-staff-session": token }
-        : { Authorization: `Bearer ${token}` }
-      : {}),
+    ...(isLocalAuthEnabled && token
+      ? { "x-staff-session": token }
+      : trpcAuthHeaders({
+          accessToken: token,
+          publishableKey: supabasePublishableKey,
+          usesSupabaseGateway,
+        })),
     "x-region": supabaseFunctionRegion,
     ...(branchId && /^[1-9][0-9]*$/.test(branchId)
       ? { "x-branch-id": branchId }

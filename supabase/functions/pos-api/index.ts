@@ -2,10 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { AnyRouter } from "@trpc/server";
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-import {
-  createAllowedOrigins,
-  createCorsResponseHeaders,
-} from "./cors.ts";
+import { createAllowedOrigins, createCorsResponseHeaders } from "./cors.ts";
+import { projectApiKeyStatus } from "./apiKey.ts";
 
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -97,6 +95,26 @@ Deno.serve(async request => {
       { status: 405, headers }
     );
   }
+  const pathname = new URL(request.url).pathname;
+  const incomingPayment = pathname.endsWith("/payments/incoming");
+  if (!incomingPayment) {
+    const apiKeyStatus = projectApiKeyStatus(request, name =>
+      Deno.env.get(name)
+    );
+    if (apiKeyStatus === "unconfigured") {
+      console.error("pos-api has no configured publishable API key");
+      return Response.json(
+        { error: { message: "API key validation is not configured" } },
+        { status: 500, headers }
+      );
+    }
+    if (apiKeyStatus !== "ok") {
+      return Response.json(
+        { error: { message: "Invalid or missing API key" } },
+        { status: 401, headers }
+      );
+    }
+  }
   const retryAfter = consumeRequestLimit(await requestFingerprint(request));
   if (retryAfter !== null) {
     headers.set("retry-after", String(retryAfter));
@@ -112,7 +130,6 @@ Deno.serve(async request => {
       { status: 413, headers }
     );
   }
-  const pathname = new URL(request.url).pathname;
   if (pathname.endsWith("/ping")) {
     headers.set("content-type", "application/json");
     return new Response(
@@ -138,10 +155,11 @@ Deno.serve(async request => {
     );
   }
   // webhook รับแจ้งเงินเข้าจากแอปบนมือถือของร้าน — ไม่ผ่าน tRPC (แอปภายนอกยิง JSON ตรงๆ)
-  if (pathname.endsWith("/payments/incoming")) {
+  if (incomingPayment) {
     const incomingResponse =
       await runtime.handleIncomingPaymentRequest(request);
-    for (const [name, value] of headers) incomingResponse.headers.set(name, value);
+    for (const [name, value] of headers)
+      incomingResponse.headers.set(name, value);
     return incomingResponse;
   }
 
