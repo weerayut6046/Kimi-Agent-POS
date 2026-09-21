@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import "@/index.css";
 import {
   useCallback,
   useEffect,
@@ -63,6 +64,8 @@ type FaceChallenge = {
   staffName: string;
 };
 
+const KIOSK_QR_REFRESH_MS = 30_000;
+
 function bangkokToday(): string {
   return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
@@ -114,6 +117,7 @@ function AttendanceKiosk() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [qrImage, setQrImage] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  const [nextRefreshAt, setNextRefreshAt] = useState(() => Date.now());
   const issueManagerChallenge = trpc.attendance.issueQrChallenge.useMutation({
     onSuccess: value => setChallenge(value),
   });
@@ -130,6 +134,7 @@ function AttendanceKiosk() {
   useEffect(() => {
     if (!canDisplay) return;
     const refresh = () => {
+      setNextRefreshAt(Date.now() + KIOSK_QR_REFRESH_MS);
       if (kioskToken) {
         issuePublicChallenge.mutate({ kioskToken });
       } else {
@@ -137,7 +142,7 @@ function AttendanceKiosk() {
       }
     };
     refresh();
-    const timer = window.setInterval(refresh, 30_000);
+    const timer = window.setInterval(refresh, KIOSK_QR_REFRESH_MS);
     return () => window.clearInterval(timer);
     // mutate is stable for the lifetime of this mounted mutation observer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,38 +188,65 @@ function AttendanceKiosk() {
   const secondsLeft = challenge
     ? Math.max(0, Math.ceil((challenge.expiresAt.getTime() - now) / 1_000))
     : 0;
+  const refreshSeconds = Math.max(0, Math.ceil((nextRefreshAt - now) / 1_000));
+  const refreshProgress = Math.max(
+    0,
+    Math.min(100, (refreshSeconds / (KIOSK_QR_REFRESH_MS / 1_000)) * 100)
+  );
+  const challengeError =
+    issueManagerChallenge.error || issuePublicChallenge.error;
+  const branchName =
+    challenge?.branchName ?? staff?.branch.name ?? "จอ QR ประจำสาขา";
 
   return (
-    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-5 text-white sm:p-8">
-      <div className="pointer-events-none absolute -left-24 top-12 size-80 rounded-full bg-cyan-400/15 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 right-0 size-96 rounded-full bg-violet-400/20 blur-3xl" />
-      <section className="relative w-full max-w-5xl">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-cyan-200">
-              <ShieldCheck className="size-4" /> QR ลงเวลาประจำสาขา
-            </div>
-            <h1 className="mt-1 font-heading text-3xl font-bold sm:text-4xl">
-              {challenge?.branchName ?? staff?.branch.name ?? "จอ QR ประจำสาขา"}
-            </h1>
-          </div>
-          {staff && (
-            <Button
-              variant="outline"
-              className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              asChild
-            >
-              <a href="/attendance">
-                <ArrowLeft /> กลับหน้าลงเวลา
-              </a>
-            </Button>
-          )}
-        </div>
+    <main className="relative min-h-[100dvh] overflow-x-hidden bg-[#f6f5fb] px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] text-slate-950 sm:px-6 sm:py-6 lg:grid lg:place-items-center">
+      <div className="surface-dots pointer-events-none absolute inset-0 opacity-60" />
+      <div className="pointer-events-none absolute -left-28 top-0 size-72 rounded-full bg-violet-300/25 blur-3xl sm:size-96" />
+      <div className="pointer-events-none absolute -right-28 bottom-0 size-72 rounded-full bg-cyan-300/20 blur-3xl sm:size-96" />
 
-        <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="space-y-5">
+      <section className="relative mx-auto w-full max-w-6xl">
+        <header className="mb-3 flex min-h-14 items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white/80 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:mb-5 sm:rounded-3xl sm:px-5 sm:py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-lg shadow-violet-600/20 sm:size-11 sm:rounded-2xl">
+              <QrCode className="size-5 sm:size-6" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-violet-600 sm:text-xs">
+                PumpPOS <span className="text-slate-300">•</span> Attendance
+              </div>
+              <h1 className="truncate font-heading text-base font-black text-slate-950 sm:text-xl">
+                {branchName}
+              </h1>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="hidden items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 sm:flex">
+              <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
+              จอพร้อมใช้งาน
+            </div>
+            {staff && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl bg-white"
+                asChild
+              >
+                <a href="/attendance">
+                  <ArrowLeft />
+                  <span className="hidden sm:inline">กลับหน้าลงเวลา</span>
+                </a>
+              </Button>
+            )}
+          </div>
+        </header>
+
+        <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(380px,470px)] lg:items-stretch">
+          <section className="order-2 overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-900 p-5 text-white shadow-xl shadow-indigo-950/15 sm:rounded-[32px] sm:p-8 lg:order-1 lg:flex lg:flex-col lg:justify-between">
             <div>
-              <div className="text-6xl font-black tabular-nums tracking-tight sm:text-7xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-cyan-200 sm:text-sm">
+                <ShieldCheck className="size-4" /> ระบบลงเวลาเข้า–ออกงาน
+              </div>
+              <div className="mt-3 font-heading text-4xl font-black tabular-nums tracking-[-0.04em] sm:mt-5 sm:text-6xl lg:text-7xl">
                 {new Date(now).toLocaleTimeString("th-TH", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -222,72 +254,130 @@ function AttendanceKiosk() {
                   timeZone: "Asia/Bangkok",
                 })}
               </div>
-              <p className="mt-3 text-lg text-indigo-100">
-                เปิดแอป PumpPOS สแกน QR แล้วสแกนใบหน้าเพื่อเข้างานหรือออกงาน
+              <p className="mt-1 text-sm font-medium text-indigo-200 sm:mt-2 sm:text-base">
+                {new Date(now).toLocaleDateString("th-TH", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                  timeZone: "Asia/Bangkok",
+                })}
+              </p>
+              <p className="mt-4 max-w-xl text-sm leading-6 text-indigo-100 sm:text-lg sm:leading-8">
+                เปิดแอป PumpPOS บนมือถือ สแกน QR
+                แล้วตรวจใบหน้าเพื่อเข้างานหรือออกงาน
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
+
+            <div className="mt-5 grid grid-cols-3 gap-2 sm:mt-8 sm:gap-3">
               {[
-                [Smartphone, "1", "เข้าสู่ระบบบนมือถือ"],
-                [QrCode, "2", "สแกน QR บนจอนี้"],
-                [ScanFace, "3", "สแกนใบหน้าให้ผ่าน"],
+                [Smartphone, "1", "เปิดบนมือถือ"],
+                [QrCode, "2", "สแกน QR"],
+                [ScanFace, "3", "สแกนใบหน้า"],
               ].map(([Icon, step, label]) => {
                 const StepIcon = Icon as typeof Smartphone;
                 return (
                   <div
                     key={String(step)}
-                    className="rounded-2xl border border-white/10 bg-white/[0.07] p-4 backdrop-blur"
+                    className="rounded-2xl border border-white/10 bg-white/[0.08] p-3 backdrop-blur sm:p-4"
                   >
-                    <div className="flex items-center gap-2 text-cyan-200">
+                    <div className="flex items-center justify-between gap-1 text-cyan-200">
                       <StepIcon className="size-5" />
-                      <span className="text-xs font-bold">
-                        ขั้นตอน {String(step)}
+                      <span className="grid size-5 place-items-center rounded-full bg-white/10 text-[10px] font-black">
+                        {String(step)}
                       </span>
                     </div>
-                    <div className="mt-2 text-sm font-medium">
+                    <div className="mt-2 text-[11px] font-bold leading-4 text-white sm:text-sm">
                       {String(label)}
                     </div>
                   </div>
                 );
               })}
             </div>
-            <p className="text-sm text-indigo-200/80">
-              QR เปลี่ยนอัตโนมัติและใช้ได้เฉพาะสาขานี้ ห้ามถ่ายภาพส่งให้ผู้อื่น
-            </p>
-          </div>
 
-          <div className="rounded-[32px] bg-white p-5 text-center shadow-2xl shadow-black/30 sm:p-7">
-            {qrImage && secondsLeft > 0 ? (
-              <img
-                src={qrImage}
-                alt="QR ลงเวลาทำงาน"
-                className="mx-auto aspect-square w-full max-w-[360px]"
-              />
-            ) : (
-              <div className="grid aspect-square place-items-center rounded-2xl bg-slate-100 text-slate-500">
-                {issueManagerChallenge.isPending ||
-                issuePublicChallenge.isPending ? (
-                  <RefreshCw className="size-10 animate-spin" />
+            <div className="mt-4 flex items-start gap-2 rounded-2xl bg-black/15 px-3 py-2.5 text-[11px] leading-5 text-indigo-200 sm:mt-6 sm:text-sm">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-300" />
+              QR ใช้ได้เฉพาะสาขานี้และเปลี่ยนอัตโนมัติ ไม่ควรถ่ายภาพส่งต่อ
+            </div>
+          </section>
+
+          <section className="order-1 rounded-[28px] border border-white/90 bg-white p-3 shadow-xl shadow-violet-950/10 sm:rounded-[32px] sm:p-5 lg:order-2">
+            <div className="mb-2.5 flex items-center justify-between gap-3 px-1 sm:mb-4">
+              <div>
+                <div className="text-xs font-bold text-violet-600">
+                  QR ประจำสาขา
+                </div>
+                <div className="mt-0.5 text-sm font-black text-slate-900 sm:text-base">
+                  สแกนด้วยกล้องโทรศัพท์
+                </div>
+              </div>
+              <div
+                className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-bold ${
+                  qrImage && secondsLeft > 0
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+              >
+                <span
+                  className={`size-2 rounded-full ${
+                    qrImage && secondsLeft > 0
+                      ? "animate-pulse bg-emerald-500"
+                      : "bg-amber-500"
+                  }`}
+                />
+                {qrImage && secondsLeft > 0 ? "พร้อมสแกน" : "กำลังเตรียม"}
+              </div>
+            </div>
+
+            <div className="mx-auto w-full max-w-[390px] rounded-[24px] bg-gradient-to-br from-violet-100 via-white to-cyan-100 p-2.5 sm:rounded-[28px] sm:p-3.5">
+              <div className="grid aspect-square place-items-center overflow-hidden rounded-[18px] bg-white p-2 shadow-sm ring-1 ring-slate-200/70 sm:rounded-[22px] sm:p-3">
+                {qrImage && secondsLeft > 0 ? (
+                  <img
+                    src={qrImage}
+                    alt="QR ลงเวลาทำงาน"
+                    className="aspect-square size-full object-contain"
+                  />
+                ) : issueManagerChallenge.isPending ||
+                  issuePublicChallenge.isPending ? (
+                  <div className="text-center text-slate-500">
+                    <RefreshCw className="mx-auto size-9 animate-spin text-violet-600 sm:size-11" />
+                    <div className="mt-3 text-sm font-bold">
+                      กำลังสร้าง QR...
+                    </div>
+                  </div>
                 ) : (
-                  <QrCode className="size-16" />
+                  <QrCode className="size-16 text-slate-300" />
                 )}
               </div>
-            )}
-            <div className="mt-4 flex items-center justify-center gap-2 text-sm font-semibold text-slate-700">
-              <Clock3 className="size-4 text-violet-600" />
-              {secondsLeft > 0
-                ? `QR ชุดใหม่ใน ${secondsLeft} วินาที`
-                : "กำลังสร้าง QR ชุดใหม่"}
             </div>
-            {(issueManagerChallenge.error || issuePublicChallenge.error) && (
-              <div className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-                {
-                  (issueManagerChallenge.error || issuePublicChallenge.error)
-                    ?.message
-                }
+
+            <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2.5 sm:mt-4 sm:px-4 sm:py-3">
+              <div className="flex items-center justify-between gap-3 text-xs font-bold text-slate-600 sm:text-sm">
+                <span className="flex items-center gap-2">
+                  <Clock3 className="size-4 text-violet-600" />
+                  เปลี่ยน QR อัตโนมัติ
+                </span>
+                <span className="tabular-nums text-violet-700">
+                  {refreshSeconds} วินาที
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-600 to-cyan-500 transition-[width] duration-1000 ease-linear"
+                  style={{ width: `${refreshProgress}%` }}
+                />
+              </div>
+            </div>
+
+            {challengeError && (
+              <div
+                role="alert"
+                className="mt-3 rounded-2xl border border-red-100 bg-red-50 px-3 py-2.5 text-center text-xs font-semibold leading-5 text-red-700 sm:text-sm"
+              >
+                {challengeError.message}
               </div>
             )}
-          </div>
+          </section>
         </div>
       </section>
     </main>

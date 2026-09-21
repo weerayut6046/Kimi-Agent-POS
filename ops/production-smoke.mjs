@@ -95,7 +95,6 @@ function parseJson(body, label) {
 function gatewayHeaders(origin) {
   return {
     apikey: publishableKey,
-    authorization: `Bearer ${publishableKey}`,
     ...(origin ? { origin } : {}),
   };
 }
