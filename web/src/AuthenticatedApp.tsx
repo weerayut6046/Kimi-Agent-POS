@@ -102,12 +102,24 @@ function AccessStatusPage({
 }
 
 export default function AuthenticatedApp() {
+  const isAttendancePath = window.location.pathname.startsWith("/attendance");
   const access = trpc.auth.systemAccess.useQuery(undefined, {
+    enabled: !isAttendancePath,
     retry: 1,
     staleTime: 0,
     refetchInterval: 15_000,
     refetchOnWindowFocus: true,
   });
+
+  // การลงเวลาต้องเข้าถึงได้ก่อนผ่านกฎล็อกกะ POS มิฉะนั้นพนักงานที่ยังไม่มี
+  // ตารางงานจะสแกน QR เพื่อสร้างรายการรอตรวจสอบไม่ได้
+  if (isAttendancePath) {
+    return (
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    );
+  }
 
   if (!access.data && access.isPending) {
     return (

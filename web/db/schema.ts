@@ -193,6 +193,127 @@ export const workSchedules = posSchema
   )
   .enableRLS();
 
+// ============ การลงเวลาทำงานพนักงาน ============
+// เก็บแยกจาก `shifts` เพราะ shifts คือกะขาย/มิเตอร์ของสถานี ส่วนตารางเหล่านี้
+// เป็นเวลาเข้า-ออกงานรายบุคคลและสามารถผูกกับ work_schedules ได้
+export const attendanceSessions = posSchema
+  .table(
+    "attendance_sessions",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "restrict" }),
+      scheduleId: integer("schedule_id").references(() => workSchedules.id, {
+        onDelete: "set null",
+      }),
+      workDate: text("work_date").notNull(), // YYYY-MM-DD ตามสาขา Asia/Bangkok
+      plannedStartAt: timestamp("planned_start_at", { withTimezone: true }),
+      plannedEndAt: timestamp("planned_end_at", { withTimezone: true }),
+      plannedBreakMinutes: integer("planned_break_minutes")
+        .notNull()
+        .default(0),
+      clockInAt: timestamp("clock_in_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      clockOutAt: timestamp("clock_out_at", { withTimezone: true }),
+      clockInMethod: text("clock_in_method", {
+        enum: ["qr", "face", "manual"],
+      }).notNull(),
+      clockOutMethod: text("clock_out_method", {
+        enum: ["qr", "face", "manual"],
+      }),
+      status: text("status", { enum: ["open", "completed"] })
+        .notNull()
+        .default("open"),
+      reviewStatus: text("review_status", {
+        enum: ["not_required", "pending", "approved", "rejected"],
+      })
+        .notNull()
+        .default("not_required"),
+      lateMinutes: integer("late_minutes").notNull().default(0),
+      earlyLeaveMinutes: integer("early_leave_minutes").notNull().default(0),
+      workedMinutes: integer("worked_minutes"),
+      note: text("note"),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchWorkDateIdx: index("attendance_session_branch_date_idx").on(
+        t.branchId,
+        t.workDate
+      ),
+      staffClockInIdx: index("attendance_session_staff_clockin_idx").on(
+        t.staffId,
+        t.clockInAt
+      ),
+      scheduleIdx: index("attendance_session_schedule_idx").on(t.scheduleId),
+      oneOpenPerStaff: uniqueIndex("attendance_session_one_open_staff_idx")
+        .on(t.staffId)
+        .where(sql`${t.status} = 'open'`),
+      validClockOrder: check(
+        "attendance_session_clock_order_check",
+        sql`${t.clockOutAt} is null or ${t.clockOutAt} >= ${t.clockInAt}`
+      ),
+      validMinutes: check(
+        "attendance_session_minutes_check",
+        sql`${t.plannedBreakMinutes} >= 0 and ${t.lateMinutes} >= 0 and ${t.earlyLeaveMinutes} >= 0 and (${t.workedMinutes} is null or ${t.workedMinutes} >= 0)`
+      ),
+    })
+  )
+  .enableRLS();
+
+export const attendanceEvents = posSchema
+  .table(
+    "attendance_events",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .default(sql`pos.default_branch_id()`)
+        .references(() => branches.id, { onDelete: "restrict" }),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "restrict" }),
+      sessionId: integer("session_id")
+        .notNull()
+        .references(() => attendanceSessions.id, { onDelete: "cascade" }),
+      eventType: text("event_type", {
+        enum: ["clock_in", "clock_out"],
+      }).notNull(),
+      method: text("method", { enum: ["qr", "face", "manual"] }).notNull(),
+      occurredAt: timestamp("occurred_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      idempotencyKey: text("idempotency_key").notNull().unique(),
+      deviceLabel: text("device_label"),
+      metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      branchOccurredIdx: index("attendance_event_branch_occurred_idx").on(
+        t.branchId,
+        t.occurredAt
+      ),
+      staffOccurredIdx: index("attendance_event_staff_occurred_idx").on(
+        t.staffId,
+        t.occurredAt
+      ),
+      sessionIdx: index("attendance_event_session_idx").on(t.sessionId),
+    })
+  )
+  .enableRLS();
+
 export const employeeProfiles = posSchema
   .table(
     "employee_profiles",
@@ -1634,6 +1755,8 @@ export type StaffBranch = typeof staffBranches.$inferSelect;
 export type StaffUser = typeof staffUsers.$inferSelect;
 export type WorkShiftTemplate = typeof workShiftTemplates.$inferSelect;
 export type WorkSchedule = typeof workSchedules.$inferSelect;
+export type AttendanceSession = typeof attendanceSessions.$inferSelect;
+export type AttendanceEvent = typeof attendanceEvents.$inferSelect;
 export type EmployeeProfile = typeof employeeProfiles.$inferSelect;
 export type PayrollRecord = typeof payrollRecords.$inferSelect;
 export type Product = typeof products.$inferSelect;

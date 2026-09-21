@@ -29,6 +29,7 @@ const Audit = lazy(() => import("@/pages/Audit"));
 const Security = lazy(() => import("@/pages/Security"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Workforce = lazy(() => import("@/pages/Workforce"));
+const Attendance = lazy(() => import("@/pages/Attendance"));
 
 function MenuRoute({
   permission,
@@ -59,7 +60,8 @@ export default function App() {
     staff.role,
     staff.menuPermissions
   );
-  if (!landingPath) {
+  const isAttendancePath = window.location.pathname.startsWith("/attendance");
+  if (!landingPath && !isAttendancePath) {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-50 p-6 text-center">
         <div className="max-w-md rounded-3xl border bg-white p-8 shadow-sm">
@@ -76,6 +78,7 @@ export default function App() {
       </main>
     );
   }
+  const fallbackPath = landingPath ?? "/attendance";
 
   return (
     <Suspense
@@ -90,7 +93,9 @@ export default function App() {
       }
     >
       <Routes>
-        <Route path="/login" element={<Navigate to={landingPath} replace />} />
+        <Route path="/login" element={<Navigate to={fallbackPath} replace />} />
+        <Route path="/attendance" element={<Attendance />} />
+        <Route path="/attendance/kiosk" element={<Attendance />} />
         <Route element={<Layout />}>
           <Route
             path="/"
@@ -260,7 +265,7 @@ export default function App() {
               </MenuRoute>
             }
           />
-          <Route path="*" element={<Navigate to={landingPath} replace />} />
+          <Route path="*" element={<Navigate to={fallbackPath} replace />} />
         </Route>
       </Routes>
     </Suspense>

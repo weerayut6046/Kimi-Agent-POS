@@ -26,6 +26,7 @@ import {
   CornerDownLeft,
   Sparkles,
   BadgePlus,
+  ScanLine,
   type LucideIcon,
 } from "lucide-react";
 import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
@@ -105,6 +106,14 @@ const menus: MenuItem[] = [
     label: "พนักงานและตารางงาน",
     shortLabel: "พนักงาน",
     icon: CalendarDays,
+    group: "station",
+  },
+  {
+    permission: "workforce",
+    to: "/attendance",
+    label: "ลงเวลาเข้า–ออกงาน",
+    shortLabel: "ลงเวลา",
+    icon: ScanLine,
     group: "station",
   },
   {

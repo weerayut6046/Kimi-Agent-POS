@@ -2,7 +2,7 @@
 
 สำหรับพัฒนาโดยไม่ใช้ Cloud SQL/Supabase Database ให้ใช้ `npm run dev:local` หรือ `npm run dev:self-hosted` ดูขั้นตอนและข้อควรระวังใน [Local / Self-hosted development](./docs/local-self-hosted-development.md)
 
-เอกสารโครงการ: [`PROJECT.md`](./PROJECT.md) · แผนระบบ: [`plan.md`](./plan.md) · แผน Desktop: [`plan-desktop.md`](./plan-desktop.md)
+เอกสารโครงการ: [`PROJECT.md`](./PROJECT.md) · แผนระบบ: [`plan.md`](./plan.md) · แผน Desktop: [`plan-desktop.md`](./plan-desktop.md) · [ระบบลงเวลาเข้า–ออกงาน](./docs/employee-attendance.md)
 
 ## Desktop App (Microsoft Store)
 
