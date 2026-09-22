@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  ScanFace,
   Settings2,
   Trash2,
   UserPlus,
@@ -468,13 +469,22 @@ export default function Workforce() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="page-heading flex items-center gap-2">
-          <UserRound className="size-6 text-primary" /> พนักงานและตารางงาน
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          ตารางกะพนักงาน การสลับกะ และเงินเดือน แยกจากกะมิเตอร์ขายหน้าลาน
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="page-heading flex items-center gap-2">
+            <UserRound className="size-6 text-primary" /> พนักงานและตารางงาน
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            ตารางกะพนักงาน การสลับกะ และเงินเดือน แยกจากกะมิเตอร์ขายหน้าลาน
+          </p>
+        </div>
+        {canViewBranchSchedules && (
+          <Button variant="outline" asChild>
+            <a href="/workforce/face-enrollment">
+              <ScanFace className="size-4" /> ลงทะเบียนใบหน้าเพื่อเข้าสู่ระบบ
+            </a>
+          </Button>
+        )}
       </div>
       {message && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">

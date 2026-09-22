@@ -52,7 +52,6 @@ import {
   activeReceiptPromotion,
   appliedBillThresholdPromotionDiscount,
   appliedPromotionDiscount,
-  bangkokDateKey,
 } from "@contracts/promotion";
 import { env } from "../lib/env";
 import {
@@ -64,7 +63,6 @@ import {
   nozzles,
   shifts,
   shiftReadings,
-  attendanceSessions,
   sales,
   saleItems,
   members,
@@ -515,31 +513,6 @@ export const posRouter = createRouter({
         where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
       });
       if (existing) throw new Error("มีกะที่เปิดอยู่แล้ว กรุณาปิดกะก่อน");
-      const workDate = bangkokDateKey(new Date());
-      const faceClockIn = await db.query.attendanceSessions.findFirst({
-        columns: { id: true },
-        where: and(
-          eq(attendanceSessions.branchId, branchId),
-          eq(attendanceSessions.staffId, ctx.staff.id),
-          eq(attendanceSessions.workDate, workDate),
-          eq(attendanceSessions.clockInMethod, "face"),
-          eq(attendanceSessions.status, "open")
-        ),
-        orderBy: desc(attendanceSessions.clockInAt),
-      });
-      if (!faceClockIn) {
-        logAudit({
-          action: "shift_open_blocked_no_face_attendance",
-          ...actorFromReq(ctx.req),
-          detail: `ปฏิเสธการเปิดกะ: ยังไม่ได้สแกนใบหน้าเข้างานวันที่ ${workDate}`,
-          refType: "staff_user",
-          refId: ctx.staff.id,
-        });
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "กรุณาสแกน QR และยืนยันใบหน้าเข้างานของวันนี้ก่อนเปิดกะ",
-        });
-      }
       const prodRows = await db.query.products.findMany({
         where: eq(products.branchId, branchId),
       });

@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { Buffer } from "node:buffer";
+import { issueFaceSessionProof } from "./faceSessionProof";
 import { env } from "./env";
 import { staffAuthEmail } from "@contracts/auth";
 
@@ -38,6 +40,7 @@ export type IssuedSupabaseStaffSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  faceProof: string;
 };
 
 /**
@@ -103,11 +106,19 @@ export async function issueSupabaseStaffSession(
       verified.error?.message || "Unable to create staff sign-in session"
     );
   }
+  const jwtPayload = JSON.parse(
+    Buffer.from(session.access_token.split(".")[1] ?? "", "base64url")
+      .toString("utf8")
+  ) as { session_id?: unknown };
+  if (typeof jwtPayload.session_id !== "string") {
+    throw new Error("Supabase session is missing session_id");
+  }
   return {
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
     expiresAt:
       session.expires_at ?? Math.floor(Date.now() / 1_000) + session.expires_in,
+    faceProof: issueFaceSessionProof(expectedUserId, jwtPayload.session_id),
   };
 }
 

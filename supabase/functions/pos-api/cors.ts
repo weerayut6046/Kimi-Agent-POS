@@ -33,7 +33,7 @@ export function createCorsResponseHeaders(
     headers.set("access-control-allow-origin", origin);
     headers.set(
       "access-control-allow-headers",
-      "authorization,content-type,apikey,trpc-accept,x-branch-id,x-region",
+      "authorization,content-type,apikey,trpc-accept,x-branch-id,x-region,x-face-proof",
     );
     headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
     headers.set("access-control-max-age", "600");

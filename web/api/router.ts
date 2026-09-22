@@ -15,7 +15,7 @@ import { workforceRouter } from "./routers/workforce";
 import { assistantRouter } from "./routers/assistant";
 import { paymentsRouter } from "./routers/payments";
 import { stockCountRouter } from "./routers/stockCount";
-import { attendanceRouter } from "./routers/attendance";
+import { faceAuthRouter } from "./routers/faceAuth";
 
 export const appRouter = createRouter({
   ping: anonymousQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -35,7 +35,7 @@ export const appRouter = createRouter({
   workforce: workforceRouter,
   assistant: assistantRouter,
   stockCount: stockCountRouter,
-  attendance: attendanceRouter,
+  faceAuth: faceAuthRouter,
 });
 
 export type AppRouter = typeof appRouter;

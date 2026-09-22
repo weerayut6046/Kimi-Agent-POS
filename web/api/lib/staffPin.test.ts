@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { hashStaffPin, verifyStaffPin } from "./staffPin";
+import { createHash } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import {
+  hashStaffPin,
+  isLegacyStaffPinHash,
+  verifyLegacyStaffPin,
+  verifyStaffPin,
+} from "./staffPin";
 
 describe("staff PIN storage", () => {
   it("stores a keyed digest and verifies only the matching PIN", async () => {
@@ -14,5 +20,25 @@ describe("staff PIN storage", () => {
     expect(() => hashStaffPin("123")).toThrow("4-6");
     expect(() => hashStaffPin("1234567")).toThrow("4-6");
     expect(() => hashStaffPin("12a4")).toThrow("4-6");
+  });
+
+  it("recognizes and verifies only the historical SHA-256 PIN format", () => {
+    const stored = createHash("sha256").update("1357").digest("hex");
+    expect(isLegacyStaffPinHash(stored)).toBe(true);
+    expect(isLegacyStaffPinHash(hashStaffPin("1357"))).toBe(false);
+    expect(verifyLegacyStaffPin("1357", stored)).toBe(true);
+    expect(verifyLegacyStaffPin("1358", stored)).toBe(false);
+  });
+
+  it("verifies a legacy PIN when the Edge runtime has no global Buffer", () => {
+    const stored = createHash("sha256").update("1357").digest("hex");
+    vi.stubGlobal("Buffer", undefined);
+    let matched: boolean;
+    try {
+      matched = verifyLegacyStaffPin("1357", stored);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(matched).toBe(true);
   });
 });

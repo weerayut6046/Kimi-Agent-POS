@@ -45,6 +45,9 @@ describe("pos-api CORS", () => {
     expect(allowed.get("access-control-allow-headers")).toContain(
       "authorization",
     );
+    expect(allowed.get("access-control-allow-headers")).toContain(
+      "x-face-proof",
+    );
     expect(blocked.has("access-control-allow-origin")).toBe(false);
   });
 });

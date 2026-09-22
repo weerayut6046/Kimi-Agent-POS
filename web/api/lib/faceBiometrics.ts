@@ -99,3 +99,20 @@ export function bestFaceSimilarity(
     0
   );
 }
+
+export function verifyFaceSamples(
+  candidates: number[][],
+  enrolled: number[][]
+): { accepted: boolean; similarity: number; matchCount: number } {
+  const scores = candidates.map(candidate =>
+    bestFaceSimilarity(candidate, enrolled)
+  );
+  const matchCount = scores.filter(score => score >= FACE_MATCH_THRESHOLD).length;
+  // Existing clients send one sample. New scans require a strict majority,
+  // so a single noisy frame cannot decide the entire login.
+  return {
+    accepted: matchCount > candidates.length / 2,
+    similarity: Math.max(...scores),
+    matchCount,
+  };
+}

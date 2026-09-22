@@ -16,7 +16,6 @@ const todayStr = () => {
 
 beforeAll(async () => {
   t = await setupTestDb();
-  await t.faceClockIn();
   // เปิดกะไว้ก่อน — ค่าใช้จ่ายที่สร้างต้องผูกกะนี้
   const nozzles = await t.db.query.nozzles.findMany();
   const res = await t.caller().pos.openShift({

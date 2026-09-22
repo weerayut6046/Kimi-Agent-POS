@@ -29,7 +29,7 @@ const Audit = lazy(() => import("@/pages/Audit"));
 const Security = lazy(() => import("@/pages/Security"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Workforce = lazy(() => import("@/pages/Workforce"));
-const Attendance = lazy(() => import("@/pages/Attendance"));
+const FaceEnrollment = lazy(() => import("@/pages/FaceEnrollment"));
 
 function MenuRoute({
   permission,
@@ -60,8 +60,7 @@ export default function App() {
     staff.role,
     staff.menuPermissions
   );
-  const isAttendancePath = window.location.pathname.startsWith("/attendance");
-  if (!landingPath && !isAttendancePath) {
+  if (!landingPath) {
     return (
       <main className="grid min-h-screen place-items-center bg-slate-50 p-6 text-center">
         <div className="max-w-md rounded-3xl border bg-white p-8 shadow-sm">
@@ -78,7 +77,7 @@ export default function App() {
       </main>
     );
   }
-  const fallbackPath = landingPath ?? "/attendance";
+  const fallbackPath = landingPath;
 
   return (
     <Suspense
@@ -94,9 +93,14 @@ export default function App() {
     >
       <Routes>
         <Route path="/login" element={<Navigate to={fallbackPath} replace />} />
-        <Route path="/attendance" element={<Attendance />} />
-        <Route path="/attendance/kiosk" element={<Attendance />} />
-        <Route path="/attendance/enroll" element={<Attendance />} />
+        <Route
+          path="/workforce/face-enrollment"
+          element={
+            <MenuRoute permission="workforce" managerOnly>
+              <FaceEnrollment />
+            </MenuRoute>
+          }
+        />
         <Route element={<Layout />}>
           <Route
             path="/"
