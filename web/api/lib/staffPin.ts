@@ -1,8 +1,10 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { env } from "./env";
 import { verifyLocalPassword } from "./localPassword";
 
 const PIN_PREFIX = "staff-pin-hmac-v1";
+const LEGACY_SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
 export const STAFF_PIN_PATTERN = /^\d{4,6}$/;
 
@@ -24,6 +26,27 @@ export function hashStaffPin(pin: string): string {
   return `${PIN_PREFIX}:${pinDigest(pin)}`;
 }
 
+export function isLegacyStaffPinHash(stored: string): boolean {
+  return LEGACY_SHA256_PATTERN.test(stored);
+}
+
+/**
+ * Verify the historical unsalted SHA-256 format only so a successful login
+ * can replace it with the keyed digest. Callers must persist hashStaffPin(pin)
+ * immediately after a match; this is a compatibility bridge, not a storage
+ * format for new or reset PINs.
+ */
+export function verifyLegacyStaffPin(pin: string, stored: string): boolean {
+  if (!STAFF_PIN_PATTERN.test(pin) || !isLegacyStaffPinHash(stored)) {
+    return false;
+  }
+  const expected = Buffer.from(stored, "hex");
+  const actual = createHash("sha256").update(pin).digest();
+  return (
+    expected.length === actual.length && timingSafeEqual(expected, actual)
+  );
+}
+
 export async function verifyStaffPin(
   pin: string,
   stored: string
@@ -36,6 +59,10 @@ export async function verifyStaffPin(
     return (
       expected.length === actual.length && timingSafeEqual(expected, actual)
     );
+  }
+
+  if (process.env.NODE_ENV === "test" && verifyLegacyStaffPin(pin, stored)) {
+    return true;
   }
 
   // Keep existing Local Dev and integration-test accounts usable until an

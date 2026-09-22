@@ -35,4 +35,27 @@ describe("face biometrics", () => {
       bestFaceSimilarity(embedding(0.01), [embedding(), embedding(0.01)])
     ).toBe(1);
   });
+
+  it("requires a majority of matching frames without lowering the threshold", async () => {
+    const { FACE_MATCH_THRESHOLD, verifyFaceSamples } =
+      await import("./faceBiometrics");
+    const different = Array.from({ length: 128 }, (_, index) =>
+      index % 2 === 0 ? 1 : -1
+    );
+    expect(FACE_MATCH_THRESHOLD).toBe(0.55);
+    expect(verifyFaceSamples([embedding()], [embedding()]).accepted).toBe(true);
+    expect(verifyFaceSamples([different], [embedding()]).accepted).toBe(false);
+    expect(verifyFaceSamples(
+      [different, embedding(), different, different, different],
+      [embedding()]
+    )).toMatchObject({ accepted: false, matchCount: 1 });
+    expect(verifyFaceSamples(
+      [different, embedding(), different, embedding(0.01), different],
+      [embedding()]
+    )).toMatchObject({ accepted: false, matchCount: 2 });
+    expect(verifyFaceSamples(
+      [different, embedding(), embedding(-0.01), embedding(0.01), different],
+      [embedding()]
+    )).toMatchObject({ accepted: true, matchCount: 3 });
+  });
 });

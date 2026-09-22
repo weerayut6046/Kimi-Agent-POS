@@ -12,12 +12,9 @@ afterAll(() => t.cleanup());
 
 describe("staff menu permissions", () => {
   it("returns role defaults for existing users", async () => {
-    const session = await t.anonymousCaller().auth.login({
-      username: "somchai",
-      pin: "0000",
-    });
+    const session = await t.caller("cashier", 3).auth.currentStaff();
 
-    expect(session.sessionToken).toMatch(/^[^.]+\.[^.]+$/);
+    expect(session.authenticated).toBe(true);
     expect(session.menuPermissions).toContain("pos");
     expect(session.menuPermissions).not.toContain("audit");
   });

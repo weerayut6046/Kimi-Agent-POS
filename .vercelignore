@@ -13,3 +13,8 @@ mobile
 .vscode
 .agents
 .claude
+tmp
+output
+.env*
+.testsprite
+desktop/certs/*.pfx

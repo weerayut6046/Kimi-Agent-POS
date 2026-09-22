@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
+import { TRPCError } from "@trpc/server";
 import {
   anonymousQuery,
   authenticatedStaffAction,
@@ -29,8 +30,10 @@ import { actorFromReq, logAudit } from "../lib/audit";
 import { clientIpFromReq } from "../lib/clientIp";
 import { activeStaffSessionFromRequest } from "../lib/authorization";
 import { env } from "../lib/env";
-import { issueStaffSession } from "../lib/session";
-import { hashStaffPin, verifyStaffPin } from "../lib/staffPin";
+import {
+  hashStaffPin,
+  verifyLegacyStaffPin,
+} from "../lib/staffPin";
 import {
   createSupabaseStaffIdentity,
   deleteSupabaseStaffIdentity,
@@ -61,23 +64,25 @@ const staffPinInput = z
 async function ensureStaffPinAvailable(
   pinHash: string,
   branchIds: number[],
-  excludeStaffId?: number
+  excludeStaffId?: number,
+  plainPin?: string
 ) {
   const matches = await getDb()
-    .select({ id: staffUsers.id, name: staffUsers.name })
+    .select({ id: staffUsers.id, name: staffUsers.name, pin: staffUsers.pin })
     .from(staffUsers)
     .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
-    .where(
-      and(
-        eq(staffUsers.pin, pinHash),
-        inArray(staffBranches.branchId, branchIds)
-      )
-    );
-  const conflict = matches.find(staff => staff.id !== excludeStaffId);
+    .where(inArray(staffBranches.branchId, branchIds));
+  const conflict = matches.find(
+    staff =>
+      staff.id !== excludeStaffId &&
+      (staff.pin === pinHash ||
+        (plainPin !== undefined && verifyLegacyStaffPin(plainPin, staff.pin)))
+  );
   if (conflict) {
-    throw new Error(
-      `PIN นี้ถูกใช้โดย ${conflict.name} ในสาขาที่เลือกแล้ว กรุณาตั้ง PIN อื่น`
-    );
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: `PIN นี้ถูกใช้โดย ${conflict.name} ในสาขาที่เลือกแล้ว กรุณาตั้ง PIN อื่น`,
+    });
   }
 }
 
@@ -162,40 +167,6 @@ export async function staffSessionResponse(
 }
 
 export const authRouter = createRouter({
-  login: anonymousQuery
-    .input(z.object({ username: z.string().min(1), pin: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      if (process.env.NODE_ENV !== "test" && !env.localAuthEnabled) {
-        throw new Error(
-          "This login endpoint is disabled. Sign in with Supabase Auth."
-        );
-      }
-      const db = getDb();
-      const user = await db.query.staffUsers.findFirst({
-        where: eq(staffUsers.username, input.username),
-      });
-      if (
-        !user ||
-        !user.active ||
-        !(await verifyStaffPin(input.pin, user.pin))
-      ) {
-        throw new Error("ชื่อผู้ใช้หรือรหัส PIN ไม่ถูกต้อง");
-      }
-      const staff = await staffSessionResponse(user);
-      return {
-        ...staff,
-        sessionToken: issueStaffSession({
-          id: staff.id,
-          name: staff.name,
-          role: staff.role,
-          username: staff.username,
-          branchId: staff.branchId,
-          branchCode: staff.branchCode,
-          branchName: staff.branchName,
-        }),
-      };
-    }),
-
   // รับรายงานความพยายาม login จากหน้าจอ (ไม่ต้องเข้าสู่ระบบ) — เก็บเฉพาะ
   // username/success/ip ห้ามส่งหรือเก็บรหัสผ่านเด็ดขาด; เกิน rate limit
   // หรือบันทึกไม่สำเร็จให้เงียบไว้ ไม่โยน error กลับไปที่ client
@@ -833,7 +804,7 @@ export const authRouter = createRouter({
         ? ctx.staff.branchId
         : branchIds[0];
       const storedPin = hashStaffPin(pin);
-      await ensureStaffPinAvailable(storedPin, branchIds);
+      await ensureStaffPinAvailable(storedPin, branchIds, undefined, pin);
       const identity =
         env.localAuthEnabled || process.env.NODE_ENV === "test"
           ? null
@@ -971,17 +942,22 @@ export const authRouter = createRouter({
           throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
         }
       }
-      const nextBranchIds =
-        branchIds ??
-        (
-          await db.query.staffBranches.findMany({
-            where: eq(staffBranches.staffId, id),
-            columns: { branchId: true },
-          })
-        ).map(membership => membership.branchId);
-      const nextPinHash = pin ? hashStaffPin(pin) : target.pin;
-      if (nextPinHash.startsWith("staff-pin-hmac-v1:")) {
-        await ensureStaffPinAvailable(nextPinHash, nextBranchIds, id);
+      const currentBranchIds = (
+        await db.query.staffBranches.findMany({
+          where: eq(staffBranches.staffId, id),
+          columns: { branchId: true },
+        })
+      ).map(membership => membership.branchId);
+      const nextBranchIds = branchIds ?? currentBranchIds;
+      const gainsBranch = nextBranchIds.some(
+        branchId => !currentBranchIds.includes(branchId)
+      );
+      // Existing accounts can have duplicate legacy PIN hashes. Editing an
+      // unrelated field must not block them; check when the PIN or its branch
+      // scope actually changes.
+      if (pin || gainsBranch) {
+        const nextPinHash = pin ? hashStaffPin(pin) : target.pin;
+        await ensureStaffPinAvailable(nextPinHash, nextBranchIds, id, pin);
       }
       await db.transaction(async tx => {
         await tx.update(staffUsers).set(patch).where(eq(staffUsers.id, id));

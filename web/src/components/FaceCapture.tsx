@@ -11,9 +11,11 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   detectFaceFrame,
+  faceFacingCenter,
   loadFaceEngine,
   type FaceFrame,
 } from "@/lib/faceRecognition";
+import { frameStatus } from "@/lib/faceScanQuality";
 
 export type FaceLivenessAction = "blink" | "turn_left" | "turn_right";
 
@@ -44,9 +46,9 @@ type ScanUi = {
 };
 
 const actionLabel: Record<FaceLivenessAction, string> = {
-  blink: "กะพริบตา 1 ครั้ง",
-  turn_left: "หันหน้าไปทางซ้ายเล็กน้อย",
-  turn_right: "หันหน้าไปทางขวาเล็กน้อย",
+  blink: "หลับตาค้างครู่หนึ่ง แล้วลืมตา",
+  turn_left: "หันหน้าไปทางซ้ายค้างครู่หนึ่ง แล้วกลับมามองตรง",
+  turn_right: "หันหน้าไปทางขวาค้างครู่หนึ่ง แล้วกลับมามองตรง",
 };
 
 const initialScanUi: ScanUi = {
@@ -56,26 +58,18 @@ const initialScanUi: ScanUi = {
   clarityReady: false,
   livenessReady: false,
 };
+const VERIFY_SAMPLE_COUNT = 3;
+const ENROLL_SAMPLE_COUNT = 3;
+const MAX_TRANSIENT_MISSING_FRAMES = 3;
 
 function qualityReady(frame: FaceFrame): boolean {
   return (
+    frame.embedding.length >= 128 &&
     frame.faceScore >= 0.6 &&
     frame.real >= 0.6 &&
     frame.live >= 0.6 &&
     frame.faceSize >= 160
   );
-}
-
-function frameStatus(frame: FaceFrame | null, faceCount: number): string {
-  if (faceCount === 0) return "วางใบหน้าให้อยู่กลางกรอบ";
-  if (faceCount > 1) return "ให้มีเพียง 1 คนอยู่ในภาพ";
-  if (!frame) return "กำลังอ่านรายละเอียดใบหน้า...";
-  if (frame.faceSize < 160) return "ขยับเข้าใกล้กล้องอีกนิด";
-  if (frame.faceScore < 0.6) return "มองกล้องตรง ๆ และเพิ่มแสงสว่าง";
-  if (frame.real < 0.6 || frame.live < 0.6) {
-    return "อยู่นิ่ง ๆ กำลังตรวจสอบบุคคลจริง";
-  }
-  return "ตรวจพบใบหน้าแล้ว";
 }
 
 function scanUiEqual(left: ScanUi, right: ScanUi): boolean {
@@ -102,6 +96,8 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
   const blinkStartedRef = useRef(false);
   const actionDoneRef = useRef(false);
   const stableFramesRef = useRef(0);
+  const missingFaceFramesRef = useRef(0);
+  const lastFaceSeenAtRef = useRef(0);
   const samplesRef = useRef<number[][]>([]);
   const lastSampleAtRef = useRef(0);
   const [phase, setPhase] = useState<"loading" | "scanning" | "done" | "error">(
@@ -110,6 +106,8 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
   const [scanUi, setScanUi] = useState<ScanUi>(initialScanUi);
   const [error, setError] = useState("");
   const [samples, setSamples] = useState(0);
+  const [actionComplete, setActionComplete] = useState(false);
+  const displayedAction = mode === "enroll" ? "blink" : action;
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
@@ -131,6 +129,20 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
 
     const updateScanUi = (next: ScanUi) => {
       setScanUi(current => (scanUiEqual(current, next) ? current : next));
+    };
+
+    const resetCapturedSamples = () => {
+      if (samplesRef.current.length > 0) {
+        samplesRef.current = [];
+        setSamples(0);
+      }
+    };
+
+    const resetIdentityProgress = () => {
+      resetCapturedSamples();
+      blinkStartedRef.current = false;
+      actionDoneRef.current = false;
+      setActionComplete(false);
     };
 
     const fail = (value: string) => {
@@ -193,6 +205,17 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             if (cancelledRef.current) return;
             if (!frame) {
               stableFramesRef.current = 0;
+              missingFaceFramesRef.current += 1;
+              if (faceCount > 1 ||
+                  missingFaceFramesRef.current > MAX_TRANSIENT_MISSING_FRAMES ||
+                  Date.now() - lastFaceSeenAtRef.current > 600) {
+                resetIdentityProgress();
+              } else if (actionDoneRef.current || blinkStartedRef.current || samplesRef.current.length > 0) {
+                // A brief detector dropout is common during a blink or turn.
+                // Keep the challenge progress, but still require a fresh good
+                // frame before collecting another sample.
+                continue;
+              }
               updateScanUi({
                 message: frameStatus(frame, faceCount),
                 progress: faceCount === 1 ? 28 : 18,
@@ -202,6 +225,9 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
               });
               continue;
             }
+
+            missingFaceFramesRef.current = 0;
+            lastFaceSeenAtRef.current = Date.now();
 
             const faceReady = frame.faceSize >= 160;
             const clarityReady = frame.faceScore >= 0.6;
@@ -219,7 +245,10 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
                   : requestedAction === "turn_right"
                     ? frame.gestures.includes("facing right")
                     : true;
-            if (actionObserved) actionDoneRef.current = true;
+            if (actionObserved && !actionDoneRef.current) {
+              actionDoneRef.current = true;
+              setActionComplete(true);
+            }
 
             if (!qualityReady(frame)) {
               stableFramesRef.current = 0;
@@ -244,7 +273,7 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
               });
               continue;
             }
-            const facingCenter = frame.gestures.includes("facing center");
+            const facingCenter = faceFacingCenter(frame);
             if (!facingCenter) {
               stableFramesRef.current = 0;
               updateScanUi({
@@ -258,7 +287,10 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             }
 
             stableFramesRef.current += 1;
-            const stableFramesRequired = mode === "verify" ? 1 : 2;
+            // Wait for two steady frames after the liveness action. Once the
+            // face is centered, later samples only need one fresh good frame.
+            const stableFramesRequired = mode === "verify" && samplesRef.current.length > 0
+              ? 1 : 2;
             if (stableFramesRef.current < stableFramesRequired) {
               updateScanUi({
                 message: "อยู่นิ่ง ๆ อีกนิด กำลังยืนยันใบหน้า",
@@ -270,25 +302,26 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
               continue;
             }
 
-            if (mode === "enroll") {
-              if (Date.now() - lastSampleAtRef.current < 450) continue;
-              lastSampleAtRef.current = Date.now();
-              samplesRef.current.push(frame.embedding);
-              const sampleCount = samplesRef.current.length;
-              setSamples(sampleCount);
-              stableFramesRef.current = 0;
-              if (sampleCount < 3) {
-                updateScanUi({
-                  message: `บันทึกครั้งที่ ${sampleCount}/3 แล้ว ขยับหน้าเล็กน้อย`,
-                  progress: 70 + sampleCount * 9,
-                  faceReady,
-                  clarityReady,
-                  livenessReady,
-                });
-                continue;
-              }
+            if (Date.now() - lastSampleAtRef.current < 400) continue;
+            lastSampleAtRef.current = Date.now();
+            samplesRef.current.push(frame.embedding);
+            const sampleCount = samplesRef.current.length;
+            const sampleTarget = mode === "verify"
+              ? VERIFY_SAMPLE_COUNT : ENROLL_SAMPLE_COUNT;
+            setSamples(sampleCount);
+            stableFramesRef.current = 0;
+            if (sampleCount < sampleTarget) {
+              updateScanUi({
+                message: mode === "verify"
+                  ? `เก็บภาพที่ชัด ${sampleCount}/${sampleTarget} เฟรม มองกล้องตรงและอยู่นิ่ง ๆ`
+                  : `บันทึกครั้งที่ ${sampleCount}/${sampleTarget} แล้ว ขยับหน้าเล็กน้อย`,
+                progress: 70 + Math.round(sampleCount * 29 / sampleTarget),
+                faceReady,
+                clarityReady,
+                livenessReady,
+              });
+              continue;
             }
-
             cancelledRef.current = true;
             stream.getTracks().forEach(track => track.stop());
             streamRef.current = null;
@@ -301,8 +334,7 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
               livenessReady: true,
             });
             onCompleteRef.current({
-              embeddings:
-                mode === "enroll" ? samplesRef.current : [frame.embedding],
+              embeddings: samplesRef.current,
               quality: {
                 faceScore: frame.faceScore,
                 real: frame.real,
@@ -425,10 +457,10 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             <div aria-live="polite" className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-300">
                 {mode === "enroll"
-                  ? `ตัวอย่าง ${Math.min(samples + 1, 3)}/3`
-                  : "สแกนอัตโนมัติ"}
+                  ? `ตัวอย่าง ${Math.min(samples + 1, ENROLL_SAMPLE_COUNT)}/${ENROLL_SAMPLE_COUNT}`
+                  : `ภาพยืนยัน ${Math.min(samples + 1, VERIFY_SAMPLE_COUNT)}/${VERIFY_SAMPLE_COUNT}`}
               </div>
-              <div className="mt-1 truncate text-sm font-semibold sm:text-base">
+              <div className="mt-1 text-sm font-semibold leading-5 sm:text-base">
                 {scanUi.message}
               </div>
             </div>
@@ -452,6 +484,16 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
               style={{ width: `${scanUi.progress}%` }}
             />
           </div>
+          {displayedAction && (phase === "loading" || phase === "scanning") && (
+            <div
+              aria-live="polite"
+              className="mt-3 rounded-xl bg-violet-400/15 px-3 py-2 text-sm font-semibold text-violet-100 ring-1 ring-violet-300/25"
+            >
+              {actionComplete
+                ? "ตรวจพบท่าทางแล้ว มองกล้องตรงและอยู่นิ่ง ๆ"
+                : `ท่าที่ต้องทำ: ${actionLabel[displayedAction]}`}
+            </div>
+          )}
           <div className="mt-3 grid grid-cols-3 gap-1.5">
             {qualityChecks.map(item => (
               <div

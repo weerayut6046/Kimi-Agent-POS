@@ -1,16 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { staffAuthEmail } from "@contracts/auth";
 
 export type SupabaseRealtimeSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  faceProof: string;
 };
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
 const supabasePublishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
 const SUPABASE_AUTH_STORAGE_KEY = "pumppos_supabase_auth";
+const FACE_PROOF_STORAGE_KEY = "pumppos_face_proof";
 const ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS = 30;
 
 let browserClient: Promise<SupabaseClient | null> | undefined;
@@ -89,32 +90,27 @@ export async function installSupabaseSession(
   if (!client || !session) return false;
   if (session.expiresAt <= Math.floor(Date.now() / 1000)) return false;
 
+  window.localStorage.setItem(FACE_PROOF_STORAGE_KEY, session.faceProof);
   const { error } = await client.auth.setSession({
     access_token: session.accessToken,
     refresh_token: session.refreshToken,
   });
+  if (error) window.localStorage.removeItem(FACE_PROOF_STORAGE_KEY);
   return !error;
 }
 
+export function currentFaceSessionProof(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(FACE_PROOF_STORAGE_KEY);
+}
+
 export async function clearSupabaseSession(): Promise<void> {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(FACE_PROOF_STORAGE_KEY);
+  }
   const client = await getSupabaseBrowserClient();
   if (!client) return;
   await client.auth.signOut({ scope: "local" });
-}
-
-/** Bootstrap/recovery login for an administrator who needs to issue the
- * branch QR or configure employee PINs. Employee login never uses this path. */
-export async function signInStaffWithPassword(
-  username: string,
-  password: string
-): Promise<void> {
-  const client = await getSupabaseBrowserClient();
-  if (!client) throw new Error("Supabase Auth is not configured");
-  const { error } = await client.auth.signInWithPassword({
-    email: staffAuthEmail(username),
-    password,
-  });
-  if (error) throw new Error(error.message);
 }
 
 export async function currentSupabaseAccessToken(): Promise<string | null> {

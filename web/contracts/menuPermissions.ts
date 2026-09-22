@@ -45,7 +45,7 @@ export const MENU_PERMISSION_DEFINITIONS = [
     label: "พนักงานและตารางงาน",
     group: "station",
     roles: ALL_ROLES,
-    apiPrefixes: ["workforce.", "attendance."] as const,
+    apiPrefixes: ["workforce.", "faceAuth."] as const,
   },
   {
     key: "stock",
@@ -190,6 +190,11 @@ export function isRoleEligibleForMenu(
  * ภายใต้ router นั้นถูกตรวจสิทธิ์โดยอัตโนมัติ
  */
 export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
+  // Pre-auth login is gated by username, PIN and enrolled face in the API.
+  if (
+    path === "faceAuth.beginFaceLogin" ||
+    path === "faceAuth.completeFaceLogin"
+  ) return [];
   if (
     path.startsWith("pos.shift") ||
     path === "pos.openShift" ||

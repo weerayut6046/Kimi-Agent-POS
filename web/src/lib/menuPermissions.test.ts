@@ -46,6 +46,11 @@ describe("menu permissions", () => {
   });
 
   it("maps shared routers to every feature that legitimately consumes them", () => {
+    expect(getApiMenuPermissions("faceAuth.beginFaceLogin")).toEqual([]);
+    expect(getApiMenuPermissions("faceAuth.completeFaceLogin")).toEqual([]);
+    expect(getApiMenuPermissions("faceAuth.enrollFace")).toEqual(["workforce"]);
+    expect(getApiMenuPermissions("faceAuth.deleteFaceProfile")).toEqual(["workforce"]);
+    expect(getApiMenuPermissions("faceAuth.futureFeature")).toEqual(["workforce"]);
     expect(getApiMenuPermissions("pos.dashboard")).toEqual(["dashboard"]);
     expect(getApiMenuPermissions("pos.deleteSale")).toEqual(["sales"]);
     expect(getApiMenuPermissions("payments.promptpayQr")).toEqual([

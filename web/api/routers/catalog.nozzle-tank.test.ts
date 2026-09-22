@@ -7,7 +7,6 @@ let t: TestDb;
 
 beforeAll(async () => {
   t = await setupTestDb();
-  await t.faceClockIn();
 });
 
 afterAll(() => t.cleanup());

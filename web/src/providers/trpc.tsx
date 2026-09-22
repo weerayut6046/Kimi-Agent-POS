@@ -5,7 +5,7 @@ import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
-import { currentSupabaseAccessToken } from "@/lib/supabase";
+import { currentFaceSessionProof, currentSupabaseAccessToken } from "@/lib/supabase";
 import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
 import {
   resolveTrpcUrl,
@@ -61,6 +61,7 @@ async function requestHeaders() {
   const token = isLocalAuthEnabled
     ? readLocalSessionToken()
     : await currentSupabaseAccessToken();
+  const faceProof = isLocalAuthEnabled ? null : currentFaceSessionProof();
   const branchId = localStorage.getItem("pumppos_branch_id");
   return {
     ...(isLocalAuthEnabled && token
@@ -71,6 +72,9 @@ async function requestHeaders() {
           usesSupabaseGateway,
         })),
     "x-region": supabaseFunctionRegion,
+    ...(!isLocalAuthEnabled && token && faceProof
+      ? { "x-face-proof": faceProof }
+      : {}),
     ...(branchId && /^[1-9][0-9]*$/.test(branchId)
       ? { "x-branch-id": branchId }
       : {}),
