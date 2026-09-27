@@ -104,6 +104,7 @@ const actionLabel: Record<string, string> = {
   remove_expense: "ลบค่าใช้จ่าย",
   receive_debt_payment: "รับชำระหนี้",
   remove_debt_payment: "ลบการชำระหนี้",
+  save_fuel_forecast_settings: "ตั้งค่าแผนสั่งน้ำมัน",
   analyze_formula_audit: "AI วิเคราะห์ผลตรวจ",
   create_formula_audit_fix_plan: "AI สร้างแผนแก้ไข",
   approve_formula_audit_fix_plan: "อนุมัติแผนแก้ไข AI",
@@ -320,7 +321,12 @@ export default function Audit() {
           </div>
 
           {formulaAudit.isError && (
-            <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              role="alert"
+              className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>
                 {formulaAudit.error.message || "ไม่สามารถตรวจสอบข้อมูลได้"}
@@ -329,14 +335,24 @@ export default function Audit() {
           )}
 
           {formulaAudit.isLoading && !result && (
-            <div className="flex items-center gap-2 rounded-xl border border-violet-100 bg-white/80 p-4 text-sm text-violet-700">
+            <div
+              data-slot="notice"
+              data-tone="info"
+              role="status"
+              className="flex items-center gap-2 rounded-xl border border-violet-100 bg-white/80 p-4 text-sm text-violet-700"
+            >
               <RefreshCw className="size-4 animate-spin" />{" "}
               กำลังตรวจสอบสูตรและข้อมูล...
             </div>
           )}
 
           {aiAnalysis.isError && (
-            <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              role="alert"
+              className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>
                 {aiAnalysis.error.message ||
@@ -410,7 +426,12 @@ export default function Audit() {
           )}
 
           {fixPlan.isError && (
-            <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              role="alert"
+              className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>
                 {fixPlan.error.message || "AI ไม่สามารถสร้างแผนแก้ไขได้"}
@@ -550,7 +571,11 @@ export default function Audit() {
                 ))}
               </div>
 
-              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div
+                data-slot="notice"
+                data-tone="warning"
+                className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <p className="text-xs leading-5 text-amber-800">
                   การอนุมัติจะบันทึกว่าแผนพร้อมเข้าสู่ขั้นตรวจโค้ดและทดสอบ
                   แต่จะยังไม่แก้โค้ดหรือข้อมูลใด ๆ
@@ -603,7 +628,12 @@ export default function Audit() {
           {(createWorkOrder.isError ||
             startWorkOrder.isError ||
             verifyWorkOrder.isError) && (
-            <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              role="alert"
+              className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>
                 {createWorkOrder.error?.message ||
@@ -696,7 +726,12 @@ export default function Audit() {
               </div>
 
               {verifyWorkOrder.data && !verifyWorkOrder.data.passed && (
-                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                <div
+                  data-slot="notice"
+                  data-tone="warning"
+                  role="alert"
+                  className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"
+                >
                   <p className="font-bold">ผลตรวจล่าสุดยังไม่ผ่าน</p>
                   <p>{verifyWorkOrder.data.resultSummary}</p>
                   {"metrics" in verifyWorkOrder.data && (
@@ -724,7 +759,12 @@ export default function Audit() {
               )}
 
               {activeWorkOrder.status === "succeeded" && (
-                <div className="mt-3 flex gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                <div
+                  data-slot="notice"
+                  data-tone="success"
+                  role="status"
+                  className="mt-3 flex gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+                >
                   <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
                   <span>
                     {activeWorkOrder.resultSummary ||
@@ -872,7 +912,12 @@ export default function Audit() {
               </div>
 
               {result.counts.total === 0 ? (
-                <div className="flex flex-col items-center rounded-2xl border border-emerald-200 bg-emerald-50/80 px-5 py-8 text-center">
+                <div
+                  data-slot="notice"
+                  data-tone="success"
+                  role="status"
+                  className="flex flex-col items-center rounded-2xl border border-emerald-200 bg-emerald-50/80 px-5 py-8 text-center"
+                >
                   <CheckCircle2 className="size-10 text-emerald-600" />
                   <h3 className="mt-3 font-heading font-bold text-emerald-900">
                     ไม่พบความผิดปกติจากกฎที่ตรวจ
@@ -1046,12 +1091,21 @@ export default function Audit() {
                   ระบบจะตรวจว่าหลักฐาน Audit
                   ยังตรงกับตอนสร้างแผนก่อนบันทึกการอนุมัติ
                 </p>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
+                <div
+                  data-slot="notice"
+                  data-tone="info"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-800"
+                >
                   ขั้นตอนนี้ไม่รัน SQL ไม่แก้ข้อมูลธุรกิจ ไม่แก้ไฟล์โค้ด และไม่
                   deploy การเปลี่ยนแปลงอัตโนมัติ
                 </div>
                 {approveFixPlan.isError && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
+                  <div
+                    data-slot="notice"
+                    data-tone="error"
+                    role="alert"
+                    className="rounded-xl border border-red-200 bg-red-50 p-3 text-red-700"
+                  >
                     {approveFixPlan.error.message || "อนุมัติแผนไม่สำเร็จ"}
                   </div>
                 )}

@@ -355,7 +355,11 @@ export default function MemberCardBatches() {
                 ))}
               </div>
               {!quantityValid && (
-                <p className="text-xs text-destructive">
+                <p
+                  data-slot="field-error"
+                  role="alert"
+                  className="text-xs text-destructive"
+                >
                   กำหนดได้ครั้งละ 1–500 ใบ
                 </p>
               )}

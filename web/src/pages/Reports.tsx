@@ -1,12 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import {
-  ClipboardList,
-  FileSpreadsheet,
-  Fuel,
-  Gauge,
-  Printer,
-} from "lucide-react";
+import { ClipboardList, Fuel, Gauge, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,7 +18,6 @@ import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { ZReportDoc } from "@/components/ZReportDoc";
 import { printElement } from "@/lib/printDoc";
-import { downloadBase64, XLSX_MIME } from "@/lib/download";
 import {
   fmtMoney,
   fmtNum,
@@ -49,14 +42,10 @@ export default function Reports() {
   const canManage = staff?.role === "admin" || staff?.role === "manager";
   const [searchParams] = useSearchParams();
   const requestedDate = searchParams.get("date") ?? "";
-  const requestedFrom = searchParams.get("from") ?? "";
-  const requestedTo = searchParams.get("to") ?? "";
   const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   const [date, setDate] = useState(
     validDate(requestedDate) ? requestedDate : todayStr()
   );
-  const utils = trpc.useUtils();
-
   const {
     data: r,
     isLoading,
@@ -68,41 +57,11 @@ export default function Reports() {
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
 
-  // กำไรต่อลิตร + ส่งออก Excel มีข้อมูลต้นทุน — เฉพาะ admin/manager (server บังคับด้วย managerQuery)
+  // กำไรต่อลิตรมีข้อมูลต้นทุน — เฉพาะ admin/manager (server บังคับด้วย managerQuery)
   const { data: profit } = trpc.reports.fuelProfit.useQuery(
     { date },
     { enabled: canManage && /^\d{4}-\d{2}-\d{2}$/.test(date) }
   );
-  const [exporting, setExporting] = useState(false);
-  const [exportErr, setExportErr] = useState("");
-  const [rangeFrom, setRangeFrom] = useState(
-    validDate(requestedFrom) ? requestedFrom : todayStr()
-  );
-  const [rangeTo, setRangeTo] = useState(
-    validDate(requestedTo) ? requestedTo : todayStr()
-  );
-
-  const runExport = async (
-    fetch: () => Promise<{ fileName: string; contentBase64: string }>
-  ) => {
-    setExportErr("");
-    setExporting(true);
-    try {
-      const f = await fetch();
-      downloadBase64(f.fileName, f.contentBase64, XLSX_MIME);
-    } catch (e) {
-      setExportErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setExporting(false);
-    }
-  };
-  const exportDaily = () =>
-    runExport(() => utils.reports.exportDailyExcel.fetch({ date }));
-  const exportRange = () =>
-    runExport(() =>
-      utils.reports.exportRangeExcel.fetch({ from: rangeFrom, to: rangeTo })
-    );
-
   const printReport = () => {
     const el = document.getElementById("zreport-print");
     if (el) printElement(el, "size: auto; margin: 8mm");
@@ -150,20 +109,18 @@ export default function Reports() {
           >
             <Printer className="w-4 h-4 mr-1" /> พิมพ์ Z-report
           </Button>
-          {canManage && (
-            <Button
-              className="flex-1 sm:flex-none"
-              variant="outline"
-              disabled={!r || exporting}
-              onClick={exportDaily}
-            >
-              <FileSpreadsheet className="w-4 h-4 mr-1" /> ส่งออก Excel
-            </Button>
-          )}
         </div>
       </div>
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
-      {exportErr && <p className="text-sm text-destructive">{exportErr}</p>}
+      {error && (
+        <p
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {error.message}
+        </p>
+      )}
       {isLoading && (
         <p className="text-sm text-muted-foreground">กำลังโหลด...</p>
       )}
@@ -387,7 +344,9 @@ export default function Reports() {
                     <TableHead className="text-right">เงินทอน</TableHead>
                     <TableHead className="text-right">ยอดนับได้รวม</TableHead>
                     <TableHead className="text-right">เงินสดต่าง</TableHead>
-                    <TableHead className="text-right">เงินสดต่างเทียบ P</TableHead>
+                    <TableHead className="text-right">
+                      เงินสดต่างเทียบ P
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -460,8 +419,7 @@ export default function Reports() {
                                   : ""
                             }
                           >
-                            {s.cashDiffP > 0 ? "+" : ""}฿
-                            {fmtMoney(s.cashDiffP)}
+                            {s.cashDiffP > 0 ? "+" : ""}฿{fmtMoney(s.cashDiffP)}
                           </span>
                         ) : (
                           "-"
@@ -587,67 +545,6 @@ export default function Reports() {
               </CardContent>
             </Card>
           </div>
-
-          {/* ส่งออกช่วงเวลา (สูงสุด 92 วัน) — เฉพาะ admin/manager */}
-          {canManage && (
-            <Card>
-              <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-2">
-                  ส่งออกยอดขายช่วงเวลา (Excel)
-                </h2>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
-                    <Label
-                      htmlFor="range-from"
-                      className="text-xs text-muted-foreground"
-                    >
-                      จากวันที่
-                    </Label>
-                    <Input
-                      id="range-from"
-                      type="date"
-                      className="w-full sm:w-44"
-                      value={rangeFrom}
-                      onChange={e => setRangeFrom(e.target.value)}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
-                    <Label
-                      htmlFor="range-to"
-                      className="text-xs text-muted-foreground"
-                    >
-                      ถึงวันที่
-                    </Label>
-                    <Input
-                      id="range-to"
-                      type="date"
-                      className="w-full sm:w-44"
-                      value={rangeTo}
-                      onChange={e => setRangeTo(e.target.value)}
-                    />
-                  </div>
-                  <Button
-                    className="w-full sm:w-auto"
-                    variant="outline"
-                    disabled={
-                      exporting ||
-                      !/^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) ||
-                      !/^\d{4}-\d{2}-\d{2}$/.test(rangeTo)
-                    }
-                    onClick={exportRange}
-                  >
-                    <FileSpreadsheet className="w-4 h-4 mr-1" />
-                    {exporting ? "กำลังสร้างไฟล์..." : "ส่งออกช่วงเวลา"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  ไฟล์มีสรุปรายวัน บิลขายทั้งช่วง และกำไรน้ำมันโดยประมาณ —
-                  พิมพ์เป็น PDF ใช้ปุ่ม &quot;พิมพ์ Z-report&quot; แล้วเลือก
-                  Save as PDF
-                </p>
-              </CardContent>
-            </Card>
-          )}
 
           {/* เอกสารสำหรับพิมพ์ (ซ่อนไว้บนหน้าจอ) */}
           <div className="hidden">

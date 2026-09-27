@@ -2,6 +2,7 @@ import {
   pgSchema,
   text,
   integer,
+  bigint,
   boolean,
   timestamp,
   numeric,
@@ -23,6 +24,47 @@ import type {
 
 // Keep application tables outside Supabase's exposed `public` schema.
 export const posSchema = pgSchema("pos");
+
+// Platform metadata only. Each registered business runs in its own deployment
+// and Supabase project; no POS rows or connection credentials live here.
+export const saasBusinesses = posSchema
+  .table(
+    "saas_businesses",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      code: text("code").notNull().unique(),
+      name: text("name").notNull(),
+      contactEmail: text("contact_email").notNull().default(""),
+      contactPhone: text("contact_phone").notNull().default(""),
+      status: text("status", { enum: ["active", "paused"] })
+        .notNull()
+        .default("active"),
+      appUrl: text("app_url").notNull().unique(),
+      supabaseProjectRef: text("supabase_project_ref").notNull().unique(),
+      notes: text("notes").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      statusCheck: check(
+        "saas_business_status_check",
+        sql`${t.status} in ('active', 'paused')`
+      ),
+      codeCheck: check(
+        "saas_business_code_check",
+        sql`${t.code} ~ '^[A-Z0-9_-]{2,40}$'`
+      ),
+      projectRefCheck: check(
+        "saas_business_project_ref_check",
+        sql`${t.supabaseProjectRef} ~ '^[a-z0-9]{20}$'`
+      ),
+    })
+  )
+  .enableRLS();
 
 // ============ สาขา ============
 export const branches = posSchema
@@ -86,6 +128,7 @@ export const staffUsers = posSchema
       ),
       menuPermissions: jsonb("menu_permissions").$type<MenuPermissionKey[]>(),
       supabaseAuthUserId: uuid("supabase_auth_user_id").unique(),
+      passkeyUserHandle: text("passkey_user_handle").unique(),
       active: boolean("active").notNull().default(true),
       createdAt: timestamp("created_at", { withTimezone: true })
         .notNull()
@@ -119,6 +162,63 @@ export const staffBranches = posSchema
       }),
       staffIdx: index("staffbranch_staff_idx").on(t.staffId),
       branchIdx: index("staffbranch_branch_idx").on(t.branchId),
+    })
+  )
+  .enableRLS();
+
+// WebAuthn credentials and one-time challenges are only read by the POS API.
+export const passkeyCredentials = posSchema
+  .table(
+    "passkey_credentials",
+    {
+      id: text("id").primaryKey(),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "cascade" }),
+      publicKey: text("public_key").notNull(),
+      counter: bigint("counter", { mode: "number" }).notNull().default(0),
+      transports: jsonb("transports").$type<string[]>(),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    },
+    t => ({
+      staffIdx: index("passkey_credential_staff_idx").on(t.staffId),
+    })
+  )
+  .enableRLS();
+
+export const passkeyChallenges = posSchema
+  .table(
+    "passkey_challenges",
+    {
+      id: uuid("id").primaryKey(),
+      purpose: text("purpose", {
+        enum: ["registration", "authentication"],
+      }).notNull(),
+      challenge: text("challenge").notNull(),
+      staffId: integer("staff_id").references(() => staffUsers.id, {
+        onDelete: "cascade",
+      }),
+      userHandle: text("user_handle"),
+      requestIp: text("request_ip"),
+      expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+      consumedAt: timestamp("consumed_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      expiresIdx: index("passkey_challenge_expires_idx").on(t.expiresAt),
+      ipCreatedIdx: index("passkey_challenge_ip_created_idx").on(
+        t.requestIp,
+        t.createdAt
+      ),
+      registrationStaffCheck: check(
+        "passkey_registration_staff_check",
+        sql`${t.purpose} <> 'registration' OR (${t.staffId} IS NOT NULL AND ${t.userHandle} IS NOT NULL)`
+      ),
     })
   )
   .enableRLS();
@@ -839,6 +939,13 @@ export const shiftReadings = posSchema
       })
         .notNull()
         .default(0),
+      costPerLiter: numeric("cost_per_liter", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      })
+        .notNull()
+        .default(0), // snapshot ต้นทุนน้ำมันตอนเปิดกะ สำหรับกำไรจากยอด P
     },
     t => ({
       branchIdx: index("shiftreading_branch_idx").on(t.branchId),
@@ -977,6 +1084,19 @@ export const saleItems = posSchema
         scale: 3,
         mode: "number",
       }).notNull(),
+      // Snapshot ณ เวลาขาย เพื่อให้รายงานกำไรย้อนหลังไม่เปลี่ยนตามราคาทุน/หมวดปัจจุบัน
+      costPerUnit: numeric("cost_per_unit", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      })
+        .notNull()
+        .default(0),
+      productCategory: text("product_category", {
+        enum: ["fuel", "lubricant", "other"],
+      })
+        .notNull()
+        .default("other"),
       amount: numeric("amount", {
         precision: 18,
         scale: 3,
@@ -1791,6 +1911,7 @@ export const securityReports = posSchema
   .enableRLS();
 
 // ============ Types ============
+export type SaasBusiness = typeof saasBusinesses.$inferSelect;
 export type Branch = typeof branches.$inferSelect;
 export type StaffBranch = typeof staffBranches.$inferSelect;
 export type StaffUser = typeof staffUsers.$inferSelect;

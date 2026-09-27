@@ -6,6 +6,12 @@ import { useStaff } from "./useStaff";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
 import { createSseParser } from "@/lib/realtimeSse";
+import { trpc } from "@/providers/trpc";
+import {
+  createRealtimeRefreshScheduler,
+  realtimeHttpRetryDelayMs,
+  shouldRefreshAfterTransportReady,
+} from "@/lib/realtimeRefresh";
 
 const SUPABASE_TOPIC_PREFIX = "pos-invalidation-v1";
 const SUPABASE_EVENT = "invalidate";
@@ -15,9 +21,15 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const staffId = staff?.id;
   const branchId = staff?.branch.id;
+  const deployment = trpc.auth.deploymentInfo.useQuery(undefined, {
+    enabled: Boolean(staffId),
+    staleTime: 60_000,
+    trpc: { context: { skipBatch: true } },
+  });
+  const businessRealtimeEnabled = deployment.data?.mode === "business";
 
   useEffect(() => {
-    if (!staffId || !branchId) return;
+    if (!staffId || !branchId || !businessRealtimeEnabled) return;
 
     let stopped = false;
     let client: SupabaseClient | null = null;
@@ -25,7 +37,22 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     let retryTimer: number | undefined;
     let retryMs = 1_000;
     let unsubscribeAuth: (() => void) | undefined;
+    let lastTransportRefreshAt = Number.NEGATIVE_INFINITY;
     const seen = new Set<string>();
+    const refresh = createRealtimeRefreshScheduler(() => {
+      void queryClient.invalidateQueries(
+        { refetchType: "active" },
+        { cancelRefetch: false }
+      );
+    });
+    const refreshAfterTransportReady = () => {
+      const now = Date.now();
+      if (!shouldRefreshAfterTransportReady(lastTransportRefreshAt, now)) {
+        return;
+      }
+      lastTransportRefreshAt = now;
+      refresh.schedule();
+    };
 
     const invalidate = (event: unknown) => {
       if (!isRealtimeInvalidationEvent(event)) return;
@@ -35,10 +62,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         const oldest = seen.values().next().value as string | undefined;
         if (oldest) seen.delete(oldest);
       }
-      void queryClient.invalidateQueries(
-        { refetchType: "active" },
-        { cancelRefetch: false }
-      );
+      refresh.schedule();
     };
 
     if (isLocalAuthEnabled) {
@@ -47,13 +71,16 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       let retryMs = 1_000;
       let activeController: AbortController | undefined;
 
-      const scheduleRetry = () => {
+      const scheduleRetry = (delayMs?: number) => {
         if (stopped || retryTimer !== undefined) return;
+        const nextDelayMs = delayMs ?? retryMs;
         retryTimer = window.setTimeout(() => {
           retryTimer = undefined;
           void connect();
-        }, retryMs);
-        retryMs = Math.min(retryMs * 2, 30_000);
+        }, nextDelayMs);
+        if (delayMs === undefined) {
+          retryMs = Math.min(retryMs * 2, 30_000);
+        }
       };
 
       const connect = async () => {
@@ -61,6 +88,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         if (stopped || !token) return;
         const controller = new AbortController();
         activeController = controller;
+        let retryDelay: number | null | undefined;
         try {
           const response = await fetch("/api/realtime", {
             headers: {
@@ -71,11 +99,27 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
             signal: controller.signal,
           });
           if (!response.ok || !response.body) {
+            const serverRetryDelay = realtimeHttpRetryDelayMs(
+              response.status,
+              response.headers.get("retry-after"),
+              retryMs
+            );
+            if (serverRetryDelay === null) {
+              retryDelay = null;
+              return;
+            }
+            if (response.status === 429 || response.status === 503) {
+              retryDelay = serverRetryDelay;
+            }
             throw new Error(`Realtime HTTP ${response.status}`);
           }
           retryMs = 1_000;
           const decoder = new TextDecoder();
           const parse = createSseParser(message => {
+            if (message.event === "ready") {
+              refreshAfterTransportReady();
+              return;
+            }
             if (message.event !== "invalidate") return;
             try {
               invalidate(JSON.parse(message.data));
@@ -91,20 +135,21 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
           }
         } catch (error) {
           if (
-            !stopped &&
-            !(error instanceof DOMException && error.name === "AbortError")
-          ) {
-            scheduleRetry();
-          }
+            stopped ||
+            (error instanceof DOMException && error.name === "AbortError")
+          )
+            return;
+          // Network and server failures reconnect in finally using backoff.
         } finally {
           if (activeController === controller) activeController = undefined;
-          if (!stopped) scheduleRetry();
+          if (!stopped && retryDelay !== null) scheduleRetry(retryDelay);
         }
       };
 
       void connect();
       return () => {
         stopped = true;
+        refresh.cancel();
         activeController?.abort();
         if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       };
@@ -144,10 +189,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         if (stopped || channel !== next) return;
         if (status === "SUBSCRIBED") {
           retryMs = 1_000;
-          void queryClient.invalidateQueries(
-            { refetchType: "active" },
-            { cancelRefetch: false }
-          );
+          refreshAfterTransportReady();
           return;
         }
         if (
@@ -177,11 +219,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stopped = true;
+      refresh.cancel();
       unsubscribeAuth?.();
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       disconnect();
     };
-  }, [branchId, queryClient, staffId]);
+  }, [branchId, businessRealtimeEnabled, queryClient, staffId]);
 
   return children;
 }

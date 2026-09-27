@@ -1,0 +1,234 @@
+/*!
+ * Appearance adapted from TailAdmin React Free 2.4.0.
+ * Source: https://github.com/TailAdmin/free-react-tailwind-admin-dashboard
+ * Full notice: docs/licenses/tailadmin-MIT.txt
+ *
+ * MIT License
+ *
+ * Copyright (c) 2023 TailAdmin
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * Plain, scoped CSS keeps the application on Tailwind 3. Screen-only rules
+ * leave receipt and document printing under the existing print styles.
+ */
+@media screen {
+  :root[data-pos-template="tailadmin"][data-pos-theme] {
+    --background: 210 20% 98.04%;
+    --foreground: 220 42.86% 10.98%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 42.86% 10.98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 42.86% 10.98%;
+    --secondary: 216 23.81% 95.88%;
+    --secondary-foreground: 217.5 23.53% 26.67%;
+    --muted: 216 23.81% 95.88%;
+    --muted-foreground: 220.65 13.19% 46.08%;
+    --border: 217.5 17.39% 90.98%;
+    --input: 217.5 17.39% 90.98%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 217.5 23.53% 26.67%;
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: 216 23.81% 95.88%;
+    --sidebar-accent-foreground: 217.5 23.53% 26.67%;
+    --sidebar-border: 217.5 17.39% 90.98%;
+    --sidebar-ring: var(--ring);
+    --pos-page-start: 210 20% 98.04%;
+    --pos-page-end: 210 20% 98.04%;
+    --pos-sidebar: 0 0% 100%;
+    --pos-sidebar-active: var(--accent);
+    --pos-sidebar-active-foreground: var(--accent-foreground);
+    --pos-sidebar-accent-line: var(--primary);
+    --pos-brand: var(--primary);
+    --pos-tailadmin-active-background: hsl(var(--primary) / 0.08);
+  }
+
+  :root[data-pos-template="tailadmin"][data-pos-theme="command"] {
+    --primary: 231.89 100% 63.73%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 217.89 100% 96.27%;
+    --accent-foreground: 231.89 100% 63.73%;
+    --ring: 231.89 100% 63.73%;
+    --pos-tailadmin-active-background: #ecf3ff;
+  }
+
+  :root[data-pos-template="tailadmin"] body {
+    background-color: #f9fafb;
+    background-image: none;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-shell {
+    background-color: #f9fafb;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar {
+    border-color: #e4e7ec;
+    background-color: #fff;
+    color: #344054;
+    box-shadow: none;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-decoration {
+    display: none;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-brand {
+    border-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-title,
+  :root[data-pos-template="tailadmin"] .pos-sidebar-staff-name,
+  :root[data-pos-template="tailadmin"] .pos-mobile-brand {
+    color: #101828;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-subtitle,
+  :root[data-pos-template="tailadmin"] .pos-sidebar-status-label,
+  :root[data-pos-template="tailadmin"] .pos-sidebar-staff-role,
+  :root[data-pos-template="tailadmin"] .pos-mobile-status,
+  :root[data-pos-template="tailadmin"] .pos-mobile-time {
+    color: #667085;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-section-label {
+    color: #98a2b3;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-status {
+    border-color: #e4e7ec;
+    background-color: #f9fafb;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-status-title {
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-footer {
+    border-color: #e4e7ec;
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-branch {
+    border-color: #e4e7ec;
+    background-color: #fff;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-branch:focus {
+    border-color: hsl(var(--ring));
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-avatar {
+    background-color: var(--pos-tailadmin-active-background);
+    color: hsl(var(--accent-foreground));
+    --tw-ring-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-logout {
+    border-color: #e4e7ec;
+    color: #667085;
+    --tw-ring-color: hsl(var(--ring));
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-sidebar-logout:hover {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-nav-link {
+    min-height: 44px;
+    border-radius: 8px;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-nav-link:hover {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-nav-icon {
+    background-color: transparent;
+    color: #667085;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-nav-link:hover .pos-nav-icon {
+    background-color: transparent;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-nav-link.pos-nav-active,
+  :root[data-pos-template="tailadmin"] .pos-nav-link.pos-nav-active:hover {
+    background-color: var(--pos-tailadmin-active-background);
+    color: hsl(var(--accent-foreground));
+    box-shadow: none;
+  }
+
+  :root[data-pos-template="tailadmin"]
+    .pos-nav-link.pos-nav-active
+    .pos-nav-icon {
+    background-color: transparent;
+    color: hsl(var(--accent-foreground));
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-desktop-header,
+  :root[data-pos-template="tailadmin"] .pos-mobile-header {
+    border-color: #e4e7ec;
+    background-color: #fff;
+    color: #344054;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-mobile-action {
+    border: 1px solid #e4e7ec;
+    background-color: #fff;
+    color: #344054;
+    --tw-ring-color: hsl(var(--ring));
+  }
+
+  :root[data-pos-template="tailadmin"] .pos-mobile-action:hover {
+    background-color: #f2f4f7;
+  }
+
+  :root[data-pos-template="tailadmin"]
+    .pos-sidebar[data-slot="sheet-content"]
+    > button {
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="card"] {
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.03);
+  }
+
+  @media (min-width: 1024px) {
+    :root[data-pos-template="tailadmin"] aside.pos-sidebar {
+      width: 290px;
+    }
+
+    :root[data-pos-template="tailadmin"] .pos-shell-body {
+      margin-left: 290px;
+    }
+  }
+}

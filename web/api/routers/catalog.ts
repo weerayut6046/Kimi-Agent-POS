@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { and, desc, eq, ilike, ne, sql } from "drizzle-orm";
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { adminQuery, managerQuery } from "../guard";
@@ -6,7 +7,11 @@ import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { lookupExternalProduct } from "../lib/externalProductLookup";
 import { persistExternalProductImage } from "../lib/productImageStorage";
-import { mergeSettingDefaults } from "@contracts/settings";
+import {
+  APP_TEMPLATE_IDS,
+  APP_THEME_IDS,
+  mergeSettingDefaults,
+} from "@contracts/settings";
 import {
   billPromotionSettingsValidationMessage,
   promotionSettingsValidationMessage,
@@ -27,6 +32,7 @@ import {
 
 const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
 const PRODUCT_DISPLAY_ORDER_KEY = "product_display_order";
+const appTemplateInput = z.enum(APP_TEMPLATE_IDS);
 
 function parseDisplayOrder(value: string | null | undefined): number[] {
   if (!value) return [];
@@ -234,6 +240,7 @@ export const catalogRouter = createRouter({
   createProduct: adminQuery
     .input(
       z.object({
+        expectedBranchId: z.number().int().positive().optional(),
         code: z.string().min(1),
         name: z.string().min(1),
         category: z.enum(["fuel", "lubricant", "other"]),
@@ -245,9 +252,20 @@ export const catalogRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const { expectedBranchId, ...values } = input;
+      if (
+        expectedBranchId !== undefined &&
+        expectedBranchId !== ctx.staff.branchId
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "สาขาที่กำลังใช้งานเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่ก่อนบันทึก",
+        });
+      }
       await getDb()
         .insert(products)
-        .values({ ...input, branchId: ctx.staff.branchId });
+        .values({ ...values, branchId: ctx.staff.branchId });
       return { ok: true };
     }),
 
@@ -255,6 +273,7 @@ export const catalogRouter = createRouter({
     .input(
       z.object({
         id: z.number(),
+        expectedBranchId: z.number().int().positive().optional(),
         code: z.string().min(1).optional(),
         name: z.string().min(1).optional(),
         category: z.enum(["fuel", "lubricant", "other"]).optional(),
@@ -267,7 +286,17 @@ export const catalogRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, ...patch } = input;
+      const { id, expectedBranchId, ...patch } = input;
+      if (
+        expectedBranchId !== undefined &&
+        expectedBranchId !== ctx.staff.branchId
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "สาขาที่กำลังใช้งานเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่ก่อนบันทึก",
+        });
+      }
       const db = getDb();
       const before = await db.query.products.findFirst({
         where: and(
@@ -1169,7 +1198,20 @@ export const catalogRouter = createRouter({
     .input(
       z.object({
         entries: z.array(
-          z.object({ key: z.string().min(1), value: z.string() })
+          z
+            .object({ key: z.string().min(1), value: z.string() })
+            .superRefine((entry, ctx) => {
+              if (
+                entry.key === "app_template" &&
+                !appTemplateInput.safeParse(entry.value).success
+              ) {
+                ctx.addIssue({
+                  code: "custom",
+                  path: ["value"],
+                  message: "เทมเพลตหน้าแอปไม่รองรับ",
+                });
+              }
+            })
         ),
       })
     )
@@ -1209,6 +1251,58 @@ export const catalogRouter = createRouter({
           rows.map(r => [r.key, r.value] as const)
         ),
       };
+    }),
+
+  updateTemplate: adminQuery
+    .input(z.object({ template: appTemplateInput }))
+    .mutation(async ({ input, ctx }) => {
+      await getDb()
+        .insert(settings)
+        .values({
+          branchId: ctx.staff.branchId,
+          key: "app_template",
+          value: input.template,
+        })
+        .onConflictDoUpdate({
+          target: [settings.branchId, settings.key],
+          set: { value: input.template },
+        });
+
+      logAudit({
+        action: "settings.template.update",
+        ...actorFromReq(ctx.req),
+        detail: `เปลี่ยนเทมเพลตหน้าแอปเป็น ${input.template}`,
+        refType: "settings",
+        refId: ctx.staff.branchId,
+      });
+
+      return { ok: true, template: input.template };
+    }),
+
+  updateTheme: adminQuery
+    .input(z.object({ theme: z.enum(APP_THEME_IDS) }))
+    .mutation(async ({ input, ctx }) => {
+      await getDb()
+        .insert(settings)
+        .values({
+          branchId: ctx.staff.branchId,
+          key: "app_theme",
+          value: input.theme,
+        })
+        .onConflictDoUpdate({
+          target: [settings.branchId, settings.key],
+          set: { value: input.theme },
+        });
+
+      logAudit({
+        action: "settings.theme.update",
+        ...actorFromReq(ctx.req),
+        detail: `เปลี่ยนธีมหน้าจอเป็น ${input.theme}`,
+        refType: "settings",
+        refId: ctx.staff.branchId,
+      });
+
+      return { ok: true, theme: input.theme };
     }),
 
   updateBillPromotion: managerQuery

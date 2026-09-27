@@ -140,10 +140,9 @@ export default function StockCount() {
   const shareUrls = useMemo(() => {
     if (!session) return [];
     const path = `/stock/count/${session.id}`;
-    const urls = [
-      ...localLanUrls,
-      ...(lanInfoQuery.data?.urls ?? []),
-    ].map(url => `${url}${path}`);
+    const urls = [...localLanUrls, ...(lanInfoQuery.data?.urls ?? [])].map(
+      url => `${url}${path}`
+    );
     if (
       typeof window !== "undefined" &&
       /^https?:$/.test(window.location.protocol) &&
@@ -327,7 +326,7 @@ export default function StockCount() {
 
   if (params.sessionId && !hasValidSessionId) {
     return (
-      <Card>
+      <Card data-slot="notice" data-tone="error" role="alert">
         <CardContent className="grid min-h-64 place-items-center p-8 text-center">
           <div>
             <TriangleAlert className="mx-auto size-10 text-amber-500" />
@@ -361,7 +360,12 @@ export default function StockCount() {
         </div>
 
         {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <div
+            data-slot="notice"
+            data-tone="error"
+            role="alert"
+            className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          >
             {error}
           </div>
         )}
@@ -434,7 +438,11 @@ export default function StockCount() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+              <div
+                data-slot="notice"
+                data-tone="warning"
+                className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"
+              >
                 ควรหยุดขายสินค้าที่กำลังนับชั่วคราว
                 เพื่อไม่ให้ยอดเปลี่ยนระหว่างการตรวจนับ
               </div>
@@ -529,7 +537,7 @@ export default function StockCount() {
 
   if (!session) {
     return (
-      <Card>
+      <Card data-slot="notice" data-tone="error" role="alert">
         <CardContent className="p-8 text-center">
           <TriangleAlert className="mx-auto size-10 text-amber-500" />
           <h1 className="mt-3 font-heading text-lg font-bold">
@@ -576,7 +584,12 @@ export default function StockCount() {
       </div>
 
       {(error || sessionQuery.error) && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
           {error || sessionQuery.error?.message}
         </div>
       )}
@@ -670,7 +683,12 @@ export default function StockCount() {
                 </div>
               </div>
             ) : (
-              <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <div
+                data-slot="notice"
+                data-tone="warning"
+                role="alert"
+                className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+              >
                 <QrCode className="mt-0.5 size-5 shrink-0" />
                 <div>
                   ยังไม่พบ IP ของเครื่องหลัก กรุณาเชื่อมต่อ Wi‑Fi

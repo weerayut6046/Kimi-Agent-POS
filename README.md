@@ -2,7 +2,11 @@
 
 สำหรับพัฒนาโดยไม่ใช้ Cloud SQL/Supabase Database ให้ใช้ `npm run dev:local` หรือ `npm run dev:self-hosted` ดูขั้นตอนและข้อควรระวังใน [Local / Self-hosted development](./docs/local-self-hosted-development.md)
 
-เอกสารโครงการ: [`PROJECT.md`](./PROJECT.md) · แผนระบบ: [`plan.md`](./plan.md) · แผน Desktop: [`plan-desktop.md`](./plan-desktop.md) · [ระบบลงเวลาเข้า–ออกงาน](./docs/employee-attendance.md)
+เอกสารโครงการ: [`PROJECT.md`](./PROJECT.md) · แผนระบบ: [`plan.md`](./plan.md) · แผน Desktop: [`plan-desktop.md`](./plan-desktop.md) · [ระบบลงเวลาเข้า–ออกงาน](./docs/employee-attendance.md) · [วางแผนสั่งน้ำมัน](./docs/fuel-forecast.md)
+
+การแยกหน้าขาย หลังบ้านกิจการ และบริหาร SaaS พร้อมขั้นตอนติดตั้งฐานข้อมูลเฉพาะต่อกิจการ ดู [คู่มือ SaaS](./docs/saas-deployment.md)
+
+เจ้าของกิจการตั้งสาขา สินค้า ผู้ใช้งาน และการรับเงินจาก `/setup` ได้ ดู [ตั้งค่ากิจการครั้งแรก](./docs/business-setup.md)
 
 ## Desktop App (Microsoft Store)
 
@@ -66,6 +70,7 @@ docker compose up --build
 - **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` rewrite `/api/*` ไป Supabase และทำ SPA fallback
 - **Backend** — Supabase Edge Functions `pos-api`, `pos-loyalty` (public เฉพาะเช็กแต้ม) และ `pos-assistant`; `pos-auth-bootstrap` ปิดถาวรและตอบ 410; ไม่มี Railway proxy
 - **Auth** — Supabase Auth เป็นเจ้าของรหัสผ่านและ session; API ตรวจ JWT แล้วผูกกับพนักงานที่ active และสาขาที่เลือกทุก request
+- **Passkey บนเว็บ** — หลังเข้าระบบด้วย PIN และใบหน้าครั้งแรก พนักงานบันทึกการยืนยันด้วยอุปกรณ์เพื่อเข้าใช้รอบถัดไปได้ ดูการตั้งค่าโดเมนและข้อจำกัดใน [คู่มือ passkey](docs/passkey-login.md)
 - **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos`; RLS เปิดทุกตารางและ revoke สิทธิ์ Data API จาก `anon`/`authenticated`
 - Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; admin ต้อง provision identity ใน Supabase Auth และเชื่อมกับ `pos.staff_users` ก่อนเปิดใช้งาน
 

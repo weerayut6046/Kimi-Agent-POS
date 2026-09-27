@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { FaceCapture, type FaceCaptureResult } from "@/components/FaceCapture";
 import {
   Card,
@@ -35,6 +36,7 @@ function thaiDateTime(value: Date | string | null | undefined): string {
 }
 
 export default function FaceEnrollment() {
+  const confirm = useAppConfirm();
   const { staff } = useStaff();
   const canManage = staff?.role === "admin" || staff?.role === "manager";
   const profiles = trpc.faceAuth.faceProfileList.useQuery(undefined, {
@@ -277,11 +279,14 @@ export default function FaceEnrollment() {
                         size="sm"
                         variant="outline"
                         disabled={deleteFace.isPending}
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            window.confirm(
-                              `ยืนยันลบข้อมูลใบหน้าของ ${row.staffName} หรือไม่?`
-                            )
+                            await confirm({
+                              title: "ลบข้อมูลใบหน้า",
+                              description: `ยืนยันลบข้อมูลใบหน้าของ ${row.staffName} หรือไม่?`,
+                              confirmLabel: "ลบข้อมูลใบหน้า",
+                              variant: "danger",
+                            })
                           ) {
                             deleteFace.mutate({ staffId: row.staffId });
                           }

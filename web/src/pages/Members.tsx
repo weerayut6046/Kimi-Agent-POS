@@ -235,7 +235,16 @@ export default function Members() {
           </Button>
         </div>
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && (
+        <p
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {err}
+        </p>
+      )}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -476,7 +485,12 @@ export default function Members() {
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
             {err && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div
+                data-slot="notice"
+                data-tone="error"
+                role="alert"
+                className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              >
                 <CircleAlert className="mt-0.5 size-4 shrink-0" />
                 {err}
               </div>
@@ -815,6 +829,8 @@ export default function Members() {
                     </Badge>
                   </div>
                   <div
+                    data-slot="notice"
+                    data-tone={selectedExpired ? "warning" : "success"}
                     className={`rounded-xl border px-3 py-2 text-xs font-medium ${
                       selectedExpired
                         ? "border-red-200 bg-red-50 text-red-700"

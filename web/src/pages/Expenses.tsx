@@ -127,7 +127,16 @@ export default function Expenses() {
           <Plus className="w-4 h-4 mr-1" /> บันทึกค่าใช้จ่าย
         </Button>
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && (
+        <p
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {err}
+        </p>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="w-full space-y-1 sm:w-auto">
@@ -290,7 +299,9 @@ export default function Expenses() {
                       autoFocus
                       placeholder="เช่น ค่าน้ำแข็ง, ค่าถุง, ค่าแรงชั่วคราว"
                       value={edit.title}
-                      onChange={e => setEdit({ ...edit, title: e.target.value })}
+                      onChange={e =>
+                        setEdit({ ...edit, title: e.target.value })
+                      }
                       className="bg-white"
                     />
                   </div>

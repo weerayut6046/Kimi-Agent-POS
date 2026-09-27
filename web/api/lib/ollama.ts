@@ -7,6 +7,9 @@ import type {
 
 const MAX_TOOL_ROUNDS = 2;
 const MAX_TOOL_CALLS_PER_ROUND = 3;
+const DEFAULT_MAX_OUTPUT_TOKENS = 1_200;
+const MAX_OUTPUT_TOKENS = 8_000;
+const MAX_TOOL_ARGUMENT_CHARS = 16_000;
 const MAX_TOOL_OUTPUT_CHARS = 12_000;
 
 type OllamaToolCall = {
@@ -78,7 +81,7 @@ export class OllamaAssistantError extends Error {
 
 function parseToolArguments(raw: unknown): unknown {
   if (typeof raw === "string") {
-    if (raw.length > 4_000) return null;
+    if (raw.length > MAX_TOOL_ARGUMENT_CHARS) return null;
     try {
       return JSON.parse(raw || "{}");
     } catch {
@@ -104,7 +107,7 @@ function cleanModelAnswer(content: string): string {
   const lastClosingThinkTag = closingThinkTags.at(-1);
   if (lastClosingThinkTag?.index !== undefined) {
     answer = answer.slice(
-      lastClosingThinkTag.index + lastClosingThinkTag[0].length,
+      lastClosingThinkTag.index + lastClosingThinkTag[0].length
     );
   }
 
@@ -129,6 +132,7 @@ async function requestCompletion(input: {
   messages: OllamaRequestMessage[];
   tools: DeepSeekAssistantTool[];
   timeoutMs: number;
+  maxOutputTokens: number;
   fetchImpl: typeof fetch;
 }) {
   const controller = new AbortController();
@@ -148,7 +152,7 @@ async function requestCompletion(input: {
         keep_alive: "10m",
         options: {
           temperature: 0.2,
-          num_predict: 1_200,
+          num_predict: input.maxOutputTokens,
         },
         ...(input.tools.length
           ? { tools: input.tools.map(tool => tool.definition) }
@@ -225,9 +229,17 @@ export async function runOllamaAssistant(input: {
   tools: DeepSeekAssistantTool[];
   forcedToolName?: string;
   timeoutMs?: number;
+  maxOutputTokens?: number;
   fetchImpl?: typeof fetch;
 }): Promise<DeepSeekAssistantResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
+  const requestedMaxOutputTokens = Number.isFinite(input.maxOutputTokens)
+    ? Math.trunc(input.maxOutputTokens!)
+    : DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens = Math.min(
+    Math.max(requestedMaxOutputTokens, 1),
+    MAX_OUTPUT_TOKENS
+  );
   const toolsByName = new Map(
     input.tools.map(tool => [tool.definition.function.name, tool])
   );
@@ -261,6 +273,7 @@ export async function runOllamaAssistant(input: {
       messages,
       tools: toolsForRound,
       timeoutMs: input.timeoutMs ?? 180_000,
+      maxOutputTokens,
       fetchImpl,
     });
     const toolCalls = allowTools

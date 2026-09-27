@@ -16,6 +16,9 @@ import { assistantRouter } from "./routers/assistant";
 import { paymentsRouter } from "./routers/payments";
 import { stockCountRouter } from "./routers/stockCount";
 import { faceAuthRouter } from "./routers/faceAuth";
+import { fuelForecastRouter } from "./routers/fuelForecast";
+import { platformRouter } from "./routers/platform";
+import { onboardingRouter } from "./routers/onboarding";
 
 export const edgeAppRouter = createRouter({
   ping: anonymousQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -36,4 +39,7 @@ export const edgeAppRouter = createRouter({
   assistant: assistantRouter,
   stockCount: stockCountRouter,
   faceAuth: faceAuthRouter,
+  fuelForecast: fuelForecastRouter,
+  platform: platformRouter,
+  onboarding: onboardingRouter,
 });

@@ -36,6 +36,7 @@ type QueuedSale = {
 
 type PersistedState = {
   version: 1;
+  remoteOrigin: string | null;
   deviceId: string;
   receiptCounter: number;
   cache: Record<string, CachedResponse>;
@@ -46,6 +47,7 @@ type PersistedState = {
 type OfflineRecoverySnapshot = {
   kind: "pumppos-offline-sales-recovery";
   version: 1;
+  remoteOrigin: string | null;
   exportedAt: string;
   sourceDeviceId: string;
   receiptCounter: number;
@@ -69,9 +71,25 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function newState(): PersistedState {
+function normalizeRemoteOrigin(value: string): string {
+  const url = new URL(value.trim());
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname.replace(/\/+$/, "")
+  ) {
+    throw new Error("กรุณาระบุ URL ต้นทางของระบบกิจการให้ถูกต้อง");
+  }
+  return url.origin;
+}
+
+function newState(remoteOrigin: string): PersistedState {
   return {
     version: 1,
+    remoteOrigin,
     deviceId: randomUUID(),
     receiptCounter: 0,
     cache: {},
@@ -121,11 +139,19 @@ function parseRecoverySnapshot(serialized: string): OfflineRecoverySnapshot {
     snapshot.receiptCounter < 0 ||
     !Array.isArray(snapshot.queue) ||
     snapshot.queue.length > 10_000 ||
-    !snapshot.queue.every(isQueuedSale)
+    !snapshot.queue.every(isQueuedSale) ||
+    (snapshot.remoteOrigin !== undefined &&
+      snapshot.remoteOrigin !== null &&
+      typeof snapshot.remoteOrigin !== "string")
   ) {
     throw new Error("ไฟล์กู้ภัยไม่สมบูรณ์หรือเป็นเวอร์ชันที่ไม่รองรับ");
   }
-  return snapshot as OfflineRecoverySnapshot;
+  return {
+    ...snapshot,
+    remoteOrigin: snapshot.remoteOrigin
+      ? normalizeRemoteOrigin(snapshot.remoteOrigin)
+      : null,
+  } as OfflineRecoverySnapshot;
 }
 
 export function buildOfflineReceipt(
@@ -210,11 +236,20 @@ export class DesktopOfflineRuntime {
   constructor(options: RuntimeOptions) {
     this.options = {
       ...options,
-      remoteOrigin: options.remoteOrigin.replace(/\/$/, ""),
+      remoteOrigin: normalizeRemoteOrigin(options.remoteOrigin),
     };
     fs.mkdirSync(options.dataDir, { recursive: true });
     this.stateFile = path.join(options.dataDir, "desktop-offline-state.json");
     this.state = this.loadState();
+    if (!this.state.remoteOrigin && this.state.queue.length === 0) {
+      // Legacy cached rows have no proven business origin. Bind an empty queue
+      // safely and discard only the cache, never pending receipts.
+      this.state.remoteOrigin = this.options.remoteOrigin;
+      this.state.cache = {};
+      this.state.lastSyncedAt = null;
+      this.saveState();
+    }
+    this.lastError = this.deploymentBindingError();
   }
 
   getStatus(): DesktopSyncStatus {
@@ -235,6 +270,7 @@ export class DesktopOfflineRuntime {
     const snapshot: OfflineRecoverySnapshot = {
       kind: "pumppos-offline-sales-recovery",
       version: 1,
+      remoteOrigin: this.state.remoteOrigin,
       exportedAt: new Date().toISOString(),
       sourceDeviceId: this.state.deviceId,
       receiptCounter: this.state.receiptCounter,
@@ -248,6 +284,17 @@ export class DesktopOfflineRuntime {
     pendingCount: number;
   } {
     const snapshot = parseRecoverySnapshot(serialized);
+    this.assertDeploymentBinding();
+    if (!snapshot.remoteOrigin) {
+      throw new Error(
+        "ไฟล์กู้คืนไม่มีข้อมูลระบบต้นทาง กรุณาให้ผู้ดูแลตรวจสอบกิจการต้นทางก่อนนำเข้า"
+      );
+    }
+    if (snapshot.remoteOrigin !== this.options.remoteOrigin) {
+      throw new Error(
+        `ไฟล์กู้คืนเป็นของระบบ ${snapshot.remoteOrigin} กรุณานำเข้าที่กิจการต้นทาง`
+      );
+    }
     const existingReceiptNumbers = new Set(
       this.state.queue.map(sale => sale.receiptNo)
     );
@@ -295,6 +342,7 @@ export class DesktopOfflineRuntime {
   }
 
   async createSale(request: DesktopSaleRequest): Promise<DesktopSaleResult> {
+    this.assertDeploymentBinding();
     const { receiptNo, counter } = this.reserveReceiptNo();
     const createdAt = new Date();
     const remoteInput: RemoteSaleInput = {
@@ -347,6 +395,11 @@ export class DesktopOfflineRuntime {
   }
 
   async retrySync(staffToken?: string): Promise<DesktopSyncStatus> {
+    const bindingError = this.deploymentBindingError();
+    if (bindingError) {
+      this.setOnline(false, bindingError);
+      return this.getStatus();
+    }
     if (staffToken && this.state.queue.length > 0) {
       for (const queued of this.state.queue) queued.staffToken = staffToken;
       this.saveState();
@@ -398,7 +451,8 @@ export class DesktopOfflineRuntime {
   }
 
   private loadState(): PersistedState {
-    if (!fs.existsSync(this.stateFile)) return newState();
+    if (!fs.existsSync(this.stateFile))
+      return newState(this.options.remoteOrigin);
     try {
       const parsed = JSON.parse(
         fs.readFileSync(this.stateFile, "utf8")
@@ -412,6 +466,8 @@ export class DesktopOfflineRuntime {
       }
       return {
         version: 1,
+        remoteOrigin:
+          typeof parsed.remoteOrigin === "string" ? parsed.remoteOrigin : null,
         deviceId: parsed.deviceId,
         receiptCounter: Number(parsed.receiptCounter) || 0,
         cache: parsed.cache ?? {},
@@ -421,7 +477,31 @@ export class DesktopOfflineRuntime {
     } catch {
       const preserved = `${this.stateFile}.corrupt-${Date.now()}`;
       fs.copyFileSync(this.stateFile, preserved);
-      return newState();
+      return newState(this.options.remoteOrigin);
+    }
+  }
+
+  private deploymentBindingError(): string | null {
+    if (!this.state.remoteOrigin) {
+      return "บิลออฟไลน์เดิมยังไม่ระบุระบบต้นทาง จึงพักการซิงก์ไว้ กรุณาส่งออกไฟล์กู้คืนและให้ผู้ดูแลตรวจสอบกิจการต้นทาง";
+    }
+    let boundOrigin: string;
+    try {
+      boundOrigin = normalizeRemoteOrigin(this.state.remoteOrigin);
+    } catch {
+      return "ข้อมูลระบบต้นทางของบิลออฟไลน์ไม่ถูกต้อง กรุณาส่งออกไฟล์กู้คืนและติดต่อผู้ดูแล";
+    }
+    if (boundOrigin !== this.options.remoteOrigin) {
+      return `ข้อมูลเครื่องนี้เป็นของระบบ ${boundOrigin} กรุณาตั้งค่ากลับไปยังระบบต้นทาง หรือใช้โปรไฟล์เครื่องแยกสำหรับกิจการอื่น`;
+    }
+    return null;
+  }
+
+  private assertDeploymentBinding(): void {
+    const error = this.deploymentBindingError();
+    if (error) {
+      this.setOnline(false, error);
+      throw new Error(error);
     }
   }
 
@@ -457,6 +537,7 @@ export class DesktopOfflineRuntime {
     staffToken: string | undefined,
     onResponse: () => void
   ): Promise<DesktopReceipt> {
+    this.assertDeploymentBinding();
     const client = createTRPCProxyClient<AppRouter>({
       links: [
         httpLink({
@@ -493,6 +574,11 @@ export class DesktopOfflineRuntime {
   }
 
   private async checkAndSync(): Promise<void> {
+    const bindingError = this.deploymentBindingError();
+    if (bindingError) {
+      this.setOnline(false, bindingError);
+      return;
+    }
     if (this.state.queue.length > 0) {
       await this.syncPending();
       return;
@@ -516,6 +602,11 @@ export class DesktopOfflineRuntime {
   }
 
   private async syncPending(): Promise<void> {
+    const bindingError = this.deploymentBindingError();
+    if (bindingError) {
+      this.setOnline(false, bindingError);
+      return;
+    }
     if (this.syncing || this.state.queue.length === 0) return;
     this.syncing = true;
     this.emitStatus();
@@ -580,6 +671,16 @@ export class DesktopOfflineRuntime {
     res: import("node:http").ServerResponse,
     requestUrl: URL
   ): Promise<void> {
+    const bindingError = this.deploymentBindingError();
+    if (bindingError) {
+      this.setOnline(false, bindingError);
+      res.writeHead(409, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify({ error: { message: bindingError } }));
+      return;
+    }
     if (requestUrl.pathname === "/api/realtime") {
       await this.proxyRealtime(req, res, requestUrl);
       return;

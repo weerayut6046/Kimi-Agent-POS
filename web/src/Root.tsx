@@ -1,9 +1,36 @@
 import { lazy, Suspense, useEffect } from "react";
 import Login from "@/pages/Login";
 import { useStaff } from "@/hooks/useStaff";
+import { trpc } from "@/providers/trpc";
+import { Button } from "@/components/ui/button";
 
 const AuthenticatedApp = lazy(() => import("@/AuthenticatedApp"));
 const CustomerLoyalty = lazy(() => import("@/pages/CustomerLoyalty"));
+
+function CustomerLoyaltyRoot() {
+  const deployment = trpc.auth.deploymentInfo.useQuery(undefined, {
+    retry: 1,
+    staleTime: 60_000,
+    trpc: { context: { skipBatch: true } },
+  });
+  if (!deployment.data && deployment.isPending) {
+    return (
+      <main className="p-6" role="status">
+        กำลังตรวจสอบพื้นที่ทำงาน...
+      </main>
+    );
+  }
+  if (!deployment.data) {
+    return (
+      <main className="space-y-3 p-6" role="alert">
+        <p>ตรวจสอบพื้นที่ทำงานไม่สำเร็จ</p>
+        <Button onClick={() => void deployment.refetch()}>ลองใหม่</Button>
+      </main>
+    );
+  }
+  if (deployment.data.mode === "platform") return <StaffRoot />;
+  return <CustomerLoyalty />;
+}
 
 function StaffRoot() {
   const { staff, isCheckingSession } = useStaff();
@@ -20,12 +47,12 @@ function StaffRoot() {
 
   if (isCheckingSession) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#f6f5fb] p-6">
+      <main className="grid min-h-screen place-items-center bg-slate-100 p-6">
         <div
-          className="flex items-center gap-3 rounded-2xl border border-violet-100 bg-white px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-violet-100/50"
+          className="flex items-center gap-3 rounded-xl border border-teal-100 bg-white px-5 py-4 text-sm font-semibold text-slate-700 shadow-lg shadow-slate-200/60"
           role="status"
         >
-          <span className="size-5 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600" />
+          <span className="size-5 animate-spin rounded-full border-2 border-teal-200 border-t-teal-700" />
           กำลังตรวจสอบเซสชันผู้ใช้งาน...
         </div>
       </main>
@@ -39,9 +66,9 @@ function StaffRoot() {
   return (
     <Suspense
       fallback={
-        <main className="grid min-h-screen place-items-center bg-[#f6f5fb]">
+        <main className="grid min-h-screen place-items-center bg-slate-100">
           <span
-            className="size-6 animate-spin rounded-full border-2 border-violet-200 border-t-violet-600"
+            className="size-6 animate-spin rounded-full border-2 border-teal-200 border-t-teal-700"
             role="status"
             aria-label="กำลังโหลด"
           />
@@ -68,7 +95,7 @@ export default function Root() {
           </main>
         }
       >
-        <CustomerLoyalty />
+        <CustomerLoyaltyRoot />
       </Suspense>
     );
   }

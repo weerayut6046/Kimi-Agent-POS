@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { DataTableEmpty, DataTableToolbar } from "@/components/DataTablePanel";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -145,37 +146,50 @@ export default function Customers() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="page-heading flex items-center gap-2">
-          <Building2 className="w-6 h-6 text-primary" /> ลูกค้า
-        </h1>
-        {canManage && (
-          <Button
-            className="w-full sm:w-auto"
-            onClick={() => {
-              setErr("");
-              setEdit({ ...emptyForm });
-            }}
+      <h1 className="page-heading flex items-center gap-2">
+        <Building2 className="w-6 h-6 text-primary" /> ลูกค้า
+      </h1>
+      {err && !edit && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
+
+      <Card className="data-table-panel overflow-hidden">
+        <CardContent className="p-0">
+          <DataTableToolbar
+            className="border-b border-border/70 p-4 sm:p-6"
+            title="รายชื่อลูกค้า"
+            icon={Contact}
+            description="ข้อมูลติดต่อและข้อมูลสำหรับออกเอกสาร"
+            count={rows?.length}
+            countLabel="ราย"
+            actions={
+              canManage ? (
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    setErr("");
+                    setEdit({ ...emptyForm });
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" /> เพิ่มลูกค้า
+                </Button>
+              ) : undefined
+            }
           >
-            <Plus className="w-4 h-4 mr-1" /> เพิ่มลูกค้า
-          </Button>
-        )}
-      </div>
-      {err && !edit && <p className="text-sm text-destructive">{err}</p>}
-
-      <div className="relative max-w-sm">
-        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="ค้นหา ชื่อ / เลขผู้เสียภาษี / โทรศัพท์ / ทะเบียนรถ"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
-      </div>
-
-      <Card>
-        <CardContent className="pt-4 overflow-x-auto">
-          <Table>
+            <div className="relative w-full sm:max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="ค้นหาลูกค้า"
+                className="pl-9"
+                placeholder="ค้นหา ชื่อ / เลขผู้เสียภาษี / โทรศัพท์ / ทะเบียนรถ"
+                value={q}
+                onChange={e => setQ(e.target.value)}
+              />
+            </div>
+          </DataTableToolbar>
+          <Table
+            className="min-w-[760px]"
+            containerClassName="!mx-0 !w-full max-w-full"
+            aria-label="รายชื่อลูกค้า"
+          >
             <TableHeader>
               <TableRow>
                 <TableHead>ชื่อลูกค้า</TableHead>
@@ -183,16 +197,20 @@ export default function Customers() {
                 <TableHead>สาขา</TableHead>
                 <TableHead>โทรศัพท์</TableHead>
                 <TableHead>ทะเบียนรถ</TableHead>
-                {canManage && <TableHead></TableHead>}
+                {canManage && (
+                  <TableHead className="text-right">
+                    <span className="sr-only">จัดการลูกค้า</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {(rows ?? []).map(c => (
                 <TableRow key={c.id}>
-                  <TableCell>
+                  <TableCell className="min-w-64 max-w-md whitespace-normal">
                     <div className="text-sm font-medium">{c.name}</div>
                     {c.address && (
-                      <div className="text-xs text-muted-foreground whitespace-pre-line">
+                      <div className="mt-1 text-xs text-muted-foreground whitespace-pre-line break-words">
                         {c.address}
                       </div>
                     )}
@@ -207,12 +225,13 @@ export default function Customers() {
                   </TableCell>
                   {canManage && (
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex justify-end gap-1">
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8"
+                          className="size-11 sm:size-8"
                           title="พิมพ์ใบขอเปิดบัญชีเครดิต"
+                          aria-label={`พิมพ์ใบขอเปิดบัญชีเครดิตของ ${c.name}`}
                           onClick={() => setPrintCust(c)}
                         >
                           <Printer className="w-4 h-4" />
@@ -220,8 +239,9 @@ export default function Customers() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8"
+                          className="size-11 sm:size-8"
                           title="แก้ไข"
+                          aria-label={`แก้ไขลูกค้า ${c.name}`}
                           onClick={() => {
                             setErr("");
                             setEdit(formFromCustomer(c));
@@ -232,14 +252,13 @@ export default function Customers() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-8 w-8 text-destructive"
+                          className="size-11 sm:size-8 text-destructive"
                           title="ลบ"
+                          aria-label={`ลบลูกค้า ${c.name}`}
                           disabled={remove.isPending}
                           onClick={async () => {
                             if (
-                              await confirmAction(
-                                `ยืนยันลบลูกค้า "${c.name}"?`
-                              )
+                              await confirmAction(`ยืนยันลบลูกค้า "${c.name}"?`)
                             )
                               remove.mutate({ id: c.id });
                           }}
@@ -252,14 +271,13 @@ export default function Customers() {
                 </TableRow>
               ))}
               {!isLoading && (rows ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={canManage ? 6 : 5}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    {search ? "ไม่พบลูกค้าที่ค้นหา" : "ยังไม่มีข้อมูลลูกค้า"}
-                  </TableCell>
-                </TableRow>
+                <DataTableEmpty
+                  colSpan={canManage ? 6 : 5}
+                  icon={Contact}
+                  message={
+                    search ? "ไม่พบลูกค้าที่ค้นหา" : "ยังไม่มีข้อมูลลูกค้า"
+                  }
+                />
               )}
             </TableBody>
           </Table>
@@ -567,6 +585,8 @@ export default function Customers() {
 
                 {err && (
                   <p
+                    data-slot="notice"
+                    data-tone="error"
                     className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
                     role="alert"
                   >

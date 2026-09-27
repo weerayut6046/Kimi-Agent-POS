@@ -1,0 +1,291 @@
+/*!
+ * Notification appearance adapted from TailAdmin React Free 2.4.0.
+ * Copyright (c) 2023 TailAdmin. MIT License.
+ * Source: src/components/ui/alert/Alert.tsx and header/NotificationDropdown.tsx.
+ * Full MIT notice: docs/licenses/tailadmin-MIT.txt.
+ */
+@media screen {
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"], [data-sonner-toast][data-styled="true"], [data-pos-confirm="true"]) {
+    --pos-notice-bg: #fff;
+    --pos-notice-border: #e4e7ec;
+    --pos-notice-icon: #667085;
+    --pos-notice-action: hsl(var(--primary));
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"])[data-tone="success"],
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-type="success"] {
+    --pos-notice-bg: #ecfdf3;
+    --pos-notice-border: #12b76a;
+    --pos-notice-icon: #039855;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"])[data-tone="error"],
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-type="error"],
+  :root[data-pos-template="tailadmin"] [data-pos-confirm="true"][data-notice-tone="danger"] {
+    --pos-notice-bg: #fef3f2;
+    --pos-notice-border: #f04438;
+    --pos-notice-icon: #d92d20;
+    --pos-notice-action: #d92d20;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"])[data-tone="warning"],
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-type="warning"],
+  :root[data-pos-template="tailadmin"] [data-pos-confirm="true"][data-notice-tone="warning"] {
+    --pos-notice-bg: #fffaeb;
+    --pos-notice-border: #f79009;
+    --pos-notice-icon: #b54708;
+    --pos-notice-action: #b54708;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"])[data-tone="info"],
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-type="info"],
+  :root[data-pos-template="tailadmin"] [data-pos-confirm="true"][data-notice-tone="info"] {
+    --pos-notice-bg: #f0f9ff;
+    --pos-notice-border: #0ba5ec;
+    --pos-notice-icon: #026aa2;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"]) {
+    min-width: 0;
+    border: 1px solid var(--pos-notice-border);
+    border-radius: 12px;
+    background-color: var(--pos-notice-bg);
+    background-image: none;
+    color: #475467;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    box-shadow: none;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notice"]:not([data-notice-layout="bar"]) {
+    padding: 16px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notice"][data-notice-layout="bar"] {
+    border-width: 0 0 1px;
+    border-radius: 0;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notice"], [data-slot="alert"]) > svg {
+    flex-shrink: 0;
+    color: var(--pos-notice-icon);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="alert-title"] {
+    color: #101828;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="alert-description"] {
+    min-width: 0;
+    color: #475467;
+    overflow-wrap: anywhere;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="field-error"], [data-slot="form-message"]) {
+    color: #b42318;
+    overflow-wrap: anywhere;
+  }
+
+  /* Sonner owns placement, timers, promises, live announcements, and dismissal. */
+  :root[data-pos-template="tailadmin"] [data-sonner-toaster] {
+    font-family: inherit;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-styled="true"] {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    border-color: var(--pos-notice-border) !important;
+    border-radius: 12px !important;
+    background-color: var(--pos-notice-bg) !important;
+    padding: 16px 44px 16px 16px !important;
+    color: #475467 !important;
+    box-shadow: 0 12px 24px -4px rgb(16 24 40 / 0.12), 0 4px 8px -2px rgb(16 24 40 / 0.06) !important;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast][data-type="loading"] {
+    --pos-notice-icon: hsl(var(--primary));
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-icon] {
+    width: 20px;
+    height: 20px;
+    margin: 1px 0 0;
+    color: var(--pos-notice-icon);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-icon] > svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-content] {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 4px;
+    overflow-wrap: anywhere;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-title] {
+    color: #101828 !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 1.5;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-description] {
+    color: #475467 !important;
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-button] {
+    min-height: 32px;
+    height: auto;
+    border-radius: 8px !important;
+    background-color: hsl(var(--primary));
+    padding: 6px 12px;
+    color: hsl(var(--primary-foreground));
+    font-weight: 500 !important;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-cancel] {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-close-button] {
+    top: 6px;
+    right: 6px;
+    left: auto;
+    width: 28px;
+    height: 28px;
+    transform: none;
+    border: 0 !important;
+    background-color: transparent !important;
+    color: #667085 !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-close-button]:hover {
+    background-color: rgb(16 24 40 / 0.05) !important;
+    color: #344054 !important;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-sonner-toast]:focus-visible,
+  :root[data-pos-template="tailadmin"] [data-sonner-toast] :is([data-button], [data-close-button]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Shared application confirmations retain their existing Radix behavior. */
+  :root[data-pos-template="tailadmin"] [data-pos-confirm="true"] {
+    border-color: #e4e7ec;
+    background: #fff;
+    box-shadow: 0 24px 48px -12px rgb(16 24 40 / 0.18);
+    backdrop-filter: none;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-pos-confirm-stripe] {
+    height: 4px;
+    background: var(--pos-notice-icon);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-pos-confirm-icon] {
+    border-color: var(--pos-notice-border);
+    background: var(--pos-notice-bg);
+    color: var(--pos-notice-icon);
+    box-shadow: none;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-pos-confirm-action] {
+    background: var(--pos-notice-action);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-pos-confirm-action]:hover {
+    filter: brightness(0.94);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-pos-confirm-action], [data-pos-confirm-cancel]) {
+    border-radius: 8px;
+    font-weight: 500;
+  }
+
+  /* The stock notification bell and list show the existing POS alert data. */
+  :root[data-pos-template="tailadmin"] [data-slot="notification-trigger"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #e4e7ec;
+    border-radius: 50%;
+    background-color: #fff;
+    color: #667085;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notification-trigger"]:hover {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notification-trigger"]:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notification-count"] {
+    min-width: 20px;
+    height: 20px;
+    padding-inline: 4px;
+    background-color: #f79009;
+    color: #101828;
+    box-shadow: 0 0 0 2px #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-notification-panel="true"] {
+    overflow: hidden;
+    border-color: #e4e7ec;
+    border-radius: 16px;
+    background-color: #fff;
+    color: #101828;
+    box-shadow: var(--pos-tailadmin-popup-shadow);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="notification-header"], [data-slot="notification-footer"], [data-slot="notification-item"]) {
+    border-color: #f2f4f7;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notification-item"] > svg {
+    color: #b54708;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="notification-empty"] {
+    color: #667085;
+  }
+
+  @media (max-width: 639px) {
+    :root[data-pos-template="tailadmin"] [data-slot="notice"]:not([data-notice-layout="bar"]) {
+      padding: 12px;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-sonner-toast][data-styled="true"] {
+      padding-right: 48px !important;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-close-button] {
+      top: 0;
+      right: 0;
+      width: 44px;
+      height: 44px;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-sonner-toast] [data-button] {
+      min-height: 44px;
+    }
+  }
+}

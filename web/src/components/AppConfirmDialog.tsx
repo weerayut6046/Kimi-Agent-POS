@@ -84,9 +84,7 @@ export function AppConfirmDialogProvider({
     (options: ConfirmOptions | string) =>
       new Promise<boolean>(resolve => {
         const normalized =
-          typeof options === "string"
-            ? { description: options }
-            : options;
+          typeof options === "string" ? { description: options } : options;
         const nextRequest: ConfirmRequest = {
           description: normalized.description,
           title: normalized.title ?? "ยืนยันการทำรายการ",
@@ -113,7 +111,9 @@ export function AppConfirmDialogProvider({
   }, []);
 
   const value = useMemo(() => ({ confirm }), [confirm]);
-  const styles = request ? variantStyles[request.variant] : variantStyles.danger;
+  const styles = request
+    ? variantStyles[request.variant]
+    : variantStyles.danger;
   const Icon = styles.icon;
 
   return (
@@ -125,8 +125,13 @@ export function AppConfirmDialogProvider({
           if (!open) settle(false);
         }}
       >
-        <AlertDialogContent className="overflow-y-auto border-white/80 bg-white/95 p-0 shadow-[0_32px_100px_rgba(15,23,42,0.28)] ring-1 ring-slate-200/70 backdrop-blur-2xl sm:max-w-[460px]">
+        <AlertDialogContent
+          data-pos-confirm="true"
+          data-notice-tone={request?.variant ?? "danger"}
+          className="overflow-y-auto border-white/80 bg-white/95 p-0 shadow-[0_32px_100px_rgba(15,23,42,0.28)] ring-1 ring-slate-200/70 backdrop-blur-2xl sm:max-w-[460px]"
+        >
           <div
+            data-pos-confirm-stripe="true"
             className={cn(
               "h-1.5 w-full",
               request?.variant === "warning"
@@ -139,6 +144,7 @@ export function AppConfirmDialogProvider({
           <div className="px-5 pb-5 pt-4 sm:px-7 sm:pb-7 sm:pt-5">
             <AlertDialogHeader className="items-center gap-3 text-center sm:items-start sm:text-left">
               <div
+                data-pos-confirm-icon="true"
                 className={cn(
                   "grid size-14 shrink-0 place-items-center rounded-2xl border shadow-lg",
                   styles.iconClassName
@@ -160,6 +166,7 @@ export function AppConfirmDialogProvider({
 
             <AlertDialogFooter className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-2">
               <AlertDialogCancel
+                data-pos-confirm-cancel="true"
                 className="m-0 min-h-11 rounded-xl border-slate-200 bg-white px-4 font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
                 onClick={() => settle(false)}
               >
@@ -167,6 +174,7 @@ export function AppConfirmDialogProvider({
                 {request?.cancelLabel}
               </AlertDialogCancel>
               <AlertDialogAction
+                data-pos-confirm-action="true"
                 className={cn(
                   "min-h-11 rounded-xl border-0 px-4 font-semibold",
                   styles.actionClassName

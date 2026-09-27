@@ -74,7 +74,7 @@ export default function TaxInvoices() {
           </Button>
         )}
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />

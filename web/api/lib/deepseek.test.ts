@@ -193,6 +193,63 @@ describe("DeepSeek server gateway", () => {
     expect(JSON.stringify(requestBody)).not.toContain("9999");
   });
 
+  it("accepts a bounded structured tool call larger than 4,000 characters", async () => {
+    const toolArguments = JSON.stringify({ detail: "x".repeat(5_000) });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        choices: [
+          {
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call-large-plan",
+                  type: "function",
+                  function: {
+                    name: "submit_plan",
+                    arguments: toolArguments,
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      })
+    );
+    const execute = vi.fn().mockResolvedValue({ accepted: true });
+
+    const result = await runDeepSeekAssistant({
+      apiKey: "key",
+      model: "deepseek-v4-flash",
+      systemPrompt: "submit a plan",
+      conversation: [{ role: "user", content: "create a plan" }],
+      tools: [
+        {
+          definition: {
+            type: "function",
+            function: {
+              name: "submit_plan",
+              description: "submit a structured plan",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+          execute,
+          renderPrivateResult: () => "accepted",
+        },
+      ],
+      forcedToolName: "submit_plan",
+      maxOutputTokens: 3_200,
+      fetchImpl,
+    });
+
+    expect(result.answer).toBe("accepted");
+    expect(execute).toHaveBeenCalledWith({ detail: "x".repeat(5_000) });
+    const requestBody = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(requestBody.max_tokens).toBe(3_200);
+  });
+
   it("does not execute a tool name that was not allowlisted", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

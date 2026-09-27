@@ -30,10 +30,7 @@ import { actorFromReq, logAudit } from "../lib/audit";
 import { clientIpFromReq } from "../lib/clientIp";
 import { activeStaffSessionFromRequest } from "../lib/authorization";
 import { env } from "../lib/env";
-import {
-  hashStaffPin,
-  verifyLegacyStaffPin,
-} from "../lib/staffPin";
+import { hashStaffPin, verifyLegacyStaffPin } from "../lib/staffPin";
 import {
   createSupabaseStaffIdentity,
   deleteSupabaseStaffIdentity,
@@ -52,6 +49,7 @@ import {
   type AccessibleBranch,
 } from "../lib/branches";
 import { systemAccessForRequest } from "../lib/systemAccess";
+import { getDeploymentInfo } from "../lib/deployment";
 
 const LOGIN_REPORT_WINDOW_MS = 60_000;
 const LOGIN_REPORT_MAX_PER_WINDOW = 20;
@@ -167,6 +165,8 @@ export async function staffSessionResponse(
 }
 
 export const authRouter = createRouter({
+  deploymentInfo: anonymousQuery.query(() => getDeploymentInfo()),
+
   // รับรายงานความพยายาม login จากหน้าจอ (ไม่ต้องเข้าสู่ระบบ) — เก็บเฉพาะ
   // username/success/ip ห้ามส่งหรือเก็บรหัสผ่านเด็ดขาด; เกิน rate limit
   // หรือบันทึกไม่สำเร็จให้เงียบไว้ ไม่โยน error กลับไปที่ client
@@ -755,9 +755,20 @@ export const authRouter = createRouter({
         accessGroupId: z.number().int().positive().nullable().optional(),
         menuPermissions: menuPermissionsInput.optional(),
         branchIds: z.array(z.number().int().positive()).min(1).optional(),
+        expectedBranchId: z.number().int().positive().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
+      if (
+        input.expectedBranchId !== undefined &&
+        input.expectedBranchId !== ctx.staff.branchId
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "สาขาที่เลือกเปลี่ยนแล้ว กรุณาโหลดข้อมูลพนักงานใหม่ก่อนสร้างบัญชี",
+        });
+      }
       const db = getDb();
       const username = normalizeStaffUsername(input.username);
       const dup = await db.query.staffUsers.findFirst({
@@ -796,6 +807,7 @@ export const authRouter = createRouter({
       }
       const {
         branchIds: _branchIds,
+        expectedBranchId: _expectedBranchId,
         pin,
         username: _username,
         ...staffInput

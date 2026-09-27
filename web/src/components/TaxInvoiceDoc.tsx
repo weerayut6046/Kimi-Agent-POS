@@ -5,7 +5,7 @@ import type { TaxInvoicePaper } from "@/lib/printDoc";
 
 type Props = {
   sale: Sale;
-  items: SaleItem[];
+  items: Array<Pick<SaleItem, "id" | "name" | "qty" | "unit" | "unitPrice" | "amount">>;
   invoice: TaxInvoice;
   settingMap?: Record<string, string>;
   logoUrl?: string | null;

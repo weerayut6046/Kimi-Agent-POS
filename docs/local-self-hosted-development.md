@@ -30,6 +30,8 @@ Seed นี้รันซ้ำได้โดยไม่เพิ่มรา
 
 บัญชีเริ่มต้นคือ `admin` และรหัสผ่านมาจาก `LOCAL_ADMIN_PASSWORD` ใน `.env.local` ข้อมูล PostgreSQL อยู่ใน Docker volume จึงยังอยู่หลังหยุด container
 
+เมื่อรันด้วย Vite development server (`npm run dev`, `npm run dev:local` หรือ `npm run dev:self-hosted`) การเข้าสู่ระบบใช้ชื่อผู้ใช้และ PIN โดยไม่ต้องสแกนใบหน้า เพื่อให้พัฒนาและทดสอบได้โดยไม่ต้องใช้กล้อง Vite development mode จะใช้ local API และ session ที่เซ็นด้วย `APP_SECRET` แม้ตั้ง `VITE_USE_SUPABASE_EDGE_API=true` ไว้ เพื่อไม่ส่งคำสั่งข้าม biometric ไปยัง production Edge API การข้ามขั้นตอนนี้ตรวจจาก runtime ฝั่ง API และไม่ทำงานใน production build หรือ Supabase Edge Runtime
+
 ## เปิดให้เครื่องอื่นใน LAN
 
 ```bash
@@ -53,6 +55,7 @@ npm run db:local:reset    # ลบ container และ volume ข้อมูล
 ## ขอบเขตด้านความปลอดภัย
 
 - Local Auth เปิดได้เฉพาะเมื่อ runtime ไม่ใช่ production และ `LOCAL_AUTH_ENABLED=true`
+- การข้ามการสแกนใบหน้าเปิดเฉพาะเมื่อ `NODE_ENV=development`; production ยังคงบังคับ PIN และใบหน้า
 - รหัสผ่านพนักงานในโหมด local เก็บด้วย salted scrypt; session หมดอายุภายใน 12 ชั่วโมงและเซ็นด้วย `APP_SECRET`
 - role `anon` และ `authenticated` ใน PostgreSQL local เป็น `NOLOGIN` และมีไว้เพื่อให้ migration production ชุดเดิมทำงานได้เท่านั้น
 - ห้ามนำค่าใน `.env.local` ขึ้น Git หรือใช้เป็น production secrets

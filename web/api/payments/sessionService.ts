@@ -29,6 +29,7 @@ import {
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
+import { receiptSaleItemSelection } from "../lib/saleItemView";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
   isDuplicateSlipError,
@@ -40,6 +41,121 @@ import {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+export type SaleItemValues = {
+  qty: number;
+  unitPrice: number;
+  amount: number;
+};
+
+/**
+ * แหล่งความจริงเดียวของยอดรายการขาย:
+ * 1. normalize จำนวนและราคาตาม precision ของ sale_items (3 ตำแหน่ง)
+ * 2. คูณค่าที่จะถูกบันทึกจริง
+ * 3. ปัดยอดเป็นสตางค์ด้วย Math.round เหมือนกฎ formula audit
+ */
+export function calculateSaleItemValues(
+  qty: number,
+  unitPrice: number
+): SaleItemValues {
+  const storedQty = r3(qty);
+  const storedUnitPrice = r3(unitPrice);
+  return {
+    qty: storedQty,
+    unitPrice: storedUnitPrice,
+    amount: r2(storedQty * storedUnitPrice),
+  };
+}
+
+type SaleItemAmountSource =
+  | "pos_close_shift"
+  | "pos_create_sale"
+  | "pos_return_sale"
+  | "payment_session_start"
+  | "payment_session_finalize";
+
+const SALE_ITEM_AMOUNT_TOLERANCE = 0.009;
+const DEFAULT_SALE_ITEM_AMOUNT_ALERT_RATE = 0.005;
+const configuredSaleItemAmountAlertRate = Number(
+  process.env.SALE_ITEM_AMOUNT_ALERT_RATE ?? DEFAULT_SALE_ITEM_AMOUNT_ALERT_RATE
+);
+const saleItemAmountAlertRate =
+  Number.isFinite(configuredSaleItemAmountAlertRate) &&
+  configuredSaleItemAmountAlertRate >= 0 &&
+  configuredSaleItemAmountAlertRate <= 1
+    ? configuredSaleItemAmountAlertRate
+    : DEFAULT_SALE_ITEM_AMOUNT_ALERT_RATE;
+const saleItemAmountAlertEnabled =
+  process.env.SALE_ITEM_AMOUNT_ALERT_ENABLED !== "0";
+const saleItemAmountMonitor = {
+  checked: 0,
+  mismatches: 0,
+  aboveAlertRate: false,
+};
+const MAX_SALE_ITEM_AMOUNT_COMPARISONS_PER_LOG = 5;
+
+/**
+ * ป้องกันยอดผิดก่อนเขียนข้อมูล และแจ้งเตือนเมื่อสัดส่วนที่พบแตะเกณฑ์
+ * log เก็บเฉพาะค่าที่ส่งมาเทียบค่าที่คำนวณได้ โดยไม่ใส่รหัสบิล สินค้า หรือลูกค้า
+ * และจำกัดจำนวนรายละเอียดต่อครั้งเพื่อไม่ให้ log โตโดยไม่จำเป็น
+ */
+export function assertSaleItemAmounts(
+  items: ReadonlyArray<SaleItemValues>,
+  source: SaleItemAmountSource
+): void {
+  let batchMismatches = 0;
+  const comparisons: Array<{
+    suppliedAmount: number;
+    calculatedAmount: number;
+    difference: number;
+  }> = [];
+  for (const item of items) {
+    const expected = calculateSaleItemValues(item.qty, item.unitPrice).amount;
+    saleItemAmountMonitor.checked += 1;
+    if (
+      Math.abs(item.amount - expected) >
+      SALE_ITEM_AMOUNT_TOLERANCE + Number.EPSILON
+    ) {
+      saleItemAmountMonitor.mismatches += 1;
+      batchMismatches += 1;
+      if (comparisons.length < MAX_SALE_ITEM_AMOUNT_COMPARISONS_PER_LOG) {
+        comparisons.push({
+          suppliedAmount: item.amount,
+          calculatedAmount: expected,
+          difference: r2(item.amount - expected),
+        });
+      }
+    }
+  }
+
+  const mismatchRate =
+    saleItemAmountMonitor.checked === 0
+      ? 0
+      : saleItemAmountMonitor.mismatches / saleItemAmountMonitor.checked;
+  const aboveAlertRate =
+    saleItemAmountMonitor.mismatches > 0 &&
+    mismatchRate >= saleItemAmountAlertRate;
+  if (
+    saleItemAmountAlertEnabled &&
+    aboveAlertRate &&
+    !saleItemAmountMonitor.aboveAlertRate
+  ) {
+    console.warn("sale_item_amount mismatch rate reached alert threshold", {
+      source,
+      checkedItems: saleItemAmountMonitor.checked,
+      mismatchItems: saleItemAmountMonitor.mismatches,
+      mismatchRateBps: Math.round(mismatchRate * 10_000),
+      comparisons,
+    });
+  }
+  saleItemAmountMonitor.aboveAlertRate = aboveAlertRate;
+
+  if (batchMismatches > 0) {
+    throw new Error(
+      "พบยอดรายการสินค้าไม่สอดคล้อง กรุณาให้ผู้รับผิดชอบตรวจสอบและอนุมัติก่อนดำเนินการกับข้อมูล"
+    );
+  }
+}
 
 /** session รอชำระมีอายุ 5 นาที — QR ล็อกยอดจึงไม่ควรค้างนานกว่านั้น */
 export const THUNGNGERN_SESSION_TTL_MS = 5 * 60 * 1000;
@@ -80,7 +196,9 @@ export async function computeSaleSnapshot(
   const lines = input.items.map(it => {
     const p = prodRows.find(pr => pr.id === it.productId);
     if (!p || !p.active) throw new Error("ไม่พบสินค้าบางรายการ");
-    return { product: p, qty: it.qty, amount: r2(p.price * it.qty) };
+    const values = calculateSaleItemValues(it.qty, p.price);
+    if (values.qty <= 0) throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
+    return { product: p, ...values };
   });
   const requestedStock = new Map<number, number>();
   for (const line of lines) {
@@ -208,7 +326,8 @@ export async function computeSaleSnapshot(
       name: l.product.name,
       qty: l.qty,
       unit: l.product.unit,
-      unitPrice: l.product.price,
+      unitPrice: l.unitPrice,
+      costPerUnit: l.product.cost,
       amount: l.amount,
       category: l.product.category,
     })),
@@ -258,6 +377,7 @@ export async function startThungngernSession(
   branchId: number,
   snapshot: ThungngernSaleSnapshot
 ): Promise<PaymentSession> {
+  assertSaleItemAmounts(snapshot.items, "payment_session_start");
   const expiresAt = new Date(Date.now() + THUNGNGERN_SESSION_TTL_MS);
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const refCode = newRefCode();
@@ -285,6 +405,7 @@ async function insertSaleFromSnapshot(
   branchId: number,
   snapshot: ThungngernSaleSnapshot
 ): Promise<number> {
+  assertSaleItemAmounts(snapshot.items, "payment_session_finalize");
   const receiptNo = await nextDocNo(tx, "receipt", branchId);
   const [inserted] = await tx
     .insert(sales)
@@ -318,6 +439,8 @@ async function insertSaleFromSnapshot(
       qty: l.qty,
       unit: l.unit,
       unitPrice: l.unitPrice,
+      costPerUnit: l.costPerUnit ?? 0,
+      productCategory: l.category,
       amount: l.amount,
     }))
   );
@@ -402,7 +525,7 @@ async function loadReceipt(
   });
   if (!sale) throw new Error("ไม่พบบิลที่ปิดการขายแล้ว");
   const items = await db
-    .select()
+    .select(receiptSaleItemSelection)
     .from(saleItems)
     .where(and(eq(saleItems.saleId, saleId), eq(saleItems.branchId, branchId)));
   const member = sale.memberId

@@ -1,0 +1,305 @@
+/*!
+ * Component appearance adapted from TailAdmin React Free 2.4.0.
+ * Copyright (c) 2023 TailAdmin. MIT License.
+ * Source: https://github.com/TailAdmin/free-react-tailwind-admin-dashboard
+ * Full MIT notice retained in tailadmin.css and docs/licenses/tailadmin-MIT.txt.
+ */
+@media screen {
+  :root[data-pos-template="tailadmin"] {
+    --pos-tailadmin-field-border: #d0d5dd;
+    --pos-tailadmin-popup-shadow: 0 12px 24px -4px rgb(16 24 40 / 0.12), 0 4px 8px -2px rgb(16 24 40 / 0.06);
+  }
+
+  /* Utility guards apply to defaults that cn() has not replaced at a call site. */
+  :root[data-pos-template="tailadmin"] [data-slot="button"][class~="rounded-lg"],
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[class~="rounded-xl"] {
+    border-radius: 8px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="button"][class~="font-semibold"] {
+    font-weight: 500;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="button"][data-variant="default"][class~="bg-primary"][class~="shadow-[0_4px_12px_rgba(16,122,112,0.2)]"],
+  :root[data-pos-template="tailadmin"] [data-slot="button"][data-variant="outline"][class~="bg-card"][class~="shadow-xs"] {
+    --tw-shadow: 0 1px 2px rgb(16 24 40 / 0.05);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="button"][data-variant="outline"][class~="border-border"]:not([aria-invalid="true"]) {
+    border-color: var(--pos-tailadmin-field-border);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="button"][data-variant="outline"][class~="border-border"]:focus-visible:not([aria-invalid="true"]) {
+    border-color: hsl(var(--ring));
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="button"][class~="hover:-translate-y-0.5"]:hover:not(:active) {
+    --tw-translate-y: 0px;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[class~="bg-background/80"]:not(:disabled):not([data-disabled]) {
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[class~="border-input"]:not([aria-invalid="true"]):not(:disabled):not([data-disabled]) {
+    border-color: var(--pos-tailadmin-field-border);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"])[class~="shadow-[inset_0_1px_1px_rgba(15,39,52,0.025),0_1px_2px_rgba(15,39,52,0.035)]"],
+  :root[data-pos-template="tailadmin"] [data-slot="select-trigger"][class~="shadow-[0_1px_2px_rgba(15,39,52,0.035)]"] {
+    --tw-shadow: 0 1px 2px rgb(16 24 40 / 0.05);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[class~="border-input"][class~="hover:border-primary/45"]:hover:not([aria-invalid="true"]):not(:disabled):not([data-disabled]) {
+    border-color: hsl(var(--primary) / 0.5);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[class~="border-input"][class~="focus-visible:border-primary"]:focus-visible:not([aria-invalid="true"]):not(:disabled):not([data-disabled]) {
+    border-color: hsl(var(--ring));
+    --tw-ring-shadow: 0 0 0 3px hsl(var(--ring) / 0.18);
+  }
+
+  /* Tailwind 3 needs an explicit invalid selector for these shared fields. */
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[aria-invalid="true"] {
+    border-color: hsl(var(--destructive));
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[aria-invalid="true"]:focus-visible {
+    --tw-ring-shadow: 0 0 0 3px hsl(var(--destructive) / 0.18);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+  }
+
+  /* Table sizes, cell alignment, sticky headings, and scroll behavior stay in JSX. */
+  :root[data-pos-template="tailadmin"] [data-slot="table"][class~="border-separate"] {
+    border-collapse: collapse;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-header"][class~="bg-muted/45"] {
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-head"][class~="text-muted-foreground"] {
+    color: #667085;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-head"][class~="font-bold"] {
+    font-weight: 500;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-head"][class~="text-[11px]"] {
+    font-size: 12px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-row"][class~="border-border/50"] {
+    border-color: #f2f4f7;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-header"] > [data-slot="table-row"] {
+    border-bottom-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-body"] > [data-slot="table-row"][class~="hover:bg-accent/40"]:not([class*=" bg-"]):not([class^="bg-"]):not([data-state="selected"]):hover {
+    background-color: #f9fafb;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-footer"][class~="bg-muted/50"] {
+    background-color: #f9fafb;
+    border-color: #e4e7ec;
+  }
+
+  /* Flush table panels have their own toolbar and footer spacing. */
+  :root[data-pos-template="tailadmin"] .data-table-panel[data-slot="card"] {
+    gap: 0;
+    padding-block: 0;
+  }
+
+  :root[data-pos-template="tailadmin"] .data-table-panel > [data-slot="card-header"] {
+    border-bottom: 1px solid #e4e7ec;
+    padding-block: 20px;
+  }
+
+  :root[data-pos-template="tailadmin"] .data-table-panel > [data-slot="card-content"] {
+    padding: 0;
+  }
+
+  :root[data-pos-template="tailadmin"] .data-table-panel > [data-slot="card-footer"] {
+    border-top: 1px solid #e4e7ec;
+    padding-block: 16px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="data-table-toolbar"] {
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="data-table-toolbar"][class~="border-b"] {
+    border-bottom-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="data-table-title"] {
+    color: #101828;
+    font-weight: 600;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="data-table-count"] {
+    border-color: #e4e7ec;
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="data-table-filters"] {
+    border-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="table-empty"] {
+    color: #667085;
+  }
+
+  /* Radix still owns focus, portals, keyboard navigation, and dialog geometry. */
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"])[class~="bg-slate-950/60"] {
+    background-color: rgb(102 112 133 / 0.45);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"])[class~="backdrop-blur-[3px]"] {
+    backdrop-filter: blur(6px);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"])[class~="rounded-2xl"] {
+    border-radius: 24px;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"])[class~="border-border/70"] {
+    border-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"])[class*="shadow-[0_24px_70px"] {
+    --tw-shadow: 0 24px 48px -12px rgb(16 24 40 / 0.18);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-title"], [data-slot="alert-dialog-title"])[class~="font-bold"] {
+    font-weight: 600;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-description"], [data-slot="alert-dialog-description"])[class~="text-muted-foreground"] {
+    color: #667085;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dialog-footer"], [data-slot="alert-dialog-footer"])[class~="pt-2"] {
+    border-top: 1px solid #e4e7ec;
+    padding-top: 16px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="dialog-close"][class~="bg-muted/80"] {
+    background-color: #f2f4f7;
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]):is([class~="shadow-md"], [class~="shadow-lg"], [class~="shadow-[0_18px_48px_rgba(15,39,52,0.2)]"]) {
+    --tw-shadow: var(--pos-tailadmin-popup-shadow);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"]):is([class~="rounded-xl"], [class~="rounded-md"]) {
+    border-radius: 12px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="select-content"][class~="bg-popover/98"] {
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="select-content"][class~="border-border/80"] {
+    border-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="select-item"][class~="data-[state=checked]:text-primary"][data-state="checked"] {
+    color: hsl(var(--accent-foreground));
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="select-item"], [data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"])[class~="focus:bg-accent"]:not([data-variant="destructive"]):not([data-disabled])[data-highlighted] {
+    background-color: var(--pos-tailadmin-active-background);
+    color: hsl(var(--accent-foreground));
+  }
+
+  :root[data-pos-template="tailadmin"] :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"])[class~="rounded-sm"] {
+    border-radius: 8px;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="tabs-list"][class~="bg-muted"] {
+    background-color: #f2f4f7;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="tabs-trigger"][class~="data-[state=active]:text-teal-800"][data-state="active"] {
+    color: hsl(var(--accent-foreground));
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="checkbox"][class~="border-input"][data-state="unchecked"]:not([aria-invalid="true"]):not(:hover):not(:focus-visible) {
+    border-color: var(--pos-tailadmin-field-border);
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="checkbox"][class~="bg-background"][data-state="unchecked"] {
+    background-color: #fff;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="switch"][class~="data-[state=unchecked]:bg-input"][data-state="unchecked"] {
+    background-color: #e4e7ec;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="switch-thumb"][class~="bg-background"] {
+    background-color: #fff;
+  }
+
+  /* Explicit status hooks carry meaning; destructive variants retain their API styles. */
+  :root[data-pos-template="tailadmin"] [data-slot="badge"][data-variant="default"][class~="bg-primary"]:not([data-status]) {
+    background-color: var(--pos-tailadmin-active-background);
+    color: hsl(var(--accent-foreground));
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="badge"][data-variant="secondary"][class~="bg-secondary"]:not([data-status]) {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="badge"][data-status="success"]:not([data-variant="destructive"]) {
+    background-color: #ecfdf3;
+    color: #027a48;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="badge"][data-status="warning"]:not([data-variant="destructive"]) {
+    background-color: #fffaeb;
+    color: #b54708;
+  }
+
+  :root[data-pos-template="tailadmin"] [data-slot="badge"][data-status="neutral"]:not([data-variant="destructive"]) {
+    background-color: #f2f4f7;
+    color: #344054;
+  }
+
+  @media (max-width: 639px) {
+    :root[data-pos-template="tailadmin"] .data-table-panel [data-slot="table-container"] {
+      width: 100%;
+      margin-inline: 0;
+      padding-inline: 0;
+      scroll-padding-inline: 0;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-slot="button"][data-size="sm"][class~="h-10"],
+    :root[data-pos-template="tailadmin"] [data-slot="select-item"][class~="min-h-10"],
+    :root[data-pos-template="tailadmin"] :is([data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-checkbox-item"], [data-slot="dropdown-menu-radio-item"], [data-slot="dropdown-menu-sub-trigger"]):not([class*="min-h-"]):not([class*=" h-"]) {
+      min-height: 44px;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-slot="dialog-close"][class~="size-9"] {
+      width: 44px;
+      height: 44px;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-slot="tabs-list"][class~="h-11"] {
+      min-height: 52px;
+    }
+
+    :root[data-pos-template="tailadmin"] [data-slot="tabs-list"][class~="h-11"] > [data-slot="tabs-trigger"] {
+      min-height: 44px;
+    }
+  }
+}

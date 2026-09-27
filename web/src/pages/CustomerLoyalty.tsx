@@ -176,6 +176,8 @@ export default function CustomerLoyalty() {
 
           {(formError || lookup.error) && (
             <div
+              data-slot="notice"
+              data-tone="error"
               role="alert"
               className="relative mt-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
             >
@@ -186,7 +188,12 @@ export default function CustomerLoyalty() {
         </section>
 
         {submittedPhone && !lookup.isLoading && firstPage && !member && (
-          <section className="mt-5 rounded-[28px] border border-slate-200 bg-white p-7 text-center shadow-xl shadow-slate-200/50 sm:p-10">
+          <section
+            data-slot="notice"
+            data-tone="warning"
+            role="alert"
+            className="mt-5 rounded-[28px] border border-slate-200 bg-white p-7 text-center shadow-xl shadow-slate-200/50 sm:p-10"
+          >
             <div className="mx-auto grid size-16 place-items-center rounded-2xl bg-amber-50 text-amber-600">
               <Phone className="size-7" />
             </div>
@@ -194,9 +201,14 @@ export default function CustomerLoyalty() {
               ไม่พบข้อมูลสมาชิก
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-              กรุณาตรวจสอบเบอร์โทรอีกครั้ง หรือติดต่อพนักงานหน้าร้านเพื่อแก้ไขข้อมูลสมาชิก
+              กรุณาตรวจสอบเบอร์โทรอีกครั้ง
+              หรือติดต่อพนักงานหน้าร้านเพื่อแก้ไขข้อมูลสมาชิก
             </p>
-            <Button className="mt-5 rounded-xl" variant="outline" onClick={resetLookup}>
+            <Button
+              className="mt-5 rounded-xl"
+              variant="outline"
+              onClick={resetLookup}
+            >
               <RefreshCw className="mr-2 size-4" /> กรอกเบอร์ใหม่
             </Button>
           </section>
@@ -339,7 +351,9 @@ export default function CustomerLoyalty() {
                             >
                               {positive ? "+" : ""}
                               {transaction.points.toLocaleString("th-TH")}
-                              <span className="ml-1 text-xs font-bold">แต้ม</span>
+                              <span className="ml-1 text-xs font-bold">
+                                แต้ม
+                              </span>
                             </div>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">

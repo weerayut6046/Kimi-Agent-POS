@@ -1,6 +1,7 @@
 const LOCAL_SESSION_STORAGE_KEY = "pumppos_local_auth_session";
 
 export const isLocalAuthEnabled =
+  import.meta.env.DEV ||
   import.meta.env.VITE_LOCAL_AUTH_ENABLED?.trim().toLowerCase() === "true";
 
 export function readLocalSessionToken(): string | null {

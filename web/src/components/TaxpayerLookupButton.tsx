@@ -130,6 +130,8 @@ export function TaxpayerLookupButton({
       )}
       {feedback?.key === lookupKey && feedback.tone !== "loading" && (
         <p
+          data-slot="notice"
+          data-tone={feedback.tone === "success" ? "success" : "error"}
           className={
             feedback.tone === "success"
               ? "text-xs text-emerald-700"

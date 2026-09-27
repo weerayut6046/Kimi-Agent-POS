@@ -8,7 +8,6 @@ import {
   Droplet,
   Gauge,
   ReceiptText,
-  Sparkles,
   TrendingUp,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import SalesTrendChart from "@/components/SalesTrendChart";
+import BusinessSetupPrompt from "@/components/BusinessSetupPrompt";
 import { trpc } from "@/providers/trpc";
 import { fmtMoney, fmtNum, fmtTime, paymentLabel } from "@/lib/format";
 
@@ -64,7 +64,12 @@ export default function Dashboard() {
 
   if (isError || !data) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 py-20 text-center">
+      <div
+        data-slot="notice"
+        data-tone="error"
+        role="alert"
+        className="mx-auto flex max-w-lg flex-col items-center gap-3 py-20 text-center"
+      >
         <AlertTriangle className="size-9 text-amber-500" />
         <div>
           <h2 className="font-heading text-lg font-bold text-slate-800">
@@ -89,7 +94,6 @@ export default function Dashboard() {
   // รองรับช่วงที่ frontend โหลดใหม่ก่อน backend ระหว่าง dev/hot reload
   const todayTotal = Number(data.todayTotal ?? 0);
   const todayPosTotal = Number(data.todayPosTotal ?? todayTotal);
-  const todayShiftTotal = Number(data.todayShiftTotal ?? 0);
   const todayShiftCount = Number(data.todayShiftCount ?? 0);
   const todayBills = Number(data.todayBills ?? 0);
   const litersToday = Number(data.litersToday ?? 0);
@@ -99,33 +103,6 @@ export default function Dashboard() {
     (sum, fuel) => sum + fuel.amount,
     0
   );
-  const stats = [
-    {
-      label: "น้ำมันที่จ่ายแล้ว",
-      value: `${fmtNum(litersToday)} ลิตร`,
-      icon: Droplet,
-      color: "text-cyan-700",
-      iconBg: "from-cyan-100 to-blue-50",
-      glow: "bg-cyan-400/15",
-    },
-    {
-      label: "จำนวนธุรกรรม",
-      value: `${todayBills} บิล`,
-      icon: ReceiptText,
-      color: "text-violet-700",
-      iconBg: "from-violet-100 to-fuchsia-50",
-      glow: "bg-violet-400/15",
-    },
-    {
-      label: "เฉลี่ยต่อบิล POS",
-      value: `฿${fmtMoney(averageBill)}`,
-      icon: Banknote,
-      color: "text-orange-700",
-      iconBg: "from-orange-100 to-amber-50",
-      glow: "bg-orange-400/15",
-    },
-  ];
-
   const todayLabel = new Intl.DateTimeFormat("th-TH", {
     weekday: "long",
     day: "numeric",
@@ -138,166 +115,98 @@ export default function Dashboard() {
       className="space-y-5 lg:space-y-6"
       aria-busy={isPlaceholderData || isFetching}
     >
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.7fr)]">
-        <div className="aurora-border relative z-0 overflow-hidden rounded-[28px] bg-gradient-to-br from-[#11112c] via-[#1b1950] to-[#12344c] p-5 text-white shadow-[0_28px_70px_rgba(30,24,82,0.28)] sm:p-7 lg:p-8">
-          <div className="surface-grid pointer-events-none absolute inset-0 opacity-70" />
-          <div className="ambient-float pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-violet-500/30 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 right-1/4 size-52 rounded-full bg-cyan-400/15 blur-3xl" />
-
-          <div className="relative flex h-full min-h-[330px] flex-col">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.075] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/80 backdrop-blur-md">
-                <Sparkles className="size-3.5 text-cyan-300" /> Command center
-              </div>
-              <div className="rounded-full border border-white/10 bg-black/10 px-3 py-1.5 text-[11px] text-white/55 backdrop-blur-sm">
-                {todayLabel}
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <h1 className="font-heading text-4xl font-extrabold leading-none tracking-[-0.04em] sm:text-5xl lg:text-[3.5rem]">
-                ยอดขายวันนี้
-              </h1>
-              <div className="mt-2 flex flex-wrap items-end gap-3">
-                <div className="font-heading text-3xl font-extrabold leading-none tracking-[-0.04em] number-display">
-                  ฿{fmtMoney(todayTotal)}
-                </div>
-                <div className="mb-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-200">
-                  <TrendingUp className="size-3" />{" "}
-                  {isPlaceholderData
-                    ? "กำลังอัปเดตข้อมูล"
-                    : "อัปเดตแบบเรียลไทม์"}
-                </div>
-              </div>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-white/50">
-                รวมยอดจากกะที่ปิดวันนี้และยอดขาย POS
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
-                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
-                  ยอด P จากกะ ฿{fmtMoney(todayShiftTotal)}
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
-                  ยอด POS ฿{fmtMoney(todayPosTotal)}
-                </span>
-                <span className="rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-white/70">
-                  ปิดแล้ว {todayShiftCount} กะ
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-auto flex flex-wrap items-end justify-between gap-5 pt-8">
-              <div className="flex gap-6">
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-white/35">
-                    ปริมาณจ่าย
-                  </div>
-                  <div className="mt-1 font-heading text-lg font-bold number-display">
-                    {fmtNum(litersToday)} ลิตร
-                  </div>
-                </div>
-                <div className="h-10 w-px bg-white/10" />
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.16em] text-white/35">
-                    ธุรกรรม
-                  </div>
-                  <div className="mt-1 font-heading text-lg font-bold number-display">
-                    {todayBills} บิล
-                  </div>
-                </div>
-              </div>
-              <Link to="/pos" className="w-full sm:w-auto">
-                <Button className="shine-button h-12 w-full gap-2 rounded-2xl border border-white/15 bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500 px-5 text-white shadow-[0_12px_32px_rgba(76,84,255,0.35)] hover:from-violet-500 hover:via-indigo-500 hover:to-cyan-400 sm:w-auto">
-                  เริ่มขายสินค้า <ArrowUpRight className="size-4" />
-                </Button>
-              </Link>
-            </div>
-          </div>
+      <BusinessSetupPrompt />
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="page-kicker">Command center · {todayLabel}</div>
+          <h1 className="mt-1 font-heading text-2xl font-bold tracking-[-0.025em] text-slate-950 sm:text-3xl">
+            ภาพรวมการทำงานวันนี้
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            ติดตามยอดขาย กะ และสถานะสต๊อกจากจุดเดียว
+          </p>
         </div>
+        <Link to="/pos" className="w-full sm:w-auto">
+          <Button className="h-11 w-full gap-2 px-5 sm:w-auto">
+            เริ่มขายหน้าลาน <ArrowUpRight className="size-4" />
+          </Button>
+        </Link>
+      </section>
 
-        <Card className="spotlight-card gap-0 overflow-hidden py-0">
-          <CardHeader className="border-b border-slate-100/80 px-5 py-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="page-kicker">Live operations</div>
-                <CardTitle className="mt-1.5 font-heading text-lg font-bold text-slate-900">
-                  สถานะสถานี
-                </CardTitle>
-              </div>
-              <span className="relative flex size-3">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-cyan-400 opacity-50" />
-                <span className="relative size-3 rounded-full bg-cyan-500" />
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="flex flex-1 flex-col gap-3 p-5">
-            <div
-              className={`rounded-2xl border p-4 ${
-                data.openShift
-                  ? "border-cyan-100 bg-gradient-to-br from-cyan-50 to-white"
-                  : "border-orange-100 bg-gradient-to-br from-orange-50 to-white"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`grid size-11 place-items-center rounded-2xl ${
-                    data.openShift
-                      ? "bg-cyan-500 text-white shadow-lg shadow-cyan-500/20"
-                      : "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
-                  }`}
-                >
-                  <Gauge className="size-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs text-slate-500">สถานะกะ</div>
-                  <div className="truncate font-semibold text-slate-900">
-                    {data.openShift ? "กำลังให้บริการ" : "รอเปิดกะ"}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-slate-400">
-                    {data.openShift
-                      ? `${data.openShift.staffName} · เริ่ม ${fmtTime(data.openShift.openedAt)}`
-                      : "เปิดกะเพื่อเริ่มรับรายการ"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-[#f3f1ff] p-4">
-                <Boxes className="size-5 text-violet-600" />
-                <div className="mt-3 text-2xl font-extrabold text-slate-900 number-display">
-                  {lowStockCount}
-                </div>
-                <div className="text-[11px] text-slate-500">รายการต้องดูแล</div>
-              </div>
-              <div className="rounded-2xl bg-[#ecfbf9] p-4">
-                <ReceiptText className="size-5 text-cyan-600" />
-                <div className="mt-3 text-2xl font-extrabold text-slate-900 number-display">
-                  {todayBills}
-                </div>
-                <div className="text-[11px] text-slate-500">บิลวันนี้</div>
-              </div>
-            </div>
-
-            <div className="mt-auto grid grid-cols-2 gap-2 pt-1">
-              <Link
-                to="/shifts"
-                className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-all hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
-              >
-                จัดการกะ <ArrowRight className="size-3.5" />
-              </Link>
-              <Link
-                to="/stock"
-                className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-all hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-700"
-              >
-                ดูสต๊อก <ArrowRight className="size-3.5" />
-              </Link>
-            </div>
-          </CardContent>
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <Card className="gap-0 p-4 sm:p-5">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>ยอดขายวันนี้</span>
+            <Banknote className="size-4 text-primary" />
+          </div>
+          <div className="mt-3 font-heading text-2xl font-bold text-slate-950 number-display sm:text-3xl">
+            ฿{fmtMoney(todayTotal)}
+          </div>
+          <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-700">
+            <TrendingUp className="size-3" />
+            {isPlaceholderData ? "กำลังอัปเดตข้อมูล" : "อัปเดตแบบเรียลไทม์"}
+          </div>
+        </Card>
+        <Card className="gap-0 p-4 sm:p-5">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>จำนวนรายการ</span>
+            <ReceiptText className="size-4 text-primary" />
+          </div>
+          <div className="mt-3 font-heading text-2xl font-bold text-slate-950 number-display sm:text-3xl">
+            {todayBills}
+          </div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            เฉลี่ย ฿{fmtMoney(averageBill)} ต่อบิล
+          </div>
+        </Card>
+        <Card className="gap-0 p-4 sm:p-5">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>น้ำมันที่จ่ายแล้ว</span>
+            <Droplet className="size-4 text-primary" />
+          </div>
+          <div className="mt-3 font-heading text-2xl font-bold text-slate-950 number-display sm:text-3xl">
+            {fmtNum(litersToday)}{" "}
+            <span className="text-sm font-medium text-slate-400">ลิตร</span>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-500">
+            จากกะที่ปิดแล้ว {todayShiftCount} กะ
+          </div>
+        </Card>
+        <Card
+          className={
+            lowStockCount
+              ? "gap-0 border-orange-200 bg-orange-50 p-4 sm:p-5"
+              : "gap-0 p-4 sm:p-5"
+          }
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>สถานีและกะ</span>
+            {lowStockCount ? (
+              <Boxes className="size-4 text-orange-600" />
+            ) : (
+              <Gauge className="size-4 text-primary" />
+            )}
+          </div>
+          <div className="mt-3 font-heading text-lg font-bold text-slate-950">
+            {data.openShift ? "กำลังให้บริการ" : "รอเปิดกะ"}
+          </div>
+          <div className="mt-2 truncate text-[11px] text-slate-500">
+            {data.openShift
+              ? `${data.openShift.staffName} · เริ่ม ${fmtTime(data.openShift.openedAt)}`
+              : lowStockCount
+                ? `มี ${lowStockCount} รายการที่ควรตรวจสอบ`
+                : "สถานีพร้อมเริ่มงาน"}
+          </div>
         </Card>
       </section>
 
       {(data.lowTanks.length > 0 || data.lowProducts.length > 0) && (
-        <Card className="gap-0 overflow-hidden border-orange-200/80 bg-gradient-to-r from-orange-50/90 via-amber-50/80 to-white/80 py-0 shadow-[0_12px_30px_rgba(251,146,60,0.08)]">
+        <Card
+          data-slot="notice"
+          data-tone="warning"
+          role="alert"
+          className="gap-0 overflow-hidden border-orange-200/80 bg-gradient-to-r from-orange-50/90 via-amber-50/80 to-white/80 py-0 shadow-[0_12px_30px_rgba(251,146,60,0.08)]"
+        >
           <CardContent className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
             <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-orange-500 text-white shadow-lg shadow-orange-500/20">
               <AlertTriangle className="size-[18px]" />
@@ -329,37 +238,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {stats.map(stat => (
-          <Card
-            key={stat.label}
-            className="interactive-card spotlight-card group gap-0 overflow-hidden py-0"
-          >
-            <span
-              className={`pointer-events-none absolute -right-8 -top-8 size-28 rounded-full blur-2xl ${stat.glow}`}
-            />
-            <CardContent className="relative flex items-center gap-4 p-5">
-              <div
-                className={`grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br shadow-inner ring-1 ring-white transition-all duration-300 group-hover:-rotate-6 group-hover:scale-110 ${stat.iconBg} ${stat.color}`}
-              >
-                <stat.icon className="size-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium text-slate-500">
-                  {stat.label}
-                </div>
-                <div className="mt-1 truncate font-heading text-xl font-extrabold text-slate-900 number-display">
-                  {stat.value}
-                </div>
-              </div>
-              <span className="grid size-8 place-items-center rounded-full bg-slate-50 text-slate-300 transition-all group-hover:bg-violet-50 group-hover:text-violet-500">
-                <ArrowUpRight className="size-4" />
-              </span>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="gap-4 overflow-hidden lg:col-span-2">
           <CardHeader className="flex-row items-start justify-between px-5 pb-0 sm:px-6">
@@ -372,7 +250,7 @@ export default function Dashboard() {
                 ยอด P จากกะที่ปิด + ยอด POS รายวัน
               </p>
             </div>
-            <div className="grid size-10 place-items-center rounded-2xl bg-violet-50 text-violet-600">
+            <div className="grid size-10 place-items-center rounded-lg bg-accent text-accent-foreground">
               <TrendingUp className="size-5" />
             </div>
           </CardHeader>
@@ -402,10 +280,10 @@ export default function Dashboard() {
             {Object.entries(data.fuelByCode).map(([code, fuel], index) => {
               const percent = fuelTotal ? (fuel.amount / fuelTotal) * 100 : 0;
               const barColors = [
-                "from-violet-500 to-indigo-500",
+                "from-teal-500 to-teal-700",
                 "from-cyan-400 to-teal-500",
                 "from-orange-400 to-rose-500",
-                "from-fuchsia-400 to-violet-500",
+                "from-sky-400 to-teal-500",
               ];
               return (
                 <div key={code} className="group">
@@ -465,9 +343,7 @@ export default function Dashboard() {
                   aria-label={`ระดับน้ำมันในถัง ${tank.name}`}
                   aria-valuetext={`${fmtNum(tank.percent)} เปอร์เซ็นต์`}
                   className={`h-2.5 ${
-                    tank.isLow
-                      ? "[&>div]:bg-destructive"
-                      : "[&>div]:bg-violet-600"
+                    tank.isLow ? "[&>div]:bg-destructive" : "[&>div]:bg-primary"
                   }`}
                 />
                 <div className="mt-1.5 text-right text-[10px] text-slate-400">
@@ -488,7 +364,7 @@ export default function Dashboard() {
               </CardTitle>
             </div>
             <Link to="/sales">
-              <Button variant="ghost" size="sm" className="text-violet-700">
+              <Button variant="ghost" size="sm" className="text-primary">
                 ดูทั้งหมด <ArrowRight className="size-3.5" />
               </Button>
             </Link>
@@ -503,10 +379,10 @@ export default function Dashboard() {
               {data.recentSales.map(sale => (
                 <div
                   key={sale.id}
-                  className="group -mx-2 flex items-center justify-between gap-3 rounded-2xl px-3 py-3 transition-all hover:bg-violet-50/60"
+                  className="group -mx-2 flex items-center justify-between gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-accent/70"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-400 transition-all group-hover:bg-violet-100 group-hover:text-violet-600">
+                    <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-accent group-hover:text-accent-foreground">
                       <ReceiptText className="size-[18px]" />
                     </div>
                     <div className="min-w-0">

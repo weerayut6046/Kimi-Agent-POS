@@ -108,7 +108,10 @@ function validatePlanAgainstReport(
   return plan;
 }
 
-function planTool(report: FormulaAuditReport): DeepSeekAssistantTool {
+function planTool(
+  report: FormulaAuditReport,
+  onValidatedPlan: (plan: FormulaAuditFixPlan) => void
+): DeepSeekAssistantTool {
   return {
     definition: {
       type: "function",
@@ -194,8 +197,12 @@ function planTool(report: FormulaAuditReport): DeepSeekAssistantTool {
         },
       },
     },
-    execute: async value => validatePlanAgainstReport(value, report),
-    renderPrivateResult: value => JSON.stringify(value),
+    execute: async value => {
+      const plan = validatePlanAgainstReport(value, report);
+      onValidatedPlan(plan);
+      return { status: "accepted" };
+    },
+    renderPrivateResult: () => "formula_audit_fix_plan_accepted",
   };
 }
 
@@ -216,7 +223,10 @@ export async function generateFormulaAuditFixPlan(input: {
   config: AssistantRuntimeConfig;
   report: FormulaAuditReport;
 }): Promise<FormulaAuditFixPlan> {
-  const tool = planTool(input.report);
+  let validatedPlan: FormulaAuditFixPlan | undefined;
+  const tool = planTool(input.report, plan => {
+    validatedPlan = plan;
+  });
   const request = {
     systemPrompt: systemPrompt(),
     conversation: [
@@ -227,26 +237,28 @@ export async function generateFormulaAuditFixPlan(input: {
     ],
     tools: [tool],
     forcedToolName: "submit_formula_audit_fix_plan",
+    maxOutputTokens: 3_200,
   };
-  const result =
-    input.config.provider === "ollama"
-      ? await runOllamaAssistant({
-          ...request,
-          baseUrl: input.config.ollamaBaseUrl,
-          model: input.config.ollamaModel,
-          timeoutMs: input.config.ollamaTimeoutMs,
-        })
-      : await runDeepSeekAssistant({
-          ...request,
-          apiKey: input.config.deepseekApiKey,
-          model: input.config.deepseekModel,
-        });
+  if (input.config.provider === "ollama") {
+    await runOllamaAssistant({
+      ...request,
+      baseUrl: input.config.ollamaBaseUrl,
+      model: input.config.ollamaModel,
+      timeoutMs: input.config.ollamaTimeoutMs,
+    });
+  } else {
+    await runDeepSeekAssistant({
+      ...request,
+      apiKey: input.config.deepseekApiKey,
+      model: input.config.deepseekModel,
+      timeoutMs: 60_000,
+    });
+  }
 
-  try {
-    return validatePlanAgainstReport(JSON.parse(result.answer), input.report);
-  } catch {
+  if (!validatedPlan) {
     throw new Error("AI returned an invalid formula audit fix plan");
   }
+  return validatedPlan;
 }
 
 export function formulaAuditIssueFingerprint(issues: FormulaAuditIssue[]) {

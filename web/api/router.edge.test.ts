@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { edgeAppRouter } from "./router.edge";
 
 describe("Supabase Edge API router", () => {
+  it("registers every business setup procedure in the Edge deployment", () => {
+    expect(Object.keys(edgeAppRouter._def.procedures)).toEqual(
+      expect.arrayContaining([
+        "onboarding.state",
+        "onboarding.saveProfile",
+        "onboarding.savePayments",
+        "onboarding.confirmStep",
+        "onboarding.createFuelSetup",
+        "onboarding.updateEquipment",
+        "onboarding.complete",
+      ])
+    );
+  });
+  it("registers fuel forecasting and its settings procedure", () => {
+    expect(Object.keys(edgeAppRouter._def.procedures)).toEqual(
+      expect.arrayContaining([
+        "fuelForecast.summary",
+        "fuelForecast.saveSettings",
+      ])
+    );
+  });
   it("registers every security procedure used by the dashboard", () => {
     expect(Object.keys(edgeAppRouter._def.procedures)).toEqual(
       expect.arrayContaining([

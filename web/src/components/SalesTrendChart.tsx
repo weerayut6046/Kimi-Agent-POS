@@ -46,9 +46,9 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
       >
         <defs>
           <linearGradient id="sales-area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#7667f7" stopOpacity="0.38" />
-            <stop offset="65%" stopColor="#7667f7" stopOpacity="0.08" />
-            <stop offset="100%" stopColor="#7667f7" stopOpacity="0" />
+            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
+            <stop offset="65%" stopColor="hsl(var(--primary))" stopOpacity="0.07" />
+            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
           </linearGradient>
         </defs>
 
@@ -62,14 +62,14 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
                 x2={WIDTH - PADDING.right}
                 y1={y}
                 y2={y}
-                stroke="#e8e7f0"
+                stroke="hsl(var(--border))"
                 strokeDasharray="3 7"
               />
               <text
                 x={PADDING.left - 10}
                 y={y + 4}
                 textAnchor="end"
-                fill="#8b8aa1"
+                fill="hsl(var(--muted-foreground))"
                 fontSize="11"
               >
                 {compactNumber.format(value)}
@@ -83,7 +83,7 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
           <path
             d={linePath}
             fill="none"
-            stroke="#6d5df4"
+            stroke="hsl(var(--primary))"
             strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -92,7 +92,7 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
 
         {points.map(point => (
           <g key={point.label}>
-            <circle cx={point.x} cy={point.y} r="4" fill="#18c7bf">
+            <circle cx={point.x} cy={point.y} r="4" fill="hsl(var(--foreground))">
               <title>
                 {point.label}: รวม ฿{fmtMoney(point.total)} · P จากกะ ฿
                 {fmtMoney(point.shiftTotal ?? 0)} · POS ฿
@@ -103,7 +103,7 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
               x={point.x}
               y={HEIGHT - 12}
               textAnchor="middle"
-              fill="#8b8aa1"
+              fill="hsl(var(--muted-foreground))"
               fontSize="11"
             >
               {point.label}

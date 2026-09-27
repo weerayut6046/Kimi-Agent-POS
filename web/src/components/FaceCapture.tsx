@@ -206,11 +206,17 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             if (!frame) {
               stableFramesRef.current = 0;
               missingFaceFramesRef.current += 1;
-              if (faceCount > 1 ||
-                  missingFaceFramesRef.current > MAX_TRANSIENT_MISSING_FRAMES ||
-                  Date.now() - lastFaceSeenAtRef.current > 600) {
+              if (
+                faceCount > 1 ||
+                missingFaceFramesRef.current > MAX_TRANSIENT_MISSING_FRAMES ||
+                Date.now() - lastFaceSeenAtRef.current > 600
+              ) {
                 resetIdentityProgress();
-              } else if (actionDoneRef.current || blinkStartedRef.current || samplesRef.current.length > 0) {
+              } else if (
+                actionDoneRef.current ||
+                blinkStartedRef.current ||
+                samplesRef.current.length > 0
+              ) {
                 // A brief detector dropout is common during a blink or turn.
                 // Keep the challenge progress, but still require a fresh good
                 // frame before collecting another sample.
@@ -289,8 +295,8 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             stableFramesRef.current += 1;
             // Wait for two steady frames after the liveness action. Once the
             // face is centered, later samples only need one fresh good frame.
-            const stableFramesRequired = mode === "verify" && samplesRef.current.length > 0
-              ? 1 : 2;
+            const stableFramesRequired =
+              mode === "verify" && samplesRef.current.length > 0 ? 1 : 2;
             if (stableFramesRef.current < stableFramesRequired) {
               updateScanUi({
                 message: "อยู่นิ่ง ๆ อีกนิด กำลังยืนยันใบหน้า",
@@ -306,16 +312,17 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
             lastSampleAtRef.current = Date.now();
             samplesRef.current.push(frame.embedding);
             const sampleCount = samplesRef.current.length;
-            const sampleTarget = mode === "verify"
-              ? VERIFY_SAMPLE_COUNT : ENROLL_SAMPLE_COUNT;
+            const sampleTarget =
+              mode === "verify" ? VERIFY_SAMPLE_COUNT : ENROLL_SAMPLE_COUNT;
             setSamples(sampleCount);
             stableFramesRef.current = 0;
             if (sampleCount < sampleTarget) {
               updateScanUi({
-                message: mode === "verify"
-                  ? `เก็บภาพที่ชัด ${sampleCount}/${sampleTarget} เฟรม มองกล้องตรงและอยู่นิ่ง ๆ`
-                  : `บันทึกครั้งที่ ${sampleCount}/${sampleTarget} แล้ว ขยับหน้าเล็กน้อย`,
-                progress: 70 + Math.round(sampleCount * 29 / sampleTarget),
+                message:
+                  mode === "verify"
+                    ? `เก็บภาพที่ชัด ${sampleCount}/${sampleTarget} เฟรม มองกล้องตรงและอยู่นิ่ง ๆ`
+                    : `บันทึกครั้งที่ ${sampleCount}/${sampleTarget} แล้ว ขยับหน้าเล็กน้อย`,
+                progress: 70 + Math.round((sampleCount * 29) / sampleTarget),
                 faceReady,
                 clarityReady,
                 livenessReady,
@@ -522,7 +529,12 @@ export function FaceCapture({ mode, action, onComplete, onCancel }: Props) {
 
       {error && (
         <div className="space-y-3 border-t border-white/10 bg-slate-950 p-4">
-          <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-100">
+          <div
+            data-slot="notice"
+            data-tone="error"
+            role="alert"
+            className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3 text-sm text-rose-100"
+          >
             {error}
           </div>
           <div className="grid grid-cols-2 gap-2">

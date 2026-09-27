@@ -6,26 +6,26 @@
 
 @layer base {
   :root {
-    --background: 240 36% 97%;
-    --foreground: 235 40% 13%;
+    --background: 204 24% 96%;
+    --foreground: 207 35% 15%;
     --card: 0 0% 100%;
-    --card-foreground: 218 48% 13%;
+    --card-foreground: 207 35% 15%;
     --popover: 0 0% 100%;
-    --popover-foreground: 218 48% 13%;
-    --primary: 247 80% 62%;
+    --popover-foreground: 207 35% 15%;
+    --primary: 174 72% 31%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 245 48% 95%;
-    --secondary-foreground: 247 54% 38%;
-    --muted: 238 29% 94%;
-    --muted-foreground: 234 13% 45%;
-    --accent: 244 56% 94%;
-    --accent-foreground: 247 59% 37%;
-    --destructive: 0 76% 52%;
+    --secondary: 202 24% 92%;
+    --secondary-foreground: 205 42% 25%;
+    --muted: 204 19% 92%;
+    --muted-foreground: 205 12% 43%;
+    --accent: 174 35% 90%;
+    --accent-foreground: 176 64% 23%;
+    --destructive: 11 70% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 237 23% 88%;
-    --input: 237 23% 84%;
-    --ring: 247 80% 62%;
-    --radius: 1rem;
+    --border: 204 18% 85%;
+    --input: 204 18% 80%;
+    --ring: 174 72% 31%;
+    --radius: 0.75rem;
   }
 
   html,
@@ -48,18 +48,11 @@
     @apply bg-background text-foreground;
     min-width: 0;
     overflow-x: hidden;
-    background-image:
-      radial-gradient(
-        circle at 8% -4%,
-        hsl(250 100% 94% / 0.95),
-        transparent 34rem
-      ),
-      radial-gradient(
-        circle at 96% 7%,
-        hsl(183 88% 92% / 0.62),
-        transparent 28rem
-      ),
-      linear-gradient(180deg, hsl(240 45% 98%), hsl(238 32% 96%));
+    background-image: linear-gradient(
+      180deg,
+      hsl(204 29% 97%),
+      hsl(204 22% 94%)
+    );
     background-attachment: fixed;
     font-family:
       "Leelawadee UI", "Noto Sans Thai", Tahoma, ui-sans-serif, system-ui,
@@ -127,10 +120,10 @@
   .aurora-border::before {
     background: linear-gradient(
       120deg,
-      hsl(247 90% 66% / 0.7),
-      hsl(184 82% 50% / 0.55),
+      hsl(174 72% 38% / 0.7),
+      hsl(193 62% 38% / 0.55),
       hsl(28 95% 62% / 0.5),
-      hsl(247 90% 66% / 0.7)
+      hsl(174 72% 38% / 0.7)
     );
     background-size: 240% 240%;
     border-radius: inherit;
