@@ -225,15 +225,21 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
   const productRows = await db.query.products.findMany({
     where: eq(products.branchId, mainBranch.id),
   });
-  const productByCode = new Map(productRows.map(product => [product.code, product]));
+  const productByCode = new Map(
+    productRows.map(product => [product.code, product])
+  );
   for (const code of ["GSH95", "DB7", "2T-PTT", "LUBE-MC", "WATER"]) {
     if (!productByCode.has(code)) {
-      throw new Error(`Cannot create Dev demo data: product ${code} is missing`);
+      throw new Error(
+        `Cannot create Dev demo data: product ${code} is missing`
+      );
     }
   }
 
   const memberRows = await db.query.members.findMany();
-  const memberByCode = new Map(memberRows.map(member => [member.memberCode, member]));
+  const memberByCode = new Map(
+    memberRows.map(member => [member.memberCode, member])
+  );
   const nozzleRows = await db.query.nozzles.findMany({
     where: eq(nozzles.branchId, mainBranch.id),
   });
@@ -297,7 +303,9 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
     const totals = saleDefinitions.map(definition =>
       roundMoney(definition.lines.reduce((sum, line) => sum + line.amount, 0))
     );
-    const totalAmount = roundMoney(totals.reduce((sum, total) => sum + total, 0));
+    const totalAmount = roundMoney(
+      totals.reduce((sum, total) => sum + total, 0)
+    );
     const totalLiters = saleDefinitions.reduce(
       (sum, definition) =>
         sum +
@@ -356,7 +364,9 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
       for (const [saleIndex, definition] of saleDefinitions.entries()) {
         const total = totals[saleIndex];
         const received =
-          definition.paymentMethod === "cash" ? Math.ceil(total / 100) * 100 : total;
+          definition.paymentMethod === "cash"
+            ? Math.ceil(total / 100) * 100
+            : total;
         const pointsEarned = definition.member ? Math.floor(total / 100) : 0;
         const [sale] = await tx
           .insert(sales)
@@ -376,7 +386,11 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
             changeAmt: roundMoney(received - total),
             pointsEarned,
             status: "completed",
-            createdAt: bangkokInstant(dateKey, definition.hour, definition.minute),
+            createdAt: bangkokInstant(
+              dateKey,
+              definition.hour,
+              definition.minute
+            ),
           })
           .returning();
 
@@ -389,6 +403,8 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
             qty: line.qty,
             unit: line.product.unit,
             unitPrice: line.product.price,
+            costPerUnit: line.product.cost,
+            productCategory: line.product.category,
             amount: line.amount,
           }))
         );
@@ -400,7 +416,11 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
             type: "earn",
             points: pointsEarned,
             note: "DEV-DEMO",
-            createdAt: bangkokInstant(dateKey, definition.hour, definition.minute),
+            createdAt: bangkokInstant(
+              dateKey,
+              definition.hour,
+              definition.minute
+            ),
           });
         }
         if (definition.paymentMethod === "credit" && definition.customer) {
@@ -422,7 +442,10 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
 
       await tx.insert(expenses).values({
         branchId: mainBranch.id,
-        title: dayIndex % 2 === 0 ? "น้ำดื่มพนักงาน (ทดลอง)" : "อุปกรณ์ทำความสะอาด (ทดลอง)",
+        title:
+          dayIndex % 2 === 0
+            ? "น้ำดื่มพนักงาน (ทดลอง)"
+            : "อุปกรณ์ทำความสะอาด (ทดลอง)",
         category: "ค่าใช้จ่ายทั่วไป",
         amount: expenseAmount,
         shiftId: shift.id,
@@ -448,7 +471,9 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
         const product = productRows.find(row => row.id === nozzle.productId);
         if (!product) continue;
         const dispensed = roundMoney(8 + dayIndex + nozzleIndex * 1.25);
-        const openMeter = roundMoney(50_000 + dayIndex * 200 + nozzleIndex * 1_000);
+        const openMeter = roundMoney(
+          50_000 + dayIndex * 200 + nozzleIndex * 1_000
+        );
         const openMoney = roundMoney(openMeter * product.price);
         await tx.insert(shiftReadings).values({
           branchId: mainBranch.id,
@@ -459,6 +484,7 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
           openMoney,
           closeMoney: roundMoney(openMoney + dispensed * product.price),
           pricePerLiter: product.price,
+          costPerLiter: product.cost,
         });
       }
       for (const [tankIndex, tank] of tankRows.entries()) {
@@ -467,7 +493,9 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
           tankId: tank.id,
           liters: Math.max(
             0,
-            roundMoney(tank.currentLiters + (6 - dayIndex) * 120 - tankIndex * 40)
+            roundMoney(
+              tank.currentLiters + (6 - dayIndex) * 120 - tankIndex * 40
+            )
           ),
           measuredAt: bangkokInstant(dateKey, 14),
           staffId: cashier.id,
@@ -502,7 +530,9 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
     ),
   });
   if (!existingStockCount) {
-    const stockProducts = productRows.filter(product => product.category !== "fuel");
+    const stockProducts = productRows.filter(
+      product => product.category !== "fuel"
+    );
     await db.transaction(async tx => {
       const [session] = await tx
         .insert(stockCountSessions)

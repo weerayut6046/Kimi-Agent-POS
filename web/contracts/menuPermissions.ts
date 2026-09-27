@@ -56,6 +56,14 @@ export const MENU_PERMISSION_DEFINITIONS = [
     apiPrefixes: ["stockCount."] as const,
   },
   {
+    key: "fuel_forecast",
+    path: "/stock/forecast",
+    label: "วางแผนสั่งน้ำมัน",
+    group: "station",
+    roles: ALL_ROLES,
+    apiPrefixes: ["fuelForecast."] as const,
+  },
+  {
     key: "members",
     path: "/members",
     label: "สมาชิก",
@@ -88,12 +96,12 @@ export const MENU_PERMISSION_DEFINITIONS = [
     apiPrefixes: [] as const,
   },
   {
-    key: "reports",
-    path: "/reports",
-    label: "รายงาน",
+    key: "profitability",
+    path: "/reports/profitability",
+    label: "ต้นทุนและกำไร",
     group: "document",
-    roles: ALL_ROLES,
-    apiPrefixes: ["reports."] as const,
+    roles: MANAGER_AND_ADMIN,
+    apiPrefixes: ["reports.profitability"] as const,
   },
   {
     key: "expenses",
@@ -143,6 +151,22 @@ export const MENU_PERMISSION_DEFINITIONS = [
     roles: ALL_ROLES,
     apiPrefixes: ["dbadmin."] as const,
   },
+  {
+    key: "platform",
+    path: "/platform",
+    label: "บริหาร SaaS",
+    group: "system",
+    roles: ["admin"] as const,
+    apiPrefixes: ["platform."] as const,
+  },
+  {
+    key: "setup",
+    path: "/setup",
+    label: "เริ่มต้นใช้งานกิจการ",
+    group: "system",
+    roles: ["admin"] as const,
+    apiPrefixes: ["onboarding."] as const,
+  },
 ] as const;
 
 export type MenuPermissionDefinition =
@@ -190,11 +214,21 @@ export function isRoleEligibleForMenu(
  * ภายใต้ router นั้นถูกตรวจสิทธิ์โดยอัตโนมัติ
  */
 export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
-  // Pre-auth login is gated by username, PIN and enrolled face in the API.
+  // These login procedures verify credentials before issuing a staff session.
   if (
+    path === "faceAuth.passkeyStatus" ||
     path === "faceAuth.beginFaceLogin" ||
-    path === "faceAuth.completeFaceLogin"
-  ) return [];
+    path === "faceAuth.completeFaceLogin" ||
+    path === "faceAuth.beginPasskeyLogin" ||
+    path === "faceAuth.completePasskeyLogin"
+  )
+    return [];
+  if (
+    path === "faceAuth.beginPasskeyRegistration" ||
+    path === "faceAuth.completePasskeyRegistration"
+  ) {
+    return ["settings"];
+  }
   if (
     path.startsWith("pos.shift") ||
     path === "pos.openShift" ||
@@ -219,6 +253,29 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   if (path === "pos.dashboard") return ["dashboard"];
   if (path === "pos.createSale") return ["pos"];
 
+  // reports router ใช้ร่วมกันระหว่างหน้าต้นทุนและกำไรกับหน้าสต๊อก
+  if (
+    path.startsWith("reports.profitability") ||
+    path === "reports.fuelProfit" ||
+    path === "reports.exportDailyExcel" ||
+    path === "reports.exportRangeExcel"
+  ) {
+    return ["profitability"];
+  }
+
+  // Z-Report ที่ตัดข้อมูลต้นทุนออกแล้วใช้ข้อมูลชุดเดียวกับภาพรวมและประวัติการขาย
+  if (path === "reports.daily") {
+    return ["dashboard", "sales", "profitability"];
+  }
+
+  if (
+    path === "reports.fuelStockSummary" ||
+    path === "reports.tankReconciliation" ||
+    path === "reports.exportFuelStockExcel"
+  ) {
+    return ["stock"];
+  }
+
   // procedure ใหม่ใน POS ใช้สิทธิ์ของหนึ่งในหน้าที่อ่านข้อมูล POS ได้ จนกว่า
   // จะมีการกำหนดกติกาที่ละเอียดกว่าไว้ด้านบน
   if (path.startsWith("pos.")) {
@@ -233,6 +290,8 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   }
 
   if (
+    path === "catalog.updateTemplate" ||
+    path === "catalog.updateTheme" ||
     path === "catalog.updateBillPromotion" ||
     path === "catalog.updatePerLiterPromotion"
   ) {
@@ -250,7 +309,7 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
 
   if (path === "catalog.listPumps") return ["shifts", "settings"];
   if (path === "catalog.listTanks") {
-    return ["stock", "reports", "settings"];
+    return ["stock", "settings"];
   }
 
   if (

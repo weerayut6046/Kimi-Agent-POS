@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { env } from "./env";
+import { env, isDevelopmentRuntime } from "./env";
 
 export type StaffSessionClaims = {
   id: number;
@@ -64,9 +64,11 @@ export function staffSessionFromHeader(
   const bound = requestSessions.get(req);
   if (bound) return bound;
 
-  // The custom HMAC session is accepted only by tests and the explicitly
-  // enabled self-hosted development mode. Production remains Supabase-only.
-  if (process.env.NODE_ENV !== "test" && !env.localAuthEnabled) return null;
+  // The custom HMAC session is accepted only by tests and non-production
+  // development runtimes. Production remains Supabase-only.
+  if (!env.isTest && !env.localAuthEnabled && !isDevelopmentRuntime()) {
+    return null;
+  }
   const token = req.headers.get(SESSION_HEADER);
   if (!token) return null;
   const [payload, suppliedSignature, extra] = token.split(".");

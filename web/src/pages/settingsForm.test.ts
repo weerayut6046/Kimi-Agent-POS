@@ -43,6 +43,7 @@ describe("createInitialSettingsForm", () => {
 
     expect(form).toMatchObject(cached);
     expect(form.promotion_per_liter_feature_enabled).toBe("1");
+    expect(form.app_theme).toBe("command");
     expect(form.bill_promotion_enabled).toBe("1");
     expect(form.promotion_discount).toBe("0.50");
     expect(form).not.toBe(cached);

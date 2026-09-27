@@ -3,9 +3,13 @@ import { LockKeyhole, LogOut, RefreshCw, WifiOff } from "lucide-react";
 import App from "@/App";
 import { Button } from "@/components/ui/button";
 import "@/index.css";
+import "@/styles/tailadmin.css";
+import "@/styles/tailadmin-components.css";
+import "@/styles/tailadmin-notifications.css";
 import "@/lib/enableTailwindMerge";
 import { useStaff } from "@/hooks/useStaff";
 import { trpc } from "@/providers/trpc";
+import AppThemeSync from "@/components/AppThemeSync";
 
 type AccessStatus = {
   message: string | null;
@@ -50,7 +54,12 @@ function AccessStatusPage({
 
   return (
     <main className="grid min-h-screen place-items-center bg-[#f6f5fb] p-5">
-      <section className="w-full max-w-lg rounded-[30px] border border-violet-100 bg-white p-7 text-center shadow-xl shadow-violet-100/45 sm:p-9">
+      <section
+        data-slot="notice"
+        data-tone={error ? "error" : "warning"}
+        role="alert"
+        className="w-full max-w-lg rounded-[30px] border border-violet-100 bg-white p-7 text-center shadow-xl shadow-violet-100/45 sm:p-9"
+      >
         <div className="mx-auto grid size-16 place-items-center rounded-[22px] bg-orange-50 text-orange-600">
           {error ? (
             <WifiOff className="size-8" />
@@ -101,7 +110,7 @@ function AccessStatusPage({
   );
 }
 
-export default function AuthenticatedApp() {
+function BusinessAuthenticatedApp() {
   const access = trpc.auth.systemAccess.useQuery(undefined, {
     retry: 1,
     staleTime: 0,
@@ -140,7 +149,45 @@ export default function AuthenticatedApp() {
 
   return (
     <BrowserRouter>
+      <AppThemeSync />
       <App />
     </BrowserRouter>
   );
+}
+
+export default function AuthenticatedApp() {
+  const deployment = trpc.auth.deploymentInfo.useQuery(undefined, {
+    retry: 1,
+    staleTime: 60_000,
+    trpc: { context: { skipBatch: true } },
+  });
+
+  if (!deployment.data && deployment.isPending) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f6f5fb]">
+        <div role="status" className="text-sm text-slate-700">
+          กำลังตรวจสอบพื้นที่ทำงาน...
+        </div>
+      </main>
+    );
+  }
+
+  if (!deployment.data) {
+    return (
+      <AccessStatusPage
+        error="ตรวจสอบพื้นที่ทำงานไม่สำเร็จ กรุณาลองใหม่"
+        onRefresh={() => void deployment.refetch()}
+      />
+    );
+  }
+
+  if (deployment.data.mode === "platform") {
+    return (
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    );
+  }
+
+  return <BusinessAuthenticatedApp />;
 }

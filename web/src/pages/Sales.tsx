@@ -203,7 +203,7 @@ export default function Sales() {
           </Button>
         )}
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
 
       {/* ค้นหา / กรอง */}
       <div className="flex gap-2 flex-wrap">
@@ -380,7 +380,7 @@ export default function Sales() {
             <>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
                 {detailNeedsPaymentQr && !detailPaymentQrUrl && (
-                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                  <div data-slot="notice" data-tone={detailPaymentQrError || detailPaymentQr?.payload === null ? "warning" : "info"} role="status" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                     {detailPaymentQrLoading
                       ? "กำลังสร้าง QR โอนจ่ายสำหรับพิมพ์ซ้ำ…"
                       : detailPaymentQrError || detailPaymentQr?.payload === null
@@ -643,7 +643,7 @@ function ReturnSaleDialog({
             </p>
           ) : isError ? (
             <div className="space-y-3 py-8 text-center">
-              <p className="text-sm text-destructive">
+              <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">
                 {detailError.message || "โหลดรายการสินค้าไม่สำเร็จ"}
               </p>
               <Button variant="outline" onClick={() => refetch()}>
@@ -786,11 +786,11 @@ function ReturnSaleDialog({
             </p>
           </div>
           {invalidSelectedQty && (
-            <p className="text-sm text-destructive">
+            <p data-slot="field-error" className="text-sm text-destructive">
               จำนวนคืนต้องมากกว่า 0 และไม่เกินจำนวนที่คืนได้
             </p>
           )}
-          {err && <p className="text-sm text-destructive">{err}</p>}
+          {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 sm:px-5">
@@ -922,7 +922,7 @@ function EditSaleDialog({
                 </Select>
               </div>
               {promotionActive ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800 sm:col-span-2">
+                <div data-slot="notice" data-tone="info" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800 sm:col-span-2">
                   ช่วงโปรโมชั่นไม่สามารถแก้ไขหรือเพิ่มส่วนลดอื่นได้
                 </div>
               ) : (
@@ -950,7 +950,7 @@ function EditSaleDialog({
             (คำนวณ VAT และแต้มสมาชิกใหม่อัตโนมัติ)
           </p>
           {discountNum > sale.subtotal && (
-            <p className="text-sm text-destructive">ส่วนลดมากกว่ายอดขาย</p>
+            <p data-slot="field-error" className="text-sm text-destructive">ส่วนลดมากกว่ายอดขาย</p>
           )}
         </div>
         <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
@@ -1297,7 +1297,7 @@ function AddSaleDialog({
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-2">
               {promotionQualified ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                <div data-slot="notice" data-tone="info" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
                   {promotion?.name}: ใช้เฉพาะส่วนลดโปรโมชั่น ไม่สะสมแต้ม
                   และไม่ใช้ส่วนลดอื่นร่วม
                 </div>
@@ -1360,7 +1360,7 @@ function AddSaleDialog({
             </div>
           </section>
 
-          {err && <p className="text-sm text-destructive">{err}</p>}
+          {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
         </div>
         <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
           <Button variant="outline" onClick={onClose}>

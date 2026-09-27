@@ -4,26 +4,28 @@ import {
   Loader2Icon,
   OctagonXIcon,
   TriangleAlertIcon,
-} from "lucide-react"
-import { useTheme } from "next-themes"
-import { Toaster as Sonner, type ToasterProps } from "sonner"
+} from "lucide-react";
+import { useTheme } from "next-themes";
+import { Toaster as Sonner, type ToasterProps } from "sonner";
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  const { theme = "system" } = useTheme();
 
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       position="top-right"
+      containerAriaLabel="การแจ้งเตือน"
       gap={10}
       offset={16}
       mobileOffset={12}
       toastOptions={{
         duration: 4500,
+        closeButtonAriaLabel: "ปิดการแจ้งเตือน",
         classNames: {
           toast:
-            "!rounded-2xl !border-white/80 !bg-white/95 !p-4 !text-slate-800 !shadow-[0_18px_60px_rgba(15,23,42,0.18)] !ring-1 !ring-slate-200/70 !backdrop-blur-xl",
+            "!rounded-xl !border-slate-200 !bg-white !p-4 !text-slate-800 !shadow-[0_16px_44px_rgba(15,39,52,0.16)]",
           title: "!text-sm !font-bold !text-slate-900",
           description: "!text-sm !leading-5 !text-slate-600",
           actionButton: "!rounded-lg !font-semibold",
@@ -49,7 +51,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }
       {...props}
     />
-  )
-}
+  );
+};
 
-export { Toaster }
+export { Toaster };

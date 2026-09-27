@@ -48,6 +48,7 @@ describe("openShift / closeShift", () => {
     const r1 = cur!.readings.find(r => r.nozzleId === nz[0]!.id)!;
     expect(r1.openMeter).toBe(152340.5);
     expect(r1.pricePerLiter).toBe(40.74); // snapshot ราคาตอนเปิดกะ
+    expect(r1.costPerLiter).toBe(39.2); // snapshot ต้นทุนสำหรับกำไรจากยอด P
   });
 
   it("ไม่ส่งภาพให้ AI ถ้าไม่ใช่กะที่เปิดอยู่ของสาขา", async () => {

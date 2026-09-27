@@ -151,8 +151,11 @@ try {
 export default defineConfig(({ mode }) => {
   const viteEnv = loadEnv(mode, __dirname, "");
   const supabaseUrl = viteEnv.VITE_SUPABASE_URL?.replace(/\/+$/, "");
+  const requestedSupabaseProxy =
+    viteEnv.VITE_USE_SUPABASE_EDGE_API?.trim().toLowerCase() === "true";
   const proxyTrpcToSupabase =
-    viteEnv.VITE_USE_SUPABASE_EDGE_API?.trim().toLowerCase() === "true" &&
+    mode !== "development" &&
+    requestedSupabaseProxy &&
     Boolean(supabaseUrl);
 
   if (!proxyTrpcToSupabase) {

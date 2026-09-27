@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useIsFetching, useIsMutating } from "@tanstack/react-query";
+import { getMutationKey, getQueryKey } from "@trpc/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
@@ -9,7 +11,6 @@ import {
   Building2,
   HandCoins,
   Receipt,
-  ClipboardList,
   Banknote,
   FileText,
   FileSignature,
@@ -26,6 +27,8 @@ import {
   CornerDownLeft,
   Sparkles,
   BadgePlus,
+  ChartNoAxesCombined,
+  PanelsTopLeft,
   type LucideIcon,
 } from "lucide-react";
 import { DesktopSyncBanner } from "@/components/DesktopSyncBanner";
@@ -56,6 +59,8 @@ import {
   type MenuPermissionKey,
 } from "@contracts/menuPermissions";
 import { toast } from "sonner";
+import type { DeploymentMode } from "@contracts/deployment";
+import { isPosWorkspacePath } from "@/lib/navigationWorkspaces";
 
 const LowStockAlert = lazy(() => import("@/components/LowStockAlert"));
 const AssistantChat = lazy(() => import("@/components/AssistantChat"));
@@ -116,6 +121,14 @@ const menus: MenuItem[] = [
     group: "station",
   },
   {
+    permission: "fuel_forecast",
+    to: "/stock/forecast",
+    label: "วางแผนสั่งน้ำมัน",
+    shortLabel: "สั่งน้ำมัน",
+    icon: ChartNoAxesCombined,
+    group: "station",
+  },
+  {
     permission: "members",
     to: "/members",
     label: "สมาชิก",
@@ -152,10 +165,12 @@ const menus: MenuItem[] = [
     group: "document",
   },
   {
-    permission: "reports",
-    to: "/reports",
-    label: "รายงาน",
-    icon: ClipboardList,
+    permission: "profitability",
+    to: "/reports/profitability",
+    label: "ต้นทุนและกำไร",
+    shortLabel: "กำไร",
+    icon: ChartNoAxesCombined,
+    managerOnly: true,
     group: "document",
   },
   {
@@ -204,6 +219,15 @@ const menus: MenuItem[] = [
     icon: Settings,
     group: "system",
   },
+  {
+    permission: "setup",
+    to: "/setup",
+    label: "เริ่มต้นใช้งานกิจการ",
+    shortLabel: "เริ่มต้น",
+    icon: Sparkles,
+    adminOnly: true,
+    group: "system",
+  },
 ];
 
 const groupLabels: Record<MenuItem["group"], string> = {
@@ -213,13 +237,13 @@ const groupLabels: Record<MenuItem["group"], string> = {
   system: "ระบบ",
 };
 
-const mobileMenuPaths = ["/", "/pos", "/shifts", "/stock"];
 const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/": () => import("@/pages/Dashboard"),
   "/pos": () => import("@/pages/Pos"),
   "/shifts": () => import("@/pages/Shifts"),
   "/workforce": () => import("@/pages/Workforce"),
   "/stock": () => import("@/pages/Stock"),
+  "/stock/forecast": () => import("@/pages/FuelForecast"),
   "/stock/count": () => import("@/pages/StockCount"),
   "/members": () => import("@/pages/Members"),
   "/member-cards": () => import("@/pages/MemberCardBatches"),
@@ -227,7 +251,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/debts": () => import("@/pages/Debts"),
   "/sales": () => import("@/pages/Sales"),
   "/expenses": () => import("@/pages/Expenses"),
-  "/reports": () => import("@/pages/Reports"),
+  "/reports/profitability": () => import("@/pages/Profitability"),
   "/tax-invoices": () => import("@/pages/TaxInvoices"),
   "/documents": () => import("@/pages/Documents"),
   "/audit": () => import("@/pages/Audit"),
@@ -251,7 +275,82 @@ async function preloadRoute(path: string): Promise<void> {
   }
 }
 
-export default function Layout() {
+export default function Layout({
+  deploymentMode = "business",
+}: {
+  deploymentMode?: DeploymentMode;
+}) {
+  return deploymentMode === "platform" ? (
+    <PlatformLayout />
+  ) : (
+    <BusinessLayout />
+  );
+}
+
+function PlatformLayout() {
+  const { staff, logout } = useStaff();
+  const navigate = useNavigate();
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+  return (
+    <div className="min-h-screen bg-background text-foreground lg:pl-[248px]">
+      <aside className="pos-sidebar fixed inset-y-0 left-0 hidden w-[248px] flex-col border-r border-sidebar-border p-5 text-sidebar-foreground lg:flex">
+        <div className="flex items-center gap-3 border-b border-sidebar-border pb-5">
+          <PanelsTopLeft className="size-7 text-primary" />
+          <div>
+            <div className="pos-sidebar-title font-heading font-semibold">
+              PumpPOS
+            </div>
+            <div className="pos-sidebar-subtitle text-xs text-sidebar-foreground/70">
+              หลังบ้านแพลตฟอร์ม
+            </div>
+          </div>
+        </div>
+        <nav className="mt-6 flex-1" aria-label="เมนูแพลตฟอร์ม">
+          <NavLink
+            to="/platform"
+            className="pos-nav-link pos-nav-active flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium"
+          >
+            <Building2 className="size-5" /> จัดการกิจการ
+          </NavLink>
+        </nav>
+        <div className="border-t border-sidebar-border pt-4">
+          <div className="mb-3 truncate text-sm">{staff?.name}</div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent"
+          >
+            <LogOut className="size-4" /> ออกจากระบบ
+          </button>
+        </div>
+      </aside>
+      <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
+        <div className="flex items-center gap-3">
+          <PanelsTopLeft className="size-5 text-primary" />
+          <div>
+            <div className="font-heading font-semibold">หลังบ้านแพลตฟอร์ม</div>
+            <div className="text-xs text-muted-foreground">ทะเบียนกิจการ</div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm lg:hidden"
+        >
+          <LogOut className="size-4" /> ออกจากระบบ
+        </button>
+      </header>
+      <main className="mx-auto max-w-[1650px] p-4 sm:p-6">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+
+function BusinessLayout() {
   const { staff, logout, switchBranch } = useStaff();
   const navigate = useNavigate();
   const location = useLocation();
@@ -268,6 +367,20 @@ export default function Layout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [switchingBranch, setSwitchingBranch] = useState(false);
+  const pendingTemplateChanges = useIsMutating({
+    mutationKey: getMutationKey(trpc.catalog.updateTemplate),
+  });
+  const pendingThemeChanges = useIsMutating({
+    mutationKey: getMutationKey(trpc.catalog.updateTheme),
+  });
+  const savingAppearance = pendingTemplateChanges + pendingThemeChanges > 0;
+  const pendingMutations = useIsMutating();
+  const pendingSetupReads = useIsFetching({
+    queryKey: getQueryKey(trpc.onboarding.state, undefined, "query"),
+  });
+  const savingSetup =
+    location.pathname === "/setup" &&
+    (pendingMutations > 0 || pendingSetupReads > 0);
   const shopName = settingMap?.shop_name ?? "PumpPOS";
   const canSeeStockAlerts = Boolean(
     staff && hasMenuPermission(staff.role, staff.menuPermissions, "stock")
@@ -283,20 +396,42 @@ export default function Layout() {
           staff.role === "manager")
     );
   }, [staff]);
-  const currentMenu = visibleMenus.find(menu =>
-    menu.end
-      ? location.pathname === menu.to
-      : location.pathname.startsWith(menu.to)
+  const posWorkspaceMenus = visibleMenus.filter(menu =>
+    isPosWorkspacePath(menu.to)
   );
-  const moreMenuIsActive = !mobileMenuPaths.some(path =>
-    path === "/"
-      ? location.pathname === path
-      : location.pathname.startsWith(path)
+  const businessWorkspaceMenus = visibleMenus.filter(
+    menu => !isPosWorkspacePath(menu.to)
+  );
+  const posWorkspace = isPosWorkspacePath(location.pathname);
+  const workspaceLabel = posWorkspace ? "หน้าขาย" : "หลังบ้านกิจการ";
+  const workspaceMenus = posWorkspace
+    ? posWorkspaceMenus
+    : businessWorkspaceMenus;
+  const workspaceMobilePaths = posWorkspace
+    ? ["/pos", "/shifts", "/sales"]
+    : ["/", "/stock", "/members"];
+  const currentMenu = visibleMenus
+    .filter(menu =>
+      menu.end
+        ? location.pathname === menu.to
+        : location.pathname === menu.to ||
+          location.pathname.startsWith(`${menu.to}/`)
+    )
+    .sort((a, b) => b.to.length - a.to.length)[0];
+  const moreMenuIsActive = Boolean(
+    currentMenu && !workspaceMobilePaths.includes(currentMenu.to)
   );
   const CurrentMenuIcon = currentMenu?.icon ?? Droplet;
 
   const handleBranchChange = async (branchId: number) => {
-    if (!staff || branchId === staff.branch.id || switchingBranch) return;
+    if (
+      !staff ||
+      branchId === staff.branch.id ||
+      switchingBranch ||
+      savingAppearance ||
+      savingSetup
+    )
+      return;
     setSwitchingBranch(true);
     try {
       await switchBranch(branchId);
@@ -341,13 +476,6 @@ export default function Layout() {
     day: "numeric",
     month: "short",
   }).format(now);
-  const greeting =
-    now.getHours() < 12
-      ? "อรุณสวัสดิ์"
-      : now.getHours() < 17
-        ? "สวัสดียามบ่าย"
-        : "สวัสดียามเย็น";
-
   const handleLogout = () => {
     logout();
     navigate("/login");
@@ -357,17 +485,20 @@ export default function Layout() {
     const link = (
       <NavLink
         to={menu.to}
-        end={menu.end}
+        end={
+          menu.end ||
+          (menu.to === "/stock" && currentMenu?.permission === "fuel_forecast")
+        }
         onMouseEnter={() => void preloadRoute(menu.to)}
         onFocus={() => void preloadRoute(menu.to)}
         onTouchStart={() => void preloadRoute(menu.to)}
         onClick={closeOnClick ? () => setMobileMenuOpen(false) : undefined}
         className={({ isActive }) =>
           cn(
-            "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+            "pos-nav-link group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
             isActive
-              ? "translate-x-1 bg-gradient-to-r from-violet-500 via-indigo-500 to-blue-500 text-white shadow-[0_10px_28px_rgba(82,64,220,0.32)] ring-1 ring-white/20"
-              : "text-white/60 hover:translate-x-1 hover:bg-white/[0.08] hover:text-white"
+              ? "pos-nav-active"
+              : "text-white/60 hover:bg-white/[0.07] hover:text-white"
           )
         }
       >
@@ -375,17 +506,17 @@ export default function Layout() {
           <>
             <span
               className={cn(
-                "grid size-8 shrink-0 place-items-center rounded-lg transition-all duration-200",
+                "pos-nav-icon grid size-8 shrink-0 place-items-center rounded-lg transition-all duration-200",
                 isActive
-                  ? "bg-white/[0.16] text-white shadow-inner ring-1 ring-white/10"
-                  : "bg-white/[0.055] text-white/55 group-hover:scale-110 group-hover:bg-white/10 group-hover:text-cyan-200"
+                  ? "pos-nav-icon-active"
+                  : "bg-white/[0.04] text-white/50 group-hover:bg-white/10 group-hover:text-primary"
               )}
             >
               <menu.icon className="size-[18px]" />
             </span>
-            <span>{menu.label}</span>
+            <span className="pos-nav-label">{menu.label}</span>
             {menu.to === "/pos" && !isActive && (
-              <span className="ml-auto size-2 rounded-full bg-cyan-300 shadow-[0_0_0_4px_rgba(103,232,249,0.12)]" />
+              <span className="ml-auto size-2 rounded-full bg-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]" />
             )}
           </>
         )}
@@ -395,28 +526,61 @@ export default function Layout() {
     return link;
   };
 
+  const renderWorkspaceSwitcher = () => (
+    <div
+      className="relative mx-3 mt-3 grid grid-cols-2 gap-1 rounded-xl border border-sidebar-border bg-sidebar-accent/40 p-1"
+      aria-label="พื้นที่ทำงานกิจการ"
+    >
+      {[
+        { label: "หน้าขาย", items: posWorkspaceMenus, selected: posWorkspace },
+        {
+          label: "หลังบ้านกิจการ",
+          items: businessWorkspaceMenus,
+          selected: !posWorkspace,
+        },
+      ].map(workspace => (
+        <button
+          key={workspace.label}
+          type="button"
+          aria-pressed={workspace.selected}
+          disabled={!workspace.items.length}
+          onClick={() => {
+            navigate(workspace.items[0].to);
+            setMobileMenuOpen(false);
+          }}
+          className={cn(
+            "min-h-11 rounded-lg px-2 text-xs font-medium transition-colors disabled:opacity-40",
+            workspace.selected
+              ? "bg-sidebar-primary text-sidebar-primary-foreground"
+              : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          )}
+        >
+          {workspace.label}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-      <div className="relative flex min-h-[100dvh] bg-transparent">
-        <aside className="fixed bottom-3 left-3 top-3 z-30 hidden w-[264px] flex-col overflow-hidden rounded-[28px] bg-gradient-to-b from-[#11112b] via-[#171644] to-[#10132f] text-white shadow-[0_24px_70px_rgba(24,20,64,0.3)] ring-1 ring-white/10 lg:flex">
-          <div className="surface-grid pointer-events-none absolute inset-0 opacity-60" />
-          <div className="ambient-float pointer-events-none absolute -right-20 top-16 size-56 rounded-full bg-violet-500/[0.2] blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-24 -left-20 size-56 rounded-full bg-cyan-400/[0.1] blur-3xl" />
-          <div className="relative flex h-[82px] shrink-0 items-center gap-3 border-b border-white/[0.08] px-5">
-            <div className="grid size-11 place-items-center rounded-[15px] bg-gradient-to-br from-cyan-300 via-violet-500 to-indigo-700 shadow-[0_10px_28px_rgba(92,67,224,0.4)] ring-1 ring-white/25">
+      <div className="pos-shell relative flex min-h-[100dvh] bg-transparent">
+        <aside className="pos-sidebar fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col overflow-hidden border-r border-white/10 text-white shadow-[10px_0_30px_rgba(15,39,52,0.08)] lg:flex">
+          <div className="pos-sidebar-decoration surface-grid pointer-events-none absolute inset-0 opacity-20" />
+          <div className="pos-sidebar-brand relative flex h-[72px] shrink-0 items-center gap-3 border-b border-white/[0.08] px-5">
+            <div className="pos-brand-mark grid size-10 place-items-center rounded-xl text-primary-foreground shadow-[0_8px_20px_hsl(var(--primary)/0.24)] ring-1 ring-white/15">
               <Droplet className="size-5 fill-white/20" />
             </div>
             <div className="min-w-0">
-              <div className="truncate font-heading text-base font-semibold leading-tight">
+              <div className="pos-sidebar-title truncate font-heading text-base font-semibold leading-tight">
                 {shopName}
               </div>
-              <div className="mt-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.2em] text-cyan-200/60">
-                <Sparkles className="size-2.5" /> Smart Station
+              <div className="pos-sidebar-subtitle mt-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.2em] text-white/40">
+                <Sparkles className="size-2.5 text-primary" /> {workspaceLabel}
               </div>
             </div>
           </div>
 
-          <div className="relative mx-3.5 mt-3.5 rounded-2xl border border-white/[0.1] bg-white/[0.055] p-3.5 shadow-inner backdrop-blur-md">
+          <div className="pos-sidebar-status relative mx-3 mt-3 rounded-xl border border-white/[0.1] bg-white/[0.045] p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <span
@@ -431,15 +595,15 @@ export default function Layout() {
                   <span
                     className={cn(
                       "relative inline-flex size-2.5 rounded-full",
-                      currentShift ? "bg-cyan-300" : "bg-orange-400"
+                      currentShift ? "bg-primary" : "bg-orange-400"
                     )}
                   />
                 </span>
                 <div>
-                  <div className="text-xs font-semibold text-white">
+                  <div className="pos-sidebar-status-title text-xs font-semibold text-white">
                     {currentShift ? "กะกำลังเปิด" : "ยังไม่ได้เปิดกะ"}
                   </div>
-                  <div className="mt-0.5 text-[11px] text-white/50">
+                  <div className="pos-sidebar-status-label mt-0.5 text-[11px] text-white/50">
                     {currentShift?.staffName ?? "พร้อมเริ่มงาน"}
                   </div>
                 </div>
@@ -452,16 +616,17 @@ export default function Layout() {
             </div>
           </div>
 
+          {renderWorkspaceSwitcher()}
           <nav className="relative flex-1 overflow-y-auto overscroll-contain px-2.5 pb-4 pt-3 station-scrollbar">
             {(["station", "customer", "document", "system"] as const).map(
               group => {
-                const groupMenus = visibleMenus.filter(
+                const groupMenus = workspaceMenus.filter(
                   menu => menu.group === group
                 );
                 if (!groupMenus.length) return null;
                 return (
                   <div key={group} className="mb-4">
-                    <div className="mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/[0.28]">
+                    <div className="pos-sidebar-section-label mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/[0.28]">
                       {groupLabels[group]}
                     </div>
                     <div className="space-y-1">
@@ -475,9 +640,9 @@ export default function Layout() {
             )}
           </nav>
 
-          <div className="relative shrink-0 border-t border-white/10 bg-black/10 p-4 backdrop-blur-sm">
+          <div className="pos-sidebar-footer relative shrink-0 border-t border-white/10 bg-black/10 p-4">
             <label className="mb-3 block">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              <span className="pos-sidebar-section-label mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
                 <Building2 className="size-3" /> สาขาที่ใช้งาน
               </span>
               <select
@@ -485,12 +650,14 @@ export default function Layout() {
                 disabled={
                   staff?.role !== "admin" ||
                   switchingBranch ||
+                  savingAppearance ||
+                  savingSetup ||
                   (staff?.branches.length ?? 0) <= 1
                 }
                 onChange={event =>
                   void handleBranchChange(Number(event.target.value))
                 }
-                className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 text-sm font-medium text-white outline-none transition focus:border-cyan-300/60 disabled:opacity-60 [&>option]:text-slate-900"
+                className="pos-sidebar-branch h-10 w-full rounded-lg border border-white/10 bg-white/[0.07] px-3 text-sm font-medium text-white outline-none transition focus:border-[#47c6b7] disabled:opacity-60 [&>option]:text-slate-900"
               >
                 {staff?.branches.map(branch => (
                   <option key={branch.id} value={branch.id}>
@@ -500,14 +667,14 @@ export default function Layout() {
               </select>
             </label>
             <div className="flex items-center gap-3">
-              <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-400/30 to-cyan-300/10 font-heading text-sm font-semibold text-white ring-1 ring-white/10">
+              <div className="pos-sidebar-avatar grid size-10 shrink-0 place-items-center rounded-lg bg-sidebar-accent font-heading text-sm font-semibold text-white ring-1 ring-white/10">
                 {staff?.name?.trim().charAt(0) || "P"}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold">
+                <div className="pos-sidebar-staff-name truncate text-sm font-semibold">
                   {staff?.name}
                 </div>
-                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-white/50">
+                <div className="pos-sidebar-staff-role mt-0.5 flex items-center gap-1 text-[11px] text-white/50">
                   <ShieldCheck className="size-3" />{" "}
                   {staff ? (roleLabel[staff.role] ?? staff.role) : ""}
                 </div>
@@ -516,7 +683,7 @@ export default function Layout() {
                 type="button"
                 onClick={handleLogout}
                 aria-label="ออกจากระบบ"
-                className="grid size-9 place-items-center rounded-lg text-white/[0.55] transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                className="pos-sidebar-logout grid size-9 place-items-center rounded-lg text-white/[0.55] transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               >
                 <LogOut className="size-[18px]" />
               </button>
@@ -524,15 +691,15 @@ export default function Layout() {
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1 pb-[calc(88px+env(safe-area-inset-bottom))] lg:ml-[288px] lg:pb-0">
-          <header className="sticky top-0 z-20 hidden h-[84px] items-center justify-between border-b border-white/60 bg-[#f8f8fc]/70 px-7 shadow-[0_10px_34px_rgba(43,37,94,0.045)] backdrop-blur-2xl lg:flex">
+        <div className="pos-shell-body min-w-0 flex-1 pb-[calc(88px+env(safe-area-inset-bottom))] lg:ml-[248px] lg:pb-0">
+          <header className="pos-desktop-header sticky top-0 z-20 hidden h-[72px] items-center justify-between border-b border-slate-200/90 bg-white/95 px-7 shadow-[0_1px_8px_rgba(15,39,52,0.04)] backdrop-blur-xl lg:flex">
             <div className="flex items-center gap-4">
-              <div className="grid size-11 place-items-center rounded-2xl bg-white/80 text-violet-600 shadow-sm ring-1 ring-slate-200/70">
+              <div className="grid size-10 place-items-center rounded-lg bg-accent text-accent-foreground ring-1 ring-border">
                 <CurrentMenuIcon className="size-5" />
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-violet-500/70">
-                  {greeting} · {groupLabels[currentMenu?.group ?? "station"]}
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary/70">
+                  {workspaceLabel} · {staff?.branch.name}
                 </div>
                 <div className="mt-0.5 font-heading text-lg font-bold tracking-[-0.03em] text-slate-900">
                   {currentMenu?.label ?? "PumpPOS"}
@@ -543,19 +710,19 @@ export default function Layout() {
               <button
                 type="button"
                 onClick={() => setCommandOpen(true)}
-                className="group flex h-11 w-48 items-center gap-2 rounded-2xl border border-white/90 bg-white/70 px-3 text-left text-xs text-slate-400 shadow-sm ring-1 ring-slate-200/60 backdrop-blur-md transition-all hover:w-52 hover:border-violet-200 hover:bg-white hover:text-violet-700 hover:shadow-[0_12px_26px_rgba(75,61,157,0.12)] xl:w-56 xl:hover:w-60"
+                className="group flex h-10 w-48 items-center gap-2 rounded-lg border border-border bg-muted/60 px-3 text-left text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-card hover:text-primary xl:w-56"
               >
                 <Search className="size-4 transition-transform group-hover:scale-110" />
                 <span className="flex-1">ค้นหาเมนู...</span>
-                <kbd className="rounded-lg border border-violet-100 bg-violet-50 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-violet-700 shadow-xs">
+                <kbd className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-sans text-[10px] font-semibold text-slate-500 shadow-xs">
                   Ctrl K
                 </kbd>
               </button>
-              <div className="flex items-center gap-2 rounded-2xl border border-white/90 bg-white/70 px-3 py-2 text-xs shadow-sm ring-1 ring-slate-200/60 backdrop-blur-md">
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
                 <span
                   className={cn(
                     "size-2 rounded-full",
-                    currentShift ? "bg-cyan-500" : "bg-orange-500"
+                    currentShift ? "bg-primary" : "bg-orange-500"
                   )}
                 />
                 <span className="font-medium text-slate-700">
@@ -577,41 +744,42 @@ export default function Layout() {
             </div>
           </header>
 
-          <header className="sticky top-0 z-30 flex h-[calc(64px+env(safe-area-inset-top))] items-center gap-2 border-b border-white/10 bg-gradient-to-r from-[#141436]/95 via-[#211d58]/95 to-[#12344b]/95 px-3 pt-[env(safe-area-inset-top)] text-white shadow-[0_12px_34px_rgba(25,21,72,0.24)] backdrop-blur-xl lg:hidden">
+          <header className="pos-mobile-header sticky top-0 z-30 flex h-[calc(64px+env(safe-area-inset-top))] items-center gap-2 border-b border-white/10 px-3 pt-[env(safe-area-inset-top)] text-white shadow-[0_8px_24px_rgba(15,39,52,0.18)] lg:hidden">
             <SheetTrigger asChild>
               <button
                 type="button"
                 aria-label="เปิดเมนูทั้งหมด"
-                className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/10 hover:bg-white/[0.15] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                className="pos-mobile-action grid size-10 shrink-0 place-items-center rounded-xl bg-white/10 hover:bg-white/[0.15] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               >
                 <Menu className="size-5" />
               </button>
             </SheetTrigger>
-            <div className="hidden size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 shadow-lg min-[390px]:grid">
+            <div className="pos-brand-mark hidden size-9 shrink-0 place-items-center rounded-lg text-primary-foreground shadow-md min-[390px]:grid">
               <Droplet className="size-[18px]" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate font-heading text-sm font-semibold">
+              <div className="pos-mobile-brand truncate font-heading text-sm font-semibold">
                 {currentMenu?.label ?? shopName}
               </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-white/60">
+              <div className="pos-mobile-status flex items-center gap-1.5 text-[10px] text-white/60">
                 <span
                   className={cn(
                     "size-1.5 rounded-full",
-                    currentShift ? "bg-cyan-300" : "bg-orange-400"
+                    currentShift ? "bg-primary" : "bg-orange-400"
                   )}
                 />
+                {workspaceLabel} ·{" "}
                 {currentShift ? "กะเปิดอยู่" : "ยังไม่เปิดกะ"}
               </div>
             </div>
-            <div className="hidden font-heading text-xs tabular-nums text-white/75 sm:block">
+            <div className="pos-mobile-time hidden font-heading text-xs tabular-nums text-white/75 sm:block">
               {timeLabel}
             </div>
             <button
               type="button"
               onClick={() => setCommandOpen(true)}
               aria-label="ค้นหาเมนู"
-              className="grid size-10 shrink-0 place-items-center rounded-xl bg-white/10 transition-colors hover:bg-white/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              className="pos-mobile-action grid size-10 shrink-0 place-items-center rounded-xl bg-white/10 transition-colors hover:bg-white/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
             >
               <Search className="size-[18px]" />
             </button>
@@ -623,8 +791,7 @@ export default function Layout() {
           </header>
 
           <DesktopSyncBanner />
-          <main className="relative mx-auto w-full min-w-0 max-w-[1650px] p-3 pb-5 sm:p-5 lg:p-7 xl:p-9">
-            <div className="surface-dots pointer-events-none absolute inset-x-5 top-0 -z-10 h-64 opacity-45 [mask-image:linear-gradient(to_bottom,black,transparent)]" />
+          <main className="pos-main relative mx-auto w-full min-w-0 max-w-[1650px] p-3 pb-5 sm:p-5 lg:p-6 xl:p-7">
             <div key={location.pathname} className="page-enter">
               <Outlet />
             </div>
@@ -633,33 +800,37 @@ export default function Layout() {
 
         <nav
           aria-label="เมนูหลักบนมือถือ"
-          className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-30 flex h-16 rounded-[22px] border border-white/90 bg-white/80 px-1.5 shadow-[0_16px_46px_rgba(37,30,86,0.2)] ring-1 ring-slate-200/60 backdrop-blur-2xl lg:hidden"
+          className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-30 flex h-16 rounded-2xl border border-slate-200 bg-white/95 px-1.5 shadow-[0_12px_32px_rgba(15,39,52,0.15)] backdrop-blur-xl lg:hidden"
         >
           {visibleMenus
-            .filter(menu => mobileMenuPaths.includes(menu.to))
+            .filter(menu => workspaceMobilePaths.includes(menu.to))
             .map(menu => (
               <NavLink
                 key={menu.to}
                 to={menu.to}
-                end={menu.end}
+                end={
+                  menu.end ||
+                  (menu.to === "/stock" &&
+                    currentMenu?.permission === "fuel_forecast")
+                }
                 className={({ isActive }) =>
                   cn(
                     "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-all",
-                    isActive ? "text-violet-700" : "text-slate-600"
+                    isActive ? "text-primary" : "text-slate-600"
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
                     {isActive && (
-                      <span className="absolute top-1 h-1 w-1 rounded-full bg-cyan-500 shadow-[0_0_0_4px_rgba(6,182,212,0.12)]" />
+                      <span className="absolute top-1 h-1 w-1 rounded-full bg-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]" />
                     )}
                     <menu.icon
                       className={cn(
                         "size-[21px] transition-all duration-200",
                         isActive && "-translate-y-0.5 scale-110",
                         menu.to === "/pos" &&
-                          "size-6 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 p-1 text-white shadow-lg shadow-violet-500/25"
+                          "size-6 rounded-lg bg-primary p-1 text-primary-foreground shadow-md shadow-primary/20"
                       )}
                     />
                     <span className="truncate">
@@ -676,11 +847,11 @@ export default function Layout() {
               aria-current={moreMenuIsActive ? "page" : undefined}
               className={cn(
                 "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors",
-                moreMenuIsActive ? "text-violet-700" : "text-slate-600"
+                moreMenuIsActive ? "text-primary" : "text-slate-600"
               )}
             >
               {moreMenuIsActive && (
-                <span className="absolute top-1 h-1 w-1 rounded-full bg-cyan-500 shadow-[0_0_0_4px_rgba(6,182,212,0.12)]" />
+                <span className="absolute top-1 h-1 w-1 rounded-full bg-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]" />
               )}
               <MoreHorizontal className="size-[22px]" />
               <span>เพิ่มเติม</span>
@@ -690,26 +861,27 @@ export default function Layout() {
 
         <SheetContent
           side="left"
-          className="flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 bg-gradient-to-b from-[#11112b] via-[#171644] to-[#10132f] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
+          className="pos-sidebar flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
         >
-          <SheetHeader className="flex h-[78px] shrink-0 justify-center border-b border-white/10 px-5 pr-12 text-left">
-            <SheetTitle className="font-heading text-base font-semibold text-white">
+          <SheetHeader className="pos-sidebar-brand flex h-[78px] shrink-0 justify-center border-b border-white/10 px-5 pr-12 text-left">
+            <SheetTitle className="pos-sidebar-title font-heading text-base font-semibold text-white">
               {shopName}
             </SheetTitle>
-            <SheetDescription className="text-[11px] text-white/[0.55]">
-              เมนูจัดการสถานี
+            <SheetDescription className="pos-sidebar-subtitle text-[11px] text-white/[0.55]">
+              {workspaceLabel}
             </SheetDescription>
           </SheetHeader>
+          {renderWorkspaceSwitcher()}
           <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 station-scrollbar">
             {(["station", "customer", "document", "system"] as const).map(
               group => {
-                const groupMenus = visibleMenus.filter(
+                const groupMenus = workspaceMenus.filter(
                   menu => menu.group === group
                 );
                 if (!groupMenus.length) return null;
                 return (
                   <div key={group} className="mb-5">
-                    <div className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/[0.35]">
+                    <div className="pos-sidebar-section-label mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/[0.35]">
                       {groupLabels[group]}
                     </div>
                     <div className="space-y-1">
@@ -722,9 +894,9 @@ export default function Layout() {
               }
             )}
           </nav>
-          <div className="shrink-0 border-t border-white/10 p-4">
+          <div className="pos-sidebar-footer shrink-0 border-t border-white/10 p-4">
             <label className="mb-4 block">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              <span className="pos-sidebar-section-label mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
                 <Building2 className="size-3" /> สาขาที่ใช้งาน
               </span>
               <select
@@ -732,12 +904,14 @@ export default function Layout() {
                 disabled={
                   staff?.role !== "admin" ||
                   switchingBranch ||
+                  savingAppearance ||
+                  savingSetup ||
                   (staff?.branches.length ?? 0) <= 1
                 }
                 onChange={event =>
                   void handleBranchChange(Number(event.target.value))
                 }
-                className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 text-sm font-medium text-white outline-none focus:border-cyan-300/60 disabled:opacity-60 [&>option]:text-slate-900"
+                className="pos-sidebar-branch h-11 w-full rounded-xl border border-white/10 bg-white/[0.08] px-3 text-sm font-medium text-white outline-none focus:border-primary disabled:opacity-60 [&>option]:text-slate-900"
               >
                 {staff?.branches.map(branch => (
                   <option key={branch.id} value={branch.id}>
@@ -747,14 +921,14 @@ export default function Layout() {
               </select>
             </label>
             <div className="mb-3 flex items-center gap-3">
-              <div className="grid size-10 place-items-center rounded-xl bg-white/10 font-semibold">
+              <div className="pos-sidebar-avatar grid size-10 place-items-center rounded-xl bg-white/10 font-semibold">
                 {staff?.name?.trim().charAt(0) || "P"}
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold">
+                <div className="pos-sidebar-staff-name truncate text-sm font-semibold">
                   {staff?.name}
                 </div>
-                <div className="text-xs text-white/[0.45]">
+                <div className="pos-sidebar-staff-role text-xs text-white/[0.45]">
                   {staff ? (roleLabel[staff.role] ?? staff.role) : ""}
                 </div>
               </div>
@@ -763,7 +937,7 @@ export default function Layout() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/10 text-sm text-white/70 hover:bg-white/10 hover:text-white"
+                className="pos-sidebar-logout flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/10 text-sm text-white/70 hover:bg-white/10 hover:text-white"
               >
                 <LogOut className="size-4" /> ออกจากระบบ
               </button>
@@ -777,7 +951,7 @@ export default function Layout() {
         onOpenChange={setCommandOpen}
         title="ค้นหาเมนู"
         description="พิมพ์ชื่อหน้าที่ต้องการเปิด"
-        className="max-w-xl overflow-hidden rounded-[24px] border-white/80 bg-white/90 shadow-[0_32px_100px_rgba(29,23,78,0.32)] backdrop-blur-2xl"
+        className="max-w-xl overflow-hidden rounded-xl border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,39,52,0.24)]"
       >
         <CommandInput placeholder="ค้นหางานขาย สต๊อก รายงาน หรือการตั้งค่า..." />
         <CommandList className="soft-scrollbar max-h-[min(430px,65vh)] p-2">
@@ -805,9 +979,9 @@ export default function Layout() {
                         setCommandOpen(false);
                         setMobileMenuOpen(false);
                       }}
-                      className="mb-1 rounded-xl px-3 py-3 data-[selected=true]:bg-violet-50 data-[selected=true]:text-violet-800"
+                      className="mb-1 rounded-lg px-3 py-3 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
                     >
-                      <span className="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-violet-50 to-cyan-50 text-violet-600 ring-1 ring-violet-100/70">
+                      <span className="grid size-9 place-items-center rounded-lg bg-accent text-accent-foreground ring-1 ring-border">
                         <menu.icon className="size-[18px]" />
                       </span>
                       <span className="font-medium">{menu.label}</span>

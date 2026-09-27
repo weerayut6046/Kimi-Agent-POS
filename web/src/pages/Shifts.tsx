@@ -529,7 +529,7 @@ function HistoryMeterEditor({
                   )}
                 </div>
                 {(meterInvalid || moneyInvalid) && (
-                  <p className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
+                  <p data-slot="field-error" className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
                     <AlertTriangle className="h-3.5 w-3.5" />
                     เลขปิดกะต้องไม่น้อยกว่าเลขตั้งต้น
                   </p>
@@ -1122,14 +1122,14 @@ export default function Shifts() {
       <ShiftPageHeader />
 
       {err && (
-        <Card className="border-destructive bg-red-50">
+        <Card data-slot="notice" data-tone="error" role="alert" className="border-destructive bg-red-50">
           <CardContent className="py-3 px-4 text-sm text-destructive flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" /> {err}
           </CardContent>
         </Card>
       )}
       {notice && (
-        <Card className="border-emerald-200 bg-emerald-50">
+        <Card data-slot="notice" data-tone="success" role="status" className="border-emerald-200 bg-emerald-50">
           <CardContent className="flex items-center gap-2 px-4 py-3 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4" /> {notice}
           </CardContent>
@@ -1290,7 +1290,7 @@ export default function Shifts() {
                   </p>
                 </div>
                 {hasPriceChangeDuringShift && (
-                  <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <div data-slot="notice" data-tone="warning" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
                       <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
@@ -1458,7 +1458,7 @@ export default function Shifts() {
                           </div>
                         )}
                         {assessment?.implausible && (
-                          <div className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                          <div data-slot="notice" data-tone="error" className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
                             <div className="flex items-start gap-1.5">
                               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                               <span>
@@ -1659,7 +1659,7 @@ export default function Shifts() {
 
                 {closePreview &&
                   closePreview.implausibleNozzleIds.length > 0 && (
-                    <div className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <div data-slot="notice" data-tone="error" className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                       <div>
                         <b>ยังปิดกะไม่ได้:</b> พบยอด P ผิดปกติ{" "}
@@ -2226,7 +2226,7 @@ export default function Shifts() {
                       />
                     </div>
                     {historyTiming.invalid && (
-                      <p className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
+                      <p data-slot="field-error" className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
                         <AlertTriangle className="h-3.5 w-3.5" />
                         เวลาปิดกะต้องอยู่หลังเวลาเปิดกะ
                       </p>
@@ -2436,7 +2436,7 @@ export default function Shifts() {
                         {Object.keys(historyForm.cashCounts).length === 0 &&
                           !historyForm.cashCountsTouched &&
                           historyForm.countedCash !== "" && (
-                            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            <div data-slot="notice" data-tone="info" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                               รายการเดิมบันทึกเฉพาะยอดรวม ฿
                               {fmtMoney(Number(historyForm.countedCash))}
                               โดยไม่มีรายละเอียดแบงก์/เหรียญ
@@ -2506,13 +2506,13 @@ export default function Shifts() {
                 </section>
 
                 {err && (
-                  <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
+                  <div data-slot="notice" data-tone="error" role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{err}</span>
                   </div>
                 )}
 
-                <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-relaxed text-amber-800">
+                <div data-slot="notice" data-tone="warning" className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-relaxed text-amber-800">
                   <Info className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     ระบบจะคำนวณยอดรวมในประวัติใหม่จากเลข P/L ปิดกะ

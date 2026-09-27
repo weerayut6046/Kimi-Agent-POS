@@ -13,7 +13,30 @@ import { setupTestDb, type TestDb } from "../test/testDb";
 
 let t: TestDb;
 
-function fixPlanCompletion() {
+function fixPlanCompletion(
+  plan = {
+    summary: "แก้ calculation path ของยอดสุทธิและเพิ่ม regression test",
+    risk: "high" as const,
+    impact: {
+      business: "ลดความเสี่ยงยอดขายและรายงานคลาดเคลื่อน",
+      data: "ไม่แก้ข้อมูลย้อนหลังจนกว่าจะยืนยันหลักฐาน",
+      downtime: "none" as const,
+    },
+    steps: [
+      {
+        id: "fix-sale-total",
+        priority: "critical" as const,
+        title: "ตรวจและแก้สูตรยอดสุทธิ",
+        reason: "พบกฎ sale_total ผิดปกติ",
+        relatedRules: ["sale_total"],
+        sourceFiles: ["web/api/routers/pos.ts"],
+        changeOutline: ["รวมการคำนวณยอดสุทธิไว้ใน calculation path เดียว"],
+        verification: ["เพิ่ม regression test สำหรับส่วนลดและการปัดเศษ"],
+        rollback: "ย้อนเฉพาะ code patch แล้วรันทดสอบเดิมอีกครั้ง",
+      },
+    ],
+  }
+) {
   return new Response(
     JSON.stringify({
       choices: [
@@ -27,34 +50,7 @@ function fixPlanCompletion() {
                 type: "function",
                 function: {
                   name: "submit_formula_audit_fix_plan",
-                  arguments: JSON.stringify({
-                    summary:
-                      "แก้ calculation path ของยอดสุทธิและเพิ่ม regression test",
-                    risk: "high",
-                    impact: {
-                      business: "ลดความเสี่ยงยอดขายและรายงานคลาดเคลื่อน",
-                      data: "ไม่แก้ข้อมูลย้อนหลังจนกว่าจะยืนยันหลักฐาน",
-                      downtime: "none",
-                    },
-                    steps: [
-                      {
-                        id: "fix-sale-total",
-                        priority: "critical",
-                        title: "ตรวจและแก้สูตรยอดสุทธิ",
-                        reason: "พบกฎ sale_total ผิดปกติ",
-                        relatedRules: ["sale_total"],
-                        sourceFiles: ["web/api/routers/pos.ts"],
-                        changeOutline: [
-                          "รวมการคำนวณยอดสุทธิไว้ใน calculation path เดียว",
-                        ],
-                        verification: [
-                          "เพิ่ม regression test สำหรับส่วนลดและการปัดเศษ",
-                        ],
-                        rollback:
-                          "ย้อนเฉพาะ code patch แล้วรันทดสอบเดิมอีกครั้ง",
-                      },
-                    ],
-                  }),
+                  arguments: JSON.stringify(plan),
                 },
               },
             ],
@@ -216,6 +212,47 @@ describe("audit.formulaAudit", () => {
       where: eq(sales.id, target!.id),
     });
     expect(unchanged?.total).toBe(987.65);
+  });
+
+  it("accepts a valid fix plan larger than the legacy gateway limits", async () => {
+    const longPlan = {
+      summary: "แผนตรวจ calculation path แบบละเอียด",
+      risk: "high" as const,
+      impact: {
+        business: "ลดความเสี่ยงรายงานยอดขายคลาดเคลื่อน",
+        data: "ไม่แก้ข้อมูลย้อนหลังโดยอัตโนมัติ",
+        downtime: "none" as const,
+      },
+      steps: Array.from({ length: 5 }, (_, index) => ({
+        id: `fix-sale-total-${index + 1}`,
+        priority: "critical" as const,
+        title: `ตรวจสูตรยอดสุทธิส่วนที่ ${index + 1}`,
+        reason: "ก".repeat(650),
+        relatedRules: ["sale_total"],
+        sourceFiles: ["web/api/routers/pos.ts"],
+        changeOutline: ["ข".repeat(480)],
+        verification: ["ค".repeat(480)],
+        rollback: "ง".repeat(650),
+      })),
+    };
+    const serializedPlan = JSON.stringify(longPlan);
+    expect(serializedPlan.length).toBeGreaterThan(8_000);
+    expect(serializedPlan.length).toBeLessThan(16_000);
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(fixPlanCompletion(longPlan));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const proposal = await t.caller("admin").audit.createFormulaAuditFixPlan({
+      days: 7,
+      requestId: "a100bd8d-eaa2-4bb7-a116-4ef51c4bbc8d",
+    });
+
+    expect(proposal.plan.steps).toHaveLength(5);
+    expect(proposal.plan.steps[0]?.reason).toHaveLength(650);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.max_tokens).toBe(3_200);
   });
 
   it("rejects an approval when audit evidence changed after plan creation", async () => {

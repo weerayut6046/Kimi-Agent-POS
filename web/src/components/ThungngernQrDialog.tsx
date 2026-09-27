@@ -283,7 +283,7 @@ function ThungngernQrDialogContent({
           </div>
 
           {displayedStatus === "pending" && (
-            <div className="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+            <div data-slot="notice" data-tone="info" className="flex items-center justify-between rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
               <span className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" /> รอชำระ —
                 ให้ลูกค้าสแกนด้วยแอปธนาคารใดก็ได้
@@ -341,25 +341,27 @@ function ThungngernQrDialogContent({
             </div>
           )}
           {displayedStatus === "confirmed" && (
-            <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">
+            <div data-slot="notice" data-tone="success" role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">
               <CheckCircle2 className="size-5" /> เงินเข้าแล้ว —
               ได้รับเงินเรียบร้อย กำลังพิมพ์ใบเสร็จ
             </div>
           )}
           {displayedStatus === "expired" && (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
+            <div data-slot="notice" data-tone="warning" role="status" className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
               <XCircle className="size-5" /> หมดเวลา — QR นี้ใช้ไม่ได้แล้ว
               กรุณาสร้างใหม่
             </div>
           )}
           {displayedStatus === "cancelled" && (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
+            <div data-slot="notice" data-tone="info" role="status" className="flex items-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
               <XCircle className="size-5" /> ยกเลิกรายการแล้ว
             </div>
           )}
 
           {displayedError && (
             <div
+              data-slot="notice"
+              data-tone="error"
               role="alert"
               className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
             >

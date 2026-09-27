@@ -18,6 +18,7 @@ type ApiRuntime = {
   edgeAppRouter: AnyRouter;
   createContext: (opts: FetchCreateContextFnOptions) => Promise<object>;
   handleIncomingPaymentRequest: (request: Request) => Promise<Response>;
+  getDeploymentMode: () => "platform" | "business";
 };
 let apiRuntime: Promise<ApiRuntime> | null = null;
 
@@ -161,6 +162,12 @@ Deno.serve(async request => {
   }
   // webhook รับแจ้งเงินเข้าจากแอปบนมือถือของร้าน — ไม่ผ่าน tRPC (แอปภายนอกยิง JSON ตรงๆ)
   if (incomingPayment) {
+    if (runtime.getDeploymentMode() !== "business") {
+      return Response.json(
+        { ok: false, error: "This endpoint requires a business deployment" },
+        { status: 403, headers }
+      );
+    }
     const incomingResponse =
       await runtime.handleIncomingPaymentRequest(request);
     for (const [name, value] of headers)

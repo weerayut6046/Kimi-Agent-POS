@@ -293,7 +293,11 @@ export default function FuelStockReport() {
 
   if (!canManage) {
     return (
-      <div className="mx-auto max-w-xl space-y-4 py-10 text-center">
+      <div
+        data-slot="notice"
+        data-tone="warning"
+        className="mx-auto max-w-xl space-y-4 py-10 text-center"
+      >
         <div className="mx-auto grid size-16 place-items-center rounded-3xl bg-amber-50 text-amber-700">
           <AlertTriangle className="size-7" />
         </div>
@@ -304,8 +308,8 @@ export default function FuelStockReport() {
           เฉพาะผู้ดูแลระบบหรือผู้จัดการเท่านั้นที่ดูราคาซื้อและกำไรน้ำมันได้
         </p>
         <Button asChild variant="outline">
-          <Link to="/reports">
-            <ArrowLeft className="mr-1 size-4" /> กลับหน้ารายงาน
+          <Link to="/stock">
+            <ArrowLeft className="mr-1 size-4" /> กลับหน้าสต๊อกและถัง
           </Link>
         </Button>
       </div>
@@ -317,8 +321,8 @@ export default function FuelStockReport() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Button asChild variant="ghost" size="sm" className="-ml-3 mb-1">
-            <Link to="/reports">
-              <ArrowLeft className="mr-1 size-4" /> กลับหน้ารายงาน
+            <Link to="/stock">
+              <ArrowLeft className="mr-1 size-4" /> กลับหน้าสต๊อกและถัง
             </Link>
           </Button>
           <h1 className="page-heading flex items-center gap-2">
@@ -412,12 +416,19 @@ export default function FuelStockReport() {
       </div>
 
       {(error || exportError || reorderError) && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error?.message || exportError || reorderError}
         </div>
       )}
       {isLoading && (
         <div
+          data-slot="notice"
+          data-tone="info"
           className="flex items-center gap-3 rounded-2xl border bg-white p-5 text-sm text-muted-foreground"
           role="status"
         >

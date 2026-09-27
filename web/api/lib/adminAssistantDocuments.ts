@@ -93,7 +93,8 @@ function validDate(value: string | undefined): value is string {
   if (!value || !DATE_PATTERN.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return (
-    !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === value
   );
 }
 
@@ -113,14 +114,14 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
   if (request.document === "daily_report") {
     const date = validDate(request.date) ? request.date : today;
     return {
-      answer: `เตรียม Z-Report วันที่ ${date} ให้แล้ว สามารถดาวน์โหลด Excel หรือเปิดหน้ารายงานเพื่อพิมพ์/บันทึกเป็น PDF ได้`,
+      answer: `เตรียม Z-Report วันที่ ${date} ให้แล้ว สามารถดาวน์โหลดเป็นไฟล์ Excel ได้`,
       actions: [
         {
           kind: "download_daily_report",
           label: `ดาวน์โหลด Z-Report ${date}`,
           date,
         },
-        navigate("เปิดหน้ารายงานเพื่อพิมพ์ PDF", `/reports?date=${date}`),
+        navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability"),
       ],
     };
   }
@@ -130,14 +131,14 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
       return {
         answer:
           "กรุณาระบุวันที่เริ่มต้นและสิ้นสุด เช่น “ขอรายงานยอดขาย Excel ตั้งแต่ 2026-07-01 ถึง 2026-07-22” (สูงสุด 92 วัน)",
-        actions: [navigate("เปิดหน้าส่งออกรายงาน", "/reports")],
+        actions: [navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability")],
       };
     }
     const span = daySpan(request.from, request.to);
     if (span < 0 || span > 91) {
       return {
         answer: "ช่วงวันที่ไม่ถูกต้องหรือยาวเกิน 92 วัน กรุณาระบุช่วงใหม่",
-        actions: [navigate("เปิดหน้าส่งออกรายงาน", "/reports")],
+        actions: [navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability")],
       };
     }
     return {
@@ -171,14 +172,14 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
   return {
     answer: [
       "เอกสารที่ admin ขอผ่านแชตได้:",
-      `- Z-Report รายวัน: ดาวน์โหลด Excel หรือเปิดเพื่อพิมพ์ PDF`,
+      `- Z-Report รายวัน: ดาวน์โหลด Excel จากหน้าต้นทุนและกำไร`,
       "- รายงานยอดขายตามช่วงเวลา: ระบุวันเริ่มต้นและวันสิ้นสุดเพื่อดาวน์โหลด Excel",
       ...documentCatalog.map(item => `- ${item.title}: ${item.description}`),
       "เอกสารที่มีข้อมูลลูกค้าหรือเลขบิลจะให้เลือกภายในหน้าระบบ ไม่ส่งข้อมูลนั้นให้ DeepSeek",
     ].join("\n"),
     actions: [
       dailyAction,
-      navigate("เปิดศูนย์รายงาน", `/reports?date=${today}`),
+      navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability"),
       ...documentCatalog.map(item => item.action),
     ],
   };

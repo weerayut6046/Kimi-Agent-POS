@@ -88,8 +88,8 @@ export default function TankReconciliation() {
         </h1>
         <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
           <Button asChild variant="outline" className="flex-1 sm:flex-none">
-            <Link to="/reports">
-              <ArrowLeft className="mr-1 size-4" /> รายงานปิดวัน
+            <Link to="/stock">
+              <ArrowLeft className="mr-1 size-4" /> กลับหน้าสต๊อกและถัง
             </Link>
           </Button>
           <Button
@@ -151,7 +151,7 @@ export default function TankReconciliation() {
           <p className="text-sm text-muted-foreground">กำลังโหลด...</p>
         )}
         {recon.error && (
-          <Card>
+          <Card data-slot="notice" data-tone="error" role="alert">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
               {recon.error.message}
             </CardContent>

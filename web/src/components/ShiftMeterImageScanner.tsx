@@ -825,7 +825,7 @@ export default function ShiftMeterImageScanner({
             </section>
 
             {error && (
-              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div data-slot="notice" data-tone="error" role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 {error}
               </div>

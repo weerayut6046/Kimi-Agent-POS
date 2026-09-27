@@ -39,9 +39,10 @@ export function MemberCardDialog({
 }: MemberCardDialogProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const barcodeRef = useRef<SVGSVGElement>(null);
-  const [qrCode, setQrCode] = useState<{ memberCode: string; url: string } | null>(
-    null
-  );
+  const [qrCode, setQrCode] = useState<{
+    memberCode: string;
+    url: string;
+  } | null>(null);
 
   const memberCode = member ? memberCardPayload(member.memberCode) : "";
 
@@ -63,8 +64,7 @@ export function MemberCardDialog({
     };
   }, [memberCode, open]);
 
-  const qrDataUrl =
-    open && qrCode?.memberCode === memberCode ? qrCode.url : "";
+  const qrDataUrl = open && qrCode?.memberCode === memberCode ? qrCode.url : "";
 
   useEffect(() => {
     if (!open || !memberCode || !barcodeRef.current) return;
@@ -199,7 +199,11 @@ export function MemberCardDialog({
           </div>
         </div>
 
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div
+          data-slot="notice"
+          data-tone="warning"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
           {cardExpired
             ? "บัตรนี้หมดอายุแล้ว ระบบตัดแต้มคงเหลือเป็น 0 และไม่อนุญาตให้ใช้บัตร · "
             : ""}

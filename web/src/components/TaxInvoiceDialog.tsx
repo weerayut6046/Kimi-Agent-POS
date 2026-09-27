@@ -285,7 +285,7 @@ function TaxInvoiceForm({
           onChange={e => set("vehiclePlate", e.target.value)}
         />
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
       <DialogFooter className="gap-2">
         {onCancel && (
           <Button variant="ghost" onClick={onCancel}>

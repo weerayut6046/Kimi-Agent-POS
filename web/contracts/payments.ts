@@ -17,6 +17,8 @@ export type ThungngernSaleItemSnapshot = {
   qty: number;
   unit: string;
   unitPrice: number;
+  /** ต้นทุนต่อหน่วย ณ เวลาสร้าง session เพื่อคงกำไรย้อนหลังให้ถูกต้อง */
+  costPerUnit: number;
   amount: number;
   category: "fuel" | "lubricant" | "other";
 };

@@ -247,7 +247,7 @@ export default function Workforce() {
       showSuccess(
         result.payrollUpdated
           ? "เพิ่มตารางงานและหักยอดเบิกในเงินเดือนแล้ว"
-          : "เพิ่มตารางงานแล้ว",
+          : "เพิ่มตารางงานแล้ว"
       );
     },
     onError: err => showError(err.message),
@@ -260,7 +260,7 @@ export default function Workforce() {
       showSuccess(
         result.payrollUpdated
           ? "แก้ไขตารางงานและอัปเดตเงินเดือนแล้ว"
-          : "แก้ไขตารางงานแล้ว",
+          : "แก้ไขตารางงานแล้ว"
       );
     },
     onError: err => showError(err.message),
@@ -285,7 +285,7 @@ export default function Workforce() {
       showSuccess(
         result.payrollUpdated
           ? "ลบตารางงานและอัปเดตเงินเดือนแล้ว"
-          : "ลบตารางงานแล้ว",
+          : "ลบตารางงานแล้ว"
       );
     },
     onError: err => showError(err.message),
@@ -297,7 +297,7 @@ export default function Workforce() {
       showSuccess(
         result.payrollUpdated
           ? "สลับกะและอัปเดตเงินเดือนแล้ว"
-          : "สลับกะพนักงานเรียบร้อยแล้ว",
+          : "สลับกะพนักงานเรียบร้อยแล้ว"
       );
     },
     onError: err => showError(err.message),
@@ -487,12 +487,22 @@ export default function Workforce() {
         )}
       </div>
       {message && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">
+        <div
+          data-slot="notice"
+          data-tone="success"
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700"
+        >
           {message}
         </div>
       )}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+        <div
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
+        >
           {error}
         </div>
       )}
@@ -617,7 +627,9 @@ export default function Workforce() {
                       </TableCell>
                       {canViewBranchSchedules && (
                         <TableCell>
-                          <div className="font-medium">{schedule.staffName}</div>
+                          <div className="font-medium">
+                            {schedule.staffName}
+                          </div>
                           <div className="text-xs text-muted-foreground">
                             {roleLabel[schedule.staffRole]}
                           </div>
@@ -665,9 +677,7 @@ export default function Workforce() {
                                       ),
                                       staffId: String(schedule.staffId),
                                       status: schedule.status,
-                                      cashAdvance: String(
-                                        schedule.cashAdvance
-                                      ),
+                                      cashAdvance: String(schedule.cashAdvance),
                                       note: schedule.note ?? "",
                                     })
                                   }
@@ -1273,7 +1283,10 @@ export default function Workforce() {
                     <Select
                       value={scheduleForm.shiftTemplateId}
                       onValueChange={value =>
-                        setScheduleForm({ ...scheduleForm, shiftTemplateId: value })
+                        setScheduleForm({
+                          ...scheduleForm,
+                          shiftTemplateId: value,
+                        })
                       }
                     >
                       <SelectTrigger className="w-full bg-white">
@@ -1286,8 +1299,8 @@ export default function Workforce() {
                             value={String(template.id)}
                             disabled={!template.active}
                           >
-                            {template.name} ({template.startTime}-{template.endTime}
-                            )
+                            {template.name} ({template.startTime}-
+                            {template.endTime})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1431,10 +1444,7 @@ export default function Workforce() {
             </div>
           )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCashAdvanceForm(null)}
-            >
+            <Button variant="outline" onClick={() => setCashAdvanceForm(null)}>
               ยกเลิก
             </Button>
             <Button
@@ -1471,10 +1481,10 @@ export default function Workforce() {
               </div>
             </div>
           </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain bg-slate-50/80 p-4 sm:p-5">
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-              <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-white p-4 sm:p-5">
+            <section className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 items-center justify-center rounded-full bg-blue-50 text-blue-700">
                   <Clock className="h-4 w-4" />
                 </div>
                 <div>
@@ -1486,8 +1496,8 @@ export default function Workforce() {
                   </p>
                 </div>
               </div>
-              <div className="p-4">
-                <div className="max-h-72 overflow-auto rounded-lg border">
+              <div className="-mx-4 border-y border-slate-200 sm:-mx-5">
+                <div className="max-h-72 overflow-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1555,9 +1565,9 @@ export default function Workforce() {
               </div>
             </section>
             {templateForm ? (
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-                <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+              <section className="space-y-4 border-t border-slate-200 pt-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 items-center justify-center rounded-full bg-blue-50 text-blue-700">
                     <Pencil className="h-4 w-4" />
                   </div>
                   <div>
@@ -1569,7 +1579,7 @@ export default function Workforce() {
                     </p>
                   </div>
                 </div>
-                <div className="p-4">
+                <div>
                   <div className="grid gap-4 sm:grid-cols-4">
                     <div className="space-y-2 sm:col-span-2">
                       <Label className="text-xs font-semibold text-slate-700">
@@ -1651,7 +1661,10 @@ export default function Workforce() {
                     </label>
                   </div>
                   <div className="flex justify-end gap-2 pt-4">
-                    <Button variant="outline" onClick={() => setTemplateForm(null)}>
+                    <Button
+                      variant="outline"
+                      onClick={() => setTemplateForm(null)}
+                    >
                       ยกเลิก
                     </Button>
                     <Button
@@ -2119,7 +2132,10 @@ export default function Workforce() {
                     <Textarea
                       value={payrollForm.note}
                       onChange={event =>
-                        setPayrollForm({ ...payrollForm, note: event.target.value })
+                        setPayrollForm({
+                          ...payrollForm,
+                          note: event.target.value,
+                        })
                       }
                       className="bg-white"
                     />

@@ -55,34 +55,55 @@ export default function LowStockAlert() {
     <Popover>
       <PopoverTrigger asChild>
         <button
+          type="button"
+          data-slot="notification-trigger"
           className="relative rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"
           title="แจ้งเตือนสต็อก"
+          aria-label={`แจ้งเตือนสต็อก ${count} รายการ`}
         >
           <Bell className="w-5 h-5" />
           {count > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-bold flex items-center justify-center">
-              {count}
+            <span
+              data-slot="notification-count"
+              className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-0.5 rounded-full bg-amber-400 text-amber-950 text-[10px] font-bold flex items-center justify-center"
+              aria-hidden="true"
+            >
+              {count > 99 ? "99+" : count}
             </span>
           )}
         </button>
       </PopoverTrigger>
       <PopoverContent
+        data-notification-panel="true"
         className="w-[calc(100vw-1.5rem)] max-w-80 p-0"
         align="end"
       >
-        <div className="px-4 py-3 border-b font-heading font-semibold text-sm">
+        <div
+          data-slot="notification-header"
+          className="px-4 py-3 border-b font-heading font-semibold text-sm"
+        >
           แจ้งเตือนสต็อก
         </div>
         {count === 0 ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground text-center">
+          <div
+            data-slot="notification-empty"
+            className="px-4 py-6 text-sm text-muted-foreground text-center"
+          >
             ไม่มีรายการแจ้งเตือน
           </div>
         ) : (
-          <div className="max-h-72 overflow-y-auto divide-y">
+          <div
+            data-slot="notification-list"
+            className="max-h-72 overflow-y-auto divide-y"
+          >
             {data!.lowTanks.map(t => (
-              <div key={t.id} className="px-4 py-2.5 flex items-center gap-3">
+              <div
+                key={t.id}
+                data-slot="notification-item"
+                className="px-4 py-2.5 flex items-center gap-3"
+              >
                 <Fuel className="w-4 h-4 text-amber-600 shrink-0" />
-                <div className="text-sm">
+                <div className="min-w-0 break-words text-sm">
                   <div className="font-medium">{t.name}</div>
                   <div className="text-xs text-muted-foreground">
                     เหลือ {fmtNum(t.currentLiters)} / {fmtNum(t.capacityLiters)}{" "}
@@ -92,9 +113,13 @@ export default function LowStockAlert() {
               </div>
             ))}
             {data!.lowProducts.map(p => (
-              <div key={p.id} className="px-4 py-2.5 flex items-center gap-3">
+              <div
+                key={p.id}
+                data-slot="notification-item"
+                className="px-4 py-2.5 flex items-center gap-3"
+              >
                 <PackageX className="w-4 h-4 text-amber-600 shrink-0" />
-                <div className="text-sm">
+                <div className="min-w-0 break-words text-sm">
                   <div className="font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">
                     เหลือ {fmtNum(p.stockQty)} {p.unit} (เกณฑ์{" "}
@@ -105,7 +130,7 @@ export default function LowStockAlert() {
             ))}
           </div>
         )}
-        <div className="p-2 border-t">
+        <div data-slot="notification-footer" className="p-2 border-t">
           <Link to="/stock">
             <Button variant="ghost" size="sm" className="w-full">
               ไปหน้าจัดการสต๊อก

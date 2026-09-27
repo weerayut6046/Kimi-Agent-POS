@@ -2,9 +2,13 @@ import { z } from "zod";
 import type { AssistantAction } from "@contracts/assistant";
 
 const DEEPSEEK_CHAT_URL = "https://api.deepseek.com/chat/completions";
-const REQUEST_TIMEOUT_MS = 25_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
+const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const MAX_TOOL_ROUNDS = 2;
 const MAX_TOOL_CALLS_PER_ROUND = 3;
+const DEFAULT_MAX_OUTPUT_TOKENS = 1_200;
+const MAX_OUTPUT_TOKENS = 8_000;
+const MAX_TOOL_ARGUMENT_CHARS = 16_000;
 const MAX_TOOL_OUTPUT_CHARS = 12_000;
 
 export type DeepSeekConversationMessage = {
@@ -74,6 +78,7 @@ const completionSchema = z.object({
   choices: z
     .array(
       z.object({
+        finish_reason: z.string().nullable().optional(),
         message: z.object({
           role: z.literal("assistant"),
           content: z.string().nullable().optional(),
@@ -98,7 +103,7 @@ export class DeepSeekAssistantError extends Error {
 }
 
 function parseToolArguments(raw: string): unknown {
-  if (raw.length > 4_000) return null;
+  if (raw.length > MAX_TOOL_ARGUMENT_CHARS) return null;
   try {
     return JSON.parse(raw || "{}");
   } catch {
@@ -119,10 +124,12 @@ async function requestCompletion(input: {
   tools: DeepSeekAssistantTool[];
   allowTools: boolean;
   forcedToolName?: string;
+  maxOutputTokens: number;
+  timeoutMs: number;
   fetchImpl: typeof fetch;
 }) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
 
   try {
     const response = await input.fetchImpl(DEEPSEEK_CHAT_URL, {
@@ -135,7 +142,7 @@ async function requestCompletion(input: {
         model: input.model,
         messages: input.messages,
         stream: false,
-        max_tokens: 1_200,
+        max_tokens: input.maxOutputTokens,
         thinking: { type: "disabled" },
         ...(input.tools.length
           ? {
@@ -181,7 +188,14 @@ async function requestCompletion(input: {
         "DeepSeek response had an unexpected shape"
       );
     }
-    return parsed.data.choices[0].message;
+    const choice = parsed.data.choices[0];
+    if (choice.finish_reason === "length") {
+      throw new DeepSeekAssistantError(
+        "invalid_response",
+        "DeepSeek response exceeded the output token limit"
+      );
+    }
+    return choice.message;
   } catch (error) {
     if (error instanceof DeepSeekAssistantError) throw error;
     if (error instanceof Error && error.name === "AbortError") {
@@ -204,9 +218,25 @@ export async function runDeepSeekAssistant(input: {
   conversation: DeepSeekConversationMessage[];
   tools: DeepSeekAssistantTool[];
   forcedToolName?: string;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }): Promise<DeepSeekAssistantResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
+  const requestedMaxOutputTokens = Number.isFinite(input.maxOutputTokens)
+    ? Math.trunc(input.maxOutputTokens!)
+    : DEFAULT_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens = Math.min(
+    Math.max(requestedMaxOutputTokens, 1),
+    MAX_OUTPUT_TOKENS
+  );
+  const requestedTimeoutMs = Number.isFinite(input.timeoutMs)
+    ? Math.trunc(input.timeoutMs!)
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  const timeoutMs = Math.min(
+    Math.max(requestedTimeoutMs, 1_000),
+    MAX_REQUEST_TIMEOUT_MS
+  );
   const messages: DeepSeekRequestMessage[] = [
     { role: "system", content: input.systemPrompt },
     ...input.conversation,
@@ -228,6 +258,8 @@ export async function runDeepSeekAssistant(input: {
       tools: input.tools,
       allowTools,
       forcedToolName: round === 0 ? forcedToolName : undefined,
+      maxOutputTokens,
+      timeoutMs,
       fetchImpl,
     });
     const toolCalls = allowTools

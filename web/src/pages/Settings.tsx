@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -55,10 +56,21 @@ import {
   EyeOff,
   GripVertical,
   BadgePercent,
+  Palette,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { applyAppTemplate, applyAppTheme } from "@/lib/appTheme";
+import TemplatePreview from "@/components/TemplatePreview";
+import { DataTableEmpty, DataTableToolbar } from "@/components/DataTablePanel";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -120,9 +132,13 @@ import {
   type StaffRole,
 } from "@contracts/menuPermissions";
 import {
+  APP_TEMPLATE_OPTIONS,
+  APP_THEME_OPTIONS,
   DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
+  normalizeAppTemplate,
+  normalizeAppTheme,
 } from "@contracts/settings";
 import {
   activeBillThresholdPromotion,
@@ -153,6 +169,8 @@ const emptyProduct = {
 };
 
 const INTERNAL_SETTING_KEYS = new Set([
+  "app_template",
+  "app_theme",
   "product_display_order",
   "tank_display_order",
   "backup_restore_drill_v1",
@@ -311,7 +329,11 @@ function MenuPermissionEditor({
 }) {
   if (role === "admin") {
     return (
-      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+      <div
+        data-slot="notice"
+        data-tone="info"
+        className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800"
+      >
         <div className="flex items-center gap-2 font-semibold">
           <ShieldCheck className="size-4" /> ผู้ดูแลระบบใช้ได้ทุกเมนู
         </div>
@@ -522,6 +544,13 @@ function StaffAccessSelector({
 export default function Settings() {
   const confirmAction = useAppConfirm();
   const { staff } = useStaff();
+  const activeBranchId = useRef(staff?.branch.id);
+  useEffect(() => {
+    activeBranchId.current = staff?.branch.id;
+    return () => {
+      activeBranchId.current = undefined;
+    };
+  }, [staff?.branch.id]);
   const {
     status: desktopSyncStatus,
     exportRecovery,
@@ -590,6 +619,7 @@ export default function Settings() {
   const [form, setForm] = useState<Record<string, string>>(() =>
     createInitialSettingsForm(settingMap)
   );
+  const selectedTemplate = normalizeAppTemplate(form.app_template);
   const [logoData, setLogoData] = useState<string | null>(null); // null=ไม่เปลี่ยน, ""=ลบโลโก้, อื่นๆ=data URL ใหม่
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [editP, setEditP] = useState<
@@ -736,6 +766,84 @@ export default function Settings() {
     },
     onError: e => fail(e.message),
   });
+  const saveTheme = trpc.catalog.updateTheme.useMutation({
+    onMutate: async ({ theme }) => {
+      await utils.catalog.getSettings.cancel();
+      const previous = utils.catalog.getSettings.getData();
+      applyAppTheme(theme);
+      setForm(current => ({ ...current, app_theme: theme }));
+      utils.catalog.getSettings.setData(undefined, current => ({
+        ...(current ?? DEFAULT_SETTINGS),
+        app_theme: theme,
+      }));
+      return { previous, branchId: activeBranchId.current };
+    },
+    onSuccess: (result, _input, context) => {
+      if (
+        context?.branchId !== activeBranchId.current ||
+        !activeBranchId.current
+      ) {
+        void utils.catalog.getSettings.invalidate();
+        return;
+      }
+      applyAppTheme(result.theme);
+      setForm(current => ({ ...current, app_theme: result.theme }));
+      setPrevSettingMap(current => ({
+        ...(current ?? DEFAULT_SETTINGS),
+        app_theme: result.theme,
+      }));
+      utils.catalog.getSettings.setData(undefined, current => ({
+        ...(current ?? DEFAULT_SETTINGS),
+        app_theme: result.theme,
+      }));
+      ok("เปลี่ยนธีมหน้าจอแล้ว");
+    },
+    onError: (error, _input, context) => {
+      if (
+        context?.branchId !== activeBranchId.current ||
+        !activeBranchId.current
+      )
+        return;
+      const previous = context?.previous;
+      const fallbackTheme = normalizeAppTheme(previous?.app_theme);
+      applyAppTheme(fallbackTheme);
+      if (previous) {
+        setForm(previous);
+        setPrevSettingMap(previous);
+        utils.catalog.getSettings.setData(undefined, previous);
+      }
+      fail(error.message);
+    },
+  });
+  const saveTemplate = trpc.catalog.updateTemplate.useMutation({
+    onMutate: async () => {
+      await utils.catalog.getSettings.cancel();
+      return { branchId: activeBranchId.current };
+    },
+    onSuccess: (result, _input, context) => {
+      if (
+        context?.branchId !== activeBranchId.current ||
+        !activeBranchId.current
+      ) {
+        void utils.catalog.getSettings.invalidate();
+        return;
+      }
+      applyAppTemplate(result.template);
+      setForm(current => ({ ...current, app_template: result.template }));
+      setPrevSettingMap(current => ({
+        ...(current ?? DEFAULT_SETTINGS),
+        app_template: result.template,
+      }));
+      utils.catalog.getSettings.setData(undefined, current => ({
+        ...(current ?? DEFAULT_SETTINGS),
+        app_template: result.template,
+      }));
+      ok("เปลี่ยนเทมเพลตประจำสาขาแล้ว");
+    },
+    onError: error => fail(error.message),
+  });
+  const appearanceSaving =
+    saveSettings.isPending || saveTheme.isPending || saveTemplate.isPending;
   const savePromotionSettings = trpc.catalog.updateBillPromotion.useMutation({
     onMutate: async () => {
       await utils.catalog.getSettings.cancel();
@@ -1236,6 +1344,7 @@ export default function Settings() {
   // กันตัวนับถอยหลังกรณีมีการออกเอกสารระหว่างที่เปิดหน้านี้ค้างไว้
   const COUNTER_KEYS = ["receipt_next_no", "tax_invoice_next_no"];
   const saveAll = () => {
+    if (appearanceSaving) return;
     const entries = Object.entries(form)
       .filter(
         ([k, v]) =>
@@ -1377,7 +1486,12 @@ export default function Settings() {
   }
   if (settingsError && !settingMap) {
     return (
-      <div className="py-16 text-center space-y-3">
+      <div
+        data-slot="notice"
+        data-tone="error"
+        role="alert"
+        className="py-16 text-center space-y-3"
+      >
         <p className="text-sm text-destructive">
           โหลดการตั้งค่าไม่สำเร็จ — เช็กว่าเซิร์ฟเวอร์ทำงานอยู่ แล้วลองใหม่
         </p>
@@ -1394,7 +1508,12 @@ export default function Settings() {
         <SettingsIcon className="w-6 h-6 text-primary" /> ตั้งค่าระบบ
       </h1>
       {settingsError && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-2">
+        <div
+          data-slot="notice"
+          data-tone="warning"
+          role="alert"
+          className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 flex flex-wrap items-center justify-between gap-2"
+        >
           <span>
             เชื่อมต่อฐานข้อมูลล่าสุดไม่สำเร็จ กำลังแสดงค่าที่โหลดไว้ก่อนหน้า:{" "}
             {settingsQueryError?.message}
@@ -1404,11 +1523,34 @@ export default function Settings() {
           </Button>
         </div>
       )}
-      {msg && <p className="text-sm text-green-600">{msg}</p>}
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {msg && (
+        <p
+          data-slot="notice"
+          data-tone="success"
+          role="status"
+          className="text-sm text-green-600"
+        >
+          {msg}
+        </p>
+      )}
+      {err && (
+        <p
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {err}
+        </p>
+      )}
 
-      <Tabs defaultValue="shop" className="gap-4">
+      <Tabs defaultValue={isAdmin ? "appearance" : "shop"} className="gap-4">
         <TabsList className="w-full station-scrollbar">
+          {isAdmin && (
+            <TabsTrigger value="appearance" className="flex-none sm:flex-1">
+              <Palette /> รูปแบบหน้าจอ
+            </TabsTrigger>
+          )}
           <TabsTrigger value="shop" className="flex-none sm:flex-1">
             <Store /> ร้านและเอกสาร
           </TabsTrigger>
@@ -1450,6 +1592,198 @@ export default function Settings() {
             </TabsTrigger>
           )}
         </TabsList>
+
+        {isAdmin && (
+          <TabsContent value="appearance" className="mt-0 space-y-5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-heading text-base">
+                  <Palette className="size-4 text-primary" />
+                  เทมเพลตหน้าจอประจำสาขา
+                </CardTitle>
+                <CardDescription>
+                  เลือกหน้าตาที่ต้องการ
+                  ระบบจะบันทึกและใช้กับผู้ใช้งานทุกคนในสาขานี้
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div
+                  className="grid gap-4 md:grid-cols-2"
+                  aria-busy={saveTemplate.isPending}
+                >
+                  {APP_TEMPLATE_OPTIONS.map(template => {
+                    const selected = selectedTemplate === template.id;
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        aria-label={`ใช้เทมเพลต ${template.label}`}
+                        aria-pressed={selected}
+                        disabled={
+                          appearanceSaving || settingsPending || settingsError
+                        }
+                        onClick={() => {
+                          if (!selected)
+                            saveTemplate.mutate({ template: template.id });
+                        }}
+                        className={`overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/20 disabled:cursor-wait disabled:opacity-70 ${selected ? "border-primary ring-2 ring-primary/15" : "border-border hover:border-primary/45 hover:shadow-md"}`}
+                      >
+                        <TemplatePreview template={template.id} />
+                        <div className="flex items-start justify-between gap-3 p-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 font-heading font-semibold">
+                              {template.label}
+                              {selected && (
+                                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                  ใช้งานอยู่
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {template.description}
+                            </p>
+                          </div>
+                          <span
+                            className={`grid size-7 shrink-0 place-items-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-border text-transparent"}`}
+                          >
+                            <Check className="size-4" />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p role="status" className="mt-3 text-xs text-muted-foreground">
+                  {saveTemplate.isPending
+                    ? "กำลังบันทึกเทมเพลต..."
+                    : "เลือกกลับเป็น PumpPOS ได้ทุกเมื่อ และปรับชุดสีเพิ่มเติมได้ด้านล่าง"}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-heading text-base">
+                  <Palette className="size-4 text-primary" />
+                  ชุดสีประจำสาขา
+                </CardTitle>
+                <CardDescription>
+                  เลือกแล้วระบบจะเปลี่ยนสีทันที และใช้กับผู้ใช้งานทุกคนในสาขานี้
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {APP_THEME_OPTIONS.map(theme => {
+                    const selected =
+                      normalizeAppTheme(form.app_theme) === theme.id;
+                    const colors =
+                      selectedTemplate === "tailadmin"
+                        ? [
+                            "#ffffff",
+                            theme.id === "command"
+                              ? "#465fff"
+                              : theme.colors[1],
+                            "#f9fafb",
+                            "#ffffff",
+                          ]
+                        : theme.colors;
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={
+                          appearanceSaving || settingsPending || settingsError
+                        }
+                        onClick={() => {
+                          if (!selected) saveTheme.mutate({ theme: theme.id });
+                        }}
+                        className={`group overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-all focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/20 disabled:cursor-wait disabled:opacity-70 ${
+                          selected
+                            ? "border-primary ring-2 ring-primary/15"
+                            : "border-border hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md"
+                        }`}
+                      >
+                        <div
+                          className="flex h-24 border-b"
+                          style={{
+                            backgroundColor: colors[2],
+                            borderColor: colors[2],
+                          }}
+                        >
+                          <div
+                            className="w-14 p-2"
+                            style={{ backgroundColor: colors[0] }}
+                          >
+                            <div
+                              className="mb-3 size-5 rounded-md"
+                              style={{ backgroundColor: colors[1] }}
+                            />
+                            <div
+                              className={`space-y-1.5 opacity-65 ${selectedTemplate === "tailadmin" ? "[&>div]:bg-slate-400" : ""}`}
+                            >
+                              <div className="h-1.5 rounded-full bg-white" />
+                              <div className="h-1.5 w-4/5 rounded-full bg-white" />
+                              <div className="h-1.5 w-3/5 rounded-full bg-white" />
+                            </div>
+                          </div>
+                          <div className="flex flex-1 flex-col gap-2 p-3">
+                            <div className="flex gap-1.5">
+                              <div
+                                className="h-3 flex-1 rounded-full"
+                                style={{ backgroundColor: colors[1] }}
+                              />
+                              <div className="h-3 w-8 rounded-full bg-white" />
+                            </div>
+                            <div className="grid flex-1 grid-cols-2 gap-2">
+                              <div
+                                className="rounded-md border"
+                                style={{ backgroundColor: colors[3] }}
+                              />
+                              <div
+                                className="rounded-md border"
+                                style={{ backgroundColor: colors[3] }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex min-h-24 items-start justify-between gap-3 p-4">
+                          <div>
+                            <div className="font-heading font-semibold">
+                              {theme.label}
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {selectedTemplate === "tailadmin" &&
+                              theme.id === "command"
+                                ? "น้ำเงิน Indigo ตามรูปแบบ TailAdmin พื้นหลังสว่าง อ่านง่าย"
+                                : theme.description}
+                            </p>
+                          </div>
+                          <span
+                            className={`grid size-7 shrink-0 place-items-center rounded-full border ${
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border text-transparent"
+                            }`}
+                          >
+                            <Check className="size-4" />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div
+                  data-slot="notice"
+                  data-tone="info"
+                  className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
+                >
+                  <ShieldCheck className="size-4 shrink-0 text-primary" />
+                  เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนธีมได้
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         <TabsContent value="shop" className="mt-0 space-y-5">
           {/* ข้อมูลร้าน */}
@@ -1533,7 +1867,7 @@ export default function Settings() {
               </div>
               <div className="sm:col-span-2">
                 <Button
-                  disabled={!isAdmin || saveSettings.isPending}
+                  disabled={!isAdmin || appearanceSaving}
                   onClick={saveAll}
                 >
                   บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
@@ -1647,7 +1981,7 @@ export default function Settings() {
               </div>
               <div className="sm:col-span-2">
                 <Button
-                  disabled={!isAdmin || saveSettings.isPending}
+                  disabled={!isAdmin || appearanceSaving}
                   onClick={saveAll}
                 >
                   บันทึกการตั้งค่า {!isAdmin && "(เฉพาะแอดมิน)"}
@@ -1734,7 +2068,7 @@ export default function Settings() {
               )}
               <div>
                 <Button
-                  disabled={!isAdmin || saveSettings.isPending}
+                  disabled={!isAdmin || appearanceSaving}
                   onClick={saveAll}
                 >
                   <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
@@ -1845,6 +2179,14 @@ export default function Settings() {
 
                 {perLiterPromotionEnabled && (
                   <div
+                    data-slot="notice"
+                    data-tone={
+                      perLiterPromotionPreview
+                        ? "success"
+                        : promotionSettingsValidationMessage(form)
+                          ? "error"
+                          : "warning"
+                    }
                     className={`rounded-md border px-3 py-2 text-sm ${
                       perLiterPromotionPreview
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -1862,7 +2204,11 @@ export default function Settings() {
 
                 {perLiterPromotionEnabled &&
                   form.bill_promotion_enabled === "1" && (
-                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <p
+                      data-slot="notice"
+                      data-tone="warning"
+                      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    >
                       หากโปรโมชั่นทั้งสองแบบอยู่ในช่วงวันที่เดียวกัน
                       ระบบจะรวมส่วนลดทั้งสองรายการในบิลเดียวกัน
                     </p>
@@ -1997,6 +2343,14 @@ export default function Settings() {
 
                 {form.bill_promotion_enabled === "1" && (
                   <div
+                    data-slot="notice"
+                    data-tone={
+                      promotionPreview
+                        ? "success"
+                        : billPromotionSettingsValidationMessage(form)
+                          ? "error"
+                          : "warning"
+                    }
                     className={`rounded-md border px-3 py-2 text-sm ${
                       promotionPreview
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -2126,7 +2480,7 @@ export default function Settings() {
               )}
               <div>
                 <Button
-                  disabled={!isAdmin || saveSettings.isPending}
+                  disabled={!isAdmin || appearanceSaving}
                   onClick={saveAll}
                 >
                   <Save className="w-4 h-4 mr-2" /> บันทึกการตั้งค่า{" "}
@@ -2139,37 +2493,38 @@ export default function Settings() {
 
         <TabsContent value="products" className="mt-0">
           {/* สินค้าและราคา */}
-          <Card>
-            <CardHeader className="pb-2 flex-row items-center justify-between">
-              <div>
-                <CardTitle className="font-heading text-base flex items-center gap-2">
-                  <Fuel className="w-4 h-4" /> สินค้า & ราคา
-                </CardTitle>
-                {isAdmin && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {reorderProducts.isPending
+          <Card className="data-table-panel">
+            <CardHeader>
+              <DataTableToolbar
+                title="สินค้าและราคา"
+                icon={Fuel}
+                count={products?.length}
+                description={
+                  isAdmin
+                    ? reorderProducts.isPending
                       ? "กำลังบันทึกลำดับสินค้า..."
-                      : "กดค้างที่ปุ่มจับ แล้วลากเพื่อสลับตำแหน่งสินค้า"}
-                  </p>
-                )}
-              </div>
-              {isAdmin && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    saveProduct.reset();
-                    createProduct.reset();
-                    setErr("");
-                    setInitialEditP(null);
-                    setEditP({ ...emptyProduct });
-                  }}
-                >
-                  <Plus className="w-4 h-4 mr-1" /> เพิ่มสินค้า
-                </Button>
-              )}
+                      : "กดค้างที่ปุ่มจับ แล้วลากเพื่อสลับตำแหน่งสินค้า"
+                    : "ราคาขายและสถานะสินค้าของสาขาที่ใช้งาน"
+                }
+                actions={
+                  isAdmin && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        saveProduct.reset();
+                        createProduct.reset();
+                        setErr("");
+                        setInitialEditP(null);
+                        setEditP({ ...emptyProduct });
+                      }}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> เพิ่มสินค้า
+                    </Button>
+                  )
+                }
+              />
             </CardHeader>
-            <CardContent className="overflow-x-auto">
+            <CardContent className="min-w-0 px-0 sm:px-0">
               <DndContext
                 sensors={productSensors}
                 collisionDetection={closestCenter}
@@ -2179,7 +2534,10 @@ export default function Settings() {
                   items={(products ?? []).map(product => product.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <Table>
+                  <Table
+                    containerClassName="!mx-0 !w-full max-w-full"
+                    aria-label="สินค้าและราคา"
+                  >
                     <TableHeader>
                       <TableRow>
                         {isAdmin && (
@@ -2194,10 +2552,25 @@ export default function Settings() {
                         <TableHead className="text-right">ราคาขาย</TableHead>
                         <TableHead className="text-right">สต๊อก</TableHead>
                         <TableHead>สถานะ</TableHead>
-                        {isAdmin && <TableHead></TableHead>}
+                        {isAdmin && (
+                          <TableHead className="text-right">
+                            <span className="sr-only">จัดการสินค้า</span>
+                          </TableHead>
+                        )}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
+                      {!products?.length && (
+                        <DataTableEmpty
+                          colSpan={isAdmin ? 9 : 7}
+                          message={
+                            products
+                              ? "ยังไม่มีสินค้าในสาขานี้"
+                              : "กำลังโหลดรายการสินค้า..."
+                          }
+                          icon={Fuel}
+                        />
+                      )}
                       {(products ?? []).map(p => (
                         <SortableProductRow
                           key={p.id}
@@ -2232,19 +2605,22 @@ export default function Settings() {
                           </TableCell>
                           <TableCell>
                             {p.active ? (
-                              <Badge variant="secondary">ขายอยู่</Badge>
+                              <Badge variant="secondary" data-status="success">
+                                ขายอยู่
+                              </Badge>
                             ) : (
                               <Badge variant="destructive">ปิดขาย</Badge>
                             )}
                           </TableCell>
                           {isAdmin && (
                             <TableCell>
-                              <div className="flex gap-1">
+                              <div className="flex justify-end gap-1">
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
+                                  className="size-11 sm:size-8"
                                   title="ประวัติเปลี่ยนราคา"
+                                  aria-label={`ประวัติเปลี่ยนราคา ${p.name}`}
                                   onClick={() => setHistP(p)}
                                 >
                                   <History className="w-4 h-4" />
@@ -2252,8 +2628,9 @@ export default function Settings() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
+                                  className="size-11 sm:size-8"
                                   title="แก้ไข"
+                                  aria-label={`แก้ไขสินค้า ${p.name}`}
                                   onClick={() => {
                                     saveProduct.reset();
                                     createProduct.reset();
@@ -2267,7 +2644,8 @@ export default function Settings() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8 text-destructive"
+                                  className="size-11 text-destructive sm:size-8"
+                                  aria-label={`ลบสินค้า ${p.name}`}
                                   disabled={deleteProduct.isPending}
                                   onClick={async () => {
                                     if (
@@ -2458,127 +2836,168 @@ export default function Settings() {
           )}
 
           {/* พนักงาน */}
-          <Card>
-            <CardHeader className="pb-2 flex-row items-center justify-between">
-              <CardTitle className="font-heading text-base flex items-center gap-2">
-                <UserCog className="w-4 h-4" /> พนักงาน
-              </CardTitle>
-              {isAdmin && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowStaff(true)}
-                >
-                  <Plus className="w-4 h-4 mr-1" /> เพิ่ม
-                </Button>
-              )}
+          <Card className="data-table-panel">
+            <CardHeader>
+              <DataTableToolbar
+                title="พนักงาน"
+                icon={UserCog}
+                count={staffList?.length}
+                countLabel="คน"
+                description="บัญชีผู้ใช้งาน บทบาท และสถานะพนักงาน"
+                actions={
+                  isAdmin && (
+                    <Button size="sm" onClick={() => setShowStaff(true)}>
+                      <Plus className="w-4 h-4 mr-1" /> เพิ่มพนักงาน
+                    </Button>
+                  )
+                }
+              />
             </CardHeader>
-            <CardContent className="space-y-2">
-              {(staffList ?? []).map(s => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between border rounded-lg px-3 py-2"
-                >
-                  <div>
-                    <div className="text-sm font-medium">
-                      {s.name}{" "}
-                      {!s.active && (
-                        <span className="text-xs text-destructive">
-                          (ปิดใช้งาน)
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      @{s.username}
-                    </div>
-                    {"pinReady" in s && !s.pinReady && (
-                      <div className="mt-1 text-xs font-medium text-amber-700">
-                        ยังไม่ได้ตั้ง PIN ใหม่ · กดแก้ไขเพื่อตั้ง PIN 4-6 หลัก
-                      </div>
-                    )}
+            <CardContent className="min-w-0 px-0 sm:px-0">
+              <Table
+                containerClassName="!mx-0 !w-full max-w-full"
+                aria-label="รายชื่อพนักงาน"
+              >
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>พนักงาน</TableHead>
+                    <TableHead>บทบาท</TableHead>
+                    <TableHead>สถานะ</TableHead>
+                    {isAdmin && <TableHead>สิทธิ์การใช้งาน</TableHead>}
                     {isAdmin && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
-                        <span>
-                          ใช้งานได้{" "}
-                          {
-                            staffMenuPermissions(
-                              s.role,
-                              "menuPermissions" in s
-                                ? s.menuPermissions
-                                : undefined
-                            ).length
-                          }{" "}
-                          เมนู
-                        </span>
-                        <StaffGroupBadge
-                          groupId={
-                            "accessGroupId" in s ? s.accessGroupId : undefined
-                          }
-                          groups={accessGroups ?? []}
-                        />
-                      </div>
+                      <TableHead className="text-right">
+                        <span className="sr-only">จัดการพนักงาน</span>
+                      </TableHead>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Badge
-                      variant={s.role === "admin" ? "default" : "secondary"}
-                    >
-                      {roleLabel[s.role] ?? s.role}
-                    </Badge>
-                    {isAdmin && (
-                      <>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => {
-                            setEditS({
-                              id: s.id,
-                              username: s.username,
-                              name: s.name,
-                              role: s.role,
-                              accessGroupId:
-                                "accessGroupId" in s &&
-                                typeof s.accessGroupId === "number"
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!staffList?.length && (
+                    <DataTableEmpty
+                      colSpan={isAdmin ? 5 : 3}
+                      message={
+                        staffList
+                          ? "ยังไม่มีพนักงาน"
+                          : "กำลังโหลดรายชื่อพนักงาน..."
+                      }
+                      icon={UserCog}
+                    />
+                  )}
+                  {(staffList ?? []).map(s => (
+                    <TableRow key={s.id}>
+                      <TableCell>
+                        <div className="text-sm font-medium">{s.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          @{s.username}
+                        </div>
+                        {"pinReady" in s && !s.pinReady && (
+                          <div className="mt-1 text-xs font-medium text-amber-700">
+                            ยังไม่ได้ตั้ง PIN ใหม่ · กดแก้ไขเพื่อตั้ง PIN 4-6
+                            หลัก
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={s.role === "admin" ? "default" : "secondary"}
+                        >
+                          {roleLabel[s.role] ?? s.role}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={s.active ? "secondary" : "destructive"}
+                          data-status={s.active ? "success" : undefined}
+                        >
+                          {s.active ? "ใช้งานอยู่" : "ปิดใช้งาน"}
+                        </Badge>
+                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-violet-600">
+                            <span>
+                              ใช้งานได้{" "}
+                              {
+                                staffMenuPermissions(
+                                  s.role,
+                                  "menuPermissions" in s
+                                    ? s.menuPermissions
+                                    : undefined
+                                ).length
+                              }{" "}
+                              เมนู
+                            </span>
+                            <StaffGroupBadge
+                              groupId={
+                                "accessGroupId" in s
                                   ? s.accessGroupId
-                                  : null,
-                              pin: "",
-                              menuPermissions: staffMenuPermissions(
-                                s.role,
-                                "menuPermissions" in s
-                                  ? s.menuPermissions
                                   : undefined
-                              ),
-                              branchIds:
-                                "branchIds" in s && Array.isArray(s.branchIds)
-                                  ? s.branchIds
-                                  : [],
-                            });
-                          }}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 text-destructive"
-                          disabled={deleteStaff.isPending}
-                          onClick={async () => {
-                            if (
-                              await confirmAction(
-                                `ยืนยันลบพนักงาน "${s.name}"?`
-                              )
-                            )
-                              deleteStaff.mutate({ id: s.id });
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
+                              }
+                              groups={accessGroups ?? []}
+                            />
+                          </div>
+                        </TableCell>
+                      )}
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-11 sm:size-8"
+                              aria-label={`แก้ไขพนักงาน ${s.name}`}
+                              onClick={() => {
+                                setEditS({
+                                  id: s.id,
+                                  username: s.username,
+                                  name: s.name,
+                                  role: s.role,
+                                  accessGroupId:
+                                    "accessGroupId" in s &&
+                                    typeof s.accessGroupId === "number"
+                                      ? s.accessGroupId
+                                      : null,
+                                  pin: "",
+                                  menuPermissions: staffMenuPermissions(
+                                    s.role,
+                                    "menuPermissions" in s
+                                      ? s.menuPermissions
+                                      : undefined
+                                  ),
+                                  branchIds:
+                                    "branchIds" in s &&
+                                    Array.isArray(s.branchIds)
+                                      ? s.branchIds
+                                      : [],
+                                });
+                              }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-11 text-destructive sm:size-8"
+                              aria-label={`ลบพนักงาน ${s.name}`}
+                              disabled={deleteStaff.isPending}
+                              onClick={async () => {
+                                if (
+                                  await confirmAction(
+                                    `ยืนยันลบพนักงาน "${s.name}"?`
+                                  )
+                                )
+                                  deleteStaff.mutate({ id: s.id });
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
@@ -2675,7 +3094,11 @@ export default function Settings() {
                   </Button>
                 </div>
                 {currentShift && (
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <div
+                    data-slot="notice"
+                    data-tone="warning"
+                    className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                  >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     ขณะมีกะเปิดอยู่ ระบบจะไม่อนุญาตให้เพิ่ม ลบ หรือย้ายหัวจ่าย
                     เพื่อให้ข้อมูลมิเตอร์ของกะตรงกัน
@@ -2857,7 +3280,11 @@ export default function Settings() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+                <div
+                  data-slot="notice"
+                  data-tone="info"
+                  className="rounded-xl border border-blue-200 bg-blue-50/60 p-4"
+                >
                   <div className="font-medium text-blue-900">
                     อ่านในเครื่องก่อน แล้วใช้ Gemini AI ตรวจสอบอิสระ
                   </div>
@@ -2894,7 +3321,12 @@ export default function Settings() {
                     กำลังโหลดการตั้งค่า AI…
                   </div>
                 ) : aiConfigError && !aiConfig ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <div
+                    data-slot="notice"
+                    data-tone="error"
+                    role="alert"
+                    className="rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+                  >
                     <p className="text-sm text-destructive">
                       โหลดการตั้งค่า AI ไม่สำเร็จ: {aiConfigQueryError?.message}
                     </p>
@@ -2976,7 +3408,11 @@ export default function Settings() {
                     </div>
 
                     {aiProvider === "ollama" ? (
-                      <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4 text-sm text-sky-900">
+                      <div
+                        data-slot="notice"
+                        data-tone="info"
+                        className="rounded-lg border border-sky-200 bg-sky-50/70 p-4 text-sm text-sky-900"
+                      >
                         Ollama ไม่ต้องใช้ API Key และต้องเปิด Ollama
                         บนเครื่องที่รันเซิร์ฟเวอร์ PumpPOS
                       </div>
@@ -3024,7 +3460,11 @@ export default function Settings() {
                     {aiProvider === "deepseek" &&
                       !aiConfig?.deepseekApiKeyConfigured &&
                       !aiDeepseekApiKey.trim() && (
-                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                        <div
+                          data-slot="notice"
+                          data-tone="warning"
+                          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                        >
                           กรุณาใส่ API Key ก่อนเปิดใช้ DeepSeek
                         </div>
                       )}
@@ -3065,7 +3505,11 @@ export default function Settings() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    <div
+                      data-slot="notice"
+                      data-tone="info"
+                      className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground"
+                    >
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       <span>
                         API Key เป็นข้อมูลแบบเขียนอย่างเดียว เก็บในตาราง private
@@ -3112,10 +3556,7 @@ export default function Settings() {
                   />
                 </div>
               ))}
-              <Button
-                disabled={!isAdmin || saveSettings.isPending}
-                onClick={saveAll}
-              >
+              <Button disabled={!isAdmin || appearanceSaving} onClick={saveAll}>
                 บันทึกช่องทางชำระเงิน {!isAdmin && "(เฉพาะแอดมิน)"}
               </Button>
             </CardContent>
@@ -3145,7 +3586,12 @@ export default function Settings() {
                     กำลังโหลดการตั้งค่าการชำระเงิน…
                   </div>
                 ) : paymentConfigError && !paymentConfig ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <div
+                    data-slot="notice"
+                    data-tone="error"
+                    role="alert"
+                    className="rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+                  >
                     <p className="text-sm text-destructive">
                       โหลดการตั้งค่าการชำระเงินไม่สำเร็จ:{" "}
                       {paymentConfigQueryError?.message}
@@ -3354,7 +3800,11 @@ export default function Settings() {
                             </div>
                           </div>
                         ) : (
-                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                          <div
+                            data-slot="notice"
+                            data-tone="warning"
+                            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                          >
                             ยังไม่มี QR ร้านค้า — เปิดแอปถุงเงิน ไปที่ QR
                             รับเงินของร้าน บันทึกรูปหรือจับภาพหน้าจอ
                             แล้วอัปโหลดรูป QR ที่เห็นเต็มกรอบ
@@ -3419,13 +3869,21 @@ export default function Settings() {
                       </p>
                       {!paymentConfig?.apiSecretConfigured &&
                         !tngApiSecret.trim() && (
-                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                          <div
+                            data-slot="notice"
+                            data-tone="warning"
+                            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                          >
                             ยังไม่มี Slip2Go API Secret — แคชเชียร์ยังกด
                             "ยืนยันเอง" ได้ แต่ระบบจะไม่ตรวจสลิปอัตโนมัติ
                           </div>
                         )}
                       {tngTestResult && (
-                        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+                        <div
+                          data-slot="notice"
+                          data-tone="success"
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"
+                        >
                           {tngTestResult}
                         </div>
                       )}
@@ -3523,7 +3981,11 @@ export default function Settings() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                          <div
+                            data-slot="notice"
+                            data-tone="warning"
+                            className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                          >
                             ยังไม่มี token — กด &quot;สร้าง token&quot; แล้วนำ
                             URL และ token ไปตั้งในแอปแจ้งเงินเข้า
                           </div>
@@ -3603,7 +4065,11 @@ Content-Type: application/json
                       </span>
                     </div>
 
-                    <div className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    <div
+                      data-slot="notice"
+                      data-tone="info"
+                      className="flex gap-2 rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground"
+                    >
                       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       <span>
                         Slip2Go API Secret เป็นข้อมูลแบบเขียนอย่างเดียว
@@ -3714,7 +4180,11 @@ Content-Type: application/json
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-lg border bg-muted/10 p-4">
+                  <div
+                    data-slot="notice"
+                    data-tone="info"
+                    className="rounded-lg border bg-muted/10 p-4"
+                  >
                     <p className="text-sm font-medium">วิธีเก็บไฟล์ที่แนะนำ</p>
                     <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-muted-foreground">
                       <li>สำรองหลังปิดยอดประจำวันหรือก่อนอัปเดตระบบ</li>
@@ -3724,7 +4194,11 @@ Content-Type: application/json
                       <li>เก็บไฟล์หลายวันและทดลองกู้คืนเป็นระยะ</li>
                     </ol>
                   </div>
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                  <div
+                    data-slot="notice"
+                    data-tone="warning"
+                    className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                  >
                     <div className="flex items-center gap-2 font-medium">
                       <AlertTriangle className="size-4" /> ข้อมูลที่ไม่รวมในไฟล์
                     </div>
@@ -3737,7 +4211,13 @@ Content-Type: application/json
                 </div>
 
                 {isDesktop && (
-                  <div className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-blue-950 sm:flex-row sm:items-center dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-100">
+                  <div
+                    data-slot="notice"
+                    data-tone={
+                      desktopSyncStatus?.pendingCount ? "warning" : "info"
+                    }
+                    className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-blue-950 sm:flex-row sm:items-center dark:border-blue-900 dark:bg-blue-950/20 dark:text-blue-100"
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">
                         ไฟล์กู้ภัยบิลออฟไลน์ในเครื่องนี้
@@ -3839,7 +4319,11 @@ Content-Type: application/json
                 </p>
               </div>
 
-              <div className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+              <div
+                data-slot="notice"
+                data-tone="warning"
+                className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+              >
                 <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
                 <p>
                   ระบบจะตรวจชนิดไฟล์ เวอร์ชัน และ SHA-256 ก่อนเริ่ม
@@ -4137,7 +4621,12 @@ Content-Type: application/json
             </div>
           )}
           {(saveProduct.error || createProduct.error) && (
-            <div className="mx-4 mb-4 flex shrink-0 gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:mx-5">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              role="alert"
+              className="mx-4 mb-4 flex shrink-0 gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive sm:mx-5"
+            >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <p>{(saveProduct.error || createProduct.error)?.message}</p>
             </div>

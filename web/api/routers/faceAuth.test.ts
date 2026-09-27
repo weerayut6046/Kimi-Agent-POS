@@ -45,10 +45,15 @@ describe("face login without attendance", () => {
   it("exposes only login and face enrollment procedures", () => {
     expect(Object.keys(faceAuthRouter._def.procedures).sort()).toEqual([
       "beginFaceLogin",
+      "beginPasskeyLogin",
+      "beginPasskeyRegistration",
       "completeFaceLogin",
+      "completePasskeyLogin",
+      "completePasskeyRegistration",
       "deleteFaceProfile",
       "enrollFace",
       "faceProfileList",
+      "passkeyStatus",
     ]);
   });
 
@@ -82,6 +87,9 @@ describe("face login without attendance", () => {
         username,
         pin,
       });
+      if (!challenge.requiresFace) {
+        throw new Error("Expected face verification outside development mode");
+      }
       expect(challenge.token).toMatch(/^PUMPLOGINFACE1\./);
       const result = await anonymous.faceAuth.completeFaceLogin({
         challengeToken: challenge.token,
@@ -108,6 +116,9 @@ describe("face login without attendance", () => {
       username: "somchai",
       pin: "2048",
     });
+    if (!challenge.requiresFace) {
+      throw new Error("Expected face verification outside development mode");
+    }
     const otherFace = Array.from({ length: 128 }, (_, index) =>
       index % 2 ? 1 : -1
     );
@@ -118,6 +129,33 @@ describe("face login without attendance", () => {
         quality,
       })
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("uses PIN-only login in development mode", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    try {
+      const anonymous = test.anonymousCaller();
+      await expect(
+        anonymous.faceAuth.beginFaceLogin({
+          username: "somchai",
+          pin: "9999",
+        })
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+      const result = await anonymous.faceAuth.beginFaceLogin({
+        username: "somchai",
+        pin: "2048",
+      });
+      if (result.requiresFace) {
+        throw new Error("Development login unexpectedly requested a face scan");
+      }
+      expect(result.staff.id).toBe(3);
+      expect(result.staff.sessionToken).toMatch(/\./);
+      expect(result.authSession).toBeNull();
+    } finally {
+      process.env.NODE_ENV = previousNodeEnv;
+    }
   });
 
   it("enforces the workforce menu permission on enrollment APIs", async () => {

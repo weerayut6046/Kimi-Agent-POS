@@ -22,6 +22,11 @@ import { nextDocNo } from "../lib/docNumbers";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
+import { receiptSaleItemSelection } from "../lib/saleItemView";
+import {
+  assertSaleItemAmounts,
+  calculateSaleItemValues,
+} from "../payments/sessionService";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
   attachShiftCashMeter,
@@ -564,6 +569,7 @@ export const posRouter = createRouter({
                   openMeter: reading.openMeter,
                   openMoney: reading.openMoney,
                   pricePerLiter: product?.price ?? 0,
+                  costPerLiter: product?.cost ?? 0,
                 };
               })
             )
@@ -717,18 +723,20 @@ export const posRouter = createRouter({
         if (!product || !product.active || product.category !== "lubricant") {
           throw new Error("ไม่พบสินค้าน้ำมันเครื่องที่เปิดใช้งาน");
         }
-        const qty = r3(item.qty);
-        if (qty > product.stockQty) {
+        const values = calculateSaleItemValues(item.qty, product.price);
+        if (values.qty <= 0)
+          throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
+        if (values.qty > product.stockQty) {
           throw new Error(
             `สต๊อก ${product.name} ไม่พอ (คงเหลือ ${product.stockQty} ${product.unit})`
           );
         }
         return {
           product,
-          qty,
-          amount: r2(product.price * qty),
+          ...values,
         };
       });
+      assertSaleItemAmounts(lubricantLines, "pos_close_shift");
       const lubricantAmount = r2(
         lubricantLines.reduce((sum, line) => sum + line.amount, 0)
       );
@@ -819,7 +827,9 @@ export const posRouter = createRouter({
               name: line.product.name,
               qty: line.qty,
               unit: line.product.unit,
-              unitPrice: line.product.price,
+              unitPrice: line.unitPrice,
+              costPerUnit: line.product.cost,
+              productCategory: line.product.category,
               amount: line.amount,
             }))
           );
@@ -1075,6 +1085,7 @@ export const posRouter = createRouter({
         openMoney: number;
         closeMoney: number;
         pricePerLiter: number;
+        costPerLiter: number;
       }> = [];
 
       if (readingValues) {
@@ -1120,6 +1131,7 @@ export const posRouter = createRouter({
             openMoney: r2(reading.openMoney),
             closeMoney: r2(reading.closeMoney),
             pricePerLiter: r2(pricePerLiter),
+            costPerLiter: r2(product?.cost ?? 0),
           });
         }
       }
@@ -1517,7 +1529,7 @@ export const posRouter = createRouter({
         });
         if (existing) {
           const existingItems = await db
-            .select()
+            .select(receiptSaleItemSelection)
             .from(saleItems)
             .where(
               and(
@@ -1574,8 +1586,12 @@ export const posRouter = createRouter({
             pr.id === it.productId
         );
         if (!p || !p.active) throw new Error("ไม่พบสินค้าบางรายการ");
-        return { product: p, qty: it.qty, amount: r2(p.price * it.qty) };
+        const values = calculateSaleItemValues(it.qty, p.price);
+        if (values.qty <= 0)
+          throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
+        return { product: p, ...values };
       });
+      assertSaleItemAmounts(lines, "pos_create_sale");
       const requestedStock = new Map<number, number>();
       for (const line of lines) {
         if (line.product.category === "fuel") continue;
@@ -1777,7 +1793,9 @@ export const posRouter = createRouter({
             name: l.product.name,
             qty: l.qty,
             unit: l.product.unit,
-            unitPrice: l.product.price,
+            unitPrice: l.unitPrice,
+            costPerUnit: l.product.cost,
+            productCategory: l.product.category,
             amount: l.amount,
           }))
         );
@@ -1856,7 +1874,7 @@ export const posRouter = createRouter({
         where: and(eq(sales.id, saleId), eq(sales.branchId, branchId)),
       });
       const items = await db
-        .select()
+        .select(receiptSaleItemSelection)
         .from(saleItems)
         .where(
           and(eq(saleItems.saleId, saleId), eq(saleItems.branchId, branchId))
@@ -1989,7 +2007,7 @@ export const posRouter = createRouter({
       });
       if (!sale) throw new Error("ไม่พบบิล");
       const items = await db
-        .select()
+        .select(receiptSaleItemSelection)
         .from(saleItems)
         .where(
           and(eq(saleItems.saleId, sale.id), eq(saleItems.branchId, branchId))
@@ -2053,28 +2071,6 @@ export const posRouter = createRouter({
                 )
               )
           : [];
-      const productIds = [
-        ...new Set(
-          items
-            .map(item => item.productId)
-            .filter((id): id is number => id != null)
-        ),
-      ];
-      const productRows =
-        productIds.length > 0
-          ? await db
-              .select({ id: products.id, category: products.category })
-              .from(products)
-              .where(
-                and(
-                  eq(products.branchId, branchId),
-                  inArray(products.id, productIds)
-                )
-              )
-          : [];
-      const categoryByProductId = new Map(
-        productRows.map(row => [row.id, row.category])
-      );
       const returnedQtyByItemId = new Map<number, number>();
       for (const returnedItem of returnedItems) {
         if (returnedItem.originalSaleItemId == null) continue;
@@ -2089,10 +2085,7 @@ export const posRouter = createRouter({
       const returnableItems = items.map(item => {
         const returnedQty = returnedQtyByItemId.get(item.id) ?? 0;
         const returnableQty = r3(Math.max(0, item.qty - returnedQty));
-        const productCategory =
-          item.productId == null
-            ? null
-            : (categoryByProductId.get(item.productId) ?? null);
+        const productCategory = item.productCategory;
         return {
           ...item,
           returnedQty,
@@ -2217,7 +2210,7 @@ export const posRouter = createRouter({
         for (const item of selectedItems) {
           const product =
             item.productId == null ? null : productById.get(item.productId);
-          if (product?.category === "fuel")
+          if (item.productCategory === "fuel" || product?.category === "fuel")
             throw new Error("ไม่รองรับการคืนสินค้าประเภทน้ำมันเชื้อเพลิง");
         }
 
@@ -2246,24 +2239,18 @@ export const posRouter = createRouter({
                 )
             : [];
         const priorQtyByItemId = new Map<number, number>();
-        const priorGrossByItemId = new Map<number, number>();
         for (const item of priorReturnItems) {
           if (item.originalSaleItemId == null) continue;
           priorQtyByItemId.set(
             item.originalSaleItemId,
             r3((priorQtyByItemId.get(item.originalSaleItemId) ?? 0) - item.qty)
           );
-          priorGrossByItemId.set(
-            item.originalSaleItemId,
-            r2(
-              (priorGrossByItemId.get(item.originalSaleItemId) ?? 0) -
-                item.amount
-            )
-          );
         }
 
         const returnLines = selectedItems.map(item => {
-          const qty = requestedByItemId.get(item.id)!;
+          const requestedQty = requestedByItemId.get(item.id)!;
+          const qty = r3(requestedQty);
+          if (qty <= 0) throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
           const priorQty = priorQtyByItemId.get(item.id) ?? 0;
           const remainingQty = r3(Math.max(0, item.qty - priorQty));
           if (qty > remainingQty + 0.0001) {
@@ -2271,13 +2258,13 @@ export const posRouter = createRouter({
               `คืน ${item.name} เกินจำนวนที่เหลือ (คืนได้อีก ${remainingQty} ${item.unit})`
             );
           }
-          const priorGross = priorGrossByItemId.get(item.id) ?? 0;
-          const grossAmount =
-            Math.abs(qty - remainingQty) <= 0.0001
-              ? r2(Math.max(0, item.amount - priorGross))
-              : r2((item.amount * qty) / item.qty);
-          return { item, qty, grossAmount };
+          const values = calculateSaleItemValues(-qty, item.unitPrice);
+          return { item, qty, grossAmount: -values.amount, values };
         });
+        assertSaleItemAmounts(
+          returnLines.map(line => line.values),
+          "pos_return_sale"
+        );
 
         const selectedGross = r2(
           returnLines.reduce((sum, line) => sum + line.grossAmount, 0)
@@ -2414,10 +2401,12 @@ export const posRouter = createRouter({
             originalSaleItemId: line.item.id,
             productId: line.item.productId,
             name: line.item.name,
-            qty: -line.qty,
+            qty: line.values.qty,
             unit: line.item.unit,
-            unitPrice: line.item.unitPrice,
-            amount: -line.grossAmount,
+            unitPrice: line.values.unitPrice,
+            costPerUnit: line.item.costPerUnit,
+            productCategory: line.item.productCategory,
+            amount: line.values.amount,
           }))
         );
         for (const line of returnLines) {

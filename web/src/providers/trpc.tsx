@@ -22,8 +22,6 @@ const supabaseFunctionRegion =
   import.meta.env.VITE_SUPABASE_FUNCTION_REGION?.trim() || "ap-northeast-1";
 const isDesktopRuntime =
   typeof window !== "undefined" && Boolean(window.posDesktop);
-const proxyToSupabaseInDev =
-  import.meta.env.VITE_USE_SUPABASE_EDGE_API?.trim().toLowerCase() === "true";
 const trpcUrl = resolveTrpcUrl({
   isDesktop: isDesktopRuntime,
   isDev: import.meta.env.DEV,
@@ -33,7 +31,9 @@ const usesSupabaseGateway = usesSupabaseEdgeGateway({
   isDesktop: isDesktopRuntime,
   isDev: import.meta.env.DEV,
   supabaseUrl,
-  proxyToSupabaseInDev,
+  // Development login is intentionally PIN-only and therefore stays on the
+  // local API. Production web builds still call Supabase Edge directly.
+  proxyToSupabaseInDev: false,
 });
 const customerLoyaltyTrpcUrl =
   typeof window !== "undefined" &&

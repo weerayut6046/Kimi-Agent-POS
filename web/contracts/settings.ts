@@ -5,6 +5,92 @@
 export const METER_OCR_MODES = ["local"] as const;
 export type MeterOcrMode = (typeof METER_OCR_MODES)[number];
 
+export const APP_TEMPLATE_IDS = ["pumppos", "tailadmin"] as const;
+export type AppTemplateId = (typeof APP_TEMPLATE_IDS)[number];
+
+export const DEFAULT_APP_TEMPLATE: AppTemplateId = "pumppos";
+
+export const APP_TEMPLATE_OPTIONS: ReadonlyArray<{
+  id: AppTemplateId;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "pumppos",
+    label: "PumpPOS",
+    description: "รูปแบบมาตรฐานสำหรับงานขายและบริหารสถานีบริการน้ำมัน",
+  },
+  {
+    id: "tailadmin",
+    label: "TailAdmin",
+    description:
+      "รูปแบบแดชบอร์ดพร้อมแถบเมนูด้านข้างและพื้นที่ข้อมูลที่อ่านง่าย",
+  },
+];
+
+export function normalizeAppTemplate(value: unknown): AppTemplateId {
+  return typeof value === "string" &&
+    APP_TEMPLATE_IDS.includes(value as AppTemplateId)
+    ? (value as AppTemplateId)
+    : DEFAULT_APP_TEMPLATE;
+}
+
+export const APP_THEME_IDS = [
+  "command",
+  "calm",
+  "thai-modern",
+  "industrial",
+  "ocean",
+] as const;
+export type AppThemeId = (typeof APP_THEME_IDS)[number];
+
+export const DEFAULT_APP_THEME: AppThemeId = "command";
+
+export const APP_THEME_OPTIONS: ReadonlyArray<{
+  id: AppThemeId;
+  label: string;
+  description: string;
+  colors: readonly [string, string, string, string];
+}> = [
+  {
+    id: "command",
+    label: "Command Center",
+    description: "กรมท่า–Teal คมชัด เหมาะกับงานบริหารสถานี",
+    colors: ["#102b3a", "#168c82", "#eef3f6", "#ffffff"],
+  },
+  {
+    id: "calm",
+    label: "Calm Counter",
+    description: "เขียวธรรมชาติ สะอาด สบายตาสำหรับใช้งานทั้งวัน",
+    colors: ["#183528", "#217a55", "#f3f7f3", "#ffffff"],
+  },
+  {
+    id: "thai-modern",
+    label: "Thai Modern",
+    description: "ม่วงพลัม–กุหลาบ อบอุ่นและมีเอกลักษณ์",
+    colors: ["#3a2952", "#a94f62", "#f7f2ec", "#fffdf9"],
+  },
+  {
+    id: "industrial",
+    label: "Industrial Pro",
+    description: "กราไฟต์–เหลือง เน้นความชัดและการกดบนจอสัมผัส",
+    colors: ["#17191a", "#d89d00", "#eaebeb", "#ffffff"],
+  },
+  {
+    id: "ocean",
+    label: "Ocean Blue",
+    description: "น้ำเงิน–ฟ้า ดูน่าเชื่อถือและอ่านข้อมูลง่าย",
+    colors: ["#12304a", "#1675a9", "#eef5f8", "#ffffff"],
+  },
+];
+
+export function normalizeAppTheme(value: unknown): AppThemeId {
+  return typeof value === "string" &&
+    APP_THEME_IDS.includes(value as AppThemeId)
+    ? (value as AppThemeId)
+    : DEFAULT_APP_THEME;
+}
+
 export function normalizeMeterOcrMode(_value: unknown): MeterOcrMode {
   // ค่า gemini/auto จากฐานข้อมูลรุ่นเก่าจะถูกบังคับเป็น local เสมอ
   return "local";
@@ -23,6 +109,8 @@ export function positiveSettingNumber(
 }
 
 export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
+  app_template: DEFAULT_APP_TEMPLATE,
+  app_theme: DEFAULT_APP_THEME,
   shop_name: "ปั๊มน้ำมันกลางใหญ่บริการ",
   shop_branch: "สาขาหลัก",
   shop_address: "123 ถ.ตัวอย่าง ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
@@ -65,9 +153,14 @@ export const DEFAULT_SETTINGS: Readonly<Record<string, string>> = {
 export function mergeSettingDefaults(
   rows: Iterable<readonly [string, string]>
 ): Record<string, string> {
-  return {
+  const merged = {
     ...DEFAULT_SETTINGS,
     ...Object.fromEntries(rows),
+  };
+  return {
+    ...merged,
+    app_template: normalizeAppTemplate(merged.app_template),
+    app_theme: normalizeAppTheme(merged.app_theme),
     // ห้ามค่าเก่าเปิดเส้นทางส่งภาพออกจากเครื่องกลับมาอีก
     meter_ocr_mode: "local",
   };

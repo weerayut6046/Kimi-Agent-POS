@@ -10,6 +10,9 @@ export function DesktopSyncBanner() {
   const offline = !status.online;
   return (
     <div
+      data-slot="notice"
+      data-tone={offline ? "warning" : "info"}
+      data-notice-layout="bar"
       role="status"
       className={`border-b px-3 py-2 sm:px-5 lg:px-7 ${
         offline

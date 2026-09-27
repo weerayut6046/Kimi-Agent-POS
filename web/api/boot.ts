@@ -16,6 +16,7 @@ import {
 } from "./lib/databaseBackup";
 import { handleIncomingPaymentRequest } from "./payments/incomingPaymentHttp";
 import { getLanUrls, isPublicCloudRuntime } from "./lib/lan";
+import { getDeploymentMode } from "./lib/deployment";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -32,6 +33,23 @@ function isAuthorizedBackupScheduler(request: Request): boolean {
     timingSafeEqual(expectedBuffer, suppliedBuffer)
   );
 }
+
+const businessHttpPaths = new Set([
+  "/api/internal/database-backup",
+  "/api/realtime",
+  "/api/payments/incoming",
+]);
+
+app.use("/api/*", async (c, next) => {
+  if (businessHttpPaths.has(c.req.path) && getDeploymentMode() !== "business") {
+    c.header("Cache-Control", "no-store");
+    return c.json(
+      { ok: false, error: "This endpoint requires a business deployment" },
+      403
+    );
+  }
+  await next();
+});
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 app.post("/api/internal/database-backup", async c => {
@@ -64,14 +82,15 @@ app.get("/api/realtime", async c => {
     return c.json({ error: "Unauthorized" }, 401);
   }
   let deliver: (data: string) => void = () => undefined;
-  let unsubscribe: () => void;
+  let subscription: ReturnType<typeof subscribeRealtime>;
   try {
-    unsubscribe = subscribeRealtime(session.id, session.branchId, event => {
+    subscription = subscribeRealtime(session.id, session.branchId, event => {
       deliver(JSON.stringify(event));
     });
   } catch (error) {
     if (error instanceof RealtimeCapacityError) {
       c.header("Cache-Control", "no-store");
+      c.header("Retry-After", "300");
       return c.json({ error: "Realtime temporarily unavailable" }, 503);
     }
     throw error;
@@ -93,7 +112,10 @@ app.get("/api/realtime", async c => {
     const enqueue = (event: string, data: string) => {
       if (!active) return;
       writes = writes
-        .then(() => stream.writeSSE({ event, data, retry: 1_000 }))
+        .then(async () => {
+          await stream.writeSSE({ event, data, retry: 1_000 });
+          subscription.touch();
+        })
         .catch(stop);
     };
 
@@ -111,7 +133,7 @@ app.get("/api/realtime", async c => {
     } finally {
       clearInterval(heartbeat);
       clearTimeout(expiry);
-      unsubscribe();
+      subscription.unsubscribe();
     }
   });
   response.headers.set(

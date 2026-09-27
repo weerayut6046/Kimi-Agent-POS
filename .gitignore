@@ -57,6 +57,10 @@ coverage/
 # Generated manuals/artifacts (PDF etc.)
 output/
 
+# Local research, UI previews, and verification artifacts
+/tmp/
+/work/
+
 # Code-signing private key + password — ห้าม commit (เก็บเฉพาะ .cer สาธารณะ)
 desktop/certs/*.pfx
 desktop/certs/pfx-password.txt

@@ -19,6 +19,10 @@ import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
 import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
+import {
+  profitabilityInputSchema,
+  queryProfitability,
+} from "../lib/profitability";
 import { shiftCashDifference, shiftCountedTotal } from "@contracts/cash";
 import {
   debtPayments,
@@ -1175,6 +1179,13 @@ async function queryTankReconciliation(
 }
 
 export const reportsRouter = createRouter({
+  // ยอดขาย ต้นทุน กำไรขั้นต้น ค่าใช้จ่าย และกำไรสุทธิทุกหมวดสินค้า
+  profitability: managerQuery
+    .input(profitabilityInputSchema)
+    .query(({ input, ctx }) =>
+      queryProfitability(getDb(), input, ctx.staff.branchId)
+    ),
+
   // Z-report หน้าเว็บ — strip bills + fuelProfit (ข้อมูลต้นทุน) ออก เหลือเฉพาะยอดขาย
   daily: publicQuery
     .input(z.object({ date: dateSchema }))

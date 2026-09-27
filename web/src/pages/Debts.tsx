@@ -72,7 +72,7 @@ export default function Debts() {
           <HandCoins className="w-6 h-6 text-primary" /> ลูกหนี้เครดิต
         </h1>
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -541,6 +541,8 @@ function DebtDetailDialog({
 
                   {err && (
                     <p
+                      data-slot="notice"
+                      data-tone="error"
                       className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
                       role="alert"
                     >
@@ -562,6 +564,8 @@ function DebtDetailDialog({
 
             {err && (!canManage || detail.outstanding <= 0) && (
               <p
+                data-slot="notice"
+                data-tone="error"
                 className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
                 role="alert"
               >

@@ -289,13 +289,19 @@ export default function Security() {
                 <Sparkles
                   className={analyze.isPending ? "animate-pulse" : undefined}
                 />
-                {analyze.isPending ? "AI กำลังวิเคราะห์..." : "ให้ AI วิเคราะห์"}
+                {analyze.isPending
+                  ? "AI กำลังวิเคราะห์..."
+                  : "ให้ AI วิเคราะห์"}
               </Button>
             </div>
           </div>
 
           {(scan.isError || analyze.isError) && (
-            <div className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div
+              data-slot="notice"
+              data-tone="error"
+              className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>
                 {scan.error?.message ||
@@ -436,13 +442,21 @@ export default function Security() {
       </div>
 
       {!events.isLoading && rows.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-emerald-200 bg-emerald-50/80 px-5 py-8 text-center">
+        <div
+          data-slot="notice"
+          data-tone="info"
+          role="status"
+          className="flex flex-col items-center rounded-2xl border border-emerald-200 bg-emerald-50/80 px-5 py-8 text-center"
+        >
           <ShieldCheck className="size-10 text-emerald-600" />
           <h3 className="mt-3 font-heading font-bold text-emerald-900">
             ไม่พบเหตุการณ์
           </h3>
           <p className="mt-1 text-sm text-emerald-700">
-            {search || severity !== "all" || status !== "all" || category !== "all"
+            {search ||
+            severity !== "all" ||
+            status !== "all" ||
+            category !== "all"
               ? "ไม่พบเหตุการณ์ที่ตรงกับตัวกรอง ลองปรับเงื่อนไขการค้นหา"
               : "ยังไม่มีเหตุการณ์ความปลอดภัย — ลองกดสแกน"}
           </p>

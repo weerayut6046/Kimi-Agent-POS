@@ -11,7 +11,7 @@ describe("admin assistant document actions", () => {
     expect(result.answer).toContain("เอกสารที่ admin ขอผ่านแชตได้");
     expect(paths).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/^\/reports/),
+        "/reports/profitability",
         "/sales",
         "/tax-invoices",
         "/documents?type=credit-request",
@@ -55,7 +55,11 @@ describe("admin assistant document actions", () => {
       to: "2026-07-22",
     });
     expect(invalid.actions).toEqual([
-      { kind: "navigate", label: "เปิดหน้าส่งออกรายงาน", path: "/reports" },
+      {
+        kind: "navigate",
+        label: "เปิดหน้าต้นทุนและกำไร",
+        path: "/reports/profitability",
+      },
     ]);
 
     const invalidCalendarDate = buildAdminDocumentResponse({
@@ -64,7 +68,11 @@ describe("admin assistant document actions", () => {
       to: "2026-99-02",
     });
     expect(invalidCalendarDate.actions).toEqual([
-      { kind: "navigate", label: "เปิดหน้าส่งออกรายงาน", path: "/reports" },
+      {
+        kind: "navigate",
+        label: "เปิดหน้าต้นทุนและกำไร",
+        path: "/reports/profitability",
+      },
     ]);
   });
 });

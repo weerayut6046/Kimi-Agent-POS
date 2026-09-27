@@ -23,15 +23,20 @@ function required(name: string): string {
 const isProductionRuntime =
   runtimeValue("NODE_ENV") === "production" ||
   typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !== "undefined";
+const isTestRuntime = runtimeValue("NODE_ENV") === "test";
+
+export function isDevelopmentRuntime(): boolean {
+  return !isProductionRuntime && runtimeValue("NODE_ENV") === "development";
+}
 
 const localAuthEnabled =
   !isProductionRuntime &&
   runtimeValue("LOCAL_AUTH_ENABLED")?.trim().toLowerCase() === "true";
 
 const appSecret = runtimeValue("APP_SECRET") ?? "";
-if (localAuthEnabled && appSecret.length < 32) {
+if ((localAuthEnabled || isDevelopmentRuntime()) && appSecret.length < 32) {
   throw new Error(
-    "APP_SECRET must contain at least 32 characters when LOCAL_AUTH_ENABLED=true"
+    "APP_SECRET must contain at least 32 characters in development or when LOCAL_AUTH_ENABLED=true"
   );
 }
 
@@ -83,6 +88,7 @@ export const env = {
   appId: runtimeValue("APP_ID") || "pumppos",
   appSecret,
   isProduction: isProductionRuntime,
+  isTest: isTestRuntime,
   localAuthEnabled,
   localAdminPassword: runtimeValue("LOCAL_ADMIN_PASSWORD") ?? "",
   databaseUrl,
@@ -102,6 +108,8 @@ export const env = {
   // it avoids an Auth network request while still cryptographically verifying
   // every asymmetric access token.
   supabaseJwks: runtimeValue("SUPABASE_JWKS") ?? "",
+  passkeyRpId: runtimeValue("PUMPPOS_PASSKEY_RP_ID")?.trim() ?? "",
+  passkeyOrigin: runtimeValue("PUMPPOS_PASSKEY_ORIGIN")?.trim() ?? "",
   // Fine-grained Management API token (permission: backups_read) สำหรับอ่าน
   // สถานะ Managed Backup เท่านั้น ห้ามส่งค่านี้ไป browser หรือใช้ token แบบ write.
   supabaseManagementAccessToken:

@@ -212,32 +212,12 @@ export const auditRouter = createRouter({
         });
       }
 
+      let plan: Awaited<ReturnType<typeof generateFormulaAuditFixPlan>>;
       try {
-        const plan = await generateFormulaAuditFixPlan({
+        plan = await generateFormulaAuditFixPlan({
           config: assistantConfig,
           report,
         });
-        const proposal = await storeFormulaAuditFixPlan({
-          branchId: ctx.staff.branchId,
-          staffId: ctx.staff.id,
-          requestId: input.requestId,
-          report,
-          plan,
-        });
-        logAudit({
-          action: "create_formula_audit_fix_plan",
-          ...actorFromReq(ctx.req),
-          detail: `AI สร้างแผนแก้ไข ${plan.steps.length} ขั้น จากผลตรวจ ${proposal.issuesIncluded} จุด โดยยังไม่แก้ข้อมูล`,
-          refType: "assistant_action_proposal",
-        });
-        return {
-          ...proposal,
-          provider: assistantConfig.provider,
-          model:
-            assistantConfig.provider === "ollama"
-              ? assistantConfig.ollamaModel
-              : assistantConfig.deepseekModel,
-        };
       } catch (error) {
         if (
           (error instanceof DeepSeekAssistantError ||
@@ -274,12 +254,35 @@ export const auditRouter = createRouter({
               ? error.kind
               : "unexpected",
           provider: assistantConfig.provider,
+          reason: error instanceof Error ? error.message : "unknown",
         });
         throw new TRPCError({
           code: "BAD_GATEWAY",
           message: "AI สร้างแผนแก้ไขไม่สำเร็จ กรุณาลองใหม่ภายหลัง",
         });
       }
+
+      const proposal = await storeFormulaAuditFixPlan({
+        branchId: ctx.staff.branchId,
+        staffId: ctx.staff.id,
+        requestId: input.requestId,
+        report,
+        plan,
+      });
+      logAudit({
+        action: "create_formula_audit_fix_plan",
+        ...actorFromReq(ctx.req),
+        detail: `AI สร้างแผนแก้ไข ${plan.steps.length} ขั้น จากผลตรวจ ${proposal.issuesIncluded} จุด โดยยังไม่แก้ข้อมูล`,
+        refType: "assistant_action_proposal",
+      });
+      return {
+        ...proposal,
+        provider: assistantConfig.provider,
+        model:
+          assistantConfig.provider === "ollama"
+            ? assistantConfig.ollamaModel
+            : assistantConfig.deepseekModel,
+      };
     }),
 
   approveFormulaAuditFixPlan: adminQuery

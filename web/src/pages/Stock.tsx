@@ -65,17 +65,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtMoney, fmtNum, fmtDateTime, categoryLabel } from "@/lib/format";
 import { getFuelLiquidTone } from "@/lib/fuelColors";
 import { summarizeTankValues, tankSaleValue } from "@/lib/stockValue";
+import { hasMenuPermission } from "@contracts/menuPermissions";
 import type { Product } from "@db/schema";
 
 function TankLevelVisual({
@@ -181,6 +177,10 @@ export default function Stock() {
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const canManage = isAdmin || staff?.role === "manager";
+  const canViewForecast = Boolean(
+    staff &&
+    hasMenuPermission(staff.role, staff.menuPermissions, "fuel_forecast")
+  );
   const { data: tanks } = trpc.catalog.listTanks.useQuery();
   const { data: products } = trpc.catalog.listProducts.useQuery();
   const { data: refills } = trpc.catalog.listRefills.useQuery();
@@ -264,6 +264,7 @@ export default function Stock() {
       utils.catalog.listTanks.invalidate();
       utils.catalog.listRefills.invalidate();
       utils.catalog.listProducts.invalidate();
+      utils.reports.profitability.invalidate();
       setRefillTank(null);
       setLiters("");
       setCost("");
@@ -347,6 +348,18 @@ export default function Stock() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="page-heading">สต๊อก & ถังน้ำมัน</h1>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {canViewForecast && (
+            <Button
+              asChild
+              variant="outline"
+              className="min-w-0 flex-1 sm:flex-none"
+            >
+              <Link to="/stock/forecast">
+                <ChartNoAxesCombined className="mr-1 size-4" />
+                วางแผนสั่งน้ำมัน
+              </Link>
+            </Button>
+          )}
           <Button asChild className="min-w-0 flex-1 sm:flex-none">
             <Link to="/stock/count">
               <ClipboardCheck className="mr-1 size-4" />
@@ -354,20 +367,41 @@ export default function Stock() {
             </Link>
           </Button>
           {canManage && (
-            <Button
-              asChild
-              variant="outline"
-              className="min-w-0 flex-1 sm:flex-none"
-            >
-              <Link to="/reports/fuel-stock">
-                <ChartNoAxesCombined className="mr-1 size-4" />
-                สรุปรายเดือน / รายปี
-              </Link>
-            </Button>
+            <>
+              <Button
+                asChild
+                variant="outline"
+                className="min-w-0 flex-1 sm:flex-none"
+              >
+                <Link to="/reports/fuel-stock">
+                  <ChartNoAxesCombined className="mr-1 size-4" />
+                  สรุปรายเดือน / รายปี
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                className="min-w-0 flex-1 sm:flex-none"
+              >
+                <Link to="/reports/tank-reconciliation">
+                  <Gauge className="mr-1 size-4" />
+                  กระทบยอดถัง
+                </Link>
+              </Button>
+            </>
           )}
         </div>
       </div>
-      {err && <p className="text-sm text-destructive">{err}</p>}
+      {err && (
+        <p
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="text-sm text-destructive"
+        >
+          {err}
+        </p>
+      )}
 
       <Tabs defaultValue="tanks" className="gap-4">
         <TabsList className="w-full station-scrollbar">
@@ -383,491 +417,496 @@ export default function Stock() {
         </TabsList>
 
         <TabsContent value="tanks" className="mt-0">
-      {/* การ์ดถังน้ำมัน + มูลค่าน้ำมันคงเหลือ (ลิตรคงเหลือ × ราคาขายปัจจุบัน) */}
-      <Card className="interactive-card spotlight-card group gap-0 overflow-hidden py-0">
-        <span className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-emerald-100/70 blur-2xl" />
-        <CardContent className="relative space-y-5 p-5">
-          {stockSummary.byProduct.length > 0 && (
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-inner ring-1 ring-white">
-              <Banknote className="size-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-medium text-slate-500">
-                มูลค่าน้ำมันคงเหลือ (ราคาขายปัจจุบัน)
-              </div>
-              <div className="mt-1 font-heading text-xl font-extrabold text-slate-900 number-display">
-                ฿{fmtMoney(stockSummary.total)}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {stockSummary.byProduct.map(p => (
-                  <span
-                    key={p.productId}
-                    className="rounded-full bg-slate-50/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-100 number-display"
-                  >
-                    {p.name}: ฿{fmtMoney(p.value)} ({fmtNum(p.liters)} ล.)
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-          )}
-
-          {/* ถังน้ำมัน */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-heading text-lg font-semibold flex items-center gap-2">
-          <Fuel className="w-5 h-5 text-primary" /> ถังน้ำมัน
-        </h2>
-        {isAdmin && (
-          <Button
-            size="sm"
-            className="w-full sm:w-auto"
-            onClick={() =>
-              setAddTank({
-                name: "",
-                productId: "",
-                capacityLiters: "",
-                currentLiters: "0",
-                lowAlertAt: "",
-              })
-            }
-          >
-            <Plus className="w-4 h-4 mr-1" /> เพิ่มถังน้ำมัน
-          </Button>
-        )}
-      </div>
-      {isAdmin && (
-        <div className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs font-medium text-violet-700">
-          <GripVertical className="size-4" />
-          {reorderTanksMut.isPending
-            ? "กำลังบันทึกลำดับถัง..."
-            : "กดค้างที่ปุ่มจับบนการ์ด แล้วลากเพื่อสลับตำแหน่ง"}
-        </div>
-      )}
-      <DndContext
-        sensors={tankSensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleTankDragEnd}
-      >
-        <SortableContext
-          items={(orderedTanks ?? []).map(tank => tank.id)}
-          strategy={rectSortingStrategy}
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {(orderedTanks ?? []).map(t => {
-              const statusLabel = t.isLow
-                ? "ระดับต่ำ"
-                : t.percent >= 80
-                  ? "เกือบเต็ม"
-                  : "พร้อมใช้งาน";
-
-              return (
-                <SortableTankItem
-                  key={t.id}
-                  id={t.id}
-                  label={t.name}
-                  enabled={isAdmin}
-                  saving={reorderTanksMut.isPending}
-                >
-                  <Card
-                    className={`interactive-card spotlight-card group gap-0 overflow-hidden py-0 ${
-                      t.isLow
-                        ? "border-red-200/90 ring-red-100"
-                        : "border-white/90"
-                    }`}
-                  >
-                    <div
-                      className={`h-1.5 bg-gradient-to-r ${
-                        t.isLow
-                          ? "from-red-500 via-rose-400 to-orange-400"
-                          : "from-violet-600 via-indigo-500 to-cyan-400"
-                      }`}
-                    />
-                    <CardHeader
-                      className={`flex-row items-center justify-between gap-3 border-b border-slate-100/80 px-5 py-4 ${
-                        isAdmin ? "pr-16" : ""
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className={`grid size-10 shrink-0 place-items-center rounded-2xl shadow-inner ring-1 ring-white ${
-                            t.isLow
-                              ? "bg-red-50 text-red-600"
-                              : "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"
-                          }`}
+          {/* การ์ดถังน้ำมัน + มูลค่าน้ำมันคงเหลือ (ลิตรคงเหลือ × ราคาขายปัจจุบัน) */}
+          <Card className="interactive-card spotlight-card group gap-0 overflow-hidden py-0">
+            <span className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-emerald-100/70 blur-2xl" />
+            <CardContent className="relative space-y-5 p-5">
+              {stockSummary.byProduct.length > 0 && (
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-inner ring-1 ring-white">
+                    <Banknote className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium text-slate-500">
+                      มูลค่าน้ำมันคงเหลือ (ราคาขายปัจจุบัน)
+                    </div>
+                    <div className="mt-1 font-heading text-xl font-extrabold text-slate-900 number-display">
+                      ฿{fmtMoney(stockSummary.total)}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {stockSummary.byProduct.map(p => (
+                        <span
+                          key={p.productId}
+                          className="rounded-full bg-slate-50/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-100 number-display"
                         >
-                          <Fuel className="size-[18px]" />
-                        </div>
-                        <div className="min-w-0">
-                          <CardTitle className="truncate font-heading text-base font-bold text-slate-900">
-                            {t.name}
-                          </CardTitle>
-                          <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
-                            ถัง #{t.id} ·{" "}
-                            {t.product?.name ?? "ไม่ระบุชนิดน้ำมัน"}
-                          </div>
-                        </div>
-                      </div>
-                      <div
-                        className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                          t.isLow
-                            ? "bg-red-50 text-red-700 ring-1 ring-red-100"
-                            : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                        }`}
-                      >
-                        {t.isLow ? (
-                          <AlertTriangle className="size-3" />
-                        ) : (
-                          <ShieldCheck className="size-3" />
-                        )}
-                        {statusLabel}
-                      </div>
-                    </CardHeader>
+                          {p.name}: ฿{fmtMoney(p.value)} ({fmtNum(p.liters)} ล.)
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                    <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
-                      <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
-                        <TankLevelVisual
-                          percent={t.percent}
-                          productName={t.product?.name}
-                          productCode={t.product?.code}
-                          tankName={t.name}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
-                            น้ำมันคงเหลือ
-                          </div>
-                          <div
-                            className={`mt-1 font-heading text-2xl font-extrabold number-display ${
-                              t.isLow ? "text-red-600" : "text-slate-950"
+              {/* ถังน้ำมัน */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-heading text-lg font-semibold flex items-center gap-2">
+                  <Fuel className="w-5 h-5 text-primary" /> ถังน้ำมัน
+                </h2>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    onClick={() =>
+                      setAddTank({
+                        name: "",
+                        productId: "",
+                        capacityLiters: "",
+                        currentLiters: "0",
+                        lowAlertAt: "",
+                      })
+                    }
+                  >
+                    <Plus className="w-4 h-4 mr-1" /> เพิ่มถังน้ำมัน
+                  </Button>
+                )}
+              </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs font-medium text-violet-700">
+                  <GripVertical className="size-4" />
+                  {reorderTanksMut.isPending
+                    ? "กำลังบันทึกลำดับถัง..."
+                    : "กดค้างที่ปุ่มจับบนการ์ด แล้วลากเพื่อสลับตำแหน่ง"}
+                </div>
+              )}
+              <DndContext
+                sensors={tankSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleTankDragEnd}
+              >
+                <SortableContext
+                  items={(orderedTanks ?? []).map(tank => tank.id)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {(orderedTanks ?? []).map(t => {
+                      const statusLabel = t.isLow
+                        ? "ระดับต่ำ"
+                        : t.percent >= 80
+                          ? "เกือบเต็ม"
+                          : "พร้อมใช้งาน";
+
+                      return (
+                        <SortableTankItem
+                          key={t.id}
+                          id={t.id}
+                          label={t.name}
+                          enabled={isAdmin}
+                          saving={reorderTanksMut.isPending}
+                        >
+                          <Card
+                            className={`interactive-card spotlight-card group gap-0 overflow-hidden py-0 ${
+                              t.isLow
+                                ? "border-red-200/90 ring-red-100"
+                                : "border-white/90"
                             }`}
                           >
-                            {fmtNum(t.currentLiters)}
-                            <span className="ml-1 text-xs font-semibold text-slate-400">
-                              ลิตร
-                            </span>
-                          </div>
-                          <div className="mt-4 grid grid-cols-2 gap-2">
-                            <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
-                              <Gauge className="size-3.5 text-violet-500" />
-                              <div className="mt-1 text-[9px] text-slate-400">
-                                ความจุ
+                            <div
+                              className={`h-1.5 bg-gradient-to-r ${
+                                t.isLow
+                                  ? "from-red-500 via-rose-400 to-orange-400"
+                                  : "from-violet-600 via-indigo-500 to-cyan-400"
+                              }`}
+                            />
+                            <CardHeader
+                              className={`flex-row items-center justify-between gap-3 border-b border-slate-100/80 px-5 py-4 ${
+                                isAdmin ? "pr-16" : ""
+                              }`}
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                <div
+                                  className={`grid size-10 shrink-0 place-items-center rounded-2xl shadow-inner ring-1 ring-white ${
+                                    t.isLow
+                                      ? "bg-red-50 text-red-600"
+                                      : "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700"
+                                  }`}
+                                >
+                                  <Fuel className="size-[18px]" />
+                                </div>
+                                <div className="min-w-0">
+                                  <CardTitle className="truncate font-heading text-base font-bold text-slate-900">
+                                    {t.name}
+                                  </CardTitle>
+                                  <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                                    ถัง #{t.id} ·{" "}
+                                    {t.product?.name ?? "ไม่ระบุชนิดน้ำมัน"}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-xs font-bold text-slate-700 number-display">
-                                {fmtNum(t.capacityLiters)} ล.
-                              </div>
-                            </div>
-                            <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
-                              <BellRing className="size-3.5 text-orange-500" />
-                              <div className="mt-1 text-[9px] text-slate-400">
-                                แจ้งเตือน
-                              </div>
-                              <div className="text-xs font-bold text-slate-700 number-display">
-                                {fmtNum(t.lowAlertAt)} ล.
-                              </div>
-                            </div>
-                            <div className="col-span-2 rounded-xl bg-emerald-50/80 p-2.5 ring-1 ring-emerald-100">
-                              <Banknote className="size-3.5 text-emerald-500" />
-                              <div className="mt-1 text-[9px] text-slate-400">
-                                มูลค่า (ราคาขาย)
-                              </div>
-                              <div className="text-xs font-bold text-emerald-700 number-display">
-                                {t.product ? (
-                                  <>
-                                    ฿{fmtMoney(tankSaleValue(t))}
-                                    <span className="ml-1 font-medium text-slate-400">
-                                      (฿{fmtMoney(t.product.price)}/ลิตร)
-                                    </span>
-                                  </>
+                              <div
+                                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                                  t.isLow
+                                    ? "bg-red-50 text-red-700 ring-1 ring-red-100"
+                                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                                }`}
+                              >
+                                {t.isLow ? (
+                                  <AlertTriangle className="size-3" />
                                 ) : (
-                                  "—"
+                                  <ShieldCheck className="size-3" />
+                                )}
+                                {statusLabel}
+                              </div>
+                            </CardHeader>
+
+                            <CardContent className="space-y-4 bg-gradient-to-br from-white/80 via-white/70 to-violet-50/35 p-5">
+                              <div className="flex items-center gap-5 rounded-[20px] border border-white bg-white/55 p-4 shadow-inner ring-1 ring-slate-200/60">
+                                <TankLevelVisual
+                                  percent={t.percent}
+                                  productName={t.product?.name}
+                                  productCode={t.product?.code}
+                                  tankName={t.name}
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+                                    น้ำมันคงเหลือ
+                                  </div>
+                                  <div
+                                    className={`mt-1 font-heading text-2xl font-extrabold number-display ${
+                                      t.isLow
+                                        ? "text-red-600"
+                                        : "text-slate-950"
+                                    }`}
+                                  >
+                                    {fmtNum(t.currentLiters)}
+                                    <span className="ml-1 text-xs font-semibold text-slate-400">
+                                      ลิตร
+                                    </span>
+                                  </div>
+                                  <div className="mt-4 grid grid-cols-2 gap-2">
+                                    <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                                      <Gauge className="size-3.5 text-violet-500" />
+                                      <div className="mt-1 text-[9px] text-slate-400">
+                                        ความจุ
+                                      </div>
+                                      <div className="text-xs font-bold text-slate-700 number-display">
+                                        {fmtNum(t.capacityLiters)} ล.
+                                      </div>
+                                    </div>
+                                    <div className="rounded-xl bg-slate-50/90 p-2.5 ring-1 ring-slate-100">
+                                      <BellRing className="size-3.5 text-orange-500" />
+                                      <div className="mt-1 text-[9px] text-slate-400">
+                                        แจ้งเตือน
+                                      </div>
+                                      <div className="text-xs font-bold text-slate-700 number-display">
+                                        {fmtNum(t.lowAlertAt)} ล.
+                                      </div>
+                                    </div>
+                                    <div className="col-span-2 rounded-xl bg-emerald-50/80 p-2.5 ring-1 ring-emerald-100">
+                                      <Banknote className="size-3.5 text-emerald-500" />
+                                      <div className="mt-1 text-[9px] text-slate-400">
+                                        มูลค่า (ราคาขาย)
+                                      </div>
+                                      <div className="text-xs font-bold text-emerald-700 number-display">
+                                        {t.product ? (
+                                          <>
+                                            ฿{fmtMoney(tankSaleValue(t))}
+                                            <span className="ml-1 font-medium text-slate-400">
+                                              (฿{fmtMoney(t.product.price)}
+                                              /ลิตร)
+                                            </span>
+                                          </>
+                                        ) : (
+                                          "—"
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div
+                                className={`grid gap-2 ${
+                                  isAdmin
+                                    ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
+                                    : "grid-cols-2"
+                                }`}
+                              >
+                                <Button
+                                  size="sm"
+                                  className="shine-button h-10 min-w-0 rounded-xl"
+                                  onClick={() =>
+                                    setRefillTank({ id: t.id, name: t.name })
+                                  }
+                                >
+                                  <PlusCircle className="size-4" />
+                                  <span className="truncate">
+                                    รับน้ำมันเข้าถัง
+                                  </span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-10 min-w-0 rounded-xl"
+                                  onClick={() => {
+                                    setReadTank({
+                                      id: t.id,
+                                      name: t.name,
+                                      currentLiters: t.currentLiters,
+                                      capacityLiters: t.capacityLiters,
+                                    });
+                                    setReadLiters("");
+                                    setReadNote("");
+                                    setReadAdjust(false);
+                                  }}
+                                >
+                                  <Gauge className="size-4" />
+                                  <span className="truncate">วัดระดับถัง</span>
+                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <Button
+                                      size="icon-sm"
+                                      variant="outline"
+                                      title="แก้ไขถัง"
+                                      aria-label={`แก้ไข ${t.name}`}
+                                      className="rounded-xl text-violet-700"
+                                      onClick={() =>
+                                        setEditTank({
+                                          id: t.id,
+                                          name: t.name,
+                                          productId: t.productId,
+                                          currentLiters: t.currentLiters,
+                                          capacityLiters: t.capacityLiters,
+                                          lowAlertAt: t.lowAlertAt,
+                                        })
+                                      }
+                                    >
+                                      <Pencil className="size-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon-sm"
+                                      variant="outline"
+                                      title="ลบถัง"
+                                      aria-label={`ลบ ${t.name}`}
+                                      className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                                      disabled={deleteTankMut.isPending}
+                                      onClick={async () => {
+                                        if (
+                                          await confirmAction(
+                                            `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
+                                          )
+                                        ) {
+                                          deleteTankMut.mutate({ id: t.id });
+                                        }
+                                      }}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  </>
                                 )}
                               </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div
-                        className={`grid gap-2 ${
-                          isAdmin
-                            ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
-                            : "grid-cols-2"
-                        }`}
-                      >
-                        <Button
-                          size="sm"
-                          className="shine-button h-10 min-w-0 rounded-xl"
-                          onClick={() =>
-                            setRefillTank({ id: t.id, name: t.name })
-                          }
-                        >
-                          <PlusCircle className="size-4" />
-                          <span className="truncate">รับน้ำมันเข้าถัง</span>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-10 min-w-0 rounded-xl"
-                          onClick={() => {
-                            setReadTank({
-                              id: t.id,
-                              name: t.name,
-                              currentLiters: t.currentLiters,
-                              capacityLiters: t.capacityLiters,
-                            });
-                            setReadLiters("");
-                            setReadNote("");
-                            setReadAdjust(false);
-                          }}
-                        >
-                          <Gauge className="size-4" />
-                          <span className="truncate">วัดระดับถัง</span>
-                        </Button>
-                        {isAdmin && (
-                          <>
-                            <Button
-                              size="icon-sm"
-                              variant="outline"
-                              title="แก้ไขถัง"
-                              aria-label={`แก้ไข ${t.name}`}
-                              className="rounded-xl text-violet-700"
-                              onClick={() =>
-                                setEditTank({
-                                  id: t.id,
-                                  name: t.name,
-                                  productId: t.productId,
-                                  currentLiters: t.currentLiters,
-                                  capacityLiters: t.capacityLiters,
-                                  lowAlertAt: t.lowAlertAt,
-                                })
-                              }
-                            >
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              size="icon-sm"
-                              variant="outline"
-                              title="ลบถัง"
-                              aria-label={`ลบ ${t.name}`}
-                              className="rounded-xl text-destructive hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                              disabled={deleteTankMut.isPending}
-                              onClick={async () => {
-                                if (
-                                  await confirmAction(
-                                    `ยืนยันลบ "${t.name}"? ประวัติรับน้ำมันเข้าถังนี้จะถูกลบไปด้วย`
-                                  )
-                                ) {
-                                  deleteTankMut.mutate({ id: t.id });
-                                }
-                              }}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </SortableTankItem>
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
-        </CardContent>
-      </Card>
+                            </CardContent>
+                          </Card>
+                        </SortableTankItem>
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="goods" className="mt-0 space-y-5">
-      {/* สต๊อกสินค้า */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-heading text-base flex items-center gap-2">
-            <Package className="w-4 h-4" /> สต๊อกสินค้า (2T / น้ำมันเครื่อง /
-            อื่นๆ)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>รหัส</TableHead>
-                <TableHead>สินค้า</TableHead>
-                <TableHead>หมวด</TableHead>
-                <TableHead className="text-right">ราคาขาย</TableHead>
-                <TableHead className="text-right">คงเหลือ</TableHead>
-                <TableHead>สถานะ</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {goods.map(p => {
-                const low = p.stockQty <= p.lowStockAt;
-                return (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs">
-                      {p.code}
-                    </TableCell>
-                    <TableCell>{p.name}</TableCell>
-                    <TableCell className="text-xs">
-                      {categoryLabel[p.category]}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      ฿{fmtMoney(p.price)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-semibold ${low ? "text-destructive" : ""}`}
-                    >
-                      {fmtNum(p.stockQty)} {p.unit}
-                    </TableCell>
-                    <TableCell>
-                      {low ? (
-                        <Badge variant="destructive">ใกล้หมด</Badge>
-                      ) : (
-                        <Badge variant="secondary">ปกติ</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setAdjustP(p);
-                          setAdjustQty("");
-                        }}
-                      >
-                        ปรับสต๊อก
-                      </Button>
-                    </TableCell>
+          {/* สต๊อกสินค้า */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-heading text-base flex items-center gap-2">
+                <Package className="w-4 h-4" /> สต๊อกสินค้า (2T / น้ำมันเครื่อง
+                / อื่นๆ)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>รหัส</TableHead>
+                    <TableHead>สินค้า</TableHead>
+                    <TableHead>หมวด</TableHead>
+                    <TableHead className="text-right">ราคาขาย</TableHead>
+                    <TableHead className="text-right">คงเหลือ</TableHead>
+                    <TableHead>สถานะ</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {goods.map(p => {
+                    const low = p.stockQty <= p.lowStockAt;
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-mono text-xs">
+                          {p.code}
+                        </TableCell>
+                        <TableCell>{p.name}</TableCell>
+                        <TableCell className="text-xs">
+                          {categoryLabel[p.category]}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ฿{fmtMoney(p.price)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-semibold ${low ? "text-destructive" : ""}`}
+                        >
+                          {fmtNum(p.stockQty)} {p.unit}
+                        </TableCell>
+                        <TableCell>
+                          {low ? (
+                            <Badge variant="destructive">ใกล้หมด</Badge>
+                          ) : (
+                            <Badge variant="secondary">ปกติ</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setAdjustP(p);
+                              setAdjustQty("");
+                            }}
+                          >
+                            ปรับสต๊อก
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="history" className="mt-0 space-y-5">
-      {/* ประวัติรับน้ำมัน */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-heading text-base">
-            ประวัติรับน้ำมันเข้าถัง
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>วันที่</TableHead>
-                <TableHead>ถัง</TableHead>
-                <TableHead className="text-right">ลิตร</TableHead>
-                <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
-                <TableHead className="text-right">รวมต้นทุน</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(refills ?? []).map(r => (
-                <TableRow key={r.id}>
-                  <TableCell>{fmtDateTime(r.createdAt)}</TableCell>
-                  <TableCell>{r.tank?.name ?? "-"}</TableCell>
-                  <TableCell className="text-right">
-                    {fmtNum(r.liters)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ฿{fmtMoney(r.costPerLiter)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ฿{fmtMoney(r.liters * r.costPerLiter)}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {(refills ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={5}
-                    className="text-center text-muted-foreground py-6"
-                  >
-                    ยังไม่มีประวัติ
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* ประวัติการวัดระดับถัง */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-heading text-base">
-            ประวัติการวัดระดับถัง
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>เวลาที่วัด</TableHead>
-                <TableHead>ถัง</TableHead>
-                <TableHead>ผู้วัด</TableHead>
-                <TableHead className="text-right">ลิตรที่วัดได้</TableHead>
-                <TableHead>หมายเหตุ</TableHead>
-                {isAdmin && <TableHead className="w-12" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(tankReadings ?? []).map(r => (
-                <TableRow key={r.id}>
-                  <TableCell>{fmtDateTime(r.measuredAt)}</TableCell>
-                  <TableCell>{r.tank?.name ?? "-"}</TableCell>
-                  <TableCell>{r.staffName || "-"}</TableCell>
-                  <TableCell className="text-right">
-                    {fmtNum(r.liters)}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {r.note ?? ""}
-                  </TableCell>
-                  {isAdmin && (
-                    <TableCell>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        title="ลบค่าวัด"
-                        aria-label={`ลบค่าวัด ${fmtDateTime(r.measuredAt)}`}
-                        className="text-destructive"
-                        disabled={deleteReadingMut.isPending}
-                        onClick={async () => {
-                          if (
-                            await confirmAction(
-                              `ยืนยันลบค่าวัด ${fmtNum(r.liters)} ลิตร ของ ${r.tank?.name ?? "ถังนี้"}?`
-                            )
-                          ) {
-                            deleteReadingMut.mutate({ id: r.id });
-                          }
-                        }}
+          {/* ประวัติรับน้ำมัน */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-heading text-base">
+                ประวัติรับน้ำมันเข้าถัง
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>วันที่</TableHead>
+                    <TableHead>ถัง</TableHead>
+                    <TableHead className="text-right">ลิตร</TableHead>
+                    <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
+                    <TableHead className="text-right">รวมต้นทุน</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(refills ?? []).map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell>{fmtDateTime(r.createdAt)}</TableCell>
+                      <TableCell>{r.tank?.name ?? "-"}</TableCell>
+                      <TableCell className="text-right">
+                        {fmtNum(r.liters)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(r.costPerLiter)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ฿{fmtMoney(r.liters * r.costPerLiter)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(refills ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="text-center text-muted-foreground py-6"
                       >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
+                        ยังไม่มีประวัติ
+                      </TableCell>
+                    </TableRow>
                   )}
-                </TableRow>
-              ))}
-              {(tankReadings ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={isAdmin ? 6 : 5}
-                    className="text-center text-muted-foreground py-6"
-                  >
-                    ยังไม่มีประวัติการวัด
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* ประวัติการวัดระดับถัง */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-heading text-base">
+                ประวัติการวัดระดับถัง
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>เวลาที่วัด</TableHead>
+                    <TableHead>ถัง</TableHead>
+                    <TableHead>ผู้วัด</TableHead>
+                    <TableHead className="text-right">ลิตรที่วัดได้</TableHead>
+                    <TableHead>หมายเหตุ</TableHead>
+                    {isAdmin && <TableHead className="w-12" />}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(tankReadings ?? []).map(r => (
+                    <TableRow key={r.id}>
+                      <TableCell>{fmtDateTime(r.measuredAt)}</TableCell>
+                      <TableCell>{r.tank?.name ?? "-"}</TableCell>
+                      <TableCell>{r.staffName || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        {fmtNum(r.liters)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {r.note ?? ""}
+                      </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            title="ลบค่าวัด"
+                            aria-label={`ลบค่าวัด ${fmtDateTime(r.measuredAt)}`}
+                            className="text-destructive"
+                            disabled={deleteReadingMut.isPending}
+                            onClick={async () => {
+                              if (
+                                await confirmAction(
+                                  `ยืนยันลบค่าวัด ${fmtNum(r.liters)} ลิตร ของ ${r.tank?.name ?? "ถังนี้"}?`
+                                )
+                              ) {
+                                deleteReadingMut.mutate({ id: r.id });
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                  {(tankReadings ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={isAdmin ? 6 : 5}
+                        className="text-center text-muted-foreground py-6"
+                      >
+                        ยังไม่มีประวัติการวัด
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -1219,7 +1258,11 @@ export default function Stock() {
                       className="bg-white"
                     />
                   </div>
-                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 sm:col-span-2">
+                  <p
+                    data-slot="notice"
+                    data-tone="warning"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 sm:col-span-2"
+                  >
                     ⚠️ ใช้สำหรับแก้ค่าคลาดเคลื่อนหรือหลังสอบเทียบถังเท่านั้น —
                     การรับน้ำมันปกติให้ใช้ปุ่ม "รับน้ำมันเข้าถัง"
                   </p>

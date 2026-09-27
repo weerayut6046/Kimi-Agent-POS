@@ -75,10 +75,10 @@ export async function createSupabaseStaffIdentity(input: {
 }
 
 /**
- * Mint a normal Supabase user session only after the POS has independently
- * verified both the employee PIN and face. generateLink does not send email;
- * its one-time token is immediately exchanged on the server and never exposed
- * to the browser.
+ * Mint a normal Supabase user session only after the POS server has approved
+ * the employee sign-in (PIN + face in production, or PIN-only in development).
+ * generateLink does not send email; its one-time token is immediately exchanged
+ * on the server and never exposed to the browser.
  */
 export async function issueSupabaseStaffSession(
   username: string,

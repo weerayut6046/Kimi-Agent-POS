@@ -1,6 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { setupTestDb, type TestDb } from "../test/testDb";
-import { MENU_PERMISSION_KEYS } from "@contracts/menuPermissions";
+import {
+  getRoleMenuPermissions,
+  MENU_PERMISSION_KEYS,
+} from "@contracts/menuPermissions";
 
 let t: TestDb;
 
@@ -11,13 +14,42 @@ beforeAll(async () => {
 afterAll(() => t.cleanup());
 
 describe("staff menu permissions", () => {
-  it("returns role defaults for existing users", async () => {
-    const session = await t.caller("cashier", 3).auth.currentStaff();
-
-    expect(session.authenticated).toBe(true);
-    expect(session.menuPermissions).toContain("pos");
-    expect(session.menuPermissions).not.toContain("audit");
+  it("shares the permission lookup across concurrent procedures in a request", async () => {
+    const cashier = t.caller("cashier", 3);
+    const lookup = vi.spyOn(t.db.query.staffUsers, "findFirst");
+    try {
+      await Promise.all([
+        cashier.catalog.listProducts(),
+        cashier.catalog.getSettings(),
+      ]);
+      // One session lookup and one permission lookup for both procedures.
+      expect(lookup).toHaveBeenCalledTimes(2);
+    } finally {
+      lookup.mockRestore();
+    }
   });
+
+  it.each([
+    ["cashier", 3],
+    ["manager", 2],
+    ["admin", 1],
+  ] as const)(
+    "returns role defaults for existing %s users",
+    async (role, id) => {
+      const session = await t.caller(role, id).auth.currentStaff();
+
+      expect(session.authenticated).toBe(true);
+      expect(session.menuPermissions).toEqual(getRoleMenuPermissions(role));
+      expect(session.menuPermissions).toContain("pos");
+      expect(session.menuPermissions).toContain("settings");
+      expect(session.menuPermissions).toContain("fuel_forecast");
+      if (role === "admin") {
+        expect(session.menuPermissions).toEqual(MENU_PERMISSION_KEYS);
+      } else {
+        expect(session.menuPermissions).not.toContain("audit");
+      }
+    }
+  );
 
   it("lets an admin persist permissions and refreshes the active session", async () => {
     await t.caller("admin").auth.updateStaff({
@@ -43,6 +75,9 @@ describe("staff menu permissions", () => {
     expect(initialGroups.map(group => group.name)).toEqual(
       expect.arrayContaining(["พนักงาน", "ผู้จัดการ"])
     );
+    expect(
+      initialGroups.find(group => group.name === "ผู้จัดการ")?.menuPermissions
+    ).toContain("profitability");
 
     const created = await t.caller("admin").auth.createAccessGroup({
       name: "พนักงานทดสอบ",
@@ -65,12 +100,12 @@ describe("staff menu permissions", () => {
 
     await t.caller("admin").auth.updateAccessGroup({
       id: created.id,
-      menuPermissions: ["reports"],
+      menuPermissions: ["stock"],
     });
     const refreshed = await t.caller("cashier", 3).auth.currentStaff();
     expect(refreshed.authenticated).toBe(true);
     if (refreshed.authenticated) {
-      expect(refreshed.menuPermissions).toEqual(["reports"]);
+      expect(refreshed.menuPermissions).toEqual(["stock"]);
       expect(refreshed.accessGroup?.name).toBe("พนักงานทดสอบ");
     }
 
@@ -127,6 +162,23 @@ describe("staff menu permissions", () => {
       expect.objectContaining({
         label: "เอกสาร",
         roles: ["admin", "manager"],
+      })
+    );
+    expect(
+      catalog.find(permission => permission.key === "profitability")
+    ).toEqual(
+      expect.objectContaining({
+        label: "ต้นทุนและกำไร",
+        roles: ["admin", "manager"],
+      })
+    );
+    expect(
+      catalog.find(permission => permission.key === "fuel_forecast")
+    ).toEqual(
+      expect.objectContaining({
+        label: "วางแผนสั่งน้ำมัน",
+        group: "station",
+        roles: ["admin", "manager", "cashier"],
       })
     );
   });

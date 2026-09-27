@@ -470,7 +470,7 @@ function buildTools(
     });
   }
 
-  if (hasAnyPermission(permissions, "dashboard", "sales", "reports")) {
+  if (hasAnyPermission(permissions, "dashboard", "sales")) {
     tools.push({
       definition: {
         type: "function",
