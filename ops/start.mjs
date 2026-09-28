@@ -3,6 +3,9 @@
  *  หมายเหตุ: ต้อง npm run build ก่อนเพื่อให้ dist/ เป็นปัจจุบัน */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { config } from "dotenv";
+
+config({ path: [".env.local", ".env"], quiet: true });
 
 if (!existsSync("dist/boot.js")) {
   console.error(">> ไม่พบ dist/boot.js — รัน npm run build ก่อน");

@@ -23,14 +23,15 @@ const t = initTRPC.context<TrpcContext>().create({
   isDev: process.env.NODE_ENV === "test",
   errorFormatter({ shape, error, path }) {
     if (
-      path?.startsWith("faceAuth.") &&
+      (path?.startsWith("faceAuth.") || path?.startsWith("initialSetup.")) &&
       error.code === "INTERNAL_SERVER_ERROR"
     ) {
       const { stack: _stack, ...data } = shape.data;
       return {
         ...shape,
-        message:
-          "ระบบเข้าสู่ระบบขัดข้องชั่วคราว กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ",
+        message: path?.startsWith("initialSetup.")
+          ? "ระบบตั้งค่าขัดข้องชั่วคราว กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ"
+          : "ระบบเข้าสู่ระบบขัดข้องชั่วคราว กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ",
         data,
       };
     }

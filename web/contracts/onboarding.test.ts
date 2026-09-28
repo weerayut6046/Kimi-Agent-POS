@@ -5,6 +5,7 @@ import {
   setupProfileInput,
   setupPaymentsInput,
   setupEquipmentInput,
+  setupSystemInput,
 } from "./onboarding";
 
 describe("saved business setup progress", () => {
@@ -25,6 +26,7 @@ describe("saved business setup progress", () => {
           products: false,
           staff: false,
           payments: false,
+          system: false,
         },
         completedAt: null,
       });
@@ -38,14 +40,55 @@ describe("saved business setup progress", () => {
         products: false,
         staff: true,
         payments: false,
+        system: false,
       },
       completedAt: null,
     };
     expect(readSetupProgress(JSON.stringify(progress))).toEqual(progress);
   });
+  it("preserves completion of the previous four-step wizard without claiming a newly added explicit step", () => {
+    const legacy = {
+      version: 1,
+      confirmed: { profile: true, products: true, staff: true, payments: true },
+      completedAt: "2026-09-27T00:00:00.000Z",
+    };
+    expect(readSetupProgress(JSON.stringify(legacy)).confirmed.system).toBe(
+      true
+    );
+    expect(
+      readSetupProgress(
+        JSON.stringify({
+          ...legacy,
+          confirmed: { ...legacy.confirmed, system: false },
+        })
+      ).confirmed.system
+    ).toBe(false);
+  });
 });
 
 describe("business setup input boundaries", () => {
+  it("bounds printing, VAT and points while rejecting private server settings and document counters", () => {
+    const input = {
+      expectedBranchId: 1,
+      receiptPaperSize: "58",
+      taxInvoicePaperSize: "a5",
+      silentPrint: false,
+      vatRate: 0,
+      pointEarnPerBaht: 100,
+      pointRedeemValue: 1,
+    };
+    expect(setupSystemInput.parse(input)).toEqual(input);
+    for (const extra of [
+      { databaseUrl: "private" },
+      { receipt_next_no: "1" },
+      { vatRate: 101 },
+      { pointRedeemValue: 0 },
+      { receiptPaperSize: "bad" },
+    ])
+      expect(setupSystemInput.safeParse({ ...input, ...extra }).success).toBe(
+        false
+      );
+  });
   it("requires a real equipment patch and rejects scope or relationship overrides", () => {
     const identity = { expectedBranchId: 1, nozzleId: 2 };
     expect(setupEquipmentInput.safeParse(identity).success).toBe(false);

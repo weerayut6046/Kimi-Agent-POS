@@ -6,6 +6,25 @@ import {
 } from "./trpcUrl";
 
 describe("resolveTrpcUrl", () => {
+  it("uses the local Node API while preserving the Supabase Auth project in production", () => {
+    const options = {
+      isDesktop: false,
+      isDev: false,
+      supabaseUrl: "https://project.supabase.co",
+      apiTransport: "node",
+    };
+    expect(resolveTrpcUrl(options)).toBe("/api/trpc");
+    expect(
+      usesSupabaseEdgeGateway({ ...options, proxyToSupabaseInDev: true })
+    ).toBe(false);
+    expect(
+      trpcAuthHeaders({
+        accessToken: "real.user.jwt",
+        publishableKey: "public-key",
+        usesSupabaseGateway: false,
+      })
+    ).toEqual({ Authorization: "Bearer real.user.jwt" });
+  });
   it("routes a packaged desktop app through its same-origin offline proxy", () => {
     expect(
       resolveTrpcUrl({

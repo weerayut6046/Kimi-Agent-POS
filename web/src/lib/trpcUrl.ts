@@ -2,6 +2,7 @@ type TrpcUrlOptions = {
   isDesktop: boolean;
   isDev: boolean;
   supabaseUrl: string;
+  apiTransport?: string;
 };
 
 type TrpcGatewayOptions = TrpcUrlOptions & {
@@ -23,8 +24,10 @@ export function resolveTrpcUrl({
   isDesktop,
   isDev,
   supabaseUrl,
+  apiTransport,
 }: TrpcUrlOptions): string {
-  if (isDesktop || isDev || !supabaseUrl) return "/api/trpc";
+  if (isDesktop || isDev || !supabaseUrl || apiTransport === "node")
+    return "/api/trpc";
   return `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/pos-api`;
 }
 
@@ -33,8 +36,14 @@ export function usesSupabaseEdgeGateway({
   isDev,
   supabaseUrl,
   proxyToSupabaseInDev,
+  apiTransport,
 }: TrpcGatewayOptions): boolean {
-  return !isDesktop && Boolean(supabaseUrl) && (!isDev || proxyToSupabaseInDev);
+  return (
+    apiTransport !== "node" &&
+    !isDesktop &&
+    Boolean(supabaseUrl) &&
+    (!isDev || proxyToSupabaseInDev)
+  );
 }
 
 export function trpcAuthHeaders({

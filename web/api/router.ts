@@ -19,6 +19,7 @@ import { faceAuthRouter } from "./routers/faceAuth";
 import { fuelForecastRouter } from "./routers/fuelForecast";
 import { platformRouter } from "./routers/platform";
 import { onboardingRouter } from "./routers/onboarding";
+import { initialSetupRouter } from "./routers/initialSetup";
 
 export const appRouter = createRouter({
   ping: anonymousQuery.query(() => ({ ok: true, ts: Date.now() })),
@@ -42,6 +43,7 @@ export const appRouter = createRouter({
   fuelForecast: fuelForecastRouter,
   platform: platformRouter,
   onboarding: onboardingRouter,
+  initialSetup: initialSetupRouter,
 });
 
 export type AppRouter = typeof appRouter;

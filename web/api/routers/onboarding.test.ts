@@ -80,6 +80,17 @@ function cash(expectedBranchId: number) {
     creditEnabled: false,
   };
 }
+function systemConfig(expectedBranchId: number) {
+  return {
+    expectedBranchId,
+    receiptPaperSize: "58" as const,
+    taxInvoicePaperSize: "a5" as const,
+    silentPrint: false,
+    vatRate: 0,
+    pointEarnPerBaht: 200,
+    pointRedeemValue: 2,
+  };
+}
 function fuel(expectedBranchId: number, productId: number) {
   return {
     expectedBranchId,
@@ -155,6 +166,7 @@ describe("business onboarding authorization and branch scope", () => {
         () => api.state(),
         () => api.saveProfile(profile(1)),
         () => api.savePayments(cash(1)),
+        () => api.saveSystemSettings(systemConfig(1)),
         () => api.confirmStep({ expectedBranchId: 1, step: "staff" }),
         () => api.complete({ expectedBranchId: 1 }),
         () => api.createFuelSetup(fuel(1, 1)),
@@ -175,6 +187,7 @@ describe("business onboarding authorization and branch scope", () => {
       () => api.state(),
       () => api.saveProfile(profile(1)),
       () => api.savePayments(cash(1)),
+      () => api.saveSystemSettings(systemConfig(1)),
       () => api.confirmStep({ expectedBranchId: 1, step: "staff" }),
       () => api.complete({ expectedBranchId: 1 }),
       () => api.createFuelSetup(fuel(1, 1)),
@@ -192,6 +205,7 @@ describe("business onboarding authorization and branch scope", () => {
         products: false,
         staff: false,
         payments: false,
+        system: false,
       },
       completedAt: null,
     });
@@ -283,6 +297,7 @@ describe("sparse profile and payment setup", () => {
     const api = caller(branchId);
     await api.saveProfile(profile(branchId));
     await api.savePayments(cash(branchId));
+    await api.saveSystemSettings(systemConfig(branchId));
     expect(await settingValues(branchId)).toMatchObject({
       ...untouched,
       shop_name: "Owner's shop",
@@ -423,6 +438,51 @@ describe("sparse profile and payment setup", () => {
 });
 
 describe("natural readiness and confirmed completion", () => {
+  it("saves only the reviewed system fields in the current branch and preserves secrets and document counters", async () => {
+    const branchId = await newBranch();
+    await putSettings(branchId, {
+      receipt_next_no: "900",
+      tax_invoice_next_no: "700",
+      backup_auto_enabled: "1",
+      private_service_token: "keep-private",
+      app_theme: "ocean",
+    });
+    const api = caller(branchId);
+    await expect(api.saveSystemSettings(systemConfig(1))).rejects.toMatchObject(
+      { code: "CONFLICT" }
+    );
+    expect((await api.state()).progress.confirmed.system).toBe(false);
+    await api.saveSystemSettings(systemConfig(branchId));
+    expect(await settingValues(branchId)).toMatchObject({
+      receipt_paper_size: "58",
+      tax_invoice_paper_size: "a5",
+      receipt_silent_print: "0",
+      vat_rate: "0",
+      point_earn_per_baht: "200",
+      point_redeem_value: "2",
+      receipt_next_no: "900",
+      tax_invoice_next_no: "700",
+      backup_auto_enabled: "1",
+      private_service_token: "keep-private",
+      app_theme: "ocean",
+    });
+    const state = await api.state();
+    expect(state.systemSettings).toMatchObject({
+      receiptPaperSize: "58",
+      vatRate: 0,
+      pointEarnPerBaht: 200,
+    });
+    expect(state.progress.confirmed.system).toBe(true);
+    expect(JSON.stringify(state)).not.toContain("keep-private");
+    await putSettings(branchId, { point_redeem_value: "NaN" });
+    expect((await api.state()).readiness.system.ready).toBe(false);
+    await expect(
+      api.confirmStep({ expectedBranchId: branchId, step: "system" })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(
+      t.anonymousCaller().onboarding.saveSystemSettings(systemConfig(branchId))
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
   it("requires the actual fuel graph, rechecks readiness on complete, and keeps historical completion", async () => {
     const branchId = await newBranch();
     const api = caller(branchId);
@@ -445,6 +505,7 @@ describe("natural readiness and confirmed completion", () => {
     await api.savePayments(cash(branchId));
     await api.confirmStep({ expectedBranchId: branchId, step: "products" });
     await api.confirmStep({ expectedBranchId: branchId, step: "staff" });
+    await api.saveSystemSettings(systemConfig(branchId));
     await t.db.update(products).set({ price: 0 }).where(eq(products.id, p.id));
     await expect(
       api.complete({ expectedBranchId: branchId })

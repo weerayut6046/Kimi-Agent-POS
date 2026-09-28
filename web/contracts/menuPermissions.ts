@@ -165,7 +165,7 @@ export const MENU_PERMISSION_DEFINITIONS = [
     label: "เริ่มต้นใช้งานกิจการ",
     group: "system",
     roles: ["admin"] as const,
-    apiPrefixes: ["onboarding."] as const,
+    apiPrefixes: ["onboarding.", "initialSetup."] as const,
   },
 ] as const;
 

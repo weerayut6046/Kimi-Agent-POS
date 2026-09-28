@@ -41,9 +41,13 @@ describe("menu permissions", () => {
   });
 
   it.each([
+    "initialSetup.state",
+    "initialSetup.createOwner",
+    "initialSetup.futureFeature",
     "onboarding.state",
     "onboarding.saveProfile",
     "onboarding.savePayments",
+    "onboarding.saveSystemSettings",
     "onboarding.confirmStep",
     "onboarding.complete",
     "onboarding.createFuelSetup",

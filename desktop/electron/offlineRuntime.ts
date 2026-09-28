@@ -688,6 +688,9 @@ export class DesktopOfflineRuntime {
 
     const method = req.method ?? "GET";
     const body = await this.readBody(req);
+    // Installation status and first-owner writes require a live server result.
+    // A mixed tRPC batch is equally sensitive because it includes that status.
+    const initialSetupRequest = this.isInitialSetupRequest(requestUrl);
     const key = this.cacheKey(
       method,
       requestUrl,
@@ -708,6 +711,35 @@ export class DesktopOfflineRuntime {
       headers.set(name, Array.isArray(value) ? value.join(",") : value);
     }
 
+    if (initialSetupRequest) {
+      // Electron's loopback page is not a cloud web origin. Accept only this
+      // server's own page, then forward the proof-protected setup request
+      // without loopback browser headers; never allow wildcard cloud CORS.
+      const localOrigin = `http://127.0.0.1:${req.socket.localPort}`;
+      try {
+        const origin = headers.get("origin");
+        const referer = headers.get("referer");
+        if (
+          (origin && origin !== localOrigin) ||
+          (referer && new URL(referer).origin !== localOrigin)
+        )
+          throw new Error();
+      } catch {
+        res.writeHead(403, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        });
+        res.end(
+          JSON.stringify({
+            error: { message: "ไม่อนุญาตให้ติดตั้งจากที่อยู่นี้" },
+          })
+        );
+        return;
+      }
+      headers.delete("origin");
+      headers.delete("referer");
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -719,7 +751,7 @@ export class DesktopOfflineRuntime {
       });
       const responseBody = Buffer.from(await response.arrayBuffer());
       this.setOnline(true);
-      if (response.ok && this.isCacheable(method)) {
+      if (response.ok && this.isCacheable(method) && !initialSetupRequest) {
         this.state.cache[key] = {
           status: response.status,
           contentType:
@@ -741,7 +773,7 @@ export class DesktopOfflineRuntime {
       if (this.state.queue.length > 0) void this.syncPending();
     } catch (error) {
       this.setOnline(false, messageOf(error));
-      const cached = this.state.cache[key];
+      const cached = initialSetupRequest ? undefined : this.state.cache[key];
       if (cached) {
         res.writeHead(cached.status, {
           "content-type": cached.contentType,
@@ -758,7 +790,9 @@ export class DesktopOfflineRuntime {
       res.end(
         JSON.stringify({
           error: {
-            message: "ไม่มีอินเทอร์เน็ตและยังไม่มีข้อมูลนี้ในแคชของเครื่อง",
+            message: initialSetupRequest
+              ? "ตรวจสอบการตั้งค่าครั้งแรกไม่สำเร็จ กรุณาเชื่อมอินเทอร์เน็ตแล้วโหลดสถานะใหม่"
+              : "ไม่มีอินเทอร์เน็ตและยังไม่มีข้อมูลนี้ในแคชของเครื่อง",
           },
         })
       );
@@ -884,6 +918,21 @@ export class DesktopOfflineRuntime {
 
   private isCacheable(method: string): boolean {
     return method === "GET";
+  }
+
+  private isInitialSetupRequest(requestUrl: URL): boolean {
+    const prefix = "/api/trpc/";
+    try {
+      const pathname = decodeURIComponent(requestUrl.pathname);
+      if (!pathname.startsWith(prefix)) return false;
+      return pathname
+        .slice(prefix.length)
+        .split(",")
+        .some(procedure => procedure.startsWith("initialSetup."));
+    } catch {
+      // A malformed procedure path cannot establish an authoritative state.
+      return true;
+    }
   }
 
   private pruneCache(): void {
