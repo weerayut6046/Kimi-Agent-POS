@@ -36,7 +36,6 @@ const localEnv = {
   APP_SECRET:
     process.env.LOCAL_APP_SECRET ||
     "pumppos-local-development-session-secret-change-me",
-  LOCAL_ADMIN_PASSWORD: process.env.LOCAL_ADMIN_PASSWORD || "DevOnly1234!",
   BIND_HOST: bindToLan ? "0.0.0.0" : "127.0.0.1",
   APP_PORT: appPort,
   PORT: appPort,
@@ -84,13 +83,19 @@ async function main() {
 
   console.log(">> Seeding the local database when empty...");
   await runNpm(["run", "db:seed"]);
+  if (process.argv.includes("--demo")) {
+    console.log(">> Adding explicitly requested development demo data...");
+    await run(process.execPath, [".cache/seed.js", "--demo"]);
+  }
 
   console.log(
     bindToLan
       ? `>> Local dev server is available on this machine and your LAN (port ${appPort}).`
       : `>> Local dev server: http://127.0.0.1:${appPort}`
   );
-  console.log(">> Login: admin / value of LOCAL_ADMIN_PASSWORD");
+  console.log(
+    ">> New installations open /setup to create the owner before login."
+  );
   await runNpm(["run", "dev"]);
 }
 

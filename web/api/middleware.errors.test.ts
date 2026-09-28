@@ -12,6 +12,14 @@ const serviceError =
 const invalidPinError = "ชื่อผู้ใช้หรือ PIN ไม่ถูกต้อง";
 
 const testRouter = createRouter({
+  initialSetup: createRouter({
+    state: anonymousQuery.query(() => {
+      throw new Error(sqlFailure);
+    }),
+    createOwner: anonymousQuery.mutation(() => {
+      throw new Error("synthetic-installation-code-and-provider-secret");
+    }),
+  }),
   faceAuth: createRouter({
     beginFaceLogin: anonymousQuery.mutation(() => {
       throw new Error(sqlFailure);
@@ -40,12 +48,13 @@ type SerializedError = {
 };
 
 async function requestError(path: string) {
+  const isQuery = path === "initialSetup.state";
   const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
     req: new Request(`http://localhost/api/trpc/${path}`, {
-      method: "POST",
+      method: isQuery ? "GET" : "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ json: null }),
+      body: isQuery ? undefined : JSON.stringify({ json: null }),
     }),
     router: testRouter,
     createContext,
@@ -56,6 +65,19 @@ async function requestError(path: string) {
 }
 
 describe("login error HTTP serialization", () => {
+  it.each(["initialSetup.state", "initialSetup.createOwner"])(
+    "removes installation details and stack from %s internal errors",
+    async path => {
+      const { response, raw, error } = await requestError(path);
+      expect(response.status).toBe(500);
+      expect(error.message).toBe(
+        "ระบบตั้งค่าขัดข้องชั่วคราว กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ"
+      );
+      expect(raw).not.toContain("Failed query");
+      expect(raw).not.toContain("synthetic-");
+      expect(error.data).not.toHaveProperty("stack");
+    }
+  );
   it.each(["faceAuth.beginFaceLogin", "faceAuth.completePasskeyLogin"])(
     "removes SQL, parameters and stack from %s internal errors",
     async path => {

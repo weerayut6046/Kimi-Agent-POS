@@ -4,8 +4,6 @@
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2.110.7",
     "@trpc/server": "npm:@trpc/server@11.8.1",
     "@trpc/server/adapters/fetch": "npm:@trpc/server@11.8.1/adapters/fetch",
-    "@contracts/": "../../../web/contracts/",
-    "@db/": "../../../web/db/",
     "drizzle-orm": "npm:drizzle-orm@0.45.1",
     "drizzle-orm/pg-core": "npm:drizzle-orm@0.45.1/pg-core",
     "drizzle-orm/postgres-js": "npm:drizzle-orm@0.45.1/postgres-js",

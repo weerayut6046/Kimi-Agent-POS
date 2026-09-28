@@ -21,12 +21,12 @@ function requiresSsl(connectionString: string): boolean {
 /** PostgreSQL connection shared by the API process. Supabase's pooler requires prepared statements to be disabled. */
 export function getDb() {
   if (!instance) {
+    if (!env.databaseUrl)
+      throw new Error("Database connection is not configured");
     client = postgres(env.databaseUrl, {
       prepare: false,
       ssl: requiresSsl(env.databaseUrl) ? "require" : false,
-      max: isEdgeRuntime
-        ? 1
-        : Number(process.env.DATABASE_POOL_SIZE ?? 5),
+      max: isEdgeRuntime ? 1 : Number(process.env.DATABASE_POOL_SIZE ?? 5),
       // Keep the pool warm between POS actions. Reconnecting through a remote
       // pooler costs far more than the queries themselves.
       idle_timeout: isEdgeRuntime

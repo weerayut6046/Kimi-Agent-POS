@@ -27,6 +27,7 @@ export default defineConfig({
       "web/db/**/*.test.ts",
       "web/src/**/*.test.ts",
       "desktop/**/*.test.ts",
+      "ops/**/*.test.ts",
       "supabase/functions/**/*.test.ts",
     ],
   },

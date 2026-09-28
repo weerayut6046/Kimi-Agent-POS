@@ -25,6 +25,8 @@ describe("deployment boundaries", () => {
     "auth.futureBusinessFeature",
     "onboarding.state",
     "onboarding.complete",
+    "initialSetup.createOwner",
+    "initialSetup.futureFeature",
   ])("denies business procedure %s in the platform", path => {
     expect(isProcedureAllowedInDeployment("platform", path)).toBe(false);
     expect(isProcedureAllowedInDeployment("business", path)).toBe(true);
@@ -34,6 +36,7 @@ describe("deployment boundaries", () => {
     "ping",
     "auth.deploymentInfo",
     "auth.currentStaff",
+    "initialSetup.state",
     "faceAuth.beginFaceLogin",
     "faceAuth.completePasskeyLogin",
   ])(

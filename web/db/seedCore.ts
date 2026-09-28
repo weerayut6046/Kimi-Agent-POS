@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "crypto";
 import { getDb } from "../api/queries/connection";
 import { DEFAULT_SETTINGS } from "@contracts/settings";
-import { env } from "../api/lib/env";
-import { hashLocalPassword } from "../api/lib/localPassword";
+import { INITIAL_INSTALLATION_KEY } from "@contracts/initialSetup";
+import { eq, sql } from "drizzle-orm";
+import { hasInitialSetupData } from "../api/lib/initialSetup";
 import {
   branches,
   staffBranches,
@@ -24,57 +25,65 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
  * @returns true ถ้า seed จริง, false ถ้ามีข้อมูลอยู่แล้ว
  */
 export async function seedIfEmpty(): Promise<boolean> {
-  const db = getDb();
-
-  const existing = await db.query.staffUsers.findFirst();
-  if (existing) return false;
-
-  console.log("Seeding database...");
-
-  await db
-    .insert(branches)
-    .values({ code: "MAIN", name: "สาขาหลัก" })
-    .onConflictDoNothing();
-  const mainBranch = await db.query.branches.findFirst({
-    where: (branch, { eq }) => eq(branch.code, "MAIN"),
-  });
-  if (!mainBranch) throw new Error("MAIN branch is missing");
-
-  const isTest = process.env.NODE_ENV === "test";
-  if (env.localAuthEnabled && env.localAdminPassword.length < 10) {
-    throw new Error(
-      "LOCAL_ADMIN_PASSWORD must contain at least 10 characters before seeding"
+  return getDb().transaction(async db => {
+    await db.execute(
+      sql`lock table pos.staff_users in share row exclusive mode`
     );
-  }
-  await db.insert(staffUsers).values(
-    isTest
-      ? [
-          {
-            username: "admin",
-            pin: sha256("1234"),
-            name: "เจ้าของปั๊ม",
-            role: "admin" as const,
-          },
-          {
-            username: "manager",
-            pin: sha256("2222"),
-            name: "สมหญิง (ผู้จัดการสาขา)",
-            role: "manager" as const,
-          },
-          {
-            username: "somchai",
-            pin: sha256("0000"),
-            name: "สมชาย (พนักงาน)",
-            role: "cashier" as const,
-          },
-        ]
-      : env.localAuthEnabled
+
+    const existing = await db.query.staffUsers.findFirst();
+    if (existing) return false;
+
+    const isTest = process.env.NODE_ENV === "test";
+    // Removing the last account from an existing database never makes it a
+    // new installation. Factory seeding must not mark that data as claimable.
+    if (!isTest && (await hasInitialSetupData(db, true))) return false;
+    if (
+      !isTest &&
+      (await db.query.settings.findFirst({
+        where: eq(settings.key, INITIAL_INSTALLATION_KEY),
+      }))
+    )
+      return false;
+    const knownBranches = await db.query.branches.findMany();
+    if (
+      !isTest &&
+      (knownBranches.length > 1 ||
+        (knownBranches.length === 1 &&
+          (knownBranches[0].code !== "MAIN" || !knownBranches[0].active)))
+    )
+      return false;
+
+    console.log("Seeding database...");
+
+    await db
+      .insert(branches)
+      .values({ code: "MAIN", name: "สาขาหลัก" })
+      .onConflictDoNothing();
+    const mainBranch = await db.query.branches.findFirst({
+      where: (branch, { eq }) => eq(branch.code, "MAIN"),
+    });
+    if (!mainBranch) throw new Error("MAIN branch is missing");
+
+    await db.insert(staffUsers).values(
+      isTest
         ? [
             {
               username: "admin",
-              pin: await hashLocalPassword(env.localAdminPassword),
-              name: "ผู้ดูแลระบบ (Local Dev)",
+              pin: sha256("1234"),
+              name: "เจ้าของปั๊ม",
               role: "admin" as const,
+            },
+            {
+              username: "manager",
+              pin: sha256("2222"),
+              name: "สมหญิง (ผู้จัดการสาขา)",
+              role: "manager" as const,
+            },
+            {
+              username: "somchai",
+              pin: sha256("0000"),
+              name: "สมชาย (พนักงาน)",
+              role: "cashier" as const,
             },
           ]
         : [
@@ -85,209 +94,234 @@ export async function seedIfEmpty(): Promise<boolean> {
               role: "admin" as const,
             },
           ]
-  );
-  const seededStaff = await db.query.staffUsers.findMany({
-    columns: { id: true },
+    );
+    const seededStaff = await db.query.staffUsers.findMany({
+      columns: { id: true, pin: true },
+    });
+    await db.insert(staffBranches).values(
+      seededStaff.map(staff => ({
+        staffId: staff.id,
+        branchId: mainBranch.id,
+        isDefault: true,
+      }))
+    );
+
+    await db.insert(workShiftTemplates).values([
+      {
+        name: "กะเช้า",
+        startTime: "06:00",
+        endTime: "14:00",
+        breakMinutes: 60,
+      },
+      {
+        name: "กะบ่าย",
+        startTime: "14:00",
+        endTime: "22:00",
+        breakMinutes: 60,
+      },
+      { name: "กะดึก", startTime: "22:00", endTime: "06:00", breakMinutes: 60 },
+    ]);
+
+    // สินค้า: น้ำมัน — ปั๊มนี้จำหน่ายแก๊สโซฮอล์ 95 และดีเซล B7
+    await db.insert(products).values([
+      {
+        code: "GSH95",
+        name: "แก๊สโซฮอล์ 95",
+        category: "fuel",
+        unit: "ลิตร",
+        price: 40.74,
+        cost: 39.2,
+      },
+      {
+        code: "DB7",
+        name: "ดีเซล B7",
+        category: "fuel",
+        unit: "ลิตร",
+        price: 31.94,
+        cost: 30.6,
+      },
+    ]);
+    // สินค้า: 2T / น้ำมันเครื่อง / อื่นๆ
+    await db.insert(products).values([
+      {
+        code: "2T-PTT",
+        name: "น้ำมัน 2T (ขวดเล็ก)",
+        category: "lubricant",
+        unit: "ขวด",
+        price: 45,
+        cost: 32,
+        stockQty: 48,
+        lowStockAt: 12,
+      },
+      {
+        code: "2T-BIG",
+        name: "น้ำมัน 2T (ขวดใหญ่)",
+        category: "lubricant",
+        unit: "ขวด",
+        price: 85,
+        cost: 60,
+        stockQty: 30,
+        lowStockAt: 8,
+      },
+      {
+        code: "LUBE-MC",
+        name: "น้ำมันเครื่องมอเตอร์ไซค์ 0.8L",
+        category: "lubricant",
+        unit: "ขวด",
+        price: 145,
+        cost: 105,
+        stockQty: 24,
+        lowStockAt: 6,
+      },
+      {
+        code: "WATER",
+        name: "น้ำดื่ม 600 มล.",
+        category: "other",
+        unit: "ขวด",
+        price: 10,
+        cost: 5,
+        stockQty: 120,
+        lowStockAt: 24,
+      },
+      {
+        code: "TISSUE",
+        name: "กระดาษทิชชู",
+        category: "other",
+        unit: "ห่อ",
+        price: 20,
+        cost: 12,
+        stockQty: 40,
+        lowStockAt: 10,
+      },
+    ]);
+
+    // ตู้จ่าย 2 ตู้ ตู้ละ 2 หัวจ่าย — ทั้งสองตู้จ่ายแก๊สโซฮอล์ 95 (ซ้าย) และดีเซล B7 (ขวา)
+    const [{ id: pump1 }] = await db
+      .insert(pumps)
+      .values({ name: "ตู้จ่าย 1" })
+      .returning({ id: pumps.id });
+    const [{ id: pump2 }] = await db
+      .insert(pumps)
+      .values({ name: "ตู้จ่าย 2" })
+      .returning({ id: pumps.id });
+
+    const prodRows = await db.query.products.findMany();
+    const pid = (code: string) => prodRows.find(p => p.code === code)!.id;
+
+    // ถังน้ำมัน — ถังละชนิด ป้อนหัวจ่ายชนิดเดียวกันของทั้งสองตู้
+    await db.insert(fuelTanks).values([
+      {
+        productId: pid("GSH95"),
+        name: "ถัง GSH95",
+        capacityLiters: 20000,
+        currentLiters: 12450,
+        lowAlertAt: 4000,
+      },
+      {
+        productId: pid("DB7"),
+        name: "ถังดีเซล B7",
+        capacityLiters: 20000,
+        currentLiters: 3100,
+        lowAlertAt: 4000,
+      },
+    ]);
+
+    const tankRows = await db.query.fuelTanks.findMany();
+    const tankId = (code: string) =>
+      tankRows.find(tank => tank.productId === pid(code))!.id;
+
+    await db.insert(nozzles).values([
+      {
+        pumpId: pump1,
+        productId: pid("GSH95"),
+        tankId: tankId("GSH95"),
+        label: "ตู้ 1 (ซ้าย) - GSH95",
+        currentMeter: 152340.5,
+        currentMoney: 6206318.75,
+      },
+      {
+        pumpId: pump1,
+        productId: pid("DB7"),
+        tankId: tankId("DB7"),
+        label: "ตู้ 1 (ขวา) - DB7",
+        currentMeter: 98512.25,
+        currentMoney: 3146447.0,
+      },
+      {
+        pumpId: pump2,
+        productId: pid("GSH95"),
+        tankId: tankId("GSH95"),
+        label: "ตู้ 2 (ซ้าย) - GSH95",
+        currentMeter: 76420.0,
+        currentMoney: 2918351.5,
+      },
+      {
+        pumpId: pump2,
+        productId: pid("DB7"),
+        tankId: tankId("DB7"),
+        label: "ตู้ 2 (ขวา) - DB7",
+        currentMeter: 64110.75,
+        currentMoney: 2047969.25,
+      },
+    ]);
+
+    // สมาชิกตัวอย่าง
+    await db.insert(members).values([
+      {
+        memberCode: "M0001",
+        name: "สมหญิง ใจดี",
+        phone: "0812345678",
+        points: 320,
+        tier: "gold",
+      },
+      {
+        memberCode: "M0002",
+        name: "วิชัย ขยันขับ",
+        phone: "0898765432",
+        points: 85,
+        tier: "silver",
+      },
+      {
+        memberCode: "M0003",
+        name: "ร้านกาแฟสด (รถตู้)",
+        phone: "0861112222",
+        points: 1240,
+        tier: "platinum",
+      },
+    ]);
+
+    // ของรางวัล
+    await db.insert(rewards).values([
+      { name: "น้ำดื่ม 1 ขวด", pointsRequired: 30, stock: 100 },
+      { name: "กระดาษทิชชู 1 ห่อ", pointsRequired: 50, stock: 60 },
+      { name: "ส่วนลด 20 บาท", pointsRequired: 100, stock: 999 },
+      { name: "น้ำมัน 2T 1 ขวด", pointsRequired: 200, stock: 25 },
+      { name: "ส่วนลด 100 บาท", pointsRequired: 450, stock: 999 },
+    ]);
+
+    // ตั้งค่าร้าน
+    await db
+      .insert(settings)
+      .values(
+        Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value }))
+      )
+      .onConflictDoNothing();
+
+    if (!isTest) {
+      const owner = seededStaff[0];
+      await db.insert(settings).values({
+        branchId: mainBranch.id,
+        key: INITIAL_INSTALLATION_KEY,
+        value: JSON.stringify({
+          version: 1,
+          status: "unclaimed",
+          seedOwnerId: owner.id,
+          pendingPinDigest: sha256(owner.pin),
+        }),
+      });
+    }
+
+    console.log("Seed done.");
+    return true;
   });
-  await db.insert(staffBranches).values(
-    seededStaff.map(staff => ({
-      staffId: staff.id,
-      branchId: mainBranch.id,
-      isDefault: true,
-    }))
-  );
-
-  await db.insert(workShiftTemplates).values([
-    { name: "กะเช้า", startTime: "06:00", endTime: "14:00", breakMinutes: 60 },
-    { name: "กะบ่าย", startTime: "14:00", endTime: "22:00", breakMinutes: 60 },
-    { name: "กะดึก", startTime: "22:00", endTime: "06:00", breakMinutes: 60 },
-  ]);
-
-  // สินค้า: น้ำมัน — ปั๊มนี้จำหน่ายแก๊สโซฮอล์ 95 และดีเซล B7
-  await db.insert(products).values([
-    {
-      code: "GSH95",
-      name: "แก๊สโซฮอล์ 95",
-      category: "fuel",
-      unit: "ลิตร",
-      price: 40.74,
-      cost: 39.2,
-    },
-    {
-      code: "DB7",
-      name: "ดีเซล B7",
-      category: "fuel",
-      unit: "ลิตร",
-      price: 31.94,
-      cost: 30.6,
-    },
-  ]);
-  // สินค้า: 2T / น้ำมันเครื่อง / อื่นๆ
-  await db.insert(products).values([
-    {
-      code: "2T-PTT",
-      name: "น้ำมัน 2T (ขวดเล็ก)",
-      category: "lubricant",
-      unit: "ขวด",
-      price: 45,
-      cost: 32,
-      stockQty: 48,
-      lowStockAt: 12,
-    },
-    {
-      code: "2T-BIG",
-      name: "น้ำมัน 2T (ขวดใหญ่)",
-      category: "lubricant",
-      unit: "ขวด",
-      price: 85,
-      cost: 60,
-      stockQty: 30,
-      lowStockAt: 8,
-    },
-    {
-      code: "LUBE-MC",
-      name: "น้ำมันเครื่องมอเตอร์ไซค์ 0.8L",
-      category: "lubricant",
-      unit: "ขวด",
-      price: 145,
-      cost: 105,
-      stockQty: 24,
-      lowStockAt: 6,
-    },
-    {
-      code: "WATER",
-      name: "น้ำดื่ม 600 มล.",
-      category: "other",
-      unit: "ขวด",
-      price: 10,
-      cost: 5,
-      stockQty: 120,
-      lowStockAt: 24,
-    },
-    {
-      code: "TISSUE",
-      name: "กระดาษทิชชู",
-      category: "other",
-      unit: "ห่อ",
-      price: 20,
-      cost: 12,
-      stockQty: 40,
-      lowStockAt: 10,
-    },
-  ]);
-
-  // ตู้จ่าย 2 ตู้ ตู้ละ 2 หัวจ่าย — ทั้งสองตู้จ่ายแก๊สโซฮอล์ 95 (ซ้าย) และดีเซล B7 (ขวา)
-  const [{ id: pump1 }] = await db
-    .insert(pumps)
-    .values({ name: "ตู้จ่าย 1" })
-    .returning({ id: pumps.id });
-  const [{ id: pump2 }] = await db
-    .insert(pumps)
-    .values({ name: "ตู้จ่าย 2" })
-    .returning({ id: pumps.id });
-
-  const prodRows = await db.query.products.findMany();
-  const pid = (code: string) => prodRows.find(p => p.code === code)!.id;
-
-  // ถังน้ำมัน — ถังละชนิด ป้อนหัวจ่ายชนิดเดียวกันของทั้งสองตู้
-  await db.insert(fuelTanks).values([
-    {
-      productId: pid("GSH95"),
-      name: "ถัง GSH95",
-      capacityLiters: 20000,
-      currentLiters: 12450,
-      lowAlertAt: 4000,
-    },
-    {
-      productId: pid("DB7"),
-      name: "ถังดีเซล B7",
-      capacityLiters: 20000,
-      currentLiters: 3100,
-      lowAlertAt: 4000,
-    },
-  ]);
-
-  const tankRows = await db.query.fuelTanks.findMany();
-  const tankId = (code: string) =>
-    tankRows.find(tank => tank.productId === pid(code))!.id;
-
-  await db.insert(nozzles).values([
-    {
-      pumpId: pump1,
-      productId: pid("GSH95"),
-      tankId: tankId("GSH95"),
-      label: "ตู้ 1 (ซ้าย) - GSH95",
-      currentMeter: 152340.5,
-      currentMoney: 6206318.75,
-    },
-    {
-      pumpId: pump1,
-      productId: pid("DB7"),
-      tankId: tankId("DB7"),
-      label: "ตู้ 1 (ขวา) - DB7",
-      currentMeter: 98512.25,
-      currentMoney: 3146447.0,
-    },
-    {
-      pumpId: pump2,
-      productId: pid("GSH95"),
-      tankId: tankId("GSH95"),
-      label: "ตู้ 2 (ซ้าย) - GSH95",
-      currentMeter: 76420.0,
-      currentMoney: 2918351.5,
-    },
-    {
-      pumpId: pump2,
-      productId: pid("DB7"),
-      tankId: tankId("DB7"),
-      label: "ตู้ 2 (ขวา) - DB7",
-      currentMeter: 64110.75,
-      currentMoney: 2047969.25,
-    },
-  ]);
-
-  // สมาชิกตัวอย่าง
-  await db.insert(members).values([
-    {
-      memberCode: "M0001",
-      name: "สมหญิง ใจดี",
-      phone: "0812345678",
-      points: 320,
-      tier: "gold",
-    },
-    {
-      memberCode: "M0002",
-      name: "วิชัย ขยันขับ",
-      phone: "0898765432",
-      points: 85,
-      tier: "silver",
-    },
-    {
-      memberCode: "M0003",
-      name: "ร้านกาแฟสด (รถตู้)",
-      phone: "0861112222",
-      points: 1240,
-      tier: "platinum",
-    },
-  ]);
-
-  // ของรางวัล
-  await db.insert(rewards).values([
-    { name: "น้ำดื่ม 1 ขวด", pointsRequired: 30, stock: 100 },
-    { name: "กระดาษทิชชู 1 ห่อ", pointsRequired: 50, stock: 60 },
-    { name: "ส่วนลด 20 บาท", pointsRequired: 100, stock: 999 },
-    { name: "น้ำมัน 2T 1 ขวด", pointsRequired: 200, stock: 25 },
-    { name: "ส่วนลด 100 บาท", pointsRequired: 450, stock: 999 },
-  ]);
-
-  // ตั้งค่าร้าน
-  await db
-    .insert(settings)
-    .values(
-      Object.entries(DEFAULT_SETTINGS).map(([key, value]) => ({ key, value }))
-    )
-    .onConflictDoNothing();
-
-  console.log("Seed done.");
-  return true;
 }

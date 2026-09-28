@@ -37,7 +37,8 @@ export default function BusinessSetupPrompt() {
             ตั้งข้อมูลสาขา สินค้า ผู้ใช้งาน และช่องทางรับเงินจากหน้าเดียว
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            บันทึกและตรวจแล้ว {done} จาก 4 ขั้น · กลับมาทำต่อได้
+            บันทึกและตรวจแล้ว {done} จาก {BUSINESS_SETUP_STEPS.length} ขั้น ·
+            กลับมาทำต่อได้
           </p>
         </div>
       </div>

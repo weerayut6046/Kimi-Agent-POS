@@ -20,6 +20,7 @@ import {
   setupFuelInput,
   setupPaymentsInput,
   setupProfileInput,
+  setupSystemInput,
 } from "@contracts/onboarding";
 import { adminQuery } from "../guard";
 import { createRouter } from "../middleware";
@@ -191,6 +192,31 @@ export const onboardingRouter = createRouter({
         action: "business_setup_payments",
         ...actorFromReq(ctx.req),
         detail: "บันทึกและยืนยันช่องทางรับเงินสำหรับเริ่มใช้งาน",
+      });
+      return { ok: true as const };
+    }),
+  saveSystemSettings: adminQuery
+    .input(setupSystemInput)
+    .mutation(async ({ ctx, input }) => {
+      requireBusinessDeployment();
+      const branchId = ctx.staff.branchId;
+      assertExpectedBranch(input.expectedBranchId, branchId);
+      await getDb().transaction(async tx => {
+        await lockSetupBranch(tx, branchId);
+        await writeSetupSettings(tx, branchId, [
+          { key: "receipt_paper_size", value: input.receiptPaperSize },
+          { key: "tax_invoice_paper_size", value: input.taxInvoicePaperSize },
+          { key: "receipt_silent_print", value: input.silentPrint ? "1" : "0" },
+          { key: "vat_rate", value: String(input.vatRate) },
+          { key: "point_earn_per_baht", value: String(input.pointEarnPerBaht) },
+          { key: "point_redeem_value", value: String(input.pointRedeemValue) },
+        ]);
+        await confirmProgress(tx, branchId, "system");
+      });
+      logAudit({
+        action: "business_setup_system",
+        ...actorFromReq(ctx.req),
+        detail: "บันทึกและยืนยันการพิมพ์ ภาษี และแต้มสมาชิก",
       });
       return { ok: true as const };
     }),

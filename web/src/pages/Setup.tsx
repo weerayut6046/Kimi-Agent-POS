@@ -19,6 +19,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import SetupStaffStep from "@/components/SetupStaffStep";
 import SetupProductsStep from "./SetupProductsStep";
+import SetupSystemStep from "./SetupSystemStep";
+import { setupSystemDraft, setupSystemSaveInput } from "./setupSystemForm";
 import { setupErrorMessage } from "./setupForm";
 import { fmtDateTime } from "@/lib/format";
 
@@ -28,6 +30,7 @@ const steps: Array<{ key: WizardStep; label: string }> = [
   { key: "products", label: "สินค้าและหัวจ่าย" },
   { key: "staff", label: "ผู้ใช้งาน" },
   { key: "payments", label: "รับเงิน" },
+  { key: "system", label: "ใบเสร็จและการใช้งาน" },
   { key: "review", label: "ตรวจและเริ่มงาน" },
 ];
 const methods = [
@@ -127,10 +130,14 @@ function SetupWizard({
     promptpayId: state.payments.promptpayId,
   }));
   const [initialPromptpayId] = useState(state.payments.promptpayId);
+  const [system, setSystem] = useState(() =>
+    setupSystemDraft(state.systemSettings)
+  );
   const [reviewed, setReviewed] = useState({
     profile: false,
     products: false,
     payments: false,
+    system: false,
   });
   const [working, setWorking] = useState(false);
   const [childBusy, setChildBusy] = useState(false);
@@ -138,6 +145,7 @@ function SetupWizard({
   const [notice, setNotice] = useState("");
   const saveProfile = trpc.onboarding.saveProfile.useMutation();
   const savePayments = trpc.onboarding.savePayments.useMutation();
+  const saveSystem = trpc.onboarding.saveSystemSettings.useMutation();
   const confirmStep = trpc.onboarding.confirmStep.useMutation();
   const complete = trpc.onboarding.complete.useMutation();
   const busy = working || childBusy;
@@ -216,6 +224,13 @@ function SetupWizard({
           );
         await savePayments.mutateAsync(input.data);
         saved = true;
+      } else if (step === "system") {
+        if (!reviewed.system)
+          throw new Error("กรุณาตรวจใบเสร็จ ภาษี และแต้มสมาชิกก่อนยืนยัน");
+        const input = setupSystemSaveInput(system, state.branch.id);
+        await saveSystem.mutateAsync(input);
+        saved = true;
+        await utils.catalog.getSettings.invalidate();
       } else {
         if (step === "products" && !reviewed.products)
           throw new Error("กรุณาตรวจสินค้า ถัง และเลข L/P จริงก่อนยืนยัน");
@@ -273,7 +288,9 @@ function SetupWizard({
             สาขา {state.branch.name} · ตรวจทีละขั้น บันทึกแล้วกลับมาทำต่อได้
           </p>
         </div>
-        <Badge variant="secondary">ยืนยันแล้ว {confirmedCount} / 4 ขั้น</Badge>
+        <Badge variant="secondary">
+          ยืนยันแล้ว {confirmedCount} / {BUSINESS_SETUP_STEPS.length} ขั้น
+        </Badge>
       </div>
       {!state.branch.active && (
         <p
@@ -308,7 +325,7 @@ function SetupWizard({
       )}
       <nav
         aria-label="ขั้นตอนเตรียมกิจการ"
-        className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
       >
         {steps.map((item, position) => (
           <button
@@ -568,6 +585,32 @@ function SetupWizard({
               </label>
             </div>
           )}
+          {step === "system" && (
+            <div className="space-y-5">
+              <SetupSystemStep
+                value={system}
+                disabled={busy || !state.branch.active}
+                onChange={value => {
+                  setSystem(value);
+                  setReviewed(current => ({ ...current, system: false }));
+                }}
+              />
+              <label className="flex min-h-11 items-start gap-3 rounded-xl bg-muted/50 p-3 text-sm leading-6">
+                <Checkbox
+                  className="mt-1"
+                  checked={reviewed.system}
+                  disabled={busy || !state.branch.active}
+                  onCheckedChange={value =>
+                    setReviewed(current => ({
+                      ...current,
+                      system: value === true,
+                    }))
+                  }
+                />
+                <span>ตรวจใบเสร็จ ภาษี และแต้มสมาชิกแล้ว</span>
+              </label>
+            </div>
+          )}
           {step === "review" && (
             <div className="space-y-5">
               <div>
@@ -615,10 +658,12 @@ function SetupWizard({
                           ? `${state.products.filter(item => item.active).length} สินค้าขายอยู่ · ${state.equipment.filter(item => item.active).length} หัวจ่าย`
                           : key === "staff"
                             ? `${state.staff.filter(item => item.active && item.loginReady).length} บัญชีพร้อมเข้าสู่ระบบ`
-                            : methods
-                                .filter(item => state.payments[item.key])
-                                .map(item => item.label)
-                                .join(" · ")}
+                            : key === "system"
+                              ? `ใบเสร็จ ${state.systemSettings.receiptPaperSize} มม. · ใบกำกับ ${state.systemSettings.taxInvoicePaperSize.toUpperCase()} · พิมพ์ทันที ${state.systemSettings.silentPrint ? "เปิด" : "ปิด"} · VAT ${state.systemSettings.vatRate}% · ${state.systemSettings.pointEarnPerBaht} บาท / 1 แต้ม · ใช้แต้มละ ${state.systemSettings.pointRedeemValue} บาท`
+                              : methods
+                                  .filter(item => state.payments[item.key])
+                                  .map(item => item.label)
+                                  .join(" · ")}
                     </p>
                     {!!state.readiness[key].issues.length && (
                       <ul className="list-inside list-disc text-sm text-destructive">
@@ -654,7 +699,8 @@ function SetupWizard({
               </p>
               {!readyToComplete && (
                 <p className="text-sm text-destructive">
-                  ยังเริ่มงานไม่ได้ ตรวจและยืนยันทั้ง 4 ขั้นให้ครบก่อน
+                  ยังเริ่มงานไม่ได้ ตรวจและยืนยันทั้ง{" "}
+                  {BUSINESS_SETUP_STEPS.length} ขั้นให้ครบก่อน
                 </p>
               )}
             </div>

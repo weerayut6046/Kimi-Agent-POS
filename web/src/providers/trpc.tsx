@@ -5,7 +5,10 @@ import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
-import { currentFaceSessionProof, currentSupabaseAccessToken } from "@/lib/supabase";
+import {
+  currentFaceSessionProof,
+  currentSupabaseAccessToken,
+} from "@/lib/supabase";
 import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
 import {
   resolveTrpcUrl,
@@ -22,23 +25,27 @@ const supabaseFunctionRegion =
   import.meta.env.VITE_SUPABASE_FUNCTION_REGION?.trim() || "ap-northeast-1";
 const isDesktopRuntime =
   typeof window !== "undefined" && Boolean(window.posDesktop);
+const apiTransport = import.meta.env.VITE_API_TRANSPORT?.trim().toLowerCase();
 const trpcUrl = resolveTrpcUrl({
   isDesktop: isDesktopRuntime,
   isDev: import.meta.env.DEV,
   supabaseUrl,
+  apiTransport,
 });
 const usesSupabaseGateway = usesSupabaseEdgeGateway({
   isDesktop: isDesktopRuntime,
   isDev: import.meta.env.DEV,
   supabaseUrl,
+  apiTransport,
   // Development login is intentionally PIN-only and therefore stays on the
-  // local API. Production web builds still call Supabase Edge directly.
+  // local API. Production uses the selected Node or Supabase Edge transport.
   proxyToSupabaseInDev: false,
 });
 const customerLoyaltyTrpcUrl =
   typeof window !== "undefined" &&
   !window.posDesktop &&
   !import.meta.env.DEV &&
+  apiTransport !== "node" &&
   supabaseUrl
     ? `${supabaseUrl}/functions/v1/pos-loyalty`
     : trpcUrl;

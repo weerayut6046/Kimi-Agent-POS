@@ -18,6 +18,7 @@ export function resolveDeploymentMode(value?: string): DeploymentMode {
 // The platform has its own database and identities. Business administration
 // endpoints must not become platform endpoints just because their role is admin.
 const PLATFORM_AUTH_PROCEDURES = new Set([
+  "initialSetup.state",
   "ping",
   "auth.deploymentInfo",
   "auth.currentStaff",

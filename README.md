@@ -6,7 +6,9 @@
 
 การแยกหน้าขาย หลังบ้านกิจการ และบริหาร SaaS พร้อมขั้นตอนติดตั้งฐานข้อมูลเฉพาะต่อกิจการ ดู [คู่มือ SaaS](./docs/saas-deployment.md)
 
-เจ้าของกิจการตั้งสาขา สินค้า ผู้ใช้งาน และการรับเงินจาก `/setup` ได้ ดู [ตั้งค่ากิจการครั้งแรก](./docs/business-setup.md)
+ระบบใหม่เปิด `/setup` เพื่อสร้างเจ้าของและตั้งกิจการโดยไม่ต้องล็อกอินก่อน จากนั้นตั้งสาขา สินค้า ผู้ใช้งาน และการรับเงินได้ ดู [ตั้งค่ากิจการครั้งแรก](./docs/business-setup.md)
+
+เลือกและเตรียม Supabase หรือ PostgreSQL ในเครื่องผ่าน `npm run setup:system` ดู [ตัวช่วยติดตั้งระบบ](./docs/system-installation.md)
 
 ## Desktop App (Microsoft Store)
 
@@ -72,7 +74,7 @@ docker compose up --build
 - **Auth** — Supabase Auth เป็นเจ้าของรหัสผ่านและ session; API ตรวจ JWT แล้วผูกกับพนักงานที่ active และสาขาที่เลือกทุก request
 - **Passkey บนเว็บ** — หลังเข้าระบบด้วย PIN และใบหน้าครั้งแรก พนักงานบันทึกการยืนยันด้วยอุปกรณ์เพื่อเข้าใช้รอบถัดไปได้ ดูการตั้งค่าโดเมนและข้อจำกัดใน [คู่มือ passkey](docs/passkey-login.md)
 - **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos`; RLS เปิดทุกตารางและ revoke สิทธิ์ Data API จาก `anon`/`authenticated`
-- Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; admin ต้อง provision identity ใน Supabase Auth และเชื่อมกับ `pos.staff_users` ก่อนเปิดใช้งาน
+- Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; ชุดติดตั้งใหม่สร้างเจ้าของผ่าน `/setup` โดยใช้รหัสติดตั้งส่วนตัวและลงทะเบียนใบหน้า ส่วนบัญชีของกิจการเดิมใช้ระบบ Auth เดิม
 
 deploy รอบใหม่ (ต้องเชื่อม Supabase CLI กับ project ที่ถูกต้องและมี Vercel token):
 

@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../api/queries/connection";
 import { env } from "../api/lib/env";
-import { hashLocalPassword } from "../api/lib/localPassword";
+import { INITIAL_INSTALLATION_KEY } from "@contracts/initialSetup";
+import { hashStaffPin } from "../api/lib/staffPin";
 import {
   branches,
   customers,
@@ -16,6 +17,7 @@ import {
   saleItems,
   sales,
   shifts,
+  settings,
   shiftReadings,
   staffBranches,
   staffUsers,
@@ -61,7 +63,9 @@ function previousMonth(dateKey: string): string {
 }
 
 /** Add clearly-labelled, idempotent demo rows only in Local Dev mode. */
-export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
+export async function seedDevDemoData(
+  options: { explicit?: boolean } = {}
+): Promise<DevDemoSeedResult> {
   if (
     env.isProduction ||
     !env.localAuthEnabled ||
@@ -71,6 +75,22 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
   }
 
   const db = getDb();
+  const installation = await db.query.settings.findFirst({
+    where: eq(settings.key, INITIAL_INSTALLATION_KEY),
+  });
+  if (installation) {
+    try {
+      const marker = JSON.parse(installation.value) as { status?: unknown };
+      if (
+        marker.status === "unclaimed" ||
+        (marker.status === "claimed" && !options.explicit)
+      ) {
+        return { skipped: true, daysCreated: 0, salesCreated: 0 };
+      }
+    } catch {
+      /* An unknown old marker never grants first-owner eligibility. */
+    }
+  }
   const mainBranch = await db.query.branches.findFirst({
     where: eq(branches.code, "MAIN"),
   });
@@ -81,7 +101,7 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
   const staffSpecs = [
     {
       username: "devmanager",
-      password: "DevManager123!",
+      pin: "6381",
       name: "ผู้จัดการ (ข้อมูลทดลอง)",
       role: "manager" as const,
       position: "ผู้จัดการสถานีบริการ",
@@ -90,7 +110,7 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
     },
     {
       username: "devcashier",
-      password: "DevCashier123!",
+      pin: "2048",
       name: "พนักงานขาย (ข้อมูลทดลอง)",
       role: "cashier" as const,
       position: "พนักงานหน้าลาน",
@@ -115,7 +135,7 @@ export async function seedDevDemoData(): Promise<DevDemoSeedResult> {
         .insert(staffUsers)
         .values({
           username: spec.username,
-          pin: await hashLocalPassword(spec.password),
+          pin: hashStaffPin(spec.pin),
           name: spec.name,
           role: spec.role,
         })

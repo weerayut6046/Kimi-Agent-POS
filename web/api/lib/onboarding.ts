@@ -17,6 +17,7 @@ import {
 import {
   BUSINESS_SETUP_KEY,
   readSetupProgress,
+  setupSystemInput,
   type BusinessSetupProgress,
   type BusinessSetupState,
   type BusinessSetupStep,
@@ -249,6 +250,40 @@ export async function readBusinessSetupState(
   );
   const currentSettings = { ...DEFAULT_SETTINGS, ...rawSettings };
   const progress = readSetupProgress(rawSettings[BUSINESS_SETUP_KEY]);
+  const systemCandidate = {
+    expectedBranchId: branchId,
+    receiptPaperSize: currentSettings.receipt_paper_size,
+    taxInvoicePaperSize: currentSettings.tax_invoice_paper_size,
+    silentPrint: currentSettings.receipt_silent_print === "1",
+    vatRate: Number(currentSettings.vat_rate),
+    pointEarnPerBaht: Number(currentSettings.point_earn_per_baht),
+    pointRedeemValue: Number(currentSettings.point_redeem_value),
+  };
+  const systemValidation = setupSystemInput.safeParse(systemCandidate);
+  const positive = (value: number, fallback: string) =>
+    Number.isFinite(value) && value > 0 && value <= 1_000_000
+      ? value
+      : Number(fallback);
+  const systemSettings: BusinessSetupState["systemSettings"] = {
+    receiptPaperSize: systemCandidate.receiptPaperSize === "58" ? "58" : "80",
+    taxInvoicePaperSize:
+      systemCandidate.taxInvoicePaperSize === "a5" ? "a5" : "a4",
+    silentPrint: systemCandidate.silentPrint,
+    vatRate:
+      Number.isFinite(systemCandidate.vatRate) &&
+      systemCandidate.vatRate >= 0 &&
+      systemCandidate.vatRate <= 100
+        ? systemCandidate.vatRate
+        : Number(DEFAULT_SETTINGS.vat_rate),
+    pointEarnPerBaht: positive(
+      systemCandidate.pointEarnPerBaht,
+      DEFAULT_SETTINGS.point_earn_per_baht
+    ),
+    pointRedeemValue: positive(
+      systemCandidate.pointRedeemValue,
+      DEFAULT_SETTINGS.point_redeem_value
+    ),
+  };
   const profile = {
     shopName: rawSettings.shop_name ?? "",
     branchName: rawSettings.shop_branch ?? branch.name,
@@ -436,11 +471,18 @@ export async function readBusinessSetupState(
     staff,
     payments,
     progress,
+    systemSettings,
     readiness: {
       profile: { ready: profileIssues.length === 0, issues: profileIssues },
       products: { ready: productIssues.length === 0, issues: productIssues },
       staff: { ready: staffIssues.length === 0, issues: staffIssues },
       payments: { ready: paymentIssues.length === 0, issues: paymentIssues },
+      system: {
+        ready: systemValidation.success,
+        issues: systemValidation.success
+          ? []
+          : ["กรุณาตรวจค่าการพิมพ์ ภาษี และแต้มสมาชิก"],
+      },
     },
     warnings,
     hasOpenShift: Boolean(openShift),

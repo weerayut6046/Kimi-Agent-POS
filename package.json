@@ -11,6 +11,7 @@
     "dev:lan": "node ops/dev-lan.mjs",
     "dev:local": "node ops/dev-self-hosted.mjs",
     "dev:self-hosted": "node ops/dev-self-hosted.mjs --lan",
+    "setup:system": "node ops/setup-system.mjs",
     "build": "vite build && esbuild web/api/boot.ts --platform=node --bundle --packages=external --format=esm --outdir=dist && esbuild web/db/seed.ts --platform=node --bundle --packages=external --format=esm --outdir=dist",
     "build:edge": "node ops/build-supabase-edge.mjs",
     "build:electron": "esbuild desktop/electron/main.ts --platform=node --bundle --format=cjs --outfile=dist/electron/main.cjs --external:electron --external:electron-updater && node -e \"require('fs').copyFileSync('desktop/electron/preload.cjs','dist/electron/preload.cjs')\"",

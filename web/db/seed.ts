@@ -6,7 +6,9 @@ import { seedDevDemoData } from "./seedDevDemo";
 seedIfEmpty()
   .then(async seeded => {
     if (!seeded) console.log("Base database already seeded, skipping.");
-    const demo = await seedDevDemoData();
+    const demo = await seedDevDemoData({
+      explicit: process.argv.includes("--demo"),
+    });
     if (!demo.skipped) {
       console.log(
         demo.daysCreated > 0
@@ -16,7 +18,7 @@ seedIfEmpty()
     }
     process.exit(0);
   })
-  .catch((err) => {
+  .catch(err => {
     console.error("Seed failed:", err);
     process.exit(1);
   });

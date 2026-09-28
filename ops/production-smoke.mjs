@@ -42,7 +42,7 @@ function excerpt(value) {
   return value.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
-async function request(path, init = {}) {
+async function request(path, init = {}, responseLimitMs = maxResponseMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = performance.now();
@@ -58,8 +58,8 @@ async function request(path, init = {}) {
     const body = await response.text();
     const durationMs = Math.round(performance.now() - startedAt);
     expect(
-      durationMs <= maxResponseMs,
-      `response took ${durationMs}ms (limit ${maxResponseMs}ms)`
+      durationMs <= responseLimitMs,
+      `response took ${durationMs}ms (limit ${responseLimitMs}ms)`
     );
     return { response, body, durationMs };
   } catch (error) {
@@ -232,6 +232,27 @@ if (!publishableKey) {
       `unexpected body: ${excerpt(body)}`
     );
     return `200 in ${durationMs}ms`;
+  });
+
+  await check("first-run setup state", async () => {
+    const { response, body, durationMs } = await request(
+      "/api/trpc/initialSetup.state?input=%7B%7D",
+      { headers: gatewayHeaders() },
+      Math.max(maxResponseMs, 10_000)
+    );
+    expect(response.status === 200, `expected 200, got ${response.status}`);
+    const state = parseJson(body, "first-run setup state")?.result?.data?.json;
+    expect(typeof state?.needsOwner === "boolean", "owner state is missing");
+    expect(
+      typeof state?.canCreateOwner === "boolean",
+      "owner availability is missing"
+    );
+    expect(state?.systemReady === true, "installation is not ready");
+    expect(
+      !state.needsOwner || state.canCreateOwner,
+      "new installation cannot create its first owner"
+    );
+    return `${state.needsOwner ? "first owner available" : "existing installation ready"} in ${durationMs}ms`;
   });
 
   await check("CORS allowlist", async () => {

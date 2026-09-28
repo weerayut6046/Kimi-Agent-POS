@@ -1,7 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { projectRefFromSupabaseUrl } from "./env";
 
 describe("projectRefFromSupabaseUrl", () => {
+  it("loads production readiness before a database connection has been configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("SUPABASE_DB_URL", "");
+    try {
+      vi.resetModules();
+      const { env } = await import("./env");
+      expect(env.isProduction).toBe(true);
+      expect(env.databaseUrl).toBe("");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
   it("reads the project ref from the default hosted Edge Function URL", () => {
     expect(
       projectRefFromSupabaseUrl("https://abcdefghijklmnopqrst.supabase.co")

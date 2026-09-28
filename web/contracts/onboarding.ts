@@ -7,6 +7,7 @@ export const BUSINESS_SETUP_STEPS = [
   "products",
   "staff",
   "payments",
+  "system",
 ] as const;
 export type BusinessSetupStep = (typeof BUSINESS_SETUP_STEPS)[number];
 
@@ -17,6 +18,7 @@ export const setupProgressSchema = z.object({
     products: z.boolean(),
     staff: z.boolean(),
     payments: z.boolean(),
+    system: z.boolean().default(false),
   }),
   completedAt: z.iso.datetime().nullable(),
 });
@@ -36,7 +38,18 @@ export function readSetupProgress(
 ): BusinessSetupProgress {
   try {
     const parsed = setupProgressSchema.safeParse(JSON.parse(value ?? ""));
-    if (parsed.success) return parsed.data;
+    if (parsed.success) {
+      const stored = JSON.parse(value ?? "");
+      if (
+        stored.confirmed.system === undefined &&
+        parsed.data.completedAt &&
+        ["profile", "products", "staff", "payments"].every(
+          key => stored.confirmed[key] === true
+        )
+      )
+        parsed.data.confirmed.system = true;
+      return parsed.data;
+    }
   } catch {
     // Missing or malformed old settings never imply that setup is complete.
   }
@@ -47,6 +60,7 @@ export function readSetupProgress(
       products: false,
       staff: false,
       payments: false,
+      system: false,
     },
     completedAt: null,
   };
@@ -87,6 +101,19 @@ export const setupPaymentsInput = z
     "กรุณาเลือกช่องทางรับเงินอย่างน้อยหนึ่งช่องทาง"
   );
 export type BusinessSetupPaymentsInput = z.infer<typeof setupPaymentsInput>;
+
+export const setupSystemInput = setupBranchInput.extend({
+  receiptPaperSize: z.enum(["58", "80"]),
+  taxInvoicePaperSize: z.enum(["a4", "a5"]),
+  silentPrint: z.boolean(),
+  vatRate: z.number().finite().min(0).max(100),
+  pointEarnPerBaht: z.number().finite().positive().max(1_000_000),
+  pointRedeemValue: z.number().finite().positive().max(1_000_000),
+});
+export type BusinessSetupSystemSettings = Omit<
+  z.infer<typeof setupSystemInput>,
+  "expectedBranchId"
+>;
 
 export const setupFuelInput = z
   .object({
@@ -194,6 +221,7 @@ export type BusinessSetupState = {
     qrReady: boolean;
   };
   progress: BusinessSetupProgress;
+  systemSettings: BusinessSetupSystemSettings;
   readiness: Record<BusinessSetupStep, BusinessSetupReadiness>;
   warnings: string[];
   hasOpenShift: boolean;

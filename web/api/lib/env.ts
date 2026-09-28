@@ -11,15 +11,6 @@ function runtimeValue(name: string): string | undefined {
   return deno?.env?.get(name) ?? process.env[name];
 }
 
-function required(name: string): string {
-  const value = runtimeValue(name);
-  const isProduction = isProductionRuntime;
-  if (!value && isProduction) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value ?? "";
-}
-
 const isProductionRuntime =
   runtimeValue("NODE_ENV") === "production" ||
   typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime !== "undefined";
@@ -53,7 +44,9 @@ export function projectRefFromSupabaseUrl(value: string | undefined): string {
   }
 }
 
-const databaseUrl = runtimeValue("SUPABASE_DB_URL") || required("DATABASE_URL");
+// Readiness is available before configuration; getDb still rejects an empty URL.
+const databaseUrl =
+  runtimeValue("SUPABASE_DB_URL") || runtimeValue("DATABASE_URL") || "";
 const supabaseUrl = runtimeValue("SUPABASE_URL") ?? "";
 const supabaseProjectRef =
   runtimeValue("PUMPPOS_PROJECT_REF")?.trim() ||
@@ -91,6 +84,8 @@ export const env = {
   isTest: isTestRuntime,
   localAuthEnabled,
   localAdminPassword: runtimeValue("LOCAL_ADMIN_PASSWORD") ?? "",
+  // Private deployment bootstrap code. Never expose this through VITE_*.
+  installationCode: runtimeValue("PUMPPOS_INSTALLATION_CODE") ?? "",
   databaseUrl,
   supabaseProjectRef,
   supabaseUrl:
