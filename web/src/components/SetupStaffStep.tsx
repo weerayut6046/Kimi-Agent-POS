@@ -263,7 +263,7 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
           >
             {status.label}
           </Badge>
-          {!staff.isCurrentUser && staff.active && false && (
+          {!staff.isCurrentUser && staff.active && staff.faceReady && !staff.faceReady && (
             <Button
               type="button"
               size="sm"

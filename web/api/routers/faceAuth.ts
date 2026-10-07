@@ -659,7 +659,7 @@ export const faceAuthRouter = createRouter({
 
   completeFaceLogin: anonymousQuery
     .input(faceVerificationInput)
-    .mutation(async (): Promise<any> => {
+    .mutation(async (): Promise<Awaited<ReturnType<typeof issueStaffLoginSession>>> => {
       throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
     }),
 
