@@ -24,7 +24,6 @@ import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import {
-  issueLoginFaceToken,
   verifyLoginFaceToken,
 } from "../lib/faceLoginToken";
 import {
@@ -665,111 +664,13 @@ export const faceAuthRouter = createRouter({
       const session = await issueStaffLoginSession(user, membership.branchId);
       await recordPinAttempt({ db, branchId: membership.branchId, username: user.username, success: true, ip });
       logAudit({ action: "pin_login", ...actorFromReq(ctx.req), detail: `${user.name} ???????????????????????????? PIN`, refType: "staff_user", refId: user.id });
-      return { requiresFace: false as const, ...session };
+      return { requiresFace: false as const, token: "disabled", expiresAt: new Date(), livenessAction: "blink" as const, staffName: user.name, ...session };
     }),
 
   completeFaceLogin: anonymousQuery
     .input(faceVerificationInput)
-    .mutation(async ({ input, ctx }) => {
+    .mutation(async () => {
       throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
-      let claims;
-      try {
-        claims = verifyLoginFaceToken(input.challengeToken);
-      } catch (error) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            error instanceof Error ? error.message : "คำทดสอบใบหน้าไม่ถูกต้อง",
-        });
-      }
-      if (
-        input.quality.faceScore < MIN_FACE_SCORE ||
-        input.quality.real < MIN_REAL_SCORE ||
-        input.quality.live < MIN_LIVE_SCORE ||
-        input.quality.faceSize < MIN_FACE_SIZE
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "คุณภาพหรือความเป็นบุคคลจริงของใบหน้ายังไม่ผ่าน กรุณาลองใหม่",
-        });
-      }
-      const db = getDb();
-      const ip = clientIpFromReq(ctx.req);
-      await assertPinAttemptAllowed(db, ip);
-      const membership = await db
-        .select({ staff: staffUsers })
-        .from(staffUsers)
-        .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
-        .where(
-          and(
-            eq(staffUsers.id, claims.staffId),
-            eq(staffBranches.branchId, claims.branchId),
-            eq(staffUsers.active, true)
-          )
-        )
-        .limit(1);
-      const user = membership[0]?.staff;
-      if (!user) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "บัญชีพนักงานไม่พร้อมใช้งาน",
-        });
-      }
-      const faceProfile = await db.query.employeeFaceProfiles.findFirst({
-        where: eq(employeeFaceProfiles.staffId, user.id),
-      });
-      if (!faceProfile || faceProfile.model !== FACE_MODEL) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "ไม่พบข้อมูลใบหน้าที่รองรับ กรุณาลงทะเบียนใหม่",
-        });
-      }
-      const candidates = verificationCandidates(input);
-      const enrolled = await decryptFaceEmbeddings(
-        user.id,
-        faceProfile.templateEncrypted
-      );
-      const match = verifyFaceSamples(candidates, enrolled);
-      if (!match.accepted) {
-        await recordPinAttempt({
-          db,
-          branchId: claims.branchId,
-          username: user.username,
-          success: false,
-          ip,
-        });
-        logAudit({
-          action: "login_face_rejected",
-          ...actorFromReq(ctx.req),
-          detail: `${user.name} ยืนยันใบหน้าไม่ผ่าน: ผ่านเกณฑ์ ${match.matchCount}/${candidates.length} เฟรม คะแนนสูงสุด ${match.similarity.toFixed(2)}`,
-          refType: "staff_user",
-          refId: user.id,
-        });
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "ใบหน้าไม่ตรงกับข้อมูลที่ลงทะเบียน กรุณาลองใหม่",
-        });
-      }
-      const session = await issueStaffLoginSession(user, claims.branchId);
-      await recordPinAttempt({
-        db,
-        branchId: claims.branchId,
-        username: user.username,
-        success: true,
-        ip,
-      });
-      logAudit({
-        action: "pin_face_login",
-        ...actorFromReq(ctx.req),
-        detail: `${user.name} เข้าสู่ระบบด้วย PIN และใบหน้า`,
-        refType: "staff_user",
-        refId: user.id,
-      });
-      return {
-        ok: true as const,
-        ...session,
-      };
     }),
 
   faceProfileList: managerFaceEnrollmentAction.query(async ({ ctx }) =>

@@ -11,7 +11,6 @@ import {
   Pencil,
   Plus,
   RotateCcw,
-  ScanFace,
   Settings2,
   Trash2,
   UserPlus,
