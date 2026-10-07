@@ -24,14 +24,11 @@ import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import {
-  verifyLoginFaceToken,
 } from "../lib/faceLoginToken";
 import {
-  decryptFaceEmbeddings,
   encryptFaceEmbeddings,
   FACE_MODEL,
   normalizeFaceEmbeddings,
-  verifyFaceSamples,
 } from "../lib/faceBiometrics";
 import { clientIpFromReq } from "../lib/clientIp";
 import { env, isDevelopmentRuntime } from "../lib/env";
@@ -46,10 +43,6 @@ import { issueSupabaseStaffSession } from "../lib/supabaseAuth";
 import { staffSessionResponse } from "./auth";
 import { isValidStaffUsername, normalizeStaffUsername } from "@contracts/auth";
 
-const MIN_FACE_SCORE = 0.6;
-const MIN_REAL_SCORE = 0.6;
-const MIN_LIVE_SCORE = 0.6;
-const MIN_FACE_SIZE = 160;
 const PIN_FAILURE_WINDOW_MS = 5 * 60_000;
 const PIN_FAILURE_LIMIT = 8;
 const PASSKEY_CHALLENGE_TTL_MS = 5 * 60_000;
@@ -197,9 +190,6 @@ const authenticationResponseInput = z
   })
   .passthrough();
 
-function verificationCandidates(input: z.infer<typeof faceVerificationInput>) {
-  return normalizeFaceEmbeddings(input.embeddings ?? [input.embedding!]);
-}
 
 type Db = ReturnType<typeof getDb>;
 
@@ -664,12 +654,12 @@ export const faceAuthRouter = createRouter({
       const session = await issueStaffLoginSession(user, membership.branchId);
       await recordPinAttempt({ db, branchId: membership.branchId, username: user.username, success: true, ip });
       logAudit({ action: "pin_login", ...actorFromReq(ctx.req), detail: `${user.name} ???????????????????????????? PIN`, refType: "staff_user", refId: user.id });
-      return { requiresFace: false as const, token: "disabled", expiresAt: new Date(), livenessAction: "blink" as const, staffName: user.name, ...session };
+      return { requiresFace: false as boolean, token: "disabled", expiresAt: new Date(), livenessAction: "blink" as const, staffName: user.name, ...session };
     }),
 
   completeFaceLogin: anonymousQuery
     .input(faceVerificationInput)
-    .mutation(async () => {
+    .mutation(async (): Promise<any> => {
       throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
     }),
 
