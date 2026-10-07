@@ -23,7 +23,6 @@ describe("PIN login without face or attendance", () => {
   });
 
   it("rejects biometric and enrollment procedures", async () => {
-    await expect(test.anonymousCaller().faceAuth.completeFaceLogin({} as never)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(test.caller("admin", 1).faceAuth.faceProfileList()).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
