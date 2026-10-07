@@ -211,6 +211,7 @@ async function removeExpiredPasskeyChallenges(db: Db): Promise<void> {
 }
 
 const managerFaceEnrollmentAction = publicQuery.use(({ ctx, next }) => {
+  throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
   if (ctx.staff.role !== "admin" && ctx.staff.role !== "manager") {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -661,51 +662,16 @@ export const faceAuthRouter = createRouter({
           .set({ pin: hashStaffPin(input.pin) })
           .where(and(eq(staffUsers.id, user.id), eq(staffUsers.pin, user.pin)));
       }
-      if (isDevelopmentRuntime()) {
-        const session = await issueStaffLoginSession(user, membership.branchId);
-        await recordPinAttempt({
-          db,
-          branchId: membership.branchId,
-          username: user.username,
-          success: true,
-          ip,
-        });
-        logAudit({
-          action: "pin_dev_login",
-          ...actorFromReq(ctx.req),
-          detail: `${user.name} เข้าสู่ระบบด้วย PIN ในโหมดพัฒนา (ข้ามการสแกนใบหน้า)`,
-          refType: "staff_user",
-          refId: user.id,
-        });
-        return {
-          requiresFace: false as const,
-          ...session,
-        };
-      }
-      const faceProfile = await db.query.employeeFaceProfiles.findFirst({
-        columns: { id: true, model: true },
-        where: eq(employeeFaceProfiles.staffId, user.id),
-      });
-      if (!faceProfile || faceProfile.model !== FACE_MODEL) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "ยังไม่ได้ลงทะเบียนใบหน้าที่รองรับ กรุณาติดต่อผู้ดูแลระบบ",
-        });
-      }
-      const challenge = issueLoginFaceToken({
-        branchId: membership.branchId,
-        staffId: user.id,
-      });
-      return {
-        requiresFace: true as const,
-        ...challenge,
-        staffName: user.name,
-      };
+      const session = await issueStaffLoginSession(user, membership.branchId);
+      await recordPinAttempt({ db, branchId: membership.branchId, username: user.username, success: true, ip });
+      logAudit({ action: "pin_login", ...actorFromReq(ctx.req), detail: `${user.name} ???????????????????????????? PIN`, refType: "staff_user", refId: user.id });
+      return { requiresFace: false as const, ...session };
     }),
 
   completeFaceLogin: anonymousQuery
     .input(faceVerificationInput)
     .mutation(async ({ input, ctx }) => {
+      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
       let claims;
       try {
         claims = verifyLoginFaceToken(input.challengeToken);
@@ -840,6 +806,7 @@ export const faceAuthRouter = createRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
       const db = getDb();
       const staff = await requireBranchStaff(
         db,
@@ -893,6 +860,7 @@ export const faceAuthRouter = createRouter({
   deleteFaceProfile: managerFaceEnrollmentAction
     .input(z.object({ staffId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
+      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
       const db = getDb();
       const staff = await requireBranchStaff(
         db,

@@ -480,9 +480,6 @@ export default function Workforce() {
         </div>
         {canViewBranchSchedules && (
           <Button variant="outline" asChild>
-            <a href="/workforce/face-enrollment">
-              <ScanFace className="size-4" /> ลงทะเบียนใบหน้าเพื่อเข้าสู่ระบบ
-            </a>
           </Button>
         )}
       </div>

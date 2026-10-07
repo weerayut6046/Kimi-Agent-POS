@@ -225,7 +225,7 @@ export function initialSetupPolicy() {
       (!env.isProduction || code.length >= 32) &&
       env.appSecret.length >= 32 &&
       (localSession || cloudAuthConfigured()),
-    requiresFace: env.isProduction,
+    requiresFace: false,
     localSession,
   };
 }

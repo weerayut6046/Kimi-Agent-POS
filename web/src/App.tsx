@@ -31,7 +31,6 @@ const Audit = lazy(() => import("@/pages/Audit"));
 const Security = lazy(() => import("@/pages/Security"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Workforce = lazy(() => import("@/pages/Workforce"));
-const FaceEnrollment = lazy(() => import("@/pages/FaceEnrollment"));
 const Platform = lazy(() => import("@/pages/Platform"));
 const Setup = lazy(() => import("@/pages/Setup"));
 
@@ -174,14 +173,6 @@ export default function App() {
     >
       <Routes>
         <Route path="/login" element={<Navigate to={fallbackPath} replace />} />
-        <Route
-          path="/workforce/face-enrollment"
-          element={
-            <MenuRoute permission="workforce" managerOnly>
-              <FaceEnrollment />
-            </MenuRoute>
-          }
-        />
         <Route element={<Layout />}>
           <Route
             path="/setup"
