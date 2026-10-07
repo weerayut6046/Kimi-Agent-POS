@@ -174,10 +174,6 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
   }
 
   Future<void> _openShift(ShiftBootstrap data) async {
-    if (!data.faceClockedIn) {
-      setState(() => _error = 'กรุณาสแกน QR และยืนยันใบหน้าเข้างานก่อนเปิดกะ');
-      return;
-    }
     if (data.nozzles.isEmpty) {
       setState(() => _error = 'ไม่พบหัวจ่ายที่เปิดใช้งาน');
       return;
@@ -520,7 +516,7 @@ class _OpenShiftForm extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             FilledButton.icon(
-              onPressed: submitting || nozzles.isEmpty || !faceClockedIn
+              onPressed: submitting || nozzles.isEmpty
                   ? null
                   : onOpen,
               icon: submitting
@@ -534,9 +530,7 @@ class _OpenShiftForm extends StatelessWidget {
                 child: Text(
                   submitting
                       ? 'กำลังเปิดกะ...'
-                      : faceClockedIn
-                      ? 'เปิดกะ'
-                      : 'สแกนหน้าเข้างานก่อน',
+                      : '??????',
                 ),
               ),
             ),
