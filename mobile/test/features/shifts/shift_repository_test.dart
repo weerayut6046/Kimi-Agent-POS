@@ -8,8 +8,10 @@ import 'package:pumppos/features/shifts/data/shift_repository.dart';
 
 void main() {
   test('loads the active shift and branch nozzles', () async {
+    final requestedProcedures = <String>[];
     final repository = ShiftRepository(
       _client((request) async {
+        requestedProcedures.add(request.url.pathSegments.last);
         return switch (request.url.pathSegments.last) {
           'pos.currentShift' => _response({
             'id': 14,
@@ -50,17 +52,6 @@ void main() {
               ],
             },
           ]),
-          'attendance.myStatus' => _response({
-            'openSession': {
-              'workDate': DateTime.now()
-                  .toUtc()
-                  .add(const Duration(hours: 7))
-                  .toIso8601String()
-                  .substring(0, 10),
-              'clockInMethod': 'face',
-              'clockInAt': '2026-08-28T00:55:00.000Z',
-            },
-          }),
           _ => http.Response('Not found', 404),
         };
       }),
@@ -74,8 +65,10 @@ void main() {
     expect(data.currentShift?.expensesTotal, 75);
     expect(data.currentShift?.readings.single.label, 'หัว 1');
     expect(data.nozzles.single.pumpName, 'ตู้ 1');
-    expect(data.faceClockedIn, isTrue);
-    expect(data.faceClockInAt, DateTime.parse('2026-08-28T00:55:00.000Z'));
+    expect(
+      requestedProcedures,
+      unorderedEquals(['pos.currentShift', 'catalog.listPumps']),
+    );
   });
 
   test('sends rounded readings when closing a shift', () async {

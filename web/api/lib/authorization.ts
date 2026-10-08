@@ -10,7 +10,6 @@ import {
 } from "./session";
 import { branchForStaff, defaultBranchForStaff } from "./branches";
 import { env } from "./env";
-import { verifyFaceSessionProof } from "./faceSessionProof";
 
 const ACTIVE_STAFF_CACHE_MS = 5_000;
 const activeStaffCache = new Map<
@@ -82,9 +81,7 @@ async function supabaseAuthUserId(request: Request): Promise<{
   ) {
     return null;
   }
-  if (typeof data.claims.session_id !== "string" ||
-      !verifyFaceSessionProof(request.headers.get("x-face-proof"),
-        data.claims.sub, data.claims.session_id)) return null;
+  if (typeof data.claims.session_id !== "string") return null;
   return { id: data.claims.sub, exp: data.claims.exp };
 }
 

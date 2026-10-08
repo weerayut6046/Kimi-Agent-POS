@@ -45,7 +45,7 @@ export const MENU_PERMISSION_DEFINITIONS = [
     label: "พนักงานและตารางงาน",
     group: "station",
     roles: ALL_ROLES,
-    apiPrefixes: ["workforce.", "faceAuth."] as const,
+    apiPrefixes: ["workforce."] as const,
   },
   {
     key: "stock",
@@ -216,17 +216,13 @@ export function isRoleEligibleForMenu(
 export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   // These login procedures verify credentials before issuing a staff session.
   if (
-    path === "faceAuth.passkeyStatus" ||
-    path === "faceAuth.beginFaceLogin" ||
-    path === "faceAuth.completeFaceLogin" ||
-    path === "faceAuth.beginPasskeyLogin" ||
-    path === "faceAuth.completePasskeyLogin"
+    path === "staffAuth.passkeyStatus" ||
+    path === "staffAuth.loginWithPin" ||
+    path === "staffAuth.beginPasskeyLogin" ||
+    path === "staffAuth.completePasskeyLogin"
   )
     return [];
-  if (
-    path === "faceAuth.beginPasskeyRegistration" ||
-    path === "faceAuth.completePasskeyRegistration"
-  ) {
+  if (path.startsWith("staffAuth.")) {
     return ["settings"];
   }
   if (

@@ -49,7 +49,35 @@ describe("meter reading reconciliation", () => {
     expect(result.implausible).toBe(false);
   });
 
-  it("does not count a closing P value when the shift has no opening P baseline", () => {
+  it("counts first-shift sales from a zero opening P reading", () => {
+    const result = assessMeterReading({
+      openMeter: 0,
+      closeMeter: 10,
+      openMoney: 0,
+      closeMoney: 400,
+      pricePerLiter: 40,
+    });
+
+    expect(result.moneyFromMeter).toBe(400);
+    expect(result.difference).toBe(0);
+    expect(result.implausible).toBe(false);
+  });
+
+  it("keeps an explicit zero sale available for reconciliation", () => {
+    const result = assessMeterReading({
+      openMeter: 0,
+      closeMeter: 0,
+      openMoney: 0,
+      closeMoney: 0,
+      pricePerLiter: 40,
+    });
+
+    expect(result.moneyFromMeter).toBe(0);
+    expect(result.difference).toBe(0);
+    expect(result.implausible).toBe(false);
+  });
+
+  it("checks implausible closing P readings even when the opening P is zero", () => {
     const result = assessMeterReading({
       openMeter: 100,
       closeMeter: 110,
@@ -58,8 +86,8 @@ describe("meter reading reconciliation", () => {
       pricePerLiter: 40,
     });
 
-    expect(result.moneyFromMeter).toBeNull();
-    expect(result.difference).toBeNull();
-    expect(result.implausible).toBe(false);
+    expect(result.moneyFromMeter).toBe(5_000);
+    expect(result.difference).toBe(4_600);
+    expect(result.implausible).toBe(true);
   });
 });

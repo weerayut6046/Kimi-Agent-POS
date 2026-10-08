@@ -306,6 +306,56 @@ describe("admin จัดการประวัติการตัดกะ"
     ).rejects.toThrow("เลขลิตรปิดกะ");
   });
 
+  it("แก้ประวัติที่ P ตั้งต้นเป็น 0 แล้วคำนวณยอด P ที่เคยตกหล่นใหม่", async () => {
+    const nozzle = (await t.db.query.nozzles.findMany())[0]!;
+    // จำลองประวัติที่โค้ดเดิมบันทึกยอดรวมเป็น 0 แม้มี P ปิดกะแล้ว
+    const [{ id }] = await t.db
+      .insert(shifts)
+      .values({
+        staffName: "กะเริ่มจากศูนย์",
+        openedAt: historyInput.openedAt,
+        closedAt: historyInput.closedAt,
+        status: "closed",
+        totalMoneyMeter: 0,
+      })
+      .returning({ id: shifts.id });
+    await t.db.insert(shiftReadings).values({
+      shiftId: id,
+      nozzleId: nozzle.id,
+      openMeter: 0,
+      closeMeter: 10,
+      openMoney: 0,
+      closeMoney: 402,
+      pricePerLiter: 40,
+    });
+
+    const result = await t.caller("admin").pos.updateShiftHistory({
+      id,
+      ...historyInput,
+      readings: [{ nozzleId: nozzle.id, closeMeter: 10, closeMoney: 402 }],
+    });
+    expect(result).toMatchObject({
+      totalLiters: 10,
+      totalAmount: 400,
+      totalMoneyMeter: 402,
+    });
+    expect(
+      await t.db.query.shifts.findFirst({ where: eq(shifts.id, id) })
+    ).toMatchObject({ totalMoneyMeter: 402 });
+    const detail = await t.caller("admin").pos.shiftDetail({ id });
+    expect(detail.readings[0]).toMatchObject({
+      openMoney: 0,
+      closeMoney: 402,
+      money: 402,
+      diff: 2,
+    });
+    expect(
+      (await t.caller("admin").pos.shiftHistory({ month: "2026-07" })).find(
+        row => row.id === id
+      )?.totalMoneyMeter
+    ).toBe(402);
+  });
+
   it("ไม่อนุญาตให้แก้ไขหรือลบกะที่กำลังเปิด", async () => {
     const [{ id: openId }] = await t.db
       .insert(shifts)

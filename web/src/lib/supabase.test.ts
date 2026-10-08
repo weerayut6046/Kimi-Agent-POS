@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accessTokenFromStoredSupabaseSession } from "./supabase";
 
 const AUTH_KEY = "pumppos_supabase_auth";
-const FACE_PROOF_KEY = "pumppos_face_proof";
+const LEGACY_PROOF_KEY = "pumppos_face_proof";
 const REMEMBERED_KEY = "pumppos_passkey_users_v2";
 
 function memoryStorage(): Storage {
@@ -82,23 +82,22 @@ describe("browser Supabase credential storage", () => {
     const sessionStorage = memoryStorage();
     localStorage.setItem(REMEMBERED_KEY, '["somchai"]');
     localStorage.setItem(AUTH_KEY, "old-auth");
-    localStorage.setItem(FACE_PROOF_KEY, "old-proof");
+    localStorage.setItem(LEGACY_PROOF_KEY, "old-proof");
     sessionStorage.setItem(AUTH_KEY, "session-auth");
-    sessionStorage.setItem(FACE_PROOF_KEY, "session-proof");
+    sessionStorage.setItem(LEGACY_PROOF_KEY, "session-proof");
     vi.stubGlobal("window", { localStorage, sessionStorage });
 
     const supabase = await import("./supabase");
 
     expect(localStorage.getItem(REMEMBERED_KEY)).toBe('["somchai"]');
     expect(localStorage.getItem(AUTH_KEY)).toBeNull();
-    expect(localStorage.getItem(FACE_PROOF_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(sessionStorage.getItem(AUTH_KEY)).toBe("session-auth");
-    expect(sessionStorage.getItem(FACE_PROOF_KEY)).toBe("session-proof");
+    expect(sessionStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(supabase.hasRememberedPasskey()).toBe(true);
     expect(supabase.hasRememberedPasskey("Somchai")).toBe(true);
     expect(supabase.hasRememberedPasskey("someone-else")).toBe(false);
     expect(supabase.hasPersistedSupabaseSession()).toBe(true);
-    expect(supabase.currentFaceSessionProof()).toBe("session-proof");
   });
 
   it("clears legacy localStorage while retaining an unremembered browser session", async () => {
@@ -110,25 +109,24 @@ describe("browser Supabase credential storage", () => {
       expires_at: Math.floor(Date.now() / 1000) + 3_600,
     });
     localStorage.setItem(AUTH_KEY, "old-auth");
-    localStorage.setItem(FACE_PROOF_KEY, "old-proof");
+    localStorage.setItem(LEGACY_PROOF_KEY, "old-proof");
     sessionStorage.setItem(AUTH_KEY, storedAuth);
-    sessionStorage.setItem(FACE_PROOF_KEY, "current-proof");
+    sessionStorage.setItem(LEGACY_PROOF_KEY, "current-proof");
     vi.stubGlobal("window", { localStorage, sessionStorage });
 
     const supabase = await import("./supabase");
 
     expect(localStorage.getItem(AUTH_KEY)).toBeNull();
-    expect(localStorage.getItem(FACE_PROOF_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(sessionStorage.getItem(AUTH_KEY)).toBe(storedAuth);
-    expect(sessionStorage.getItem(FACE_PROOF_KEY)).toBe("current-proof");
+    expect(sessionStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(supabase.hasRememberedPasskey()).toBe(false);
     expect(supabase.hasPersistedSupabaseSession()).toBe(true);
-    expect(supabase.currentFaceSessionProof()).toBe("current-proof");
     expect(await supabase.currentSupabaseAccessToken()).toBe(accessToken);
 
     await supabase.clearSupabaseSession();
     expect(sessionStorage.getItem(AUTH_KEY)).toBeNull();
-    expect(sessionStorage.getItem(FACE_PROOF_KEY)).toBeNull();
+    expect(sessionStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
   });
 
   it("retains the desktop session in localStorage for the offline runtime", async () => {
@@ -142,13 +140,13 @@ describe("browser Supabase credential storage", () => {
         expires_at: Math.floor(Date.now() / 1000) + 3_600,
       })
     );
-    localStorage.setItem(FACE_PROOF_KEY, "desktop-proof");
+    localStorage.setItem(LEGACY_PROOF_KEY, "desktop-proof");
     vi.stubGlobal("window", { posDesktop: {}, localStorage, sessionStorage });
 
     const supabase = await import("./supabase");
 
     expect(supabase.hasPersistedSupabaseSession()).toBe(true);
-    expect(supabase.currentFaceSessionProof()).toBe("desktop-proof");
+    expect(localStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(await supabase.currentSupabaseAccessToken()).toBe(accessToken);
   });
 
@@ -161,9 +159,8 @@ describe("browser Supabase credential storage", () => {
     supabase.rememberPasskey("Somchai");
 
     expect(localStorage.getItem(REMEMBERED_KEY)).toBe('["somchai"]');
-    expect(localStorage.getItem(FACE_PROOF_KEY)).toBeNull();
+    expect(localStorage.getItem(LEGACY_PROOF_KEY)).toBeNull();
     expect(sessionStorage.getItem(AUTH_KEY)).toBeNull();
-    expect(supabase.currentFaceSessionProof()).toBeNull();
   });
 
   it("ignores markers from the earlier Supabase passkey flow", async () => {
@@ -175,5 +172,62 @@ describe("browser Supabase credential storage", () => {
     const supabase = await import("./supabase");
 
     expect(supabase.hasRememberedPasskey()).toBe(false);
+  });
+});
+
+describe("installSupabaseSession", () => {
+  const setSession = vi.fn();
+
+  beforeEach(() => {
+    vi.resetModules();
+    setSession.mockReset();
+    vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+    vi.stubGlobal("window", {
+      localStorage: memoryStorage(),
+      sessionStorage: memoryStorage(),
+    });
+    vi.doMock("@supabase/supabase-js", () => ({
+      createClient: () => ({ auth: { setSession } }),
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@supabase/supabase-js");
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("installs a normal Auth session using its access and refresh tokens", async () => {
+    setSession.mockResolvedValue({ error: null });
+    const supabase = await import("./supabase");
+
+    expect(
+      await supabase.installSupabaseSession({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3_600,
+      })
+    ).toBe(true);
+    expect(setSession).toHaveBeenCalledWith({
+      access_token: "access-token",
+      refresh_token: "refresh-token",
+    });
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("clears stale Auth credentials when session installation fails", async () => {
+    setSession.mockResolvedValue({ error: new Error("Invalid session") });
+    const supabase = await import("./supabase");
+    window.sessionStorage.setItem(AUTH_KEY, "stale-session");
+
+    expect(
+      await supabase.installSupabaseSession({
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 3_600,
+      })
+    ).toBe(false);
+    expect(window.sessionStorage.getItem(AUTH_KEY)).toBeNull();
   });
 });

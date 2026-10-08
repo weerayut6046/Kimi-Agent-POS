@@ -31,7 +31,6 @@ export function resolveInitialEntry(input: {
       input.state.needsOwner,
       input.state.canCreateOwner,
       input.state.requiresInstallationCode,
-      input.state.requiresFace,
     ].some(value => typeof value !== "boolean")
   )
     return "installation_error";
@@ -59,8 +58,6 @@ export type InitialOwnerForm = {
   pin: string;
   pinConfirmation: string;
   installationCode: string;
-  consentConfirmed: boolean;
-  embeddings?: number[][];
 };
 
 export function initialOwnerInput(
@@ -74,8 +71,6 @@ export function initialOwnerInput(
     throw new Error("PIN และช่องยืนยัน PIN ไม่ตรงกัน");
   if (state.requiresInstallationCode && !form.installationCode.trim())
     throw new Error("กรุณาเปิดลิงก์ติดตั้งจากผู้ให้บริการ หรือระบุรหัสติดตั้ง");
-  if (state.requiresFace && (!form.embeddings || !form.consentConfirmed))
-    throw new Error("กรุณายินยอมและลงทะเบียนใบหน้าของเจ้าของก่อนสร้างบัญชี");
   const parsed = createInitialOwnerInput.safeParse({
     requestId,
     name: form.name,
@@ -84,16 +79,13 @@ export function initialOwnerInput(
     ...(form.installationCode.trim()
       ? { installationCode: form.installationCode.trim() }
       : {}),
-    ...(form.embeddings
-      ? { embeddings: form.embeddings, consentConfirmed: form.consentConfirmed }
-      : {}),
   });
   if (!parsed.success) {
     const message = parsed.error.issues[0]?.message;
     throw new Error(
       message && /[\u0E00-\u0E7F]/.test(message)
         ? message
-        : "ตรวจข้อมูลเจ้าของและข้อมูลใบหน้าอีกครั้ง"
+        : "ตรวจข้อมูลเจ้าของอีกครั้ง"
     );
   }
   return parsed.data;

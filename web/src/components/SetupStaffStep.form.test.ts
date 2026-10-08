@@ -24,7 +24,6 @@ const staff: BusinessSetupState["staff"][number] = {
   active: true,
   pinReady: true,
   authReady: true,
-  faceReady: false,
   loginReady: false,
   isCurrentUser: false,
 };
@@ -88,14 +87,14 @@ describe("setup staff account form", () => {
 });
 
 describe("setup staff readiness messages", () => {
-  it("does not call a newly provisioned account ready while face enrollment is pending", () => {
+  it("keeps an account pending until server readiness is approved", () => {
     expect(setupStaffLoginStatus(staff)).toEqual({
-      label: "รอลงทะเบียนใบหน้า",
+      label: "รอตรวจสอบการเข้าสู่ระบบ",
       ready: false,
     });
   });
 
-  it("honors a server-approved current account or passkey without inventing a face requirement", () => {
+  it("honors a server-approved current account or passkey without inventing an extra requirement", () => {
     expect(
       setupStaffLoginStatus({ ...staff, loginReady: true, pinReady: false })
         .ready
@@ -115,9 +114,6 @@ describe("setup staff readiness messages", () => {
     );
     expect(setupStaffLoginStatus({ ...staff, authReady: false }).label).toBe(
       "บัญชียังไม่พร้อมเข้าสู่ระบบ"
-    );
-    expect(setupStaffLoginStatus({ ...staff, faceReady: true }).ready).toBe(
-      false
     );
   });
 });

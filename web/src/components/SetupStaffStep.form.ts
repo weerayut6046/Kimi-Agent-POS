@@ -63,11 +63,10 @@ export function setupStaffLoginStatus(
 ) {
   if (!staff.active) return { label: "ปิดใช้งาน", ready: false };
   // The server also checks existing passkeys and the current owner's session.
-  // A missing face or PIN alone cannot override its readiness decision.
+  // Missing prerequisites alone cannot override its readiness decision.
   if (staff.loginReady) return { label: "พร้อมเข้าสู่ระบบ", ready: true };
   if (!staff.pinReady) return { label: "ยังไม่ได้ตั้ง PIN", ready: false };
   if (!staff.authReady)
     return { label: "บัญชียังไม่พร้อมเข้าสู่ระบบ", ready: false };
-  if (!staff.faceReady) return { label: "รอลงทะเบียนใบหน้า", ready: false };
   return { label: "รอตรวจสอบการเข้าสู่ระบบ", ready: false };
 }

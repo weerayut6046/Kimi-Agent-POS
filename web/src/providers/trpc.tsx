@@ -5,10 +5,7 @@ import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
 import type { ReactNode } from "react";
 import { queryRetryDelay, shouldRetryQuery } from "@/lib/queryRetry";
-import {
-  currentFaceSessionProof,
-  currentSupabaseAccessToken,
-} from "@/lib/supabase";
+import { currentSupabaseAccessToken } from "@/lib/supabase";
 import { isLocalAuthEnabled, readLocalSessionToken } from "@/lib/localAuth";
 import {
   resolveTrpcUrl,
@@ -37,8 +34,8 @@ const usesSupabaseGateway = usesSupabaseEdgeGateway({
   isDev: import.meta.env.DEV,
   supabaseUrl,
   apiTransport,
-  // Development login is intentionally PIN-only and therefore stays on the
-  // local API. Production uses the selected Node or Supabase Edge transport.
+  // Development stays on the local API. Production uses the selected Node
+  // or Supabase Edge transport.
   proxyToSupabaseInDev: false,
 });
 const customerLoyaltyTrpcUrl =
@@ -68,7 +65,6 @@ async function requestHeaders() {
   const token = isLocalAuthEnabled
     ? readLocalSessionToken()
     : await currentSupabaseAccessToken();
-  const faceProof = isLocalAuthEnabled ? null : currentFaceSessionProof();
   const branchId = localStorage.getItem("pumppos_branch_id");
   return {
     ...(isLocalAuthEnabled && token
@@ -79,9 +75,6 @@ async function requestHeaders() {
           usesSupabaseGateway,
         })),
     "x-region": supabaseFunctionRegion,
-    ...(!isLocalAuthEnabled && token && faceProof
-      ? { "x-face-proof": faceProof }
-      : {}),
     ...(branchId && /^[1-9][0-9]*$/.test(branchId)
       ? { "x-branch-id": branchId }
       : {}),

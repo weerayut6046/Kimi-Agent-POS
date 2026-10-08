@@ -72,9 +72,9 @@ docker compose up --build
 - **Frontend** — static build บน Vercel (project `kimi-agent-pos`); `vercel.json` rewrite `/api/*` ไป Supabase และทำ SPA fallback
 - **Backend** — Supabase Edge Functions `pos-api`, `pos-loyalty` (public เฉพาะเช็กแต้ม) และ `pos-assistant`; `pos-auth-bootstrap` ปิดถาวรและตอบ 410; ไม่มี Railway proxy
 - **Auth** — Supabase Auth เป็นเจ้าของรหัสผ่านและ session; API ตรวจ JWT แล้วผูกกับพนักงานที่ active และสาขาที่เลือกทุก request
-- **Passkey บนเว็บ** — หลังเข้าระบบด้วย PIN และใบหน้าครั้งแรก พนักงานบันทึกการยืนยันด้วยอุปกรณ์เพื่อเข้าใช้รอบถัดไปได้ ดูการตั้งค่าโดเมนและข้อจำกัดใน [คู่มือ passkey](docs/passkey-login.md)
+- **Passkey บนเว็บ** — หลังเข้าระบบด้วยชื่อผู้ใช้และ PIN ครั้งแรก พนักงานบันทึกการยืนยันด้วยอุปกรณ์เพื่อเข้าใช้รอบถัดไปได้ ดูการตั้งค่าโดเมนและข้อจำกัดใน [คู่มือ passkey](docs/passkey-login.md)
 - **Database** — Supabase project `Kimi-Agent-POS`, private schema `pos`; RLS เปิดทุกตารางและ revoke สิทธิ์ Data API จาก `anon`/`authenticated`
-- Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; ชุดติดตั้งใหม่สร้างเจ้าของผ่าน `/setup` โดยใช้รหัสติดตั้งส่วนตัวและลงทะเบียนใบหน้า ส่วนบัญชีของกิจการเดิมใช้ระบบ Auth เดิม
+- Production ไม่สร้างบัญชีตัวอย่างหรือ PIN เริ่มต้น; ชุดติดตั้งใหม่สร้างเจ้าของผ่าน `/setup` โดยใช้รหัสติดตั้งส่วนตัวและกำหนดชื่อผู้ใช้กับ PIN ส่วนบัญชีของกิจการเดิมใช้ระบบ Auth เดิม
 
 deploy รอบใหม่ (ต้องเชื่อม Supabase CLI กับ project ที่ถูกต้องและมี Vercel token):
 

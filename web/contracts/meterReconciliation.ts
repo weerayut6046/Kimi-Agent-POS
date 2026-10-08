@@ -13,8 +13,8 @@ export const METER_IMPLAUSIBLE_RATIO = 0.1;
 export type MeterReadingAssessment = {
   liters: number;
   amountFromLiters: number;
-  moneyFromMeter: number | null;
-  difference: number | null;
+  moneyFromMeter: number;
+  difference: number;
   implausible: boolean;
   allowedDifference: number;
   suggestedCloseMoney: number | null;
@@ -84,10 +84,9 @@ export function assessMeterReading(input: {
 }): MeterReadingAssessment {
   const liters = round3(input.closeMeter - input.openMeter);
   const amountFromLiters = round2(liters * input.pricePerLiter);
-  const moneyFromMeter =
-    input.openMoney > 0 ? round2(input.closeMoney - input.openMoney) : null;
-  const difference =
-    moneyFromMeter == null ? null : round2(moneyFromMeter - amountFromLiters);
+  // Zero is a valid starting totalizer reading, including the first shift.
+  const moneyFromMeter = round2(input.closeMoney - input.openMoney);
+  const difference = round2(moneyFromMeter - amountFromLiters);
   const allowedDifference = round2(
     Math.max(
       METER_IMPLAUSIBLE_MIN_DIFF,
@@ -95,9 +94,7 @@ export function assessMeterReading(input: {
     )
   );
   const implausible =
-    !input.priceChangedDuringShift &&
-    difference != null &&
-    Math.abs(difference) > allowedDifference;
+    !input.priceChangedDuringShift && Math.abs(difference) > allowedDifference;
 
   return {
     liters,

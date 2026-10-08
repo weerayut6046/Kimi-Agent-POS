@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { auditLogs, fuelTanks, priceChanges, products } from "@db/schema";
+import {
+  auditLogs,
+  fuelTanks,
+  priceChanges,
+  products,
+  shiftReadings,
+  shifts,
+} from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสเปิด–ปิดกะและมิเตอร์ บนฐานข้อมูลชั่วคราว (migrate + seed)
@@ -358,38 +365,129 @@ describe("openShift / closeShift", () => {
     );
   });
 
-  it("กะที่เปิดด้วย P = 0 จะข้ามการเทียบยอด P (ยอดเงินนับจากลิตรอย่างเดียว)", async () => {
+  it("กะแรกที่เปิดด้วย L/P = 0 บันทึกยอด P ในประวัติและรายละเอียด", async () => {
     const nz = await allNozzles();
     const { shiftId } = await t.caller().pos.openShift({
       staffName: "กะเย็น",
       readings: nz.map(n => ({
         nozzleId: n.id,
-        openMeter: n.currentMeter,
+        openMeter: 0,
         openMoney: 0,
       })),
     });
+
+    const current = await t.caller().pos.currentShift();
+    expect(current!.readings.every(r => r.openMoney === 0)).toBe(true);
+    expect(current!.readings.every(r => r.openMeter === 0)).toBe(true);
+
+    await expect(
+      t.caller().pos.closeShift({
+        shiftId,
+        readings: nz.map((n, i) => ({
+          nozzleId: n.id,
+          closeMeter: i === 0 ? 10 : 0,
+          closeMoney: i === 0 ? 5000 : 0,
+        })),
+      })
+    ).rejects.toThrow("ยอดมิเตอร์ P");
+    expect((await t.caller().pos.currentShift())?.id).toBe(shiftId);
 
     const res = await t.caller().pos.closeShift({
       shiftId,
       readings: nz.map((n, i) => ({
         nozzleId: n.id,
-        closeMeter: n.currentMeter + (i === 0 ? 10 : 0),
-        closeMoney: 5000, // จด P ปลายทางไว้ให้กะถัดไป แต่รอบนี้ไม่นำมาคิด
+        closeMeter: i === 0 ? 10 : 0,
+        closeMoney: i === 0 ? 407.4 : 0,
       })),
     });
 
     expect(res.totalLiters).toBe(10);
     expect(res.totalAmount).toBe(407.4); // 10 × 40.74
-    expect(res.totalMoneyMeter).toBe(0);
-    // แต่ P ปลายทางถูกบันทึกลงหัวจ่าย
-    expect((await allNozzles())[0]!.currentMoney).toBe(5000);
+    expect(res.totalMoneyMeter).toBe(407.4);
+    expect(res.diff).toBe(0);
+    expect((await allNozzles())[0]!.currentMoney).toBe(407.4);
+    expect(
+      await t.db.query.shifts.findFirst({ where: eq(shifts.id, shiftId) })
+    ).toMatchObject({ totalMoneyMeter: 407.4, status: "closed" });
+    expect(
+      await t.db.query.shiftReadings.findFirst({
+        where: eq(shiftReadings.shiftId, shiftId),
+      })
+    ).toMatchObject({ openMoney: 0, closeMoney: 407.4 });
 
     // ไม่ส่งยอดเงินนับ → บันทึกเป็น null (กะเก่า/ไม่ได้กรอก)
     const hist = await t.caller().pos.shiftHistory();
     const closed = hist.find(s => s.id === shiftId)!;
+    expect(closed.totalMoneyMeter).toBe(407.4);
+    expect(closed.cashExpectedP).toBe(407.4);
     expect(closed.countedCash).toBeNull();
     expect(closed.transferAmount).toBeNull();
     expect(closed.priceChangedDuringShift).toBe(false);
+    const detail = await t.caller().pos.shiftDetail({ id: shiftId });
+    expect(detail.totalMoneyMeter).toBe(407.4);
+    expect(detail.readings.find(r => r.nozzleId === nz[0]!.id)).toMatchObject({
+      openMoney: 0,
+      closeMoney: 407.4,
+      money: 407.4,
+      diff: 0,
+    });
+    expect(detail.readings.find(r => r.nozzleId === nz[1]!.id)?.money).toBe(0);
+  });
+
+  it("กะถัดไปใช้ P ปิดกะแรกเป็นตั้งต้นและรวมหัวจ่ายที่ยังเริ่มจาก 0", async () => {
+    const nz = await allNozzles();
+    expect(nz[0]!.currentMoney).toBe(407.4);
+    expect(nz[2]!.currentMoney).toBe(0);
+    const { shiftId } = await t.caller().pos.openShift({
+      staffName: "กะถัดไป",
+      readings: nz.map(n => ({
+        nozzleId: n.id,
+        openMeter: n.currentMeter,
+        openMoney: n.currentMoney,
+      })),
+    });
+    const result = await t.caller().pos.closeShift({
+      shiftId,
+      readings: nz.map((n, i) => ({
+        nozzleId: n.id,
+        closeMeter: n.currentMeter + (i === 0 || i === 2 ? 10 : 0),
+        closeMoney: n.currentMoney + (i === 0 || i === 2 ? 407.4 : 0),
+      })),
+    });
+    expect(result.totalMoneyMeter).toBe(814.8);
+    const detail = await t.caller().pos.shiftDetail({ id: shiftId });
+    expect(detail.readings.find(r => r.nozzleId === nz[0]!.id)).toMatchObject({
+      openMoney: 407.4,
+      closeMoney: 814.8,
+      money: 407.4,
+    });
+    expect(detail.readings.find(r => r.nozzleId === nz[2]!.id)).toMatchObject({
+      openMoney: 0,
+      closeMoney: 407.4,
+      money: 407.4,
+    });
+  });
+
+  it("กะที่ P เปิดและปิดเป็น 0 แสดงยอด 0 โดยกะเปิดยังไม่มีเลขปิด", async () => {
+    const nozzle = (await allNozzles())[0]!;
+    const { shiftId } = await t.caller().pos.openShift({
+      staffName: "กะไม่มีการขาย",
+      readings: [{ nozzleId: nozzle.id, openMeter: 0, openMoney: 0 }],
+    });
+    const openDetail = await t.caller().pos.shiftDetail({ id: shiftId });
+    expect(openDetail.readings[0]?.money).toBeNull();
+    const result = await t.caller().pos.closeShift({
+      shiftId,
+      readings: [{ nozzleId: nozzle.id, closeMeter: 0, closeMoney: 0 }],
+    });
+    expect(result.totalMoneyMeter).toBe(0);
+    const detail = await t.caller().pos.shiftDetail({ id: shiftId });
+    expect(detail.readings[0]).toMatchObject({
+      openMoney: 0,
+      closeMoney: 0,
+      money: 0,
+      diff: 0,
+    });
   });
 
   it("ปิดกะที่ไม่มีอยู่จริง → error", async () => {

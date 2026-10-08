@@ -38,25 +38,11 @@ describe("first-owner input boundary", () => {
     }
   );
 
-  it("requires explicit consent for face samples and rejects invalid numeric samples", () => {
-    const embeddings = Array.from({ length: 3 }, () => Array(128).fill(0.2));
-    expect(
-      createInitialOwnerInput.safeParse({ ...owner, embeddings }).success
-    ).toBe(false);
-    expect(
-      createInitialOwnerInput.safeParse({
-        ...owner,
-        embeddings,
-        consentConfirmed: true,
-      }).success
-    ).toBe(true);
-    embeddings[0][0] = Infinity;
-    expect(
-      createInitialOwnerInput.safeParse({
-        ...owner,
-        embeddings,
-        consentConfirmed: true,
-      }).success
-    ).toBe(false);
+  it("accepts the owner identity and PIN without additional enrollment data", () => {
+    expect(createInitialOwnerInput.parse(owner)).toEqual({
+      ...owner,
+      name: "เจ้าของร้าน",
+      username: "owner",
+    });
   });
 });

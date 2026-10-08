@@ -119,14 +119,10 @@ class ShiftBootstrap {
   const ShiftBootstrap({
     required this.currentShift,
     required this.nozzles,
-    this.faceClockedIn = false,
-    this.faceClockInAt,
   });
 
   final CurrentShift? currentShift;
   final List<ShiftNozzle> nozzles;
-  final bool faceClockedIn;
-  final DateTime? faceClockInAt;
 }
 
 Map<String, dynamic> _requiredMap(Object? value) {

@@ -13,7 +13,6 @@ import { and, asc, desc, eq, gt, gte, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   branches,
-  employeeFaceProfiles,
   loginAttempts,
   passkeyChallenges,
   passkeyCredentials,
@@ -23,13 +22,6 @@ import {
 import { anonymousQuery, createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
-import {
-} from "../lib/faceLoginToken";
-import {
-  encryptFaceEmbeddings,
-  FACE_MODEL,
-  normalizeFaceEmbeddings,
-} from "../lib/faceBiometrics";
 import { clientIpFromReq } from "../lib/clientIp";
 import { env, isDevelopmentRuntime } from "../lib/env";
 import {
@@ -131,29 +123,6 @@ function assertPasskeyLoginRateLimit(request: Request): void {
   passkeyLoginTimesByIp.set(ip, recent);
 }
 
-const faceEmbedding = z
-  .array(z.number().finite().min(-10).max(10))
-  .min(128)
-  .max(4_096);
-const faceQuality = z.object({
-  faceScore: z.number().finite().min(0).max(1),
-  real: z.number().finite().min(0).max(1),
-  live: z.number().finite().min(0).max(1),
-  faceSize: z.number().finite().min(0).max(4_096),
-  actionSatisfied: z.literal(true),
-});
-const faceVerificationInput = z
-  .object({
-    challengeToken: z.string().trim().min(20).max(2_048),
-    // Keep the single-frame shape for clients already in the field.
-    embedding: faceEmbedding.optional(),
-    embeddings: z.array(faceEmbedding).min(3).max(5).optional(),
-    quality: faceQuality,
-  })
-  .refine(input => Boolean(input.embedding) !== Boolean(input.embeddings), {
-    message: "ต้องส่งข้อมูลใบหน้ารูปแบบใดรูปแบบหนึ่งเท่านั้น",
-  });
-
 const base64urlValue = z
   .string()
   .min(1)
@@ -190,46 +159,12 @@ const authenticationResponseInput = z
   })
   .passthrough();
 
-
 type Db = ReturnType<typeof getDb>;
 
 async function removeExpiredPasskeyChallenges(db: Db): Promise<void> {
   await db
     .delete(passkeyChallenges)
     .where(lte(passkeyChallenges.expiresAt, new Date()));
-}
-
-const managerFaceEnrollmentAction = publicQuery.use(({ ctx, next }) => {
-  throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
-  if (ctx.staff.role !== "admin" && ctx.staff.role !== "manager") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "เฉพาะผู้ดูแลระบบหรือผู้จัดการสาขาเท่านั้น",
-    });
-  }
-  return next({ ctx });
-});
-
-async function requireBranchStaff(db: Db, branchId: number, staffId: number) {
-  const [staff] = await db
-    .select({ id: staffUsers.id, name: staffUsers.name })
-    .from(staffUsers)
-    .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
-    .where(
-      and(
-        eq(staffUsers.id, staffId),
-        eq(staffUsers.active, true),
-        eq(staffBranches.branchId, branchId)
-      )
-    )
-    .limit(1);
-  if (!staff) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "ไม่พบพนักงานที่ใช้งานอยู่ในสาขานี้",
-    });
-  }
-  return staff;
 }
 
 async function recordPinAttempt(input: {
@@ -300,7 +235,7 @@ async function issueStaffLoginSession(
   };
 }
 
-export const faceAuthRouter = createRouter({
+export const staffAuthRouter = createRouter({
   passkeyStatus: anonymousQuery.query(({ ctx }) => ({
     available: passkeyRpForRequest(ctx.req) !== null,
   })),
@@ -585,7 +520,7 @@ export const faceAuthRouter = createRouter({
       return session;
     }),
 
-  beginFaceLogin: anonymousQuery
+  loginWithPin: anonymousQuery
     .input(
       z.object({
         username: z
@@ -652,125 +587,20 @@ export const faceAuthRouter = createRouter({
           .where(and(eq(staffUsers.id, user.id), eq(staffUsers.pin, user.pin)));
       }
       const session = await issueStaffLoginSession(user, membership.branchId);
-      await recordPinAttempt({ db, branchId: membership.branchId, username: user.username, success: true, ip });
-      logAudit({ action: "pin_login", ...actorFromReq(ctx.req), detail: `${user.name} ???????????????????????????? PIN`, refType: "staff_user", refId: user.id });
-      return { requiresFace: false as boolean, token: "disabled", expiresAt: new Date(), livenessAction: "blink" as const, staffName: user.name, ...session };
-    }),
-
-  completeFaceLogin: anonymousQuery
-    .input(faceVerificationInput)
-    .mutation(async (): Promise<Awaited<ReturnType<typeof issueStaffLoginSession>>> => {
-      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
-    }),
-
-  faceProfileList: managerFaceEnrollmentAction.query(async ({ ctx }) =>
-    getDb()
-      .select({
-        staffId: staffUsers.id,
-        staffName: staffUsers.name,
-        role: staffUsers.role,
-        enrolledAt: employeeFaceProfiles.enrolledAt,
-        updatedAt: employeeFaceProfiles.updatedAt,
-        model: employeeFaceProfiles.model,
-      })
-      .from(staffUsers)
-      .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
-      .leftJoin(
-        employeeFaceProfiles,
-        eq(employeeFaceProfiles.staffId, staffUsers.id)
-      )
-      .where(
-        and(
-          eq(staffBranches.branchId, ctx.staff.branchId),
-          eq(staffUsers.active, true)
-        )
-      )
-      .orderBy(asc(staffUsers.name))
-  ),
-
-  enrollFace: managerFaceEnrollmentAction
-    .input(
-      z.object({
-        staffId: z.number().int().positive(),
-        embeddings: z.array(faceEmbedding).min(3).max(5),
-        consentConfirmed: z.literal(true),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
-      const db = getDb();
-      const staff = await requireBranchStaff(
+      await recordPinAttempt({
         db,
-        ctx.staff.branchId,
-        input.staffId
-      );
-      const embeddings = normalizeFaceEmbeddings(input.embeddings);
-      const now = new Date();
-      const templateEncrypted = await encryptFaceEmbeddings(
-        staff.id,
-        embeddings
-      );
-      await db
-        .insert(employeeFaceProfiles)
-        .values({
-          branchId: ctx.staff.branchId,
-          staffId: staff.id,
-          templateEncrypted,
-          model: FACE_MODEL,
-          embeddingCount: embeddings.length,
-          embeddingDimensions: embeddings[0]!.length,
-          consentAt: now,
-          enrolledByStaffId: ctx.staff.id,
-          enrolledAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: employeeFaceProfiles.staffId,
-          set: {
-            branchId: ctx.staff.branchId,
-            templateEncrypted,
-            model: FACE_MODEL,
-            embeddingCount: embeddings.length,
-            embeddingDimensions: embeddings[0]!.length,
-            consentAt: now,
-            enrolledByStaffId: ctx.staff.id,
-            enrolledAt: now,
-            updatedAt: now,
-          },
-        });
-      logAudit({
-        action: "enroll_employee_face",
-        ...actorFromReq(ctx.req),
-        detail: `ลงทะเบียนข้อมูลใบหน้าของ ${staff.name} จำนวน ${embeddings.length} ตัวอย่าง`,
-        refType: "staff_user",
-        refId: staff.id,
+        branchId: membership.branchId,
+        username: user.username,
+        success: true,
+        ip,
       });
-      return { ok: true, staffId: staff.id, enrolledAt: now };
-    }),
-
-  deleteFaceProfile: managerFaceEnrollmentAction
-    .input(z.object({ staffId: z.number().int().positive() }))
-    .mutation(async ({ input, ctx }) => {
-      throw new TRPCError({ code: "NOT_FOUND", message: "??????????????????????????????????" });
-      const db = getDb();
-      const staff = await requireBranchStaff(
-        db,
-        ctx.staff.branchId,
-        input.staffId
-      );
-      const deleted = await db
-        .delete(employeeFaceProfiles)
-        .where(eq(employeeFaceProfiles.staffId, staff.id))
-        .returning({ id: employeeFaceProfiles.id });
-      if (deleted.length > 0) {
-        logAudit({
-          action: "delete_employee_face",
-          ...actorFromReq(ctx.req),
-          detail: `ลบข้อมูลใบหน้าของ ${staff.name}`,
-          refType: "staff_user",
-          refId: staff.id,
-        });
-      }
-      return { ok: true, deleted: deleted.length > 0 };
+      logAudit({
+        action: "pin_login",
+        ...actorFromReq(ctx.req),
+        detail: `${user.name} เข้าสู่ระบบด้วย PIN`,
+        refType: "staff_user",
+        refId: user.id,
+      });
+      return session;
     }),
 });

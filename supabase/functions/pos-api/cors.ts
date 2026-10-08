@@ -20,7 +20,7 @@ export function createAllowedOrigins(configuredOrigins: string): Set<string> {
 
 export function createCorsResponseHeaders(
   origin: string | null,
-  allowedOrigins: ReadonlySet<string>,
+  allowedOrigins: ReadonlySet<string>
 ): Headers {
   const headers = new Headers({
     "cache-control": "no-store, private",
@@ -33,7 +33,7 @@ export function createCorsResponseHeaders(
     headers.set("access-control-allow-origin", origin);
     headers.set(
       "access-control-allow-headers",
-      "authorization,content-type,apikey,trpc-accept,x-branch-id,x-region,x-face-proof",
+      "authorization,content-type,apikey,trpc-accept,x-branch-id,x-region"
     );
     headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
     headers.set("access-control-max-age", "600");

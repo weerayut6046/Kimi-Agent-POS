@@ -1,7 +1,6 @@
-import { lazy, Suspense, useState, type FormEvent } from "react";
-import { CheckCircle2, Droplet, LoaderCircle, ScanFace } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { CheckCircle2, Droplet, LoaderCircle } from "lucide-react";
 import type { InitialSetupState } from "@contracts/initialSetup";
-import type { FaceCaptureResult } from "@/components/FaceCapture";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,12 +15,6 @@ import {
   initialSetupErrorMessage,
   type InitialOwnerForm,
 } from "@/lib/initialSetupEntry";
-
-const FaceCapture = lazy(() =>
-  import("@/components/FaceCapture").then(module => ({
-    default: module.FaceCapture,
-  }))
-);
 
 export default function InitialSetup({
   state,
@@ -43,29 +36,18 @@ export default function InitialSetup({
     pin: "",
     pinConfirmation: "",
     installationCode,
-    consentConfirmed: false,
   }));
   const [working, setWorking] = useState(false);
-  const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState("");
   const createOwner = trpc.initialSetup.createOwner.useMutation({ gcTime: 0 });
   const offline = status?.online === false;
-  const busy = working || capturing;
   const changeField = (
     key: "name" | "username" | "pin" | "pinConfirmation" | "installationCode",
     value: string
   ) => setForm(current => ({ ...current, [key]: value }));
-  const finishCapture = (result: FaceCaptureResult) => {
-    setCapturing(false);
-    setForm(current =>
-      current.consentConfirmed
-        ? { ...current, embeddings: result.embeddings }
-        : current
-    );
-  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || offline) return;
+    if (working || offline) return;
     setError("");
     setWorking(true);
     let ownerCreated = false;
@@ -93,8 +75,6 @@ export default function InitialSetup({
         pin: "",
         pinConfirmation: "",
         installationCode: "",
-        embeddings: undefined,
-        consentConfirmed: false,
       }));
     } catch (failure) {
       if (sessionInstalled) await clearSupabaseSession();
@@ -170,24 +150,6 @@ export default function InitialSetup({
                   ตรวจสอบอีกครั้ง
                 </Button>
               </div>
-            ) : capturing ? (
-              <Suspense
-                fallback={
-                  <p
-                    role="status"
-                    className="flex items-center gap-2 py-5 text-sm"
-                  >
-                    <LoaderCircle className="size-4 animate-spin" />{" "}
-                    กำลังเตรียมกล้อง…
-                  </p>
-                }
-              >
-                <FaceCapture
-                  mode="enroll"
-                  onComplete={finishCapture}
-                  onCancel={() => setCapturing(false)}
-                />
-              </Suspense>
             ) : (
               <form
                 noValidate
@@ -280,59 +242,6 @@ export default function InitialSetup({
                     </div>
                   )}
                 </fieldset>
-                {state.requiresFace && (
-                  <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <h2 className="font-semibold text-slate-900">
-                      ลงทะเบียนใบหน้าของเจ้าของ
-                    </h2>
-                    <p className="text-sm leading-6 text-slate-600">
-                      ใช้ใบหน้าร่วมกับ PIN เมื่อเข้าสู่ระบบครั้งถัดไป
-                      ให้เจ้าของอยู่ต่อหน้ากล้องด้วยตนเอง
-                    </p>
-                    <label className="flex items-start gap-3 text-sm leading-6 text-slate-700">
-                      <input
-                        type="checkbox"
-                        className="mt-1 size-4 shrink-0 accent-blue-600"
-                        checked={form.consentConfirmed}
-                        disabled={working}
-                        onChange={event =>
-                          setForm(current => ({
-                            ...current,
-                            consentConfirmed: event.target.checked,
-                            embeddings: undefined,
-                          }))
-                        }
-                      />
-                      <span>
-                        รับทราบและยินยอมให้เก็บข้อมูลใบหน้าที่เข้ารหัสเพื่อเข้าสู่ระบบ
-                        ระบบไม่เก็บรูปภาพ และสามารถขอลบหรือลงทะเบียนใหม่ได้
-                      </span>
-                    </label>
-                    {form.embeddings ? (
-                      <p
-                        role="status"
-                        className="flex items-center gap-2 text-sm text-emerald-700"
-                      >
-                        <CheckCircle2 className="size-4" /> ตรวจใบหน้าแล้ว
-                        พร้อมสร้างบัญชี
-                      </p>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={working || !form.consentConfirmed}
-                      onClick={() => {
-                        setError("");
-                        setCapturing(true);
-                      }}
-                    >
-                      <ScanFace className="size-4" />
-                      {form.embeddings
-                        ? "ลงทะเบียนใบหน้าใหม่"
-                        : "เปิดกล้องลงทะเบียน"}
-                    </Button>
-                  </div>
-                )}
                 {offline && (
                   <p
                     role="alert"

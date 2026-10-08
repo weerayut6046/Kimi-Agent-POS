@@ -11,7 +11,6 @@ import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   branches,
-  employeeFaceProfiles,
   fuelTanks,
   nozzles,
   paymentSettings,
@@ -541,20 +540,9 @@ describe("natural readiness and confirmed completion", () => {
       })
       .returning();
     await t.db.insert(staffBranches).values({ branchId, staffId: pending.id });
-    await t.db.insert(employeeFaceProfiles).values({
-      branchId,
-      staffId: pending.id,
-      templateEncrypted: "never-return-face-template",
-      model: "old-face-model",
-      embeddingCount: 3,
-      embeddingDimensions: 128,
-      consentAt: new Date(),
-      enrolledByStaffId: 1,
-    });
     const state = await caller(branchId).state();
     expect(state.staff.find(row => row.id === pending.id)).toMatchObject({
       pinReady: false,
-      faceReady: false,
       loginReady: false,
     });
     expect(state.staff.find(row => row.id === 1)).toMatchObject({
@@ -570,56 +558,36 @@ describe("natural readiness and confirmed completion", () => {
       )
     ).toBe(true);
     expect(JSON.stringify(state)).not.toMatch(
-      /staff-pin-hmac|11111111-1111|never-return-face-template|embedding|supabaseAuthUserId|passkeyUserHandle/
+      /staff-pin-hmac|11111111-1111|supabaseAuthUserId|passkeyUserHandle/
     );
     await t.db
       .update(staffUsers)
       .set({ pin: "a".repeat(64) })
       .where(eq(staffUsers.id, pending.id));
-    await t.db
-      .update(employeeFaceProfiles)
-      .set({ model: "human-faceres-v1" })
-      .where(eq(employeeFaceProfiles.staffId, pending.id));
     expect(
       (await caller(branchId).state()).staff.find(row => row.id === pending.id)
-    ).toMatchObject({ pinReady: true, faceReady: true, loginReady: true });
+    ).toMatchObject({ pinReady: true, loginReady: true });
   });
 
-  it("matches staff authentication requirements including exact PIN formats and passkey readiness", () => {
+  it("requires valid PIN and Auth identity for production staff, with configured passkeys as an alternative", () => {
     const base = {
       pin: "a".repeat(64),
       active: true,
       currentOwner: false,
       hasAuthIdentity: false,
-      hasCurrentFace: false,
       hasPasskey: false,
     };
     const production = {
       localSession: false,
-      development: false,
       passkeysAvailable: false,
     };
     expect(setupStaffReadiness(base, production).loginReady).toBe(false);
     expect(
       setupStaffReadiness({ ...base, hasAuthIdentity: true }, production)
-        .loginReady
-    ).toBe(false);
-    expect(
-      setupStaffReadiness(
-        { ...base, hasAuthIdentity: true, hasCurrentFace: true },
-        production
-      ).loginReady
-    ).toBe(true);
+    ).toEqual({ pinReady: true, authReady: true, loginReady: true });
     expect(
       setupStaffReadiness(base, { ...production, localSession: true })
         .loginReady
-    ).toBe(false);
-    expect(
-      setupStaffReadiness(base, {
-        ...production,
-        localSession: true,
-        development: true,
-      }).loginReady
     ).toBe(true);
     expect(
       setupStaffReadiness({ ...base, currentOwner: true }, production)
@@ -633,12 +601,7 @@ describe("natural readiness and confirmed completion", () => {
     ).toBe(false);
     expect(
       setupStaffReadiness(
-        {
-          ...base,
-          pin: "staff-pin-hmac-v1:bad",
-          hasAuthIdentity: true,
-          hasCurrentFace: true,
-        },
+        { ...base, pin: "staff-pin-hmac-v1:bad", hasAuthIdentity: true },
         production
       ).loginReady
     ).toBe(false);
@@ -648,21 +611,22 @@ describe("natural readiness and confirmed completion", () => {
         production
       ).pinReady
     ).toBe(true);
+    const passkeyStaff = { ...base, pin: "pending", hasPasskey: true };
     expect(
       setupStaffReadiness(
-        { ...base, hasAuthIdentity: true, hasPasskey: true },
+        { ...passkeyStaff, hasAuthIdentity: true },
         { ...production, passkeysAvailable: true }
       ).loginReady
     ).toBe(true);
     expect(
-      setupStaffReadiness(
-        { ...base, hasPasskey: true },
-        { ...production, passkeysAvailable: true }
-      ).loginReady
+      setupStaffReadiness(passkeyStaff, {
+        ...production,
+        passkeysAvailable: true,
+      }).loginReady
     ).toBe(false);
     expect(
       setupStaffReadiness(
-        { ...base, hasAuthIdentity: true, hasPasskey: true },
+        { ...passkeyStaff, hasAuthIdentity: true },
         production
       ).loginReady
     ).toBe(false);

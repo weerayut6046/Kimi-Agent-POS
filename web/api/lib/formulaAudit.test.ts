@@ -101,6 +101,46 @@ describe("formula auditor", () => {
     expect(runFormulaAudit(validData())).toEqual([]);
   });
 
+  it("counts recorded closing P against a zero opening meter", () => {
+    const data = validData();
+    data.shiftReadings[0]!.openMoney = 0;
+    data.shiftReadings[0]!.closeMoney = 405;
+
+    expect(runFormulaAudit(data)).toEqual([]);
+
+    data.shifts[0]!.totalMoneyMeter = 0;
+    expect(runFormulaAudit(data)).toEqual([
+      expect.objectContaining({
+        rule: "shift_total_money_meter",
+        actual: 0,
+        expected: 405,
+        difference: -405,
+      }),
+    ]);
+  });
+
+  it("keeps an absent closing P with a zero opening meter as no data", () => {
+    const data = validData();
+    data.shiftReadings[0]!.openMoney = 0;
+    data.shiftReadings[0]!.closeMoney = null;
+    data.shifts[0]!.totalMoneyMeter = 0;
+
+    expect(runFormulaAudit(data)).toEqual([]);
+  });
+
+  it("reports an absent closing P when a positive opening meter exists", () => {
+    const data = validData();
+    data.shiftReadings[0]!.closeMoney = null;
+
+    expect(runFormulaAudit(data)).toEqual([
+      expect.objectContaining({
+        rule: "shift_incomplete_money_meter",
+        actual: null,
+        expected: 1000,
+      }),
+    ]);
+  });
+
   it("reports the exact rules that fail", () => {
     const data = validData();
     data.sales[0]!.total = 101;

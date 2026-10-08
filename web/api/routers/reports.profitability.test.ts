@@ -429,6 +429,72 @@ describe("reports.profitability", () => {
     );
   });
 
+  it.each([
+    {
+      closeMoney: 500,
+      revenue: 500,
+      meterShiftCount: 1,
+      fallbackShiftCount: 0,
+    },
+    {
+      closeMoney: null,
+      revenue: 407.4,
+      meterShiftCount: 0,
+      fallbackShiftCount: 1,
+    },
+  ])(
+    "แยก P เริ่มต้นศูนย์และ P ปิด $closeMoney จากข้อมูล P ที่ยังไม่มี",
+    async ({ closeMoney, revenue, meterShiftCount, fallbackShiftCount }) => {
+      const fuel = await productByCode("GSH95");
+      const nozzle = await t.db.query.nozzles.findFirst({
+        where: eq(nozzles.productId, fuel.id),
+      });
+      if (!nozzle) throw new Error("ต้องมีหัวจ่ายน้ำมันทดสอบ");
+      const [shift] = await t.db
+        .insert(shifts)
+        .values({
+          branchId: 1,
+          staffId: 2,
+          staffName: "ผู้จัดการทดสอบกะแรก",
+          status: "closed",
+          openedAt: new Date("2000-01-02T01:00:00.000Z"),
+          closedAt: new Date("2000-01-02T02:00:00.000Z"),
+          totalLiters: 10,
+          totalAmount: 407.4,
+          totalMoneyMeter: closeMoney ?? 0,
+        })
+        .returning({ id: shifts.id });
+      await t.db.insert(shiftReadings).values({
+        branchId: 1,
+        shiftId: shift.id,
+        nozzleId: nozzle.id,
+        openMeter: 0,
+        closeMeter: 10,
+        openMoney: 0,
+        closeMoney,
+        pricePerLiter: 40.74,
+        costPerLiter: 39.2,
+      });
+
+      const report = await t.caller("manager").reports.profitability({
+        view: "day",
+        date: "2000-01-02",
+        shiftId: shift.id,
+      });
+
+      expect(report.meterProfitSummary).toMatchObject({
+        available: true,
+        meterShiftCount,
+        fallbackShiftCount,
+        fuelRevenue: revenue,
+        fuelLiters: 10,
+        fuelTypes: [
+          expect.objectContaining({ productId: fuel.id, revenue, liters: 10 }),
+        ],
+      });
+    }
+  );
+
   it("ปฏิเสธพนักงานขายไม่ให้เห็นต้นทุนและกำไร", async () => {
     await expect(
       t.caller("cashier").reports.profitability({

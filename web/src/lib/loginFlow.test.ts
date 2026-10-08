@@ -1,20 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  isPinOnlyLoginResult,
-  LOGIN_SERVICE_ERROR_MESSAGE,
-  loginErrorMessage,
-} from "./loginFlow";
-
-describe("isPinOnlyLoginResult", () => {
-  it("accepts only an explicit PIN-only response", () => {
-    expect(isPinOnlyLoginResult({ requiresFace: false })).toBe(true);
-    expect(isPinOnlyLoginResult({ requiresFace: true })).toBe(false);
-  });
-
-  it("treats a legacy response without the discriminator as a face challenge", () => {
-    expect(isPinOnlyLoginResult({})).toBe(false);
-  });
-});
+import { LOGIN_SERVICE_ERROR_MESSAGE, loginErrorMessage } from "./loginFlow";
 
 describe("loginErrorMessage", () => {
   it.each([
@@ -55,7 +40,7 @@ describe("loginErrorMessage", () => {
       "บัญชีนี้ยังไม่พร้อมเข้าสู่ระบบ กรุณาติดต่อผู้ดูแลระบบ",
     ],
     ["TOO_MANY_REQUESTS", "กรอก PIN ผิดหลายครั้ง กรุณารอ 5 นาทีแล้วลองใหม่"],
-    ["BAD_REQUEST", "ภาพใบหน้าไม่ชัด กรุณาลองใหม่"],
+    ["BAD_REQUEST", "กรุณากรอก PIN เป็นตัวเลข 4–6 หลัก"],
   ])("preserves expected %s authentication feedback", (code, message) => {
     expect(
       loginErrorMessage({ message, data: { code, httpStatus: 400 } })
@@ -63,10 +48,9 @@ describe("loginErrorMessage", () => {
   });
 
   it.each([
-    "ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณาอนุญาตกล้องแล้วลองใหม่",
     "ยกเลิกการยืนยันตัวตน กรุณาลองใหม่",
     "สร้างเซสชันเข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่",
-  ])("preserves translated camera, passkey and session errors: %s", message => {
+  ])("preserves translated passkey and session errors: %s", message => {
     expect(loginErrorMessage(new Error(message))).toBe(message);
   });
 
@@ -86,8 +70,8 @@ describe("loginErrorMessage", () => {
   });
 
   it("uses the caller's fallback when no error message is available", () => {
-    expect(loginErrorMessage(null, "ยืนยันใบหน้าไม่สำเร็จ")).toBe(
-      "ยืนยันใบหน้าไม่สำเร็จ"
+    expect(loginErrorMessage(null, "ยืนยันตัวตนไม่สำเร็จ")).toBe(
+      "ยืนยันตัวตนไม่สำเร็จ"
     );
     expect(loginErrorMessage({ message: "  " })).toBe("เข้าสู่ระบบไม่สำเร็จ");
   });

@@ -21,7 +21,6 @@ describe("deployment boundaries", () => {
     "dbadmin.restoreUpload",
     "auth.createBranch",
     "auth.listStaffAccess",
-    "faceAuth.enrollFace",
     "auth.futureBusinessFeature",
     "onboarding.state",
     "onboarding.complete",
@@ -37,8 +36,8 @@ describe("deployment boundaries", () => {
     "auth.deploymentInfo",
     "auth.currentStaff",
     "initialSetup.state",
-    "faceAuth.beginFaceLogin",
-    "faceAuth.completePasskeyLogin",
+    "staffAuth.loginWithPin",
+    "staffAuth.completePasskeyLogin",
   ])(
     "keeps authentication procedure %s available in both deployments",
     path => {

@@ -15,7 +15,7 @@ import { workforceRouter } from "./routers/workforce";
 import { assistantRouter } from "./routers/assistant";
 import { paymentsRouter } from "./routers/payments";
 import { stockCountRouter } from "./routers/stockCount";
-import { faceAuthRouter } from "./routers/faceAuth";
+import { staffAuthRouter } from "./routers/staffAuth";
 import { fuelForecastRouter } from "./routers/fuelForecast";
 import { platformRouter } from "./routers/platform";
 import { onboardingRouter } from "./routers/onboarding";
@@ -39,7 +39,7 @@ export const appRouter = createRouter({
   workforce: workforceRouter,
   assistant: assistantRouter,
   stockCount: stockCountRouter,
-  faceAuth: faceAuthRouter,
+  staffAuth: staffAuthRouter,
   fuelForecast: fuelForecastRouter,
   platform: platformRouter,
   onboarding: onboardingRouter,

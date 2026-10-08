@@ -69,6 +69,7 @@ import {
 } from "@contracts/cash";
 import { assessMeterReading } from "@contracts/meterReconciliation";
 import { bangkokMonthKey } from "@/lib/bangkokMonth";
+import { getHistoryReadingPreview } from "@/lib/shiftHistoryPreview";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -209,51 +210,6 @@ function newHistoryForm(readings: HistoryReadingForm[]): HistoryForm {
   };
 }
 
-function getHistoryReadingPreview(
-  readings: HistoryReadingForm[] | null,
-  countZeroOpeningMoney = false
-) {
-  if (!readings?.length) return null;
-  let totalLiters = 0;
-  let totalAmount = 0;
-  let totalMoneyMeter = 0;
-  let valid = true;
-  for (const reading of readings) {
-    if (
-      reading.openMeter === "" ||
-      reading.openMoney === "" ||
-      reading.closeMeter === "" ||
-      reading.closeMoney === ""
-    ) {
-      valid = false;
-      continue;
-    }
-    const closeMeter = Number(reading.closeMeter);
-    const closeMoney = Number(reading.closeMoney);
-    const openMeter = Number(reading.openMeter);
-    const openMoney = Number(reading.openMoney);
-    const tracksMoney = countZeroOpeningMoney || openMoney > 0;
-    if (
-      !Number.isFinite(closeMeter) ||
-      !Number.isFinite(closeMoney) ||
-      !Number.isFinite(openMeter) ||
-      !Number.isFinite(openMoney) ||
-      closeMeter < openMeter ||
-      (tracksMoney && closeMoney < openMoney)
-    ) {
-      valid = false;
-      continue;
-    }
-    const liters = r3(closeMeter - openMeter);
-    totalLiters = r3(totalLiters + liters);
-    totalAmount = r2(totalAmount + liters * reading.pricePerLiter);
-    if (tracksMoney) {
-      totalMoneyMeter = r2(totalMoneyMeter + closeMoney - openMoney);
-    }
-  }
-  return { totalLiters, totalAmount, totalMoneyMeter, valid };
-}
-
 function getHistoryTiming(openedAt?: string, closedAt?: string) {
   if (!openedAt || !closedAt) return { invalid: false, label: "" };
   const openedTime = new Date(openedAt).getTime();
@@ -300,17 +256,16 @@ function HistoryMeterEditor({
           const closeMoney = Number(reading.closeMoney);
           const openMeter = Number(reading.openMeter);
           const openMoney = Number(reading.openMoney);
-          const tracksMoney = editableOpening || openMoney > 0;
           const meterInvalid =
             reading.closeMeter !== "" && closeMeter < openMeter;
           const moneyInvalid =
-            reading.closeMoney !== "" && tracksMoney && closeMoney < openMoney;
+            reading.closeMoney !== "" && closeMoney < openMoney;
           const litersSold =
             reading.closeMeter !== "" && !meterInvalid
               ? r3(closeMeter - openMeter)
               : null;
           const meterSales =
-            reading.closeMoney !== "" && tracksMoney && !moneyInvalid
+            reading.closeMoney !== "" && !moneyInvalid
               ? r2(closeMoney - openMoney)
               : null;
           const moneyInputId = "history-close-money-" + reading.nozzleId;
@@ -529,7 +484,10 @@ function HistoryMeterEditor({
                   )}
                 </div>
                 {(meterInvalid || moneyInvalid) && (
-                  <p data-slot="field-error" className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
+                  <p
+                    data-slot="field-error"
+                    className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive"
+                  >
                     <AlertTriangle className="h-3.5 w-3.5" />
                     เลขปิดกะต้องไม่น้อยกว่าเลขตั้งต้น
                   </p>
@@ -575,7 +533,7 @@ function HistoryMeterEditor({
               </p>
             </div>
           </div>
-          {preview.valid && preview.totalMoneyMeter > 0 && (
+          {preview.valid && (
             <DiffBadge
               diff={r2(preview.totalMoneyMeter - preview.totalAmount)}
             />
@@ -1003,10 +961,7 @@ export default function Shifts() {
     [currentShift]
   );
 
-  const historyReadingPreview = getHistoryReadingPreview(
-    historyReadings,
-    historyForm?.id == null
-  );
+  const historyReadingPreview = getHistoryReadingPreview(historyReadings);
   const historyTiming = getHistoryTiming(
     historyForm?.openedAt,
     historyForm?.closedAt
@@ -1049,7 +1004,7 @@ export default function Shifts() {
       });
       liters += assessment.liters;
       amountL += assessment.amountFromLiters;
-      money += assessment.moneyFromMeter ?? 0;
+      money += assessment.moneyFromMeter;
       if (assessment.implausible) {
         implausibleNozzleIds.push(r.nozzleId);
       }
@@ -1122,14 +1077,24 @@ export default function Shifts() {
       <ShiftPageHeader />
 
       {err && (
-        <Card data-slot="notice" data-tone="error" role="alert" className="border-destructive bg-red-50">
+        <Card
+          data-slot="notice"
+          data-tone="error"
+          role="alert"
+          className="border-destructive bg-red-50"
+        >
           <CardContent className="py-3 px-4 text-sm text-destructive flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" /> {err}
           </CardContent>
         </Card>
       )}
       {notice && (
-        <Card data-slot="notice" data-tone="success" role="status" className="border-emerald-200 bg-emerald-50">
+        <Card
+          data-slot="notice"
+          data-tone="success"
+          role="status"
+          className="border-emerald-200 bg-emerald-50"
+        >
           <CardContent className="flex items-center gap-2 px-4 py-3 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4" /> {notice}
           </CardContent>
@@ -1290,7 +1255,11 @@ export default function Shifts() {
                   </p>
                 </div>
                 {hasPriceChangeDuringShift && (
-                  <div data-slot="notice" data-tone="warning" className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <div
+                    data-slot="notice"
+                    data-tone="warning"
+                    className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                  >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div>
                       <b>พบการเปลี่ยนราคาน้ำมันหลังเปิดกะ</b> ยอด “ลิตร ×
@@ -1354,18 +1323,12 @@ export default function Shifts() {
                           )}
                         </div>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          {r.openMoney > 0 ? (
-                            <span>
-                              P ตั้งต้น:{" "}
-                              <b className="text-foreground">
-                                ฿{fmtNum(r.openMoney)}
-                              </b>
-                            </span>
-                          ) : (
-                            <span className="text-amber-600">
-                              P ตั้งต้น: ไม่มี (กะเก่า)
-                            </span>
-                          )}
+                          <span>
+                            P ตั้งต้น:{" "}
+                            <b className="text-foreground">
+                              ฿{fmtNum(r.openMoney)}
+                            </b>
+                          </span>
                           <span>
                             L ตั้งต้น:{" "}
                             <b className="text-foreground">
@@ -1458,7 +1421,11 @@ export default function Shifts() {
                           </div>
                         )}
                         {assessment?.implausible && (
-                          <div data-slot="notice" data-tone="error" className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+                          <div
+                            data-slot="notice"
+                            data-tone="error"
+                            className="flex flex-col gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800"
+                          >
                             <div className="flex items-start gap-1.5">
                               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                               <span>
@@ -1659,7 +1626,11 @@ export default function Shifts() {
 
                 {closePreview &&
                   closePreview.implausibleNozzleIds.length > 0 && (
-                    <div data-slot="notice" data-tone="error" className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <div
+                      data-slot="notice"
+                      data-tone="error"
+                      className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+                    >
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                       <div>
                         <b>ยังปิดกะไม่ได้:</b> พบยอด P ผิดปกติ{" "}
@@ -2226,7 +2197,10 @@ export default function Shifts() {
                       />
                     </div>
                     {historyTiming.invalid && (
-                      <p data-slot="field-error" className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive">
+                      <p
+                        data-slot="field-error"
+                        className="sm:col-span-2 flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-destructive"
+                      >
                         <AlertTriangle className="h-3.5 w-3.5" />
                         เวลาปิดกะต้องอยู่หลังเวลาเปิดกะ
                       </p>
@@ -2436,7 +2410,11 @@ export default function Shifts() {
                         {Object.keys(historyForm.cashCounts).length === 0 &&
                           !historyForm.cashCountsTouched &&
                           historyForm.countedCash !== "" && (
-                            <div data-slot="notice" data-tone="info" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            <div
+                              data-slot="notice"
+                              data-tone="info"
+                              className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                            >
                               รายการเดิมบันทึกเฉพาะยอดรวม ฿
                               {fmtMoney(Number(historyForm.countedCash))}
                               โดยไม่มีรายละเอียดแบงก์/เหรียญ
@@ -2506,13 +2484,22 @@ export default function Shifts() {
                 </section>
 
                 {err && (
-                  <div data-slot="notice" data-tone="error" role="alert" className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
+                  <div
+                    data-slot="notice"
+                    data-tone="error"
+                    role="alert"
+                    className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700"
+                  >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>{err}</span>
                   </div>
                 )}
 
-                <div data-slot="notice" data-tone="warning" className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-relaxed text-amber-800">
+                <div
+                  data-slot="notice"
+                  data-tone="warning"
+                  className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-relaxed text-amber-800"
+                >
                   <Info className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     ระบบจะคำนวณยอดรวมในประวัติใหม่จากเลข P/L ปิดกะ

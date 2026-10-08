@@ -12,7 +12,7 @@ npm run setup:system
 ## เลือกฐานข้อมูล
 
 - **Supabase**: ใช้ project ของกิจการที่สร้างไว้แล้ว กรอก PostgreSQL URL, Direct URL สำหรับ migration หากต่างกัน, Supabase URL, publishable key และ secret/service-role key ไม่สร้าง project cloud หรือสมัครบัญชีผู้ให้บริการให้อัตโนมัติ
-- **PostgreSQL ในเครื่อง**: เตรียม PostgreSQL ผ่าน Docker Compose ของโครงการ ต้องติดตั้ง Docker Desktop/Engine ก่อน กำหนดพอร์ตและรหัสผ่านฐานข้อมูล ในโหมดใช้งานจริงยังใช้ Supabase Auth สำหรับบัญชีและใบหน้า จึงต้องมีค่าของ Auth project และอินเทอร์เน็ตเมื่อเข้าสู่ระบบ
+- **PostgreSQL ในเครื่อง**: เตรียม PostgreSQL ผ่าน Docker Compose ของโครงการ ต้องติดตั้ง Docker Desktop/Engine ก่อน กำหนดพอร์ตและรหัสผ่านฐานข้อมูล ในโหมดใช้งานจริงยังใช้ Supabase Auth สำหรับบัญชีและเซสชัน จึงต้องมีค่าของ Auth project และอินเทอร์เน็ตเมื่อเข้าสู่ระบบ
 - **โหมดพัฒนาและทดสอบ**: เลือกเพิ่มเติมเฉพาะฐานในเครื่อง ใช้ Local Auth และ Vite development server โดยไม่เรียก Supabase Auth ไม่ใช่การเปิด Local Auth ใน production
 
 ฐานแต่ละกิจการควรใช้ชุดติดตั้งและ project Auth ของตนเอง ตัวช่วยนี้เตรียม Node server บนเครื่องที่รัน หากจะนำไปขึ้น Supabase Edge หรือ Vercel ให้ใช้ [คู่มือ SaaS](./saas-deployment.md) และอัปเดตค่าตาม hosting นั้น
@@ -23,7 +23,7 @@ npm run setup:system
 2. ตรวจว่าฐานมีข้อมูลกิจการอยู่แล้วหรือไม่ ฐานที่มีข้อมูลใช้การเชื่อมต่อเดิมและข้ามการเตรียมข้อมูลใหม่ ไม่ล้างข้อมูลเพื่อเริ่ม setup
 3. สำหรับฐานใหม่ รัน migration ชุดเดิมและ seed สถานะรอเจ้าของ ไม่มีบัญชีที่ใช้ PIN ตัวอย่าง บิล หรือกะทดลอง
 4. เก็บค่า server ใน `.env.local` พร้อมสร้าง secret และรหัสติดตั้งส่วนตัวเมื่อยังไม่มีค่า เก็บ public Auth configuration สำหรับ frontend แยกจาก secret
-5. โหมดใช้งานจริง build แอปและเปิด Node server โดยใช้ Supabase session และการตรวจใบหน้าเดิม โหมดพัฒนาเปิด Vite แล้วพาไป `/setup`
+5. โหมดใช้งานจริง build แอปและเปิด Node server โดยใช้ Supabase session หลังตรวจชื่อผู้ใช้และ PIN โหมดพัฒนาเปิด Vite แล้วพาไป `/setup`
 
 เมื่อเริ่มอีกครั้งใช้ `npm run setup:system` เพื่อเปิดตัวช่วย หรือ `npm start` หลัง build สำหรับ Node production ที่ตั้งค่าไว้แล้ว ปิดตัวช่วยและแอปด้วย Ctrl+C ในหน้าต่างที่รันคำสั่ง
 
@@ -31,7 +31,7 @@ npm run setup:system
 
 รหัสผ่านฐานข้อมูล private Auth key, `APP_SECRET` และ `PUMPPOS_INSTALLATION_CODE` อยู่บนเซิร์ฟเวอร์ ไม่ส่งให้หน้า setup กิจการ และไม่ใช้ `VITE_*` เก็บ secrets หน้า wizard บนเครื่องผู้ติดตั้งไม่เก็บค่าที่กรอกใน localStorage หรือ sessionStorage
 
-ห้าม commit `.env.local` และอย่าเปลี่ยน `APP_SECRET` ของกิจการเดิมโดยพลการ เพราะใช้เข้ารหัสข้อมูลใบหน้าและเซ็นข้อมูลยืนยันตัวตน รหัสติดตั้งส่งให้หน้า setup ผ่าน URL fragment ซึ่งถูกลบหลังอ่านและใช้ได้เฉพาะการสร้างเจ้าของของระบบใหม่
+ห้าม commit `.env.local` และอย่าเปลี่ยน `APP_SECRET` ของกิจการเดิมโดยพลการ เพราะใช้เข้ารหัส secret ของระบบและเซ็นข้อมูลยืนยันตัวตน รหัสติดตั้งส่งให้หน้า setup ผ่าน URL fragment ซึ่งถูกลบหลังอ่านและใช้ได้เฉพาะการสร้างเจ้าของของระบบใหม่
 
 ฐานเดิมที่ตารางยังไม่ครบจะรายงานว่าต้องเตรียมตาราง ผู้ติดตั้งอัปเดต migration ตาม workflow และสำรองข้อมูลก่อนอัปเดต ไม่เปิดสิทธิ์สร้างเจ้าของจากการเชื่อมต่อขัดข้องหรือการตั้งค่ากิจการที่ยังไม่ครบ
 

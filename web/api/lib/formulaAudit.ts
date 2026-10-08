@@ -463,7 +463,8 @@ export function runFormulaAudit(data: FormulaAuditData): FormulaAuditIssue[] {
       totalLiters = r3(totalLiters + liters);
       totalAmount = r2(totalAmount + liters * reading.pricePerLiter);
 
-      if (reading.openMoney > 0) {
+      // P เริ่มต้น 0 ใช้คำนวณได้เมื่อมีเลขปิด; กะเก่าที่ไม่มี P ปิดยังคงข้ามการตรวจ
+      if (reading.openMoney > 0 || reading.closeMoney != null) {
         if (reading.closeMoney == null) {
           complete = false;
           issues.push(
