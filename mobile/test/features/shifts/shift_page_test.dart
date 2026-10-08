@@ -31,6 +31,15 @@ void main() {
     expect(find.byKey(const Key('shift-history-button')), findsOneWidget);
     expect(find.text('หัว 1'), findsOneWidget);
     expect(find.text('เงินทอนเริ่มกะ (บาท)'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.widgetWithText(FilledButton, 'เปิดกะ'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final openButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'เปิดกะ'),
+    );
+    expect(openButton.onPressed, isNotNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -61,42 +70,10 @@ void main() {
     expect(find.text('ยอดนับได้รวม ฿440.00'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
-  testWidgets('blocks opening until face attendance is recorded', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          shiftBootstrapProvider(
-            3,
-          ).overrideWith((ref) async => _blockedBootstrap),
-        ],
-        child: const MaterialApp(
-          home: Scaffold(body: ShiftPage(staff: _staff)),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('ต้องสแกนใบหน้าเข้างานก่อนเปิดกะ'), findsOneWidget);
-    final openButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'สแกนหน้าเข้างานก่อน'),
-    );
-    expect(openButton.onPressed, isNull);
-    expect(tester.takeException(), isNull);
-  });
 }
 
 const _bootstrap = ShiftBootstrap(
   currentShift: null,
-  faceClockedIn: true,
-  faceClockInAt: null,
   nozzles: [
     ShiftNozzle(
       id: 7,
@@ -132,12 +109,6 @@ final _activeBootstrap = ShiftBootstrap(
       ),
     ],
   ),
-  nozzles: _bootstrap.nozzles,
-);
-
-final _blockedBootstrap = ShiftBootstrap(
-  currentShift: null,
-  faceClockedIn: false,
   nozzles: _bootstrap.nozzles,
 );
 

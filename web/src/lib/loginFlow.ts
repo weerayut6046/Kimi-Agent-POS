@@ -1,14 +1,3 @@
-/**
- * Older deployed APIs returned a face challenge without the discriminator.
- * Treat only an explicit `false` as a PIN-only development login so a mixed
- * frontend/backend rollout can never mistake a challenge for a staff session.
- */
-export function isPinOnlyLoginResult<
-  TResult extends { requiresFace?: boolean },
->(result: TResult): result is TResult & { requiresFace: false } {
-  return result.requiresFace === false;
-}
-
 export const LOGIN_SERVICE_ERROR_MESSAGE =
   "ระบบเข้าสู่ระบบขัดข้องชั่วคราว กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ";
 
@@ -46,7 +35,7 @@ export function loginErrorMessage(
     typeof details.message === "string" ? details.message.trim() : "";
   if (databaseErrorPattern.test(message)) return LOGIN_SERVICE_ERROR_MESSAGE;
 
-  // Preserve camera/passkey messages already translated by the caller.
+  // Preserve passkey messages already translated by the caller.
   if (/[\u0E00-\u0E7F]/.test(message)) return message;
   if (
     details.code === "ERROR_CEREMONY_ABORTED" ||

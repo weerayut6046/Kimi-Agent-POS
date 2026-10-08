@@ -20,8 +20,8 @@ const testRouter = createRouter({
       throw new Error("synthetic-installation-code-and-provider-secret");
     }),
   }),
-  faceAuth: createRouter({
-    beginFaceLogin: anonymousQuery.mutation(() => {
+  staffAuth: createRouter({
+    loginWithPin: anonymousQuery.mutation(() => {
       throw new Error(sqlFailure);
     }),
     completePasskeyLogin: anonymousQuery.mutation(() => {
@@ -78,7 +78,7 @@ describe("login error HTTP serialization", () => {
       expect(error.data).not.toHaveProperty("stack");
     }
   );
-  it.each(["faceAuth.beginFaceLogin", "faceAuth.completePasskeyLogin"])(
+  it.each(["staffAuth.loginWithPin", "staffAuth.completePasskeyLogin"])(
     "removes SQL, parameters and stack from %s internal errors",
     async path => {
       const { response, raw, error } = await requestError(path);
@@ -99,7 +99,7 @@ describe("login error HTTP serialization", () => {
   );
 
   it("preserves explicit invalid PIN feedback", async () => {
-    const { response, error } = await requestError("faceAuth.invalidPin");
+    const { response, error } = await requestError("staffAuth.invalidPin");
 
     expect(response.status).toBe(401);
     expect(error.message).toBe(invalidPinError);

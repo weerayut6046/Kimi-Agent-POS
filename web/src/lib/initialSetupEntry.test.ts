@@ -12,7 +12,6 @@ const fresh = {
   needsOwner: true,
   canCreateOwner: true,
   requiresInstallationCode: true,
-  requiresFace: true,
 };
 const status = {
   hasStaff: false,
@@ -28,8 +27,6 @@ const form: InitialOwnerForm = {
   pin: "123456",
   pinConfirmation: "123456",
   installationCode: "example-install-code",
-  consentConfirmed: true,
-  embeddings: Array.from({ length: 3 }, () => Array(128).fill(0.1)),
 };
 const requestId = "643d1f13-8096-49a5-9c15-280da6bbf1a1";
 
@@ -117,29 +114,22 @@ describe("initial owner form", () => {
       )
     ).toThrow("ไม่ตรงกัน");
   });
-  it("requires explicit production face consent and valid samples", () => {
-    expect(() =>
-      initialOwnerInput({ ...form, consentConfirmed: false }, fresh, requestId)
-    ).toThrow("ยินยอม");
-    expect(() =>
-      initialOwnerInput({ ...form, embeddings: undefined }, fresh, requestId)
-    ).toThrow("ใบหน้า");
-    expect(() =>
-      initialOwnerInput({ ...form, embeddings: [[0.1]] }, fresh, requestId)
-    ).toThrow("ข้อมูลใบหน้า");
+  it("creates the owner with a username and PIN", () => {
+    const input = initialOwnerInput(form, fresh, requestId);
+    expect(input).toEqual({
+      requestId,
+      name: form.name,
+      username: "owner",
+      pin: form.pin,
+      installationCode: form.installationCode,
+    });
   });
-  it("allows explicit development setup without face or installation code", () => {
+  it("allows setup without an installation code when it is not required", () => {
     const input = initialOwnerInput(
-      {
-        ...form,
-        installationCode: "",
-        consentConfirmed: false,
-        embeddings: undefined,
-      },
-      { ...fresh, requiresFace: false, requiresInstallationCode: false },
+      { ...form, installationCode: "" },
+      { ...fresh, requiresInstallationCode: false },
       requestId
     );
-    expect(input).not.toHaveProperty("embeddings");
     expect(input).not.toHaveProperty("installationCode");
   });
   it("rejects invalid PIN and strips installation secrets from errors", () => {

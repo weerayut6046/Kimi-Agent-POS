@@ -25,13 +25,12 @@ const PLATFORM_AUTH_PROCEDURES = new Set([
   "auth.systemAccess",
   "auth.reportLoginAttempt",
   "auth.realtimeSession",
-  "faceAuth.passkeyStatus",
-  "faceAuth.beginFaceLogin",
-  "faceAuth.completeFaceLogin",
-  "faceAuth.beginPasskeyLogin",
-  "faceAuth.completePasskeyLogin",
-  "faceAuth.beginPasskeyRegistration",
-  "faceAuth.completePasskeyRegistration",
+  "staffAuth.passkeyStatus",
+  "staffAuth.loginWithPin",
+  "staffAuth.beginPasskeyLogin",
+  "staffAuth.completePasskeyLogin",
+  "staffAuth.beginPasskeyRegistration",
+  "staffAuth.completePasskeyRegistration",
 ]);
 
 export function isProcedureAllowedInDeployment(

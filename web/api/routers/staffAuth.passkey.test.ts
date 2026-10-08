@@ -78,8 +78,8 @@ async function ensureCredential() {
   if (exists) return;
   const begin = await test
     .caller("cashier", 3)
-    .faceAuth.beginPasskeyRegistration();
-  await test.caller("cashier", 3).faceAuth.completePasskeyRegistration({
+    .staffAuth.beginPasskeyRegistration();
+  await test.caller("cashier", 3).staffAuth.completePasskeyRegistration({
     challengeId: begin.challengeId,
     response: registrationResponse,
   });
@@ -130,22 +130,22 @@ beforeEach(() => {
 
 describe("app-owned WebAuthn passkey login", () => {
   it("offers passkeys only at the configured origin", async () => {
-    expect(await anonymousCaller().faceAuth.passkeyStatus()).toEqual({
+    expect(await anonymousCaller().staffAuth.passkeyStatus()).toEqual({
       available: true,
     });
     expect(
       await anonymousCaller({
         origin: "https://other.local",
-      }).faceAuth.passkeyStatus()
+      }).staffAuth.passkeyStatus()
     ).toEqual({ available: false });
     await expect(
       anonymousCaller({
         origin: "https://other.local",
-      }).faceAuth.beginPasskeyLogin()
+      }).staffAuth.beginPasskeyLogin()
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
-  it("requires a signed POS session and settings permission to enroll", async () => {
+  it("requires a signed staff identity and settings permission to enroll", async () => {
     mocks.getClaims.mockResolvedValue({
       data: {
         claims: {
@@ -159,7 +159,7 @@ describe("app-owned WebAuthn passkey login", () => {
     await expect(
       anonymousCaller({
         authorization: "Bearer valid-password-session",
-      }).faceAuth.beginPasskeyRegistration()
+      }).staffAuth.beginPasskeyRegistration()
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(mocks.getClaims).toHaveBeenCalled();
     await test.db
@@ -168,7 +168,7 @@ describe("app-owned WebAuthn passkey login", () => {
       .where(eq(staffUsers.id, 3));
     try {
       await expect(
-        test.caller("cashier", 3).faceAuth.beginPasskeyRegistration()
+        test.caller("cashier", 3).staffAuth.beginPasskeyRegistration()
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
     } finally {
       await test.db
@@ -178,10 +178,45 @@ describe("app-owned WebAuthn passkey login", () => {
     }
   });
 
+  it("accepts a verified Supabase session for assigned active staff", async () => {
+    const authUserId = "33333333-3333-4333-8333-333333333333";
+    await test.db
+      .update(staffUsers)
+      .set({ supabaseAuthUserId: authUserId })
+      .where(eq(staffUsers.id, 3));
+    mocks.getClaims.mockResolvedValue({
+      data: {
+        claims: {
+          sub: authUserId,
+          session_id: "44444444-4444-4444-8444-444444444444",
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        },
+      },
+      error: null,
+    });
+    try {
+      const result = await anonymousCaller({
+        authorization: "Bearer verified-supabase-session",
+      }).staffAuth.beginPasskeyRegistration();
+      expect(result.challengeId).toBeTypeOf("string");
+      expect(mocks.getClaims).toHaveBeenCalledWith(
+        "verified-supabase-session",
+        {}
+      );
+    } finally {
+      await test.db
+        .update(staffUsers)
+        .set({ supabaseAuthUserId: null })
+        .where(eq(staffUsers.id, 3));
+      const { clearActiveStaffCache } = await import("../lib/authorization");
+      clearActiveStaffCache();
+    }
+  });
+
   it("registers an opaque user handle with discoverable platform verification", async () => {
     const begin = await test
       .caller("cashier", 3)
-      .faceAuth.beginPasskeyRegistration();
+      .staffAuth.beginPasskeyRegistration();
     expect(begin.options.authenticatorSelection).toEqual(
       expect.objectContaining({
         authenticatorAttachment: "platform",
@@ -196,7 +231,7 @@ describe("app-owned WebAuthn passkey login", () => {
     expect(begin.options.user.id).toBe(staff?.passkeyUserHandle);
     const completed = await test
       .caller("cashier", 3)
-      .faceAuth.completePasskeyRegistration({
+      .staffAuth.completePasskeyRegistration({
         challengeId: begin.challengeId,
         response: registrationResponse,
       });
@@ -219,22 +254,22 @@ describe("app-owned WebAuthn passkey login", () => {
   it("consumes invalid enrollment challenges and requires user verification", async () => {
     const begin = await test
       .caller("cashier", 3)
-      .faceAuth.beginPasskeyRegistration();
+      .staffAuth.beginPasskeyRegistration();
     await expect(
-      test.caller("cashier", 3).faceAuth.completePasskeyRegistration({
+      test.caller("cashier", 3).staffAuth.completePasskeyRegistration({
         challengeId: begin.challengeId,
         response: {},
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      test.caller("cashier", 3).faceAuth.completePasskeyRegistration({
+      test.caller("cashier", 3).staffAuth.completePasskeyRegistration({
         challengeId: begin.challengeId,
         response: registrationResponse,
       })
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     const second = await test
       .caller("cashier", 3)
-      .faceAuth.beginPasskeyRegistration();
+      .staffAuth.beginPasskeyRegistration();
     mocks.verifyRegistrationResponse.mockResolvedValueOnce({
       verified: true,
       registrationInfo: {
@@ -247,7 +282,7 @@ describe("app-owned WebAuthn passkey login", () => {
       },
     });
     await expect(
-      test.caller("cashier", 3).faceAuth.completePasskeyRegistration({
+      test.caller("cashier", 3).staffAuth.completePasskeyRegistration({
         challengeId: second.challengeId,
         response: registrationResponse,
       })
@@ -256,10 +291,10 @@ describe("app-owned WebAuthn passkey login", () => {
 
   it("uses username-free options and issues the existing staff session after verification", async () => {
     await ensureCredential();
-    const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+    const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
     expect(begin.options.allowCredentials).toEqual([]);
     expect(begin.options.userVerification).toBe("required");
-    const result = await anonymousCaller().faceAuth.completePasskeyLogin({
+    const result = await anonymousCaller().staffAuth.completePasskeyLogin({
       challengeId: begin.challengeId,
       response: authenticationResponse,
     });
@@ -286,15 +321,15 @@ describe("app-owned WebAuthn passkey login", () => {
 
   it("consumes malformed assertions and denies replay", async () => {
     await ensureCredential();
-    const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+    const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: {},
       })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: authenticationResponse,
       })
@@ -308,9 +343,9 @@ describe("app-owned WebAuthn passkey login", () => {
   it("does not let a registration challenge authenticate", async () => {
     const begin = await test
       .caller("cashier", 3)
-      .faceAuth.beginPasskeyRegistration();
+      .staffAuth.beginPasskeyRegistration();
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: authenticationResponse,
       })
@@ -324,18 +359,18 @@ describe("app-owned WebAuthn passkey login", () => {
 
   it("rejects an invalid signature and consumes its challenge", async () => {
     await ensureCredential();
-    const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+    const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
     mocks.verifyAuthenticationResponse.mockRejectedValueOnce(
       new Error("invalid signature")
     );
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: authenticationResponse,
       })
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: authenticationResponse,
       })
@@ -344,13 +379,13 @@ describe("app-owned WebAuthn passkey login", () => {
 
   it("denies login without user verification", async () => {
     await ensureCredential();
-    const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+    const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
     mocks.verifyAuthenticationResponse.mockResolvedValueOnce({
       verified: true,
       authenticationInfo: { userVerified: false, newCounter: 2 },
     });
     await expect(
-      anonymousCaller().faceAuth.completePasskeyLogin({
+      anonymousCaller().staffAuth.completePasskeyLogin({
         challengeId: begin.challengeId,
         response: authenticationResponse,
       })
@@ -364,9 +399,9 @@ describe("app-owned WebAuthn passkey login", () => {
       .set({ active: false })
       .where(eq(staffUsers.id, 3));
     try {
-      const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+      const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
       await expect(
-        anonymousCaller().faceAuth.completePasskeyLogin({
+        anonymousCaller().staffAuth.completePasskeyLogin({
           challengeId: begin.challengeId,
           response: authenticationResponse,
         })
@@ -383,9 +418,9 @@ describe("app-owned WebAuthn passkey login", () => {
       .where(eq(staffBranches.staffId, 3));
     await test.db.delete(staffBranches).where(eq(staffBranches.staffId, 3));
     try {
-      const begin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+      const begin = await anonymousCaller().staffAuth.beginPasskeyLogin();
       await expect(
-        anonymousCaller().faceAuth.completePasskeyLogin({
+        anonymousCaller().staffAuth.completePasskeyLogin({
           challengeId: begin.challengeId,
           response: authenticationResponse,
         })
@@ -394,9 +429,9 @@ describe("app-owned WebAuthn passkey login", () => {
         .update(staffUsers)
         .set({ role: "admin" })
         .where(eq(staffUsers.id, 3));
-      const adminBegin = await anonymousCaller().faceAuth.beginPasskeyLogin();
+      const adminBegin = await anonymousCaller().staffAuth.beginPasskeyLogin();
       await expect(
-        anonymousCaller().faceAuth.completePasskeyLogin({
+        anonymousCaller().staffAuth.completePasskeyLogin({
           challengeId: adminBegin.challengeId,
           response: authenticationResponse,
         })
@@ -413,10 +448,10 @@ describe("app-owned WebAuthn passkey login", () => {
   it("limits challenge creation across server instances through the database", async () => {
     const headers = { "x-forwarded-for": "203.0.113.44" };
     for (let i = 0; i < 10; i += 1) {
-      await anonymousCaller(headers).faceAuth.beginPasskeyLogin();
+      await anonymousCaller(headers).staffAuth.beginPasskeyLogin();
     }
     await expect(
-      anonymousCaller(headers).faceAuth.beginPasskeyLogin()
+      anonymousCaller(headers).staffAuth.beginPasskeyLogin()
     ).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
   });
 });

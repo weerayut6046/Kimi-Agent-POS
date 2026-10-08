@@ -1020,9 +1020,8 @@ export const authRouter = createRouter({
       ) {
         await updateSupabaseStaffIdentity(authUserId, {
           username: rest.username,
-          // Once PIN + face login is configured, invalidate any historical
-          // password so it cannot bypass the face-verification step through
-          // Supabase Auth directly.
+          // When the PIN changes, invalidate any historical password so
+          // staff continue to use the configured POS sign-in methods.
           password: pin
             ? `${randomBytes(32).toString("base64url")}Aa1!`
             : undefined,

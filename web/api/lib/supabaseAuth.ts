@@ -1,6 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { Buffer } from "node:buffer";
-import { issueFaceSessionProof } from "./faceSessionProof";
 import { env } from "./env";
 import { staffAuthEmail } from "@contracts/auth";
 
@@ -40,12 +38,11 @@ export type IssuedSupabaseStaffSession = {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
-  faceProof: string;
 };
 
 /**
- * Create the canonical Supabase Auth identity for a staff account. New PIN +
- * face accounts are passwordless; the optional password exists only for
+ * Create the canonical Supabase Auth identity for a staff account. New PIN
+ * accounts are passwordless; the optional password exists only for
  * controlled migration/recovery and is never written to the POS database.
  */
 export async function createSupabaseStaffIdentity(input: {
@@ -76,7 +73,7 @@ export async function createSupabaseStaffIdentity(input: {
 
 /**
  * Mint a normal Supabase user session only after the POS server has approved
- * the employee sign-in (PIN + face in production, or PIN-only in development).
+ * the employee sign-in with PIN or Passkey.
  * generateLink does not send email; its one-time token is immediately exchanged
  * on the server and never exposed to the browser.
  */
@@ -106,19 +103,11 @@ export async function issueSupabaseStaffSession(
       verified.error?.message || "Unable to create staff sign-in session"
     );
   }
-  const jwtPayload = JSON.parse(
-    Buffer.from(session.access_token.split(".")[1] ?? "", "base64url")
-      .toString("utf8")
-  ) as { session_id?: unknown };
-  if (typeof jwtPayload.session_id !== "string") {
-    throw new Error("Supabase session is missing session_id");
-  }
   return {
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
     expiresAt:
       session.expires_at ?? Math.floor(Date.now() / 1_000) + session.expires_in,
-    faceProof: issueFaceSessionProof(expectedUserId, jwtPayload.session_id),
   };
 }
 

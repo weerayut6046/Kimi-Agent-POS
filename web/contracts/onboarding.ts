@@ -205,7 +205,6 @@ export type BusinessSetupState = {
     active: boolean;
     pinReady: boolean;
     authReady: boolean;
-    faceReady: boolean;
     loginReady: boolean;
     isCurrentUser: boolean;
   }>;

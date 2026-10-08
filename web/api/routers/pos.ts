@@ -858,14 +858,8 @@ export const posRouter = createRouter({
             throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
           // มิเตอร์และสต๊อกเก็บ 3 ตำแหน่ง ห้ามปัดเป็นสตางค์ก่อนหักถัง
           const liters = r3(rd.closeMeter - open.openMeter);
-          // กะที่เปิดก่อนมีระบบ P จะมี openMoney = 0 → ข้ามการเทียบยอด P รอบนี้
-          // แต่ยังบันทึก P ปลายทางลงหัวจ่าย เพื่อให้กะถัดไปเทียบได้ถูกต้อง
-          let money = 0;
-          if (open.openMoney > 0) {
-            if (rd.closeMoney < open.openMoney)
-              throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
-            money = r2(rd.closeMoney - open.openMoney);
-          }
+          // P ตั้งต้นเป็น 0 ได้ โดยเฉพาะกะแรก ต้องรวมยอดส่วนต่างด้วยเสมอ
+          const money = r2(rd.closeMoney - open.openMoney);
           totalLiters = r3(totalLiters + liters);
           totalAmount = r2(totalAmount + liters * open.pricePerLiter);
           totalMoneyMeter = r2(totalMoneyMeter + money);
@@ -1246,17 +1240,11 @@ export const posRouter = createRouter({
           if (reading.closeMeter < existing.openMeter) {
             throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
           }
-          if (
-            existing.openMoney > 0 &&
-            reading.closeMoney < existing.openMoney
-          ) {
+          if (reading.closeMoney < existing.openMoney) {
             throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
           }
           const liters = r3(reading.closeMeter - existing.openMeter);
-          const money =
-            existing.openMoney > 0
-              ? r2(reading.closeMoney - existing.openMoney)
-              : 0;
+          const money = r2(reading.closeMoney - existing.openMoney);
           totalLiters = r3(totalLiters + liters);
           totalAmount = r2(totalAmount + r2(liters * existing.pricePerLiter));
           totalMoneyMeter = r2(totalMoneyMeter + money);
@@ -1446,9 +1434,7 @@ export const posRouter = createRouter({
         const liters =
           r.closeMeter != null ? r3(r.closeMeter - r.openMeter) : null;
         const money =
-          r.closeMoney != null && r.openMoney > 0
-            ? r2(r.closeMoney - r.openMoney)
-            : null;
+          r.closeMoney != null ? r2(r.closeMoney - r.openMoney) : null;
         const amountL = liters != null ? r2(liters * r.pricePerLiter) : null;
         return {
           ...r,
@@ -2909,7 +2895,7 @@ export const posRouter = createRouter({
           code: products.code,
           name: products.name,
           liters: sql<number>`coalesce(sum(${shiftReadings.closeMeter} - ${shiftReadings.openMeter}), 0)`,
-          amount: sql<number>`coalesce(sum(case when ${shiftReadings.closeMoney} is not null and ${shiftReadings.openMoney} > 0 then ${shiftReadings.closeMoney} - ${shiftReadings.openMoney} else (${shiftReadings.closeMeter} - ${shiftReadings.openMeter}) * ${shiftReadings.pricePerLiter} end), 0)`,
+          amount: sql<number>`coalesce(sum(case when ${shiftReadings.closeMoney} is not null then ${shiftReadings.closeMoney} - ${shiftReadings.openMoney} else (${shiftReadings.closeMeter} - ${shiftReadings.openMeter}) * ${shiftReadings.pricePerLiter} end), 0)`,
         })
         .from(shiftReadings)
         .innerJoin(

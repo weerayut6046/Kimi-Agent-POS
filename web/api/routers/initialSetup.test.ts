@@ -13,7 +13,6 @@ import { eq, sql } from "drizzle-orm";
 import { INITIAL_INSTALLATION_KEY } from "@contracts/initialSetup";
 import {
   branches,
-  employeeFaceProfiles,
   products,
   settings,
   shifts,
@@ -40,12 +39,6 @@ let originalEnvironment: typeof environment;
 let sequence = 0;
 const CODE = "unit-test-installation-code-at-least-32-characters";
 const AUTH_ID = "11111111-1111-4111-8111-111111111111";
-const samples = Array.from({ length: 3 }, (_, sample) =>
-  Array.from(
-    { length: 128 },
-    (_, index) => Math.sin(index * 0.17 + sample * 0.01) * 0.12
-  )
-);
 
 beforeAll(async () => {
   vi.stubEnv("PUMPPOS_DEPLOYMENT_MODE", "business");
@@ -77,7 +70,6 @@ beforeEach(async () => {
     accessToken: "mock-access",
     refreshToken: "mock-refresh",
     expiresAt: 9999999999,
-    faceProof: "mock-approved-proof",
   });
   const { clearActiveStaffCache } = await import("../lib/authorization");
   clearActiveStaffCache();
@@ -145,7 +137,6 @@ describe("first owner bootstrap", () => {
       needsOwner: true,
       canCreateOwner: true,
       requiresInstallationCode: false,
-      requiresFace: false,
       systemReady: true,
       databaseMode: "local",
       checks: [
@@ -281,7 +272,6 @@ describe("first owner bootstrap", () => {
       needsOwner: false,
       canCreateOwner: false,
       requiresInstallationCode: false,
-      requiresFace: false,
     });
     expect(select).not.toHaveBeenCalled();
     select.mockRestore();
@@ -330,55 +320,27 @@ describe("first owner bootstrap", () => {
     expect(await t.db.select().from(staffUsers)).toEqual([]);
   });
 
-  it.skip("requires valid face enrollment in production and emits a real-session shape without HMAC fallback", async () => {
+  it("creates a production owner with a Supabase session and linked Auth identity", async () => {
     production();
     const claim = { ...input(), installationCode: CODE };
-    await expect(api().createOwner(claim)).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-    });
-    await expect(
-      api().createOwner({ ...claim, embeddings: samples })
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(
-      api().createOwner({
-        ...claim,
-        embeddings: [
-          Array(128).fill(0),
-          Array(128).fill(0),
-          Array(128).fill(0),
-        ],
-        consentConfirmed: true,
-      })
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    const result = await api().createOwner({
-      ...claim,
-      embeddings: samples,
-      consentConfirmed: true,
-    });
+    const result = await api().createOwner(claim);
     expect(result.sessionToken).toBeUndefined();
-    expect(result.authSession).toMatchObject({
+    expect(result.authSession).toEqual({
       accessToken: "mock-access",
-      faceProof: "mock-approved-proof",
+      refreshToken: "mock-refresh",
+      expiresAt: 9999999999,
     });
     expect(auth.create).toHaveBeenCalledExactlyOnceWith({
       username: "owner",
       name: "Business Owner",
       role: "admin",
     });
-    const [face] = await t.db.select().from(employeeFaceProfiles);
-    expect(face).toMatchObject({
-      model: "human-faceres-v1",
-      embeddingCount: 3,
-      embeddingDimensions: 128,
-      enrolledByStaffId: result.staff.id,
-    });
-    expect(face.templateEncrypted).toMatch(/^v1\./);
-    const { decryptFaceEmbeddings } = await import("../lib/faceBiometrics");
-    expect(
-      await decryptFaceEmbeddings(result.staff.id, face.templateEncrypted)
-    ).toHaveLength(3);
+    expect(auth.issue).toHaveBeenCalledExactlyOnceWith("owner", AUTH_ID);
+    const [owner] = await t.db.select().from(staffUsers);
+    expect(owner.supabaseAuthUserId).toBe(AUTH_ID);
+    expect(JSON.parse((await installation()).value).authUserId).toBe(AUTH_ID);
     expect(JSON.stringify(result)).not.toMatch(
-      /embeddings|templateEncrypted|4729|unit-secret/
+      /4729|staff-pin-hmac|unit-secret/
     );
   });
 
@@ -424,8 +386,6 @@ describe("first owner bootstrap", () => {
     const claim = {
       ...input(),
       installationCode: CODE,
-      embeddings: samples,
-      consentConfirmed: true as const,
     };
     auth.issue.mockRejectedValueOnce(
       new Error("provider-sensitive-session-detail")
@@ -441,13 +401,11 @@ describe("first owner bootstrap", () => {
     expect(auth.remove).not.toHaveBeenCalled();
   });
 
-  it.skip("denies committed retries after the owner's Auth identity or enrolled face is revoked", async () => {
+  it("denies committed retries after the owner's Auth identity is changed or removed", async () => {
     production();
     const claim = {
       ...input(),
       installationCode: CODE,
-      embeddings: samples,
-      consentConfirmed: true as const,
     };
     const first = await api().createOwner(claim);
     await t.db
@@ -459,9 +417,8 @@ describe("first owner bootstrap", () => {
     });
     await t.db
       .update(staffUsers)
-      .set({ supabaseAuthUserId: AUTH_ID })
+      .set({ supabaseAuthUserId: null })
       .where(eq(staffUsers.id, first.staff.id));
-    await t.db.delete(employeeFaceProfiles);
     await expect(api().createOwner(claim)).rejects.toMatchObject({
       code: "CONFLICT",
     });
@@ -473,14 +430,12 @@ describe("first owner bootstrap", () => {
     const claim = {
       ...input(),
       installationCode: CODE,
-      embeddings: samples,
-      consentConfirmed: true as const,
     };
     await t.db.execute(
-      sql`create function public.fail_initial_owner_face() returns trigger language plpgsql as $$ begin raise exception 'sensitive-db-detail'; end $$`
+      sql`create function public.fail_initial_owner_marker() returns trigger language plpgsql as $$ begin if new.key = 'business_installation_v1' then raise exception 'sensitive-db-detail'; end if; return new; end $$`
     );
     await t.db.execute(
-      sql`create trigger fail_initial_owner_face before insert on pos.employee_face_profiles for each row execute function public.fail_initial_owner_face()`
+      sql`create trigger fail_initial_owner_marker before insert on pos.settings for each row execute function public.fail_initial_owner_marker()`
     );
     try {
       await expect(api().createOwner(claim)).rejects.toMatchObject({
@@ -492,9 +447,9 @@ describe("first owner bootstrap", () => {
       expect(auth.remove).toHaveBeenCalledWith(AUTH_ID);
     } finally {
       await t.db.execute(
-        sql`drop trigger fail_initial_owner_face on pos.employee_face_profiles`
+        sql`drop trigger fail_initial_owner_marker on pos.settings`
       );
-      await t.db.execute(sql`drop function public.fail_initial_owner_face()`);
+      await t.db.execute(sql`drop function public.fail_initial_owner_marker()`);
     }
     expect((await api().createOwner(claim)).staff.role).toBe("admin");
   });
@@ -504,8 +459,6 @@ describe("first owner bootstrap", () => {
     const claim = {
       ...input(),
       installationCode: CODE,
-      embeddings: samples,
-      consentConfirmed: true as const,
     };
     auth.create.mockRejectedValueOnce(new Error("sensitive-provider-error"));
     await expect(api().createOwner(claim)).rejects.toMatchObject({
@@ -594,8 +547,6 @@ describe("first owner bootstrap", () => {
     await api().createOwner({
       ...input(),
       installationCode: CODE,
-      embeddings: samples,
-      consentConfirmed: true,
     });
     environment.installationCode = "";
     const state = await api().state();

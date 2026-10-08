@@ -11,7 +11,6 @@ import {
 import { normalizeMenuPermissions } from "@contracts/menuPermissions";
 import {
   branches,
-  employeeFaceProfiles,
   passkeyCredentials,
   settings,
   staffBranches,
@@ -20,13 +19,6 @@ import {
 import { getDb } from "../queries/connection";
 import { env, isDevelopmentRuntime } from "./env";
 import { clearActiveStaffCache } from "./authorization";
-import {
-  encryptFaceEmbeddings,
-  FACE_MODEL,
-  normalizeFaceEmbeddings,
-  decryptFaceEmbeddings,
-  verifyFaceSamples,
-} from "./faceBiometrics";
 import { hashStaffPin } from "./staffPin";
 import {
   createSupabaseStaffIdentity,
@@ -139,17 +131,13 @@ export async function hasInitialSetupData(
 }
 
 export async function inspectInitialInstallation(db: InitialDb) {
-  const [users, branchRows, markerRows, [face], [passkey]] = await Promise.all([
+  const [users, branchRows, markerRows, [passkey]] = await Promise.all([
     db.select().from(staffUsers),
     db.select().from(branches),
     db
       .select()
       .from(settings)
       .where(eq(settings.key, INITIAL_INSTALLATION_KEY)),
-    db
-      .select({ id: employeeFaceProfiles.id })
-      .from(employeeFaceProfiles)
-      .limit(1),
     db.select({ id: passkeyCredentials.id }).from(passkeyCredentials).limit(1),
   ]);
   const marker =
@@ -176,13 +164,11 @@ export async function inspectInitialInstallation(db: InitialDb) {
       seedOwner.pin
     ) &&
     pendingOwnerDigest(seedOwner.pin) === marker.pendingPinDigest &&
-    !face &&
     !passkey
   );
   const pristine =
     users.length === 0 &&
     markerRows.length === 0 &&
-    !face &&
     !passkey &&
     (branchRows.length === 0 || Boolean(main));
   const eligible =
@@ -225,7 +211,6 @@ export function initialSetupPolicy() {
       (!env.isProduction || code.length >= 32) &&
       env.appSecret.length >= 32 &&
       (localSession || cloudAuthConfigured()),
-    requiresFace: false,
     localSession,
   };
 }
@@ -288,7 +273,6 @@ export async function readInitialSetupState(): Promise<InitialSetupState> {
     needsOwner,
     canCreateOwner: needsOwner && policy.configured && systemReady,
     requiresInstallationCode: policy.requiresInstallationCode,
-    requiresFace: policy.requiresFace,
     systemReady,
     databaseMode,
     checks,
@@ -374,25 +358,6 @@ export async function createInitialOwner(
 ) {
   assertInitialSetupRequest(request);
   const policy = assertInstallationCode(input);
-  if (
-    policy.requiresFace &&
-    (!input.embeddings || input.consentConfirmed !== true)
-  )
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "กรุณายินยอมและลงทะเบียนใบหน้าของเจ้าของก่อนเริ่มใช้งาน",
-    });
-  let embeddings: number[][] | undefined;
-  try {
-    embeddings = input.embeddings
-      ? normalizeFaceEmbeddings(input.embeddings)
-      : undefined;
-  } catch {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "ข้อมูลใบหน้าที่ลงทะเบียนไม่ถูกต้อง กรุณาสแกนใหม่",
-    });
-  }
   const fingerprint = createHmac("sha256", env.appSecret)
     .update(
       JSON.stringify({
@@ -400,8 +365,6 @@ export async function createInitialOwner(
         username: input.username,
         pin: input.pin,
         installationCode: input.installationCode ?? "",
-        embeddings: embeddings ?? null,
-        consentConfirmed: input.consentConfirmed === true,
       })
     )
     .digest("hex");
@@ -440,29 +403,6 @@ export async function createInitialOwner(
             code: "CONFLICT",
             message: "ชุดติดตั้งนี้มีเจ้าของแล้ว กรุณาเข้าสู่ระบบด้วยบัญชีเดิม",
           });
-        }
-        if (policy.requiresFace) {
-          const [profile] = await tx
-            .select()
-            .from(employeeFaceProfiles)
-            .where(eq(employeeFaceProfiles.staffId, owner.id));
-          let faceStillValid = false;
-          if (profile?.model === FACE_MODEL && embeddings) {
-            try {
-              faceStillValid = verifyFaceSamples(
-                embeddings,
-                await decryptFaceEmbeddings(owner.id, profile.templateEncrypted)
-              ).accepted;
-            } catch {
-              /* Revoked or unreadable biometrics never mint a session. */
-            }
-          }
-          if (!faceStillValid)
-            throw new TRPCError({
-              code: "CONFLICT",
-              message:
-                "ข้อมูลยืนยันตัวตนเปลี่ยนแล้ว กรุณาเข้าสู่ระบบด้วยบัญชีเจ้าของ",
-            });
         }
         return { user: owner, branchId: installation.markerRow.branchId };
       }
@@ -511,21 +451,6 @@ export async function createInitialOwner(
           target: [staffBranches.staffId, staffBranches.branchId],
           set: { isDefault: true },
         });
-      if (embeddings) {
-        const now = new Date();
-        await tx.insert(employeeFaceProfiles).values({
-          branchId: main.id,
-          staffId: owner.id,
-          templateEncrypted: await encryptFaceEmbeddings(owner.id, embeddings),
-          model: FACE_MODEL,
-          embeddingCount: embeddings.length,
-          embeddingDimensions: embeddings[0].length,
-          consentAt: now,
-          enrolledByStaffId: owner.id,
-          enrolledAt: now,
-          updatedAt: now,
-        });
-      }
       const marker: z.infer<typeof claimedMarker> = {
         version: 1,
         status: "claimed",

@@ -83,4 +83,45 @@ describe("pos dashboard", () => {
     );
     expect(dashboard.recentSales.some(row => row.id === sale.id)).toBe(true);
   });
+
+  it("แสดงยอดน้ำมันจาก P เมื่อมิเตอร์เงินตั้งต้นเป็น 0", async () => {
+    const before = await t.caller().pos.dashboard();
+    const fuel = await t.db.query.products.findFirst({
+      where: eq(products.code, "GSH95"),
+    });
+    const nozzle = await t.db.query.nozzles.findFirst({
+      where: eq(nozzles.productId, fuel!.id),
+    });
+    const closedAt = new Date();
+    const [{ id }] = await t.db
+      .insert(shifts)
+      .values({
+        staffName: "กะแรก P เริ่มจากศูนย์",
+        openedAt: new Date(closedAt.getTime() - 60_000),
+        closedAt,
+        status: "closed",
+        totalLiters: 12.5,
+        totalAmount: 509.25,
+        totalMoneyMeter: 502,
+      })
+      .returning({ id: shifts.id });
+    await t.db.insert(shiftReadings).values({
+      shiftId: id,
+      nozzleId: nozzle!.id,
+      openMeter: 0,
+      closeMeter: 12.5,
+      openMoney: 0,
+      closeMoney: 502,
+      pricePerLiter: 40.74,
+    });
+
+    const after = await t.caller().pos.dashboard();
+    expect(after.todayShiftTotal - before.todayShiftTotal).toBe(502);
+    expect(
+      after.fuelByCode.GSH95!.amount - before.fuelByCode.GSH95!.amount
+    ).toBe(502);
+    expect(
+      after.fuelByCode.GSH95!.liters - before.fuelByCode.GSH95!.liters
+    ).toBe(12.5);
+  });
 });

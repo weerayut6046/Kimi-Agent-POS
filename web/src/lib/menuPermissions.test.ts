@@ -28,6 +28,62 @@ describe("menu permissions", () => {
     );
   });
 
+  it.each(["cashier", "manager"] as const)(
+    "preserves workforce and settings grants for %s after enrollment removal",
+    role => {
+      expect(getRoleMenuPermissions(role)).toEqual(
+        expect.arrayContaining(["workforce", "settings"])
+      );
+      expect(
+        normalizeMenuPermissions(role, [
+          "workforce",
+          "settings",
+          "face_enrollment",
+          "workforce",
+        ])
+      ).toEqual(["workforce", "settings"]);
+    }
+  );
+
+  it.each(["cashier", "manager", "admin"] as const)(
+    "keeps shift access in the existing %s role defaults",
+    role => {
+      expect(getRoleMenuPermissions(role)).toContain("shifts");
+      expect(hasMenuPermission(role, null, "shifts")).toBe(true);
+      expect(hasMenuPermission(role, undefined, "shifts")).toBe(true);
+    }
+  );
+
+  it.each(["cashier", "manager"] as const)(
+    "normalizes stored shift grants without expanding the %s role ceiling",
+    role => {
+      expect(
+        normalizeMenuPermissions(role, [
+          "pos",
+          "shifts",
+          "shifts",
+          "unknown",
+          "audit",
+          "setup",
+        ])
+      ).toEqual(["pos", "shifts"]);
+      expect(hasMenuPermission(role, ["pos"], "shifts")).toBe(false);
+      expect(hasMenuPermission(role, [], "shifts")).toBe(false);
+      expect(getFirstAllowedMenuPath(role, ["shifts"])).toBe("/shifts");
+    }
+  );
+
+  it.each([
+    "pos.openShift",
+    "pos.closeShift",
+    "pos.shiftHistory",
+    "pos.shiftDetail",
+    "pos.shiftMeterVerify",
+    "pos.shiftFutureFeature",
+  ])("maps shift API %s to the shift menu permission", path => {
+    expect(getApiMenuPermissions(path)).toEqual(["shifts"]);
+  });
+
   it("keeps owner setup administrator-only for legacy and stored permissions", () => {
     expect(hasMenuPermission("admin", [], "setup")).toBe(true);
     for (const role of ["cashier", "manager"] as const) {
@@ -206,23 +262,18 @@ describe("menu permissions", () => {
   });
 
   it("maps shared routers to every feature that legitimately consumes them", () => {
-    expect(getApiMenuPermissions("faceAuth.passkeyStatus")).toEqual([]);
-    expect(getApiMenuPermissions("faceAuth.beginFaceLogin")).toEqual([]);
-    expect(getApiMenuPermissions("faceAuth.completeFaceLogin")).toEqual([]);
-    expect(getApiMenuPermissions("faceAuth.beginPasskeyLogin")).toEqual([]);
-    expect(getApiMenuPermissions("faceAuth.completePasskeyLogin")).toEqual([]);
-    expect(getApiMenuPermissions("faceAuth.beginPasskeyRegistration")).toEqual([
-      "settings",
-    ]);
+    expect(getApiMenuPermissions("staffAuth.passkeyStatus")).toEqual([]);
+    expect(getApiMenuPermissions("staffAuth.loginWithPin")).toEqual([]);
+    expect(getApiMenuPermissions("staffAuth.beginPasskeyLogin")).toEqual([]);
+    expect(getApiMenuPermissions("staffAuth.completePasskeyLogin")).toEqual([]);
+    expect(getApiMenuPermissions("staffAuth.beginPasskeyRegistration")).toEqual(
+      ["settings"]
+    );
     expect(
-      getApiMenuPermissions("faceAuth.completePasskeyRegistration")
+      getApiMenuPermissions("staffAuth.completePasskeyRegistration")
     ).toEqual(["settings"]);
-    expect(getApiMenuPermissions("faceAuth.enrollFace")).toEqual(["workforce"]);
-    expect(getApiMenuPermissions("faceAuth.deleteFaceProfile")).toEqual([
-      "workforce",
-    ]);
-    expect(getApiMenuPermissions("faceAuth.futureFeature")).toEqual([
-      "workforce",
+    expect(getApiMenuPermissions("staffAuth.futureFeature")).toEqual([
+      "settings",
     ]);
     expect(getApiMenuPermissions("pos.dashboard")).toEqual(["dashboard"]);
     expect(getApiMenuPermissions("pos.deleteSale")).toEqual(["sales"]);

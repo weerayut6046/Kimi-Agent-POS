@@ -8,7 +8,7 @@ beforeAll(async () => {
 afterAll(() => test.cleanup());
 
 describe("openShift after attendance removal", () => {
-  it("opens a shift without a face attendance record and uses signed staff identity", async () => {
+  it("opens a shift without an attendance record and uses signed staff identity", async () => {
     const nozzles = await test.db.query.nozzles.findMany();
     const result = await test.caller().pos.openShift({
       staffId: 1,

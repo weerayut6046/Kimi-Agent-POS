@@ -17,7 +17,6 @@ export const initialSetupRouter = createRouter({
           needsOwner: false,
           canCreateOwner: false,
           requiresInstallationCode: false,
-          requiresFace: false,
         };
       return readInitialSetupState();
     }

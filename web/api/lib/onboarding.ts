@@ -2,7 +2,6 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import {
   branches,
-  employeeFaceProfiles,
   fuelTanks,
   nozzles,
   passkeyCredentials,
@@ -25,7 +24,6 @@ import {
 import { DEFAULT_SETTINGS } from "@contracts/settings";
 import { getDb } from "../queries/connection";
 import { env, isDevelopmentRuntime } from "./env";
-import { FACE_MODEL } from "./faceBiometrics";
 import { buildPromptPayPayload, extractMerchantBillInfo } from "./promptpay";
 
 export type SetupDb = Pick<
@@ -150,12 +148,10 @@ export function setupStaffReadiness(
     active: boolean;
     currentOwner: boolean;
     hasAuthIdentity: boolean;
-    hasCurrentFace: boolean;
     hasPasskey: boolean;
   },
   policy: {
     localSession: boolean;
-    development: boolean;
     passkeysAvailable: boolean;
   }
 ) {
@@ -165,14 +161,12 @@ export function setupStaffReadiness(
     (policy.localSession &&
       /^local-scrypt-v1:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]{43}$/.test(input.pin));
   const authReady = policy.localSession || input.hasAuthIdentity;
-  const faceReady = input.hasCurrentFace;
   const loginReady =
     input.active &&
     (input.currentOwner ||
       (authReady &&
-        ((pinReady && (faceReady || policy.development)) ||
-          (input.hasPasskey && policy.passkeysAvailable))));
-  return { pinReady, authReady, faceReady, loginReady };
+        (pinReady || (input.hasPasskey && policy.passkeysAvailable))));
+  return { pinReady, authReady, loginReady };
 }
 
 export async function readBusinessSetupState(
@@ -295,24 +289,14 @@ export async function readBusinessSetupState(
     ...new Map(staffRows.map(row => [row.id, row])).values(),
   ];
   const staffIds = uniqueStaff.map(row => row.id);
-  const [faces, passkeys] = staffIds.length
-    ? await Promise.all([
-        db
-          .select({
-            staffId: employeeFaceProfiles.staffId,
-            model: employeeFaceProfiles.model,
-          })
-          .from(employeeFaceProfiles)
-          .where(inArray(employeeFaceProfiles.staffId, staffIds)),
-        db
-          .select({ staffId: passkeyCredentials.staffId })
-          .from(passkeyCredentials)
-          .where(inArray(passkeyCredentials.staffId, staffIds)),
-      ])
-    : [[], []];
+  const passkeys = staffIds.length
+    ? await db
+        .select({ staffId: passkeyCredentials.staffId })
+        .from(passkeyCredentials)
+        .where(inArray(passkeyCredentials.staffId, staffIds))
+    : [];
   const policy = {
     localSession: env.localAuthEnabled || env.isTest || isDevelopmentRuntime(),
-    development: isDevelopmentRuntime(),
     passkeysAvailable: setupPasskeysAvailable(request),
   };
   const staff = uniqueStaff.map(row => ({
@@ -327,9 +311,6 @@ export async function readBusinessSetupState(
         active: row.active,
         currentOwner: row.id === currentStaffId && row.role === "admin",
         hasAuthIdentity: Boolean(row.authIdentity),
-        hasCurrentFace: faces.some(
-          face => face.staffId === row.id && face.model === FACE_MODEL
-        ),
         hasPasskey:
           Boolean(row.passkeyHandle) &&
           passkeys.some(passkey => passkey.staffId === row.id),
@@ -440,7 +421,7 @@ export async function readBusinessSetupState(
       .filter(row => row.active && !row.loginReady)
       .map(
         row =>
-          `${row.name}: บัญชีนี้ยังไม่พร้อมเข้าสู่ระบบ กรุณาตรวจบัญชีและ PIN ในหน้าตั้งค่า แล้วลงทะเบียนใบหน้าหรือกุญแจผ่าน`
+          `${row.name}: บัญชีนี้ยังไม่พร้อมเข้าสู่ระบบ กรุณาตรวจบัญชีและ PIN หรือกุญแจผ่านในหน้าตั้งค่า`
       ),
     ...tankRows
       .filter(row => row.currentLiters === 0)

@@ -10,20 +10,9 @@ class ShiftRepository {
     final responses = await Future.wait<Object?>([
       _trpc.query('pos.currentShift', branchId: branchId),
       _trpc.query('catalog.listPumps', branchId: branchId),
-      _trpc.query('attendance.myStatus', branchId: branchId),
     ]);
     final currentJson = responses[0];
     final pumpsJson = responses[1];
-    final attendanceJson = _jsonMap(responses[2]);
-    final openAttendance = _optionalMap(attendanceJson['openSession']);
-    final bangkokToday = DateTime.now()
-        .toUtc()
-        .add(const Duration(hours: 7))
-        .toIso8601String()
-        .substring(0, 10);
-    final faceClockedIn =
-        openAttendance?['workDate'] == bangkokToday &&
-        openAttendance?['clockInMethod'] == 'face';
     if (pumpsJson is! List<dynamic>) {
       throw const FormatException('Invalid pump response');
     }
@@ -47,10 +36,6 @@ class ShiftRepository {
           ? null
           : CurrentShift.fromJson(_jsonMap(currentJson)),
       nozzles: List<ShiftNozzle>.unmodifiable(nozzles),
-      faceClockedIn: faceClockedIn,
-      faceClockInAt: DateTime.tryParse(
-        openAttendance?['clockInAt'] as String? ?? '',
-      ),
     );
   }
 
@@ -153,11 +138,6 @@ Map<String, dynamic> _jsonMap(Object? value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return Map<String, dynamic>.from(value);
   throw const FormatException('Invalid JSON object');
-}
-
-Map<String, dynamic>? _optionalMap(Object? value) {
-  if (value == null) return null;
-  return _jsonMap(value);
 }
 
 double _round(double value, int digits) {

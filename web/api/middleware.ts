@@ -23,7 +23,7 @@ const t = initTRPC.context<TrpcContext>().create({
   isDev: process.env.NODE_ENV === "test",
   errorFormatter({ shape, error, path }) {
     if (
-      (path?.startsWith("faceAuth.") || path?.startsWith("initialSetup.")) &&
+      (path?.startsWith("staffAuth.") || path?.startsWith("initialSetup.")) &&
       error.code === "INTERNAL_SERVER_ERROR"
     ) {
       const { stack: _stack, ...data } = shape.data;

@@ -1,16 +1,8 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
-import { LoaderCircle, ScanFace, UserPlus, UserRoundCheck } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { LoaderCircle, UserPlus, UserRoundCheck } from "lucide-react";
 import type { BusinessSetupState } from "@contracts/onboarding";
-import type { FaceCaptureResult } from "@/components/FaceCapture";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,22 +17,10 @@ import {
   type SetupStaffForm,
 } from "./SetupStaffStep.form";
 
-const FaceCapture = lazy(() =>
-  import("@/components/FaceCapture").then(module => ({
-    default: module.FaceCapture,
-  }))
-);
-
 type Props = {
   state: BusinessSetupState;
   onChanged: () => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
-};
-type FaceEnrollment = {
-  branchId: number;
-  staffId: number;
-  consentConfirmed: boolean;
-  capturing: boolean;
 };
 const roleLabels = {
   admin: "ผู้ดูแลระบบ",
@@ -53,7 +33,7 @@ export default function SetupStaffStep({
   onChanged,
   onBusyChange,
 }: Props) {
-  // Replacing the branch unmounts PIN fields, consent and the active camera.
+  // Replacing the branch unmounts PIN fields.
   return (
     <SetupStaffStepContent
       key={state.branch.id}
@@ -69,24 +49,17 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
   const [adding, setAdding] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [createdAccount, setCreatedAccount] = useState<{
     branchId: number;
     username: string;
   } | null>(null);
-  const [faceEnrollment, setFaceEnrollment] = useState<FaceEnrollment | null>(
-    null
-  );
-  const [faceError, setFaceError] = useState("");
-  // Remove completed mutation variables promptly: they contain a PIN or face samples.
+  // Remove completed mutation variables promptly: they contain a PIN.
   const createStaff = trpc.auth.createStaff.useMutation({ gcTime: 0 });
-  const enrollFace = trpc.faceAuth.enrollFace.useMutation({ gcTime: 0 });
-  const busy = working || Boolean(faceEnrollment?.capturing);
 
   useEffect(() => {
-    onBusyChange?.(busy);
+    onBusyChange?.(working);
     return () => onBusyChange?.(false);
-  }, [onBusyChange, busy]);
+  }, [onBusyChange, working]);
 
   const currentStaff = state.staff.find(staff => staff.isCurrentUser);
   const createdUsername =
@@ -96,12 +69,6 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
   const createdStaff = state.staff.find(
     staff => staff.username === createdUsername
   );
-  const selectedStaff =
-    faceEnrollment?.branchId === state.branch.id
-      ? state.staff.find(
-          staff => staff.id === faceEnrollment.staffId && staff.active
-        )
-      : undefined;
   const pinError = form.pin ? staffPinValidationMessage(form.pin) : null;
 
   function changeField<K extends keyof SetupStaffForm>(
@@ -130,7 +97,6 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
     }
     setWorking(true);
     setError("");
-    setNotice("");
     let created = false;
     try {
       await createStaff.mutateAsync(input);
@@ -167,75 +133,6 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
     }
   }
 
-  function openFaceEnrollment(staffId: number) {
-    if (
-      working ||
-      !state.branch.active ||
-      !state.staff.some(staff => staff.id === staffId && staff.active)
-    )
-      return;
-    setFaceError("");
-    setFaceEnrollment({
-      branchId: state.branch.id,
-      staffId,
-      consentConfirmed: false,
-      capturing: false,
-    });
-  }
-
-  function closeFaceEnrollment() {
-    if (working) return;
-    setFaceEnrollment(null);
-    setFaceError("");
-  }
-
-  async function finishFaceEnrollment(result: FaceCaptureResult) {
-    if (
-      working ||
-      !selectedStaff ||
-      !faceEnrollment?.consentConfirmed ||
-      !faceEnrollment.capturing ||
-      !state.branch.active
-    )
-      return;
-    const staffId = selectedStaff.id;
-    const staffName = selectedStaff.name;
-    setWorking(true);
-    setFaceError("");
-    setFaceEnrollment(current =>
-      current ? { ...current, capturing: false } : null
-    );
-    let saved = false;
-    try {
-      await enrollFace.mutateAsync({
-        staffId,
-        embeddings: result.embeddings,
-        consentConfirmed: true,
-      });
-      enrollFace.reset();
-      saved = true;
-      setFaceEnrollment(null);
-      setNotice(`ลงทะเบียนใบหน้าของ ${staffName} แล้ว`);
-      await onChanged();
-    } catch (cause) {
-      if (saved) {
-        setError(
-          "บันทึกใบหน้าแล้ว แต่โหลดสถานะล่าสุดไม่สำเร็จ กรุณากดโหลดสถานะอีกครั้ง"
-        );
-      } else {
-        setFaceError(staffMutationErrorMessage(cause));
-        setFaceEnrollment(current =>
-          current
-            ? { ...current, consentConfirmed: false, capturing: false }
-            : null
-        );
-      }
-    } finally {
-      enrollFace.reset();
-      setWorking(false);
-    }
-  }
-
   function staffRow(staff: BusinessSetupState["staff"][number]) {
     const status = setupStaffLoginStatus(staff);
     return (
@@ -263,18 +160,6 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
           >
             {status.label}
           </Badge>
-          {!staff.isCurrentUser && staff.active && staff.faceReady && !staff.faceReady && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={working || !state.branch.active}
-              onClick={() => openFaceEnrollment(staff.id)}
-            >
-              <ScanFace />{" "}
-              {staff.loginReady ? "เพิ่มใบหน้า (ทางเลือก)" : "ลงทะเบียนใบหน้า"}
-            </Button>
-          )}
         </div>
       </div>
     );
@@ -309,20 +194,7 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
               ? `${createdStaff.name} · ${setupStaffLoginStatus(createdStaff).label}`
               : "กดโหลดสถานะล่าสุดเพื่อตรวจสอบว่าบัญชีพร้อมเข้าสู่ระบบหรือยัง"}
           </p>
-          {createdStaff &&
-            !createdStaff.loginReady &&
-            !createdStaff.faceReady && (
-              <p>ให้พนักงานลงทะเบียนใบหน้าก่อนเข้าสู่ระบบด้วย PIN</p>
-            )}
         </div>
-      )}
-      {notice && (
-        <p
-          role="status"
-          className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"
-        >
-          {notice}
-        </p>
       )}
       {error && (
         <p
@@ -482,110 +354,6 @@ function SetupStaffStepContent({ state, onChanged, onBusyChange }: Props) {
           </div>
         </form>
       )}
-
-      <Dialog
-        open={Boolean(selectedStaff)}
-        onOpenChange={open => {
-          if (!open) closeFaceEnrollment();
-        }}
-      >
-        <DialogContent
-          className="max-w-2xl"
-          showCloseButton={!working}
-          onEscapeKeyDown={event => {
-            if (working) event.preventDefault();
-          }}
-          onPointerDownOutside={event => {
-            if (working) event.preventDefault();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>ลงทะเบียนใบหน้า · {selectedStaff?.name}</DialogTitle>
-            <DialogDescription>
-              บัญชี {selectedStaff?.username} · {state.branch.name}{" "}
-              ให้พนักงานอยู่ต่อหน้ากล้องด้วยตนเอง
-            </DialogDescription>
-          </DialogHeader>
-          {faceError && (
-            <p
-              role="alert"
-              className="rounded-xl bg-red-50 p-3 text-sm text-red-700"
-            >
-              {faceError}
-            </p>
-          )}
-          {faceEnrollment?.capturing && selectedStaff ? (
-            <Suspense
-              fallback={
-                <p
-                  role="status"
-                  className="flex items-center gap-2 p-4 text-sm"
-                >
-                  <LoaderCircle className="size-4 animate-spin" />{" "}
-                  กำลังเตรียมกล้อง…
-                </p>
-              }
-            >
-              <FaceCapture
-                key={`${state.branch.id}:${selectedStaff.id}`}
-                mode="enroll"
-                onComplete={result => void finishFaceEnrollment(result)}
-                onCancel={() => {
-                  setFaceEnrollment(current =>
-                    current
-                      ? {
-                          ...current,
-                          capturing: false,
-                          consentConfirmed: false,
-                        }
-                      : null
-                  );
-                }}
-              />
-            </Suspense>
-          ) : working ? (
-            <p
-              role="status"
-              className="flex items-center gap-2 rounded-xl bg-slate-50 p-4 text-sm"
-            >
-              <LoaderCircle className="size-4 animate-spin" />{" "}
-              กำลังบันทึกใบหน้าและตรวจสอบสถานะ…
-            </p>
-          ) : (
-            <div className="space-y-4">
-              <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6">
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 accent-emerald-600"
-                  checked={faceEnrollment?.consentConfirmed ?? false}
-                  onChange={event =>
-                    setFaceEnrollment(current =>
-                      current
-                        ? { ...current, consentConfirmed: event.target.checked }
-                        : null
-                    )
-                  }
-                />
-                <span>
-                  พนักงานได้รับคำอธิบายและยินยอมให้เก็บข้อมูลใบหน้าที่เข้ารหัสเพื่อเข้าสู่ระบบ
-                  สามารถขอลบหรือลงทะเบียนใหม่ได้ ระบบไม่เก็บรูปภาพ
-                </span>
-              </label>
-              <Button
-                type="button"
-                disabled={!selectedStaff || !faceEnrollment?.consentConfirmed}
-                onClick={() =>
-                  setFaceEnrollment(current =>
-                    current ? { ...current, capturing: true } : null
-                  )
-                }
-              >
-                <ScanFace /> เปิดกล้องลงทะเบียน
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
