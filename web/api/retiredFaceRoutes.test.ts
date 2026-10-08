@@ -32,7 +32,9 @@ describe.each([
         createContext,
       });
       expect(response.status).toBe(404);
-      const result = await response.json();
+      const result = (await response.json()) as {
+        error: Parameters<typeof superjson.deserialize>[0];
+      };
       expect(
         superjson.deserialize<{ data: { code: string } }>(result.error).data
           .code
