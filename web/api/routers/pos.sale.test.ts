@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
   branches,
+  customers,
   products,
   members,
   pointTransactions,
@@ -125,6 +126,42 @@ describe("createSale", () => {
     expect(sale.received).toBe(407.4);
     expect(sale.changeAmt).toBe(0);
     expect((await productByCode("GSH95")).stockQty).toBe(gsh95.stockQty);
+  });
+
+  it("คงยอดที่กรอกเป็นบาทในบิลขายเชื่อแม้ปัดจำนวนลิตรตอนบันทึก", async () => {
+    const [fuel] = await t.db
+      .insert(products)
+      .values({
+        branchId: 1,
+        code: "DB7-AMOUNT-TEST",
+        name: "ดีเซล B7 ทดสอบ",
+        category: "fuel",
+        unit: "ลิตร",
+        price: 42.59,
+      })
+      .returning();
+    const [customer] = await t.db
+      .insert(customers)
+      .values({ name: "ลูกค้าเครดิตทดสอบ", creditLimit: 2400 })
+      .returning();
+
+    const { sale, items } = await t.caller().pos.createSale({
+      items: [{ productId: fuel!.id, qty: 2400 / fuel!.price }],
+      paymentMethod: "credit",
+      customerId: customer!.id,
+    });
+
+    expect(items).toMatchObject([
+      { qty: 56.351, unitPrice: 42.59, amount: 2400 },
+    ]);
+    expect(sale).toMatchObject({
+      subtotal: 2400,
+      total: 2400,
+      vatAmount: 157.01,
+      paymentMethod: "credit",
+      received: 2400,
+      changeAmt: 0,
+    });
   });
 
   it("ช่วงโปรโมชั่นใช้เฉพาะส่วนลดโปรโมชั่นและไม่สะสมหรือใช้แต้ม", async () => {

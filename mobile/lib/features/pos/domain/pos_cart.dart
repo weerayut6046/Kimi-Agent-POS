@@ -15,7 +15,10 @@ class CartLine {
   final PosProduct product;
   final double quantity;
 
-  double get amount => _round(quantity * product.price, 2);
+  double get amount {
+    final billableQuantity = product.isFuel ? quantity : _round(quantity, 3);
+    return _round(billableQuantity * product.price, 2);
+  }
 }
 
 class PosCart {
@@ -29,7 +32,7 @@ class PosCart {
       _round(lines.fold<double>(0, (sum, line) => sum + line.amount), 2);
   double get fuelLiters => lines
       .where((line) => line.product.isFuel)
-      .fold<double>(0, (sum, line) => sum + line.quantity);
+      .fold<double>(0, (sum, line) => sum + _round(line.quantity, 3));
   double get fuelSpend => _round(
     lines
         .where((line) => line.product.isFuel)
@@ -47,7 +50,10 @@ class PosCart {
     final current = lines
         .where((line) => line.product.id == product.id)
         .firstOrNull;
-    final nextQuantity = _round((current?.quantity ?? 0) + quantity, 4);
+    final combinedQuantity = (current?.quantity ?? 0) + quantity;
+    final nextQuantity = product.isFuel
+        ? combinedQuantity
+        : _round(combinedQuantity, 4);
     _validateStock(product, nextQuantity);
 
     final nextLines = <CartLine>[
@@ -64,7 +70,9 @@ class PosCart {
         .where((line) => line.product.id == productId)
         .firstOrNull;
     if (current == null) return this;
-    final nextQuantity = _round(quantity, 4);
+    final nextQuantity = current.product.isFuel
+        ? quantity
+        : _round(quantity, 4);
     _validateStock(current.product, nextQuantity);
     return PosCart(
       List<CartLine>.unmodifiable([
@@ -109,6 +117,7 @@ class PosCart {
 double _round(double value, int digits) {
   final factor = switch (digits) {
     2 => 100,
+    3 => 1000,
     4 => 10000,
     _ => 1,
   };

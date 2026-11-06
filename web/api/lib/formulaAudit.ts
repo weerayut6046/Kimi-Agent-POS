@@ -1,3 +1,5 @@
+import { saleItemAmountMismatch } from "@contracts/saleItemValues";
+
 export type FormulaAuditSeverity = "critical" | "warning";
 export type FormulaAuditCategory = "sales" | "shifts" | "payroll" | "inventory";
 
@@ -41,6 +43,7 @@ export interface FormulaAuditSaleItem {
   qty: number;
   unitPrice: number;
   amount: number;
+  productCategory: "fuel" | "lubricant" | "other";
 }
 
 export interface FormulaAuditShift {
@@ -188,8 +191,11 @@ export function runFormulaAudit(data: FormulaAuditData): FormulaAuditIssue[] {
     }
 
     for (const item of items) {
-      const expectedAmount = r2(item.qty * item.unitPrice);
-      if (!differs(item.amount, expectedAmount, 0.009)) continue;
+      const expectedAmount = saleItemAmountMismatch(
+        item,
+        item.productCategory === "fuel"
+      );
+      if (expectedAmount === null) continue;
       issues.push(
         issue({
           rule: "sale_item_amount",

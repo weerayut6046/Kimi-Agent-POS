@@ -28,6 +28,20 @@ describe("menu permissions", () => {
     );
   });
 
+  it("keeps POS checkout available through the existing sales permissions", () => {
+    for (const role of ["cashier", "manager", "admin"] as const) {
+      expect(getRoleMenuPermissions(role)).toContain("pos");
+      expect(normalizeMenuPermissions(role, ["pos", "pos"])).toContain("pos");
+    }
+    expect(normalizeMenuPermissions("cashier", ["stock"])).not.toContain("pos");
+    expect(getApiMenuPermissions("pos.createSale")).toEqual(["pos"]);
+    expect(getApiMenuPermissions("payments.startThungngern")).toEqual([
+      "pos",
+      "sales",
+      "settings",
+    ]);
+  });
+
   it.each(["cashier", "manager"] as const)(
     "preserves workforce and settings grants for %s after enrollment removal",
     role => {

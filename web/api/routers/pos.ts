@@ -23,10 +23,8 @@ import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
 import { receiptSaleItemSelection } from "../lib/saleItemView";
-import {
-  assertSaleItemAmounts,
-  calculateSaleItemValues,
-} from "../payments/sessionService";
+import { assertSaleItemAmounts } from "../payments/sessionService";
+import { calculateSaleItemValues } from "@contracts/saleItemValues";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
   attachShiftCashMeter,
@@ -1572,10 +1570,14 @@ export const posRouter = createRouter({
             pr.id === it.productId
         );
         if (!p || !p.active) throw new Error("ไม่พบสินค้าบางรายการ");
-        const values = calculateSaleItemValues(it.qty, p.price);
+        const values = calculateSaleItemValues(
+          it.qty,
+          p.price,
+          p.category === "fuel"
+        );
         if (values.qty <= 0)
           throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
-        return { product: p, ...values };
+        return { product: p, category: p.category, ...values };
       });
       assertSaleItemAmounts(lines, "pos_create_sale");
       const requestedStock = new Map<number, number>();

@@ -86,6 +86,10 @@ import {
 } from "@contracts/memberCode";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
 import {
+  calculateSaleItemValues,
+  roundSaleMoney,
+} from "@contracts/saleItemValues";
+import {
   DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
@@ -303,21 +307,25 @@ export default function Pos() {
     return null;
   }, [cart, productById, products]);
 
-  const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
-  const promotionFuelLiters = cart.reduce(
-    (sum, line) => (line.product.category === "fuel" ? sum + line.qty : sum),
+  const pricedCart = cart.map(line => ({
+    ...line,
+    values: calculateSaleItemValues(
+      line.qty,
+      line.product.price,
+      line.product.category === "fuel"
+    ),
+  }));
+  const subtotal = roundSaleMoney(
+    pricedCart.reduce((sum, line) => sum + line.values.amount, 0)
+  );
+  const fuelLines = pricedCart.filter(line => line.product.category === "fuel");
+  const promotionFuelLiters = fuelLines.reduce(
+    (sum, line) => sum + line.values.qty,
     0
   );
-  const promotionFuelSpend =
-    Math.round(
-      cart.reduce(
-        (sum, line) =>
-          line.product.category === "fuel"
-            ? sum + Math.round(line.product.price * line.qty * 100) / 100
-            : sum,
-        0
-      ) * 100
-    ) / 100;
+  const promotionFuelSpend = roundSaleMoney(
+    fuelLines.reduce((sum, line) => sum + line.values.amount, 0)
+  );
   const effectiveSettings = settingMap
     ? { ...DEFAULT_SETTINGS, ...settingMap }
     : null;
@@ -352,20 +360,21 @@ export default function Pos() {
   if (redeemPoints !== pointsToRedeem) {
     setPointsToRedeem(redeemPoints);
   }
-  const redeemDiscount = redeemPoints * pointValue;
-  const total = Math.max(0, subtotal - billDiscount - redeemDiscount);
+  const redeemDiscount = roundSaleMoney(redeemPoints * pointValue);
+  const total = roundSaleMoney(
+    Math.max(0, subtotal - billDiscount - redeemDiscount)
+  );
   const receivedNum = Number(received) || 0;
   const change = payMethod === "cash" ? Math.max(0, receivedNum - total) : 0;
 
   // QR โอนจ่ายทั่วไป — payload ล็อกยอดตามบิลและใช้การตั้งค่าของสาขา
-  const qrAmount = Math.round(total * 100) / 100;
   const {
     data: promptpayQr,
     isFetching: promptpayQrLoading,
     isError: promptpayQrError,
   } = trpc.payments.promptpayQr.useQuery(
-    { amount: qrAmount },
-    { enabled: payMethod === "qr" && qrAmount > 0 }
+    { amount: total },
+    { enabled: payMethod === "qr" && total > 0 }
   );
   const promptpayPayload = payMethod === "qr" ? promptpayQr?.payload : null;
   const [promptpayQrImage, setPromptpayQrImage] = useState<{
@@ -415,9 +424,13 @@ export default function Pos() {
       const i = c.findIndex(l => l.product.id === p.id);
       if (i >= 0) {
         const next = [...c];
+        const nextQty = next[i].qty + qty;
         next[i] = {
           ...next[i],
-          qty: Math.round((next[i].qty + qty) * 10000) / 10000,
+          qty:
+            p.category === "fuel"
+              ? nextQty
+              : Math.round(nextQty * 10000) / 10000,
         };
         return next;
       }
@@ -572,7 +585,15 @@ export default function Pos() {
       c
         .map(l =>
           l.product.id === id
-            ? { ...l, qty: Math.max(0, Math.round(nextQty * 100) / 100) }
+            ? {
+                ...l,
+                qty: Math.max(
+                  0,
+                  l.product.category === "fuel"
+                    ? nextQty
+                    : Math.round(nextQty * 100) / 100
+                ),
+              }
             : l
         )
         .filter(l => l.qty > 0)
@@ -587,6 +608,7 @@ export default function Pos() {
     // โหมดลิตร: ผู้ใช้ระบุลิตรเอง ปัด 2 ตำแหน่งได้ ยอดเงินตามมาทีหลัง
     const liters =
       fuelMode === "liters" ? Math.round(v * 100) / 100 : v / fuelDialog.price;
+    if (!Number.isFinite(liters) || liters <= 0) return;
     addToCart(fuelDialog, liters);
     setFuelDialog(null);
     setFuelValue("");
@@ -1287,7 +1309,7 @@ export default function Pos() {
                     </p>
                   </div>
                 )}
-                {cart.map(l => {
+                {pricedCart.map(l => {
                   const currentProduct = productById.get(l.product.id);
                   const availableStock = currentProduct?.stockQty ?? 0;
                   const soldOut =
@@ -1337,7 +1359,7 @@ export default function Pos() {
                             <Minus className="size-3.5" />
                           </button>
                           <span className="min-w-[74px] border-x border-slate-200 px-2 text-center text-xs font-semibold number-display">
-                            {fmtNum(l.qty)} {l.product.unit}
+                            {fmtNum(l.values.qty)} {l.product.unit}
                           </span>
                           <button
                             type="button"
@@ -1350,7 +1372,7 @@ export default function Pos() {
                           </button>
                         </div>
                         <div className="font-heading font-bold text-slate-900 number-display">
-                          ฿{fmtMoney(l.qty * l.product.price)}
+                          ฿{fmtMoney(l.values.amount)}
                         </div>
                       </div>
                     </div>
@@ -1615,7 +1637,7 @@ export default function Pos() {
                         {promptpayQr?.mode === "merchant"
                           ? "QR ร้านค้า"
                           : "QR พร้อมเพย์"}{" "}
-                        ฿{fmtMoney(qrAmount)}
+                        ฿{fmtMoney(total)}
                       </div>
                       <div className="mt-0.5 leading-relaxed text-sky-700">
                         {promptpayQr?.payload === null
