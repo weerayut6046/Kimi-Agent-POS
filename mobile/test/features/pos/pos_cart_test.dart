@@ -13,6 +13,27 @@ void main() {
       expect(cart.subtotal, 1025);
     });
 
+    test('preserves the amount when adding the same fuel more than once', () {
+      const diesel = PosProduct(
+        id: 3,
+        code: 'DB7',
+        name: 'ดีเซล B7',
+        category: ProductCategory.fuel,
+        unit: 'ลิตร',
+        price: 42.59,
+        stockQty: 0,
+        active: true,
+      );
+      const quantity = 2400 / 42.59;
+      final cart = const PosCart()
+          .add(diesel, quantity)
+          .add(diesel, quantity)
+          .add(diesel, quantity);
+
+      expect(cart.fuelSpend, 7200);
+      expect(cart.fuelLiters, 169.054);
+    });
+
     test('prevents non-fuel quantities above current stock', () {
       expect(
         () => const PosCart().add(_product, 6),

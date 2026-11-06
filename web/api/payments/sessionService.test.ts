@@ -392,6 +392,33 @@ describe("finalizeThungngernSession — idempotency", () => {
     expect(stored?.saleId).toBe(first.receipt.sale.id);
   });
 
+  it("ล็อกยอดที่กรอกเป็นบาทและบันทึกยอดเดียวกันเมื่อยืนยัน QR ถุงเงิน", async () => {
+    const product = await fuel();
+    const snapshot = await computeSaleSnapshot(
+      t.db,
+      1,
+      {
+        staffName: "ทดสอบ",
+        items: [{ productId: product.id, qty: 2400 / product.price }],
+        discount: 0,
+        pointsToRedeem: 0,
+      },
+      NO_PROMOTION
+    );
+    const session = await startThungngernSession(t.db, 1, snapshot);
+    expect(session.amount).toBe(2400);
+
+    const { receipt } = await finalizeThungngernSession(
+      t.db,
+      1,
+      session.id,
+      "manual"
+    );
+    expect(receipt.sale.total).toBe(2400);
+    expect(receipt.sale.vatAmount).toBe(157.01);
+    expect(receipt.items).toMatchObject([{ qty: 58.91, amount: 2400 }]);
+  });
+
   it("session ที่ถูกยกเลิกแล้ว finalize ไม่ได้", async () => {
     const session = await makeSession();
     await t.db

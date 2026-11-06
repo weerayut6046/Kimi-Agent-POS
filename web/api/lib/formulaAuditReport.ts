@@ -97,6 +97,7 @@ export async function loadFormulaAuditReport(
         qty: saleItems.qty,
         unitPrice: saleItems.unitPrice,
         amount: saleItems.amount,
+        productCategory: saleItems.productCategory,
       })
       .from(saleItems)
       .innerJoin(

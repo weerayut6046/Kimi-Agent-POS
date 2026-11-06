@@ -29,6 +29,7 @@ function validData(): FormulaAuditData {
         qty: 3,
         unitPrice: 35.67,
         amount: 107.01,
+        productCategory: "other",
       },
     ],
     shifts: [
@@ -99,6 +100,32 @@ function validData(): FormulaAuditData {
 describe("formula auditor", () => {
   it("does not report consistent calculations", () => {
     expect(runFormulaAudit(validData())).toEqual([]);
+  });
+
+  it("accepts fuel amounts within the rounding range and flags larger differences", () => {
+    const data = validData();
+    const item = data.saleItems[0]!;
+    Object.assign(item, {
+      qty: 56.351,
+      unitPrice: 42.59,
+      amount: 2400,
+      productCategory: "fuel",
+    });
+    Object.assign(data.sales[0]!, {
+      subtotal: 2400,
+      discount: 0,
+      total: 2400,
+      vatAmount: 157.01,
+      paymentMethod: "credit",
+      received: 2400,
+      changeAmt: 0,
+    });
+
+    expect(runFormulaAudit(data)).toEqual([]);
+    item.amount = 2400.05;
+    expect(runFormulaAudit(data)).toContainEqual(
+      expect.objectContaining({ rule: "sale_item_amount", actual: 2400.05 })
+    );
   });
 
   it("counts recorded closing P against a zero opening meter", () => {

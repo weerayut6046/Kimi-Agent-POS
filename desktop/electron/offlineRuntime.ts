@@ -11,6 +11,7 @@ import type {
   DesktopSaleResult,
   DesktopSyncStatus,
 } from "../../web/contracts/offline";
+import { calculateSaleItemValues } from "../../web/contracts/saleItemValues";
 
 type RemoteSaleInput = DesktopSaleRequest["input"] & {
   clientReceiptNo: string;
@@ -169,12 +170,15 @@ export function buildOfflineReceipt(
         `ไม่พบข้อมูลสินค้า #${item.productId} สำหรับบันทึกออฟไลน์`
       );
     }
+    const values = calculateSaleItemValues(
+      item.qty,
+      snapshot.unitPrice,
+      snapshot.category === "fuel"
+    );
     return {
       name: snapshot.name,
-      qty: item.qty,
       unit: snapshot.unit,
-      unitPrice: snapshot.unitPrice,
-      amount: r2(snapshot.unitPrice * item.qty),
+      ...values,
     };
   });
   const subtotal = r2(lines.reduce((sum, line) => sum + line.amount, 0));

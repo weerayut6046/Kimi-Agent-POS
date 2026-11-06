@@ -15,6 +15,11 @@ import type {
 } from "@contracts/payments";
 import type { DesktopReceipt } from "@contracts/offline";
 import {
+  calculateSaleItemValues,
+  saleItemAmountMismatch,
+  type SaleItemValues,
+} from "@contracts/saleItemValues";
+import {
   DEFAULT_SETTINGS,
   DEFAULT_POINT_EARN_PER_BAHT,
   DEFAULT_POINT_REDEEM_VALUE,
@@ -42,31 +47,6 @@ import {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
-export type SaleItemValues = {
-  qty: number;
-  unitPrice: number;
-  amount: number;
-};
-
-/**
- * แหล่งความจริงเดียวของยอดรายการขาย:
- * 1. normalize จำนวนและราคาตาม precision ของ sale_items (3 ตำแหน่ง)
- * 2. คูณค่าที่จะถูกบันทึกจริง
- * 3. ปัดยอดเป็นสตางค์ด้วย Math.round เหมือนกฎ formula audit
- */
-export function calculateSaleItemValues(
-  qty: number,
-  unitPrice: number
-): SaleItemValues {
-  const storedQty = r3(qty);
-  const storedUnitPrice = r3(unitPrice);
-  return {
-    qty: storedQty,
-    unitPrice: storedUnitPrice,
-    amount: r2(storedQty * storedUnitPrice),
-  };
-}
-
 type SaleItemAmountSource =
   | "pos_close_shift"
   | "pos_create_sale"
@@ -74,7 +54,6 @@ type SaleItemAmountSource =
   | "payment_session_start"
   | "payment_session_finalize";
 
-const SALE_ITEM_AMOUNT_TOLERANCE = 0.009;
 const DEFAULT_SALE_ITEM_AMOUNT_ALERT_RATE = 0.005;
 const configuredSaleItemAmountAlertRate = Number(
   process.env.SALE_ITEM_AMOUNT_ALERT_RATE ?? DEFAULT_SALE_ITEM_AMOUNT_ALERT_RATE
@@ -100,7 +79,7 @@ const MAX_SALE_ITEM_AMOUNT_COMPARISONS_PER_LOG = 5;
  * และจำกัดจำนวนรายละเอียดต่อครั้งเพื่อไม่ให้ log โตโดยไม่จำเป็น
  */
 export function assertSaleItemAmounts(
-  items: ReadonlyArray<SaleItemValues>,
+  items: ReadonlyArray<SaleItemValues & { category?: string }>,
   source: SaleItemAmountSource
 ): void {
   let batchMismatches = 0;
@@ -110,12 +89,9 @@ export function assertSaleItemAmounts(
     difference: number;
   }> = [];
   for (const item of items) {
-    const expected = calculateSaleItemValues(item.qty, item.unitPrice).amount;
     saleItemAmountMonitor.checked += 1;
-    if (
-      Math.abs(item.amount - expected) >
-      SALE_ITEM_AMOUNT_TOLERANCE + Number.EPSILON
-    ) {
+    const expected = saleItemAmountMismatch(item, item.category === "fuel");
+    if (expected !== null) {
       saleItemAmountMonitor.mismatches += 1;
       batchMismatches += 1;
       if (comparisons.length < MAX_SALE_ITEM_AMOUNT_COMPARISONS_PER_LOG) {
@@ -196,7 +172,11 @@ export async function computeSaleSnapshot(
   const lines = input.items.map(it => {
     const p = prodRows.find(pr => pr.id === it.productId);
     if (!p || !p.active) throw new Error("ไม่พบสินค้าบางรายการ");
-    const values = calculateSaleItemValues(it.qty, p.price);
+    const values = calculateSaleItemValues(
+      it.qty,
+      p.price,
+      p.category === "fuel"
+    );
     if (values.qty <= 0) throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
     return { product: p, ...values };
   });
