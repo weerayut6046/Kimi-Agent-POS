@@ -1,5 +1,7 @@
 import { BrowserRouter } from "react-router";
-import { LockKeyhole, LogOut, RefreshCw, WifiOff } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import { ArrowLeft, CalendarPlus, LockKeyhole, LogOut, RefreshCw, WifiOff } from "lucide-react";
+import { hasMenuPermission } from "@contracts/menuPermissions";
 import App from "@/App";
 import { Button } from "@/components/ui/button";
 import "@/index.css";
@@ -10,6 +12,12 @@ import "@/lib/enableTailwindMerge";
 import { useStaff } from "@/hooks/useStaff";
 import { trpc } from "@/providers/trpc";
 import AppThemeSync from "@/components/AppThemeSync";
+
+const WorkLeavePanel = lazy(() =>
+  import("@/components/WorkLeavePanel").then(module => ({
+    default: module.WorkLeavePanel,
+  }))
+);
 
 type AccessStatus = {
   message: string | null;
@@ -51,6 +59,33 @@ function AccessStatusPage({
 }) {
   const { staff, logout } = useStaff();
   const shift = access?.activeShift;
+  const [showLeave, setShowLeave] = useState(false);
+  const canOpenLeave = Boolean(
+    staff && access && hasMenuPermission(staff.role, staff.menuPermissions, "workforce")
+  );
+
+  if (showLeave && canOpenLeave && staff) {
+    return (
+      <main className="min-h-screen bg-background p-4 sm:p-6">
+        <div className="mx-auto max-w-3xl space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button variant="outline" className="min-h-11" onClick={() => setShowLeave(false)}>
+              <ArrowLeft /> กลับหน้าสถานะกะ
+            </Button>
+            <p className="text-sm text-muted-foreground">{staff.name} · {staff.branch.name}</p>
+          </div>
+          <Suspense fallback={<p role="status">กำลังเปิดใบลา</p>}>
+            <WorkLeavePanel
+              branchId={staff.branch.id}
+              staffId={staff.id}
+              canReview={false}
+              canSetQuota={false}
+            />
+          </Suspense>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="grid min-h-screen place-items-center bg-[#f6f5fb] p-5">
@@ -100,6 +135,11 @@ function AccessStatusPage({
             <LogOut className="mr-2 size-4" /> ออกจากระบบ
           </Button>
         </div>
+        {canOpenLeave && (
+          <Button variant="outline" className="mt-2 min-h-11 w-full" onClick={() => setShowLeave(true)}>
+            <CalendarPlus /> เปิดใบลาของฉัน
+          </Button>
+        )}
         {!error && (
           <p className="mt-4 text-xs leading-5 text-slate-500">
             หากคุณมีตารางงานวันนี้ ให้ผู้จัดการตรวจสอบตารางงานในระบบ

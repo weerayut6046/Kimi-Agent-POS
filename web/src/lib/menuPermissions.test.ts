@@ -9,6 +9,17 @@ import {
 } from "@contracts/menuPermissions";
 
 describe("menu permissions", () => {
+  it("uses the existing workforce grant for the leave tab and API", () => {
+    for (const role of ["cashier", "manager", "admin"] as const) {
+      expect(getRoleMenuPermissions(role)).toContain("workforce");
+      expect(normalizeMenuPermissions(role, ["workforce", "workforce"])).toContain("workforce");
+    }
+    expect(hasMenuPermission("cashier", ["pos"], "workforce")).toBe(false);
+    for (const action of ["list", "submit", "cancelMine", "review", "setQuota"]) {
+      expect(getApiMenuPermissions(`workforce.leave.${action}`)).toEqual(["workforce"]);
+    }
+  });
+
   it("keeps legacy users on the previous role defaults", () => {
     expect(normalizeMenuPermissions("cashier", null)).toEqual(
       getRoleMenuPermissions("cashier")

@@ -45,6 +45,7 @@ export const MENU_PERMISSION_DEFINITIONS = [
     label: "พนักงานและตารางงาน",
     group: "station",
     roles: ALL_ROLES,
+    // รวมแท็บใบลาและ API workforce.leave ไว้ในสิทธิ์เมนูเดียวกัน
     apiPrefixes: ["workforce."] as const,
   },
   {
