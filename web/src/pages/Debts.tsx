@@ -34,10 +34,11 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { DebtPaymentDoc } from "@/components/DebtPaymentDoc";
-import { useAppConfirm } from "@/components/AppConfirmDialog";
+import { CreditAccountPanel } from "@/components/CreditAccountPanel";
 import { printElement } from "@/lib/printDoc";
-import { fmtMoney, fmtDateTime, debtMethodLabel } from "@/lib/format";
+import { fmtMoney, fmtDateTime, fmtDateKeyTH, debtMethodLabel } from "@/lib/format";
 import type { DebtPayment } from "@db/schema";
+import { creditStatusLabel } from "@contracts/credit";
 
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
 const DEBT_METHOD_ICONS = {
@@ -53,7 +54,7 @@ export default function Debts() {
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [detailId, setDetailId] = useState<number | null>(null);
-  const [err, setErr] = useState("");
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
 
   // debounce ช่องค้นหา
   useEffect(() => {
@@ -61,9 +62,10 @@ export default function Debts() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data: rows, isLoading } = trpc.credit.summary.useQuery({
+  const { data: rows, isLoading, error } = trpc.credit.summary.useQuery({
     q: search || undefined,
   });
+  const visibleRows = (rows ?? []).filter(row => !onlyOverdue || row.overdue > 0);
 
   return (
     <div className="space-y-5">
@@ -72,17 +74,22 @@ export default function Debts() {
           <HandCoins className="w-6 h-6 text-primary" /> ลูกหนี้เครดิต
         </h1>
       </div>
-      {err && <p data-slot="notice" data-tone="error" role="alert" className="text-sm text-destructive">{err}</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
 
       <div className="relative max-w-sm">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input
+          aria-label="ค้นหาลูกหนี้เครดิต"
           className="pl-9"
           placeholder="ค้นหา ชื่อ / โทรศัพท์ / เลขผู้เสียภาษี"
           value={q}
           onChange={e => setQ(e.target.value)}
         />
       </div>
+      <label className="inline-flex min-h-11 items-center gap-2 text-sm">
+        <input type="checkbox" className="size-4" checked={onlyOverdue} onChange={e => setOnlyOverdue(e.target.checked)} />
+        แสดงเฉพาะลูกค้าที่มียอดเกินกำหนด
+      </label>
 
       <Card>
         <CardContent className="pt-4 overflow-x-auto">
@@ -92,15 +99,17 @@ export default function Debts() {
                 <TableHead>ชื่อลูกค้า</TableHead>
                 <TableHead>โทรศัพท์</TableHead>
                 <TableHead className="text-right">ยอดค้างชำระ</TableHead>
+                <TableHead className="text-right">เกินกำหนด</TableHead>
                 <TableHead className="text-right">วงเงินเครดิต</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(rows ?? []).map(c => (
+              {visibleRows.map(c => (
                 <TableRow key={c.id}>
                   <TableCell className="text-sm font-medium">
                     {c.name}
+                    <p className="text-xs text-muted-foreground">{creditStatusLabel[c.creditStatus]}</p>
                   </TableCell>
                   <TableCell className="text-sm">{c.phone || "-"}</TableCell>
                   <TableCell
@@ -108,17 +117,19 @@ export default function Debts() {
                   >
                     ฿{fmtMoney(c.outstanding)}
                   </TableCell>
+                  <TableCell className={`text-right tabular-nums ${c.overdue > 0 ? "font-semibold text-destructive" : ""}`}>
+                    ฿{fmtMoney(c.overdue)}
+                  </TableCell>
                   <TableCell className="text-right text-sm">
-                    {c.creditLimit > 0
-                      ? `฿${fmtMoney(c.creditLimit)}`
-                      : "ไม่จำกัด"}
+                    {c.approvedLimit !== null
+                      ? `฿${fmtMoney(c.approvedLimit)}`
+                      : c.creditStatus === "legacy" ? "ไม่จำกัด (เดิม)" : "—"}
                   </TableCell>
                   <TableCell>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        setErr("");
                         setDetailId(c.id);
                       }}
                     >
@@ -127,13 +138,13 @@ export default function Debts() {
                   </TableCell>
                 </TableRow>
               ))}
-              {!isLoading && (rows ?? []).length === 0 && (
+              {!isLoading && visibleRows.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="text-center text-muted-foreground py-8"
                   >
-                    {search ? "ไม่พบลูกค้าที่ค้นหา" : "ยังไม่มีข้อมูลลูกค้า"}
+                    {onlyOverdue ? "ไม่พบลูกค้าที่มียอดเกินกำหนด" : search ? "ไม่พบลูกค้าที่ค้นหา" : "ยังไม่มีข้อมูลลูกค้า"}
                   </TableCell>
                 </TableRow>
               )}
@@ -148,7 +159,6 @@ export default function Debts() {
           key={detailId}
           customerId={detailId}
           canManage={canManage}
-          staffName={staff?.name ?? ""}
           onClose={() => setDetailId(null)}
         />
       )}
@@ -160,30 +170,33 @@ export default function Debts() {
 function DebtDetailDialog({
   customerId,
   canManage,
-  staffName,
   onClose,
 }: {
   customerId: number;
   canManage: boolean;
-  staffName: string;
   onClose: () => void;
 }) {
-  const confirmAction = useAppConfirm();
   const utils = trpc.useUtils();
-  const { data: detail } = trpc.credit.detail.useQuery({ customerId });
+  const { data: detail, error: detailError } = trpc.credit.detail.useQuery({ customerId });
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<(typeof DEBT_METHODS)[number]>("cash");
   const [note, setNote] = useState("");
+  const [paymentSaleId, setPaymentSaleId] = useState("");
+  const [reversal, setReversal] = useState<Pick<DebtPayment, "id" | "paymentNo"> | null>(null);
   const [err, setErr] = useState("");
   const [lastPayment, setLastPayment] = useState<DebtPayment | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+  const request = useRef<{ key: string; id: string } | null>(null);
+  const targetInvoice = detail?.invoices.find(invoice => String(invoice.id) === paymentSaleId);
 
   const invalidate = () => {
     utils.credit.summary.invalidate();
     utils.credit.detail.invalidate({ customerId });
+    utils.credit.checkout.invalidate({ customerId });
+    utils.credit.caseFile.invalidate({ customerId });
   };
 
   const receive = trpc.credit.receivePayment.useMutation({
@@ -191,6 +204,8 @@ function DebtDetailDialog({
       invalidate();
       setAmount("");
       setNote("");
+      setPaymentSaleId("");
+      request.current = null;
       setErr("");
       setLastPayment(p ?? null);
     },
@@ -201,6 +216,8 @@ function DebtDetailDialog({
     onSuccess: () => {
       invalidate();
       setErr("");
+      setReversal(null);
+      setLastPayment(null);
     },
     onError: e => setErr(e.message),
   });
@@ -212,13 +229,18 @@ function DebtDetailDialog({
       return;
     }
     setLastPayment(null);
-    receive.mutate({
+    const input = {
       customerId,
       amount: n,
       method,
-      staffName,
       note: note.trim() || undefined,
-    });
+      saleId: paymentSaleId ? Number(paymentSaleId) : undefined,
+    };
+    const key = JSON.stringify(input);
+    if (request.current?.key !== key && typeof crypto.randomUUID === "function") {
+      request.current = { key, id: crypto.randomUUID() };
+    }
+    receive.mutate({ ...input, requestId: request.current?.id });
   };
 
   return (
@@ -253,6 +275,7 @@ function DebtDetailDialog({
                 <p className="mt-1 text-xl font-bold tabular-nums text-amber-700 sm:text-2xl">
                   ฿{fmtMoney(detail.outstanding)}
                 </p>
+                <p className="text-xs text-amber-800">เกินกำหนด ฿{fmtMoney(detail.overdue)}</p>
               </div>
               <div className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
@@ -260,22 +283,25 @@ function DebtDetailDialog({
                   วงเงินเครดิต
                 </div>
                 <p className="mt-1 text-lg font-semibold tabular-nums text-slate-800 sm:text-xl">
-                  {detail.customer.creditLimit > 0
-                    ? `฿${fmtMoney(detail.customer.creditLimit)}`
-                    : "ไม่จำกัด"}
+                  {detail.limit !== null
+                    ? `฿${fmtMoney(detail.limit)}`
+                    : detail.status === "legacy" ? "ไม่จำกัด (เดิม)" : "—"}
                 </p>
+                <p className="text-xs text-slate-600">{creditStatusLabel[detail.status]}</p>
               </div>
             </div>
           )}
         </div>
 
         {!detail && (
-          <p className="py-12 text-center text-sm text-muted-foreground">
-            กำลังโหลด...
+          <p role={detailError ? "alert" : "status"} className="py-12 text-center text-sm text-muted-foreground">
+            {detailError?.message ?? "กำลังโหลด..."}
           </p>
         )}
         {detail && (
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-slate-50/70 p-4 sm:p-6">
+            {canManage && <CreditAccountPanel customerId={customerId} status={detail.status} settings={settingMap} />}
+            {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
             {/* บิลเครดิตค้าง */}
             <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5 sm:px-5">
@@ -288,12 +314,12 @@ function DebtDetailDialog({
                       บิลขายเชื่อค้างชำระ
                     </h3>
                     <p className="text-xs text-slate-500">
-                      รายการที่นำมาคำนวณยอดค้าง
+                      ยอดคงเหลือแยกบิล · ยอดเดิมไม่ทราบกำหนด ฿{fmtMoney(detail.unknownDue)}
                     </p>
                   </div>
                 </div>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                  {detail.creditSales.length} รายการ
+                  {detail.invoices.filter(s => s.remaining > 0).length} รายการ
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -304,14 +330,14 @@ function DebtDetailDialog({
                         เลขที่บิล
                       </TableHead>
                       <TableHead className="max-sm:w-[28%]">วันที่</TableHead>
-                      <TableHead className="max-sm:w-[27%]">พนักงาน</TableHead>
+                      <TableHead className="max-sm:w-[27%]">ครบกำหนด</TableHead>
                       <TableHead className="max-sm:w-[26%] max-sm:pr-3 text-right sm:pr-5">
-                        ยอด
+                        คงเหลือ
                       </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {detail.creditSales.map(s => (
+                    {detail.invoices.filter(s => s.remaining > 0).map(s => (
                       <TableRow key={s.id}>
                         <TableCell className="max-sm:pl-3 font-mono text-xs font-medium text-slate-700 sm:pl-5">
                           {s.receiptNo}
@@ -319,15 +345,16 @@ function DebtDetailDialog({
                         <TableCell className="whitespace-nowrap text-slate-600 max-sm:text-xs">
                           {fmtDateTime(s.createdAt)}
                         </TableCell>
-                        <TableCell className="truncate text-slate-600">
-                          {s.staffName || "-"}
+                        <TableCell className="text-xs text-slate-600">
+                          {s.creditDueOn ? fmtDateKeyTH(s.creditDueOn) : "รอตรวจหลักฐาน"}
+                          {s.isOverdue && <p className="font-medium text-destructive">เกินกำหนด</p>}
                         </TableCell>
                         <TableCell className="max-sm:pr-3 text-right font-semibold tabular-nums text-slate-900 sm:pr-5">
-                          ฿{fmtMoney(s.total)}
+                          ฿{fmtMoney(s.remaining)}
                         </TableCell>
                       </TableRow>
                     ))}
-                    {detail.creditSales.length === 0 && (
+                    {!detail.invoices.some(s => s.remaining > 0) && (
                       <TableRow>
                         <TableCell
                           colSpan={4}
@@ -406,17 +433,10 @@ function DebtDetailDialog({
                               size="icon-sm"
                               variant="ghost"
                               className="text-destructive hover:bg-red-50 hover:text-destructive"
-                              title="ลบรายการชำระ"
+                              title="กลับรายการรับชำระ"
+                              aria-label={`กลับรายการรับชำระ ${p.paymentNo}`}
                               disabled={removePay.isPending}
-                              onClick={async () => {
-                                if (
-                                  await confirmAction(
-                                    `ยืนยันลบรายการชำระ ${p.paymentNo} (฿${fmtMoney(p.amount)})?`
-                                  )
-                                ) {
-                                  removePay.mutate({ id: p.id });
-                                }
-                              }}
+                              onClick={() => setReversal(p)}
                             >
                               <Trash2 className="size-4" />
                             </Button>
@@ -437,6 +457,20 @@ function DebtDetailDialog({
                   </TableBody>
                 </Table>
               </div>
+              {reversal && (
+                <form className="space-y-2 border-t p-4" key={reversal.id} onSubmit={e => {
+                  e.preventDefault();
+                  const form = new FormData(e.currentTarget);
+                  removePay.mutate({ id: reversal.id, reason: String(form.get("reason")).trim() });
+                }}>
+                  <Label htmlFor="credit-reversal-reason">เหตุผลกลับรายการ {reversal.paymentNo}</Label>
+                  <Input id="credit-reversal-reason" name="reason" minLength={3} maxLength={500} required />
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" variant="destructive" disabled={removePay.isPending}>ยืนยันกลับรายการ</Button>
+                    <Button type="button" variant="outline" onClick={() => setReversal(null)}>ยกเลิก</Button>
+                  </div>
+                </form>
+              )}
             </section>
 
             {/* ฟอร์มรับชำระ — สงวนสิทธิ์ admin/manager */}
@@ -463,6 +497,20 @@ function DebtDetailDialog({
                 </div>
 
                 <div className="space-y-4 p-4 sm:p-5">
+                  <label className="block space-y-1.5 text-sm font-medium">
+                    บิลที่ลูกค้าระบุให้ตัดยอด
+                    <select className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm" value={paymentSaleId} onChange={e => {
+                      setPaymentSaleId(e.target.value);
+                      setAmount("");
+                    }}>
+                      <option value="">ไม่ระบุ · จัดสรรบิลเก่าก่อน</option>
+                      {detail.invoices.filter(invoice => invoice.remaining > 0).map(invoice => (
+                        <option key={invoice.id} value={invoice.id}>
+                          {invoice.receiptNo} · ฿{fmtMoney(invoice.remaining)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
                     <div className="space-y-2 sm:col-span-5">
                       <div className="flex items-center justify-between gap-2">
@@ -473,7 +521,7 @@ function DebtDetailDialog({
                           type="button"
                           className="text-xs font-semibold text-violet-600 transition-colors hover:text-violet-800 hover:underline"
                           onClick={() =>
-                            setAmount(detail.outstanding.toFixed(2))
+                            setAmount((targetInvoice?.remaining ?? detail.outstanding).toFixed(2))
                           }
                         >
                           ใส่ยอดเต็ม
@@ -539,17 +587,6 @@ function DebtDetailDialog({
                     />
                   </div>
 
-                  {err && (
-                    <p
-                      data-slot="notice"
-                      data-tone="error"
-                      className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
-                      role="alert"
-                    >
-                      {err}
-                    </p>
-                  )}
-
                   <Button
                     type="submit"
                     className="h-12 w-full rounded-xl text-base"
@@ -560,17 +597,6 @@ function DebtDetailDialog({
                   </Button>
                 </div>
               </form>
-            )}
-
-            {err && (!canManage || detail.outstanding <= 0) && (
-              <p
-                data-slot="notice"
-                data-tone="error"
-                className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-medium text-destructive"
-                role="alert"
-              >
-                {err}
-              </p>
             )}
 
             {/* ใบรับชำระหนี้หลังบันทึกสำเร็จ */}

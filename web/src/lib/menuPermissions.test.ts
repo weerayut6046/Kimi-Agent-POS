@@ -9,6 +9,16 @@ import {
 } from "@contracts/menuPermissions";
 
 describe("menu permissions", () => {
+  it("keeps the credit checkout projection separate from credit management", () => {
+    expect(getApiMenuPermissions("credit.checkout")).toEqual(["pos"]);
+    for (const method of ["approveAccount", "suspendAccount", "recordFollowUp", "caseFile"]) {
+      expect(getApiMenuPermissions(`credit.${method}`)).toEqual(["debts"]);
+    }
+    expect(normalizeMenuPermissions("cashier", ["pos"])).toEqual(["pos"]);
+    expect(getRoleMenuPermissions("manager")).toContain("debts");
+    expect(normalizeMenuPermissions("manager", ["debts", "pos"])).toEqual(["pos", "debts"]);
+    expect(normalizeMenuPermissions("admin", [])).toContain("debts");
+  });
   it("keeps legacy users on the previous role defaults", () => {
     expect(normalizeMenuPermissions("cashier", null)).toEqual(
       getRoleMenuPermissions("cashier")

@@ -12,6 +12,11 @@ export const fmtTime = (d: Date | string) =>
 
 export const fmtDateTime = (d: Date | string) => `${fmtDate(d)} ${fmtTime(d)}`;
 
+export function fmtDateKeyTH(value: string) {
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${Number(year) + 543}`;
+}
+
 /** วันที่แบบเอกสารภาษีไทย: 17/07/2569 (พ.ศ.) */
 export const fmtDateTH = (d: Date | string) => {
   const dt = new Date(d);

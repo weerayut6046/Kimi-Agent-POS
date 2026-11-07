@@ -19,7 +19,12 @@ import { createRouter, publicQuery } from "../middleware";
 import { adminQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
-import { outstandingOf } from "../lib/debt";
+import {
+  creditCheckoutState,
+  lockCreditCustomer,
+  readCreditAccount,
+  readCustomerCredit,
+} from "../lib/creditLedger";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
 import { receiptSaleItemSelection } from "../lib/saleItemView";
@@ -76,6 +81,7 @@ import {
   settings,
   priceChanges,
   debtPayments,
+  creditEvents,
   expenses,
   type Sale,
   type SaleItem,
@@ -1480,6 +1486,7 @@ export const posRouter = createRouter({
           .enum(["cash", "qr", "card", "credit", "thungngern"])
           .default("cash"),
         customerId: z.number().int().positive().optional(), // บังคับเมื่อ paymentMethod = credit
+        creditDeliveryRef: z.string().trim().min(1).max(160).optional(),
         received: z.number().nonnegative().default(0),
         pointsToRedeem: z.number().int().nonnegative().default(0),
         loyaltyChoice: z.enum(["earn", "redeem"]).optional(),
@@ -1547,7 +1554,7 @@ export const posRouter = createRouter({
       const settingMap = await getSettingMap(db, branchId);
       // ผู้ดูแลปิดช่องทางนี้ไว้ — เว้นบิลออฟไลน์ (clientReceiptNo) เพราะรับเงินไปแล้วจริง
       if (
-        !input.clientReceiptNo &&
+        (!input.clientReceiptNo || input.paymentMethod === "credit") &&
         (settingMap[`pay_${input.paymentMethod}_enabled`] ?? "1") === "0"
       ) {
         throw new Error("ช่องทางชำระเงินนี้ถูกปิดใช้งานโดยผู้ดูแล");
@@ -1604,7 +1611,7 @@ export const posRouter = createRouter({
       // บิลออฟไลน์ต้องยึดวันที่ขายจริง ส่วนบิลออนไลน์ยึดเวลาของเซิร์ฟเวอร์
       // เพื่อไม่ให้ client ระบุวันเองแล้วหลบกติกาโปรโมชั่นได้
       const promotionAt =
-        input.clientReceiptNo && input.clientCreatedAt
+        input.paymentMethod !== "credit" && input.clientReceiptNo && input.clientCreatedAt
           ? input.clientCreatedAt
           : new Date();
       const effectiveSettings = { ...DEFAULT_SETTINGS, ...settingMap };
@@ -1712,25 +1719,62 @@ export const posRouter = createRouter({
           ? Math.floor(total / earnPer)
           : 0;
 
-      // ขายเชื่อ: บังคับเลือกลูกค้า และเช็กวงเงินเครดิต (creditLimit = 0 คือไม่จำกัด)
       let customer: typeof customers.$inferSelect | undefined;
-      if (input.paymentMethod === "credit") {
-        if (!input.customerId) throw new Error("ขายเชื่อต้องเลือกลูกค้า");
-        customer = await db.query.customers.findFirst({
-          where: eq(customers.id, input.customerId),
-        });
-        if (!customer) throw new Error("ไม่พบลูกค้า");
-        if (customer.creditLimit > 0) {
-          const outstanding = await outstandingOf(db, customer.id, branchId);
-          if (r2(outstanding + total) > customer.creditLimit) {
+      const saleId = await db.transaction(async tx => {
+        let createdAt = input.clientCreatedAt;
+        let credit: Pick<typeof sales.$inferInsert, "creditDueOn" | "creditProof"> = {};
+        if (input.paymentMethod === "credit") {
+          if (!input.customerId) throw new Error("ขายเชื่อต้องเลือกลูกค้า");
+          customer = await lockCreditCustomer(tx, input.customerId);
+          if (input.clientReceiptNo) {
+            const existing = await tx.query.sales.findFirst({
+              columns: { id: true, customerId: true, paymentMethod: true },
+              where: and(eq(sales.branchId, branchId), eq(sales.receiptNo, input.clientReceiptNo)),
+            });
+            if (existing) {
+              if (existing.customerId !== customer.id || existing.paymentMethod !== "credit") {
+                throw new Error("เลขที่บิลจากเครื่องขายนี้ถูกใช้แล้ว");
+              }
+              return existing.id;
+            }
+          }
+          const account = await readCreditAccount(tx, branchId, customer.id);
+          createdAt = new Date();
+          const ledger = await readCustomerCredit(tx, branchId, customer.id, createdAt);
+          const checkout = creditCheckoutState(account, customer.creditLimit, ledger, createdAt);
+          if (checkout.blockedReason) throw new Error(checkout.blockedReason);
+          if (
+            checkout.limit !== null &&
+            r2(Math.max(0, checkout.outstanding) + total) > checkout.limit
+          ) {
             throw new Error(
-              `เกินวงเงินเครดิตของลูกค้า (ค้างชำระ ${outstanding.toFixed(2)} บาท / วงเงิน ${customer.creditLimit.toFixed(2)} บาท)`
+              `เกินวงเงินเครดิตของลูกค้า (ค้างชำระ ${checkout.outstanding.toFixed(2)} บาท / วงเงิน ${checkout.limit.toFixed(2)} บาท)`
             );
           }
+          if (account?.status === "approved" && account.terms) {
+            if (!input.creditDeliveryRef) {
+              throw new Error("กรุณาระบุเลขอ้างอิงใบรับน้ำมันที่ลงนามแล้ว");
+            }
+            const [usedProof] = await tx.select({ receiptNo: sales.receiptNo })
+              .from(sales).where(and(
+                eq(sales.branchId, branchId),
+                eq(sales.customerId, customer.id),
+                eq(sales.paymentMethod, "credit"),
+                eq(sales.status, "completed"),
+                sql`${sales.creditProof}->>'deliveryRef' = ${input.creditDeliveryRef}`
+              )).limit(1);
+            if (usedProof) {
+              throw new Error(`ใบรับน้ำมันนี้ผูกกับบิล ${usedProof.receiptNo} แล้ว`);
+            }
+            credit = {
+              creditDueOn: checkout.dueOn,
+              creditProof: {
+                agreementRef: account.terms.agreementRef,
+                deliveryRef: input.creditDeliveryRef,
+              },
+            };
+          }
         }
-      }
-
-      const saleId = await db.transaction(async tx => {
         const receiptNo =
           input.clientReceiptNo ?? (await nextDocNo(tx, "receipt", branchId));
         const inserted = await tx
@@ -1739,7 +1783,7 @@ export const posRouter = createRouter({
             branchId,
             receiptNo,
             shiftId: input.shiftId,
-            staffName: input.staffName,
+            staffName: input.paymentMethod === "credit" ? ctx.staff.name : input.staffName,
             memberId: input.memberId,
             customerId:
               input.paymentMethod === "credit" ? input.customerId : null,
@@ -1753,7 +1797,8 @@ export const posRouter = createRouter({
             changeAmt,
             pointsEarned,
             pointsRedeemed: effectivePointsToRedeem,
-            createdAt: input.clientCreatedAt,
+            createdAt,
+            ...credit,
           })
           .onConflictDoNothing({
             target: [sales.branchId, sales.receiptNo],
@@ -2153,8 +2198,14 @@ export const posRouter = createRouter({
           throw new Error("ต้องคืนสินค้าจากบิลขายต้นฉบับเท่านั้น");
         if (originalSale.status !== "completed")
           throw new Error("บิลนี้ถูกยกเลิกแล้ว ไม่สามารถคืนสินค้าได้");
-        if (input.refundMethod === "credit" && !originalSale.customerId)
-          throw new Error("คืนเข้ายอดเครดิตได้เฉพาะบิลขายเชื่อเท่านั้น");
+        const creditCustomerId =
+          input.refundMethod === "credit" ? originalSale.customerId : null;
+        if (input.refundMethod === "credit") {
+          if (creditCustomerId === null || originalSale.paymentMethod !== "credit") {
+            throw new Error("คืนเข้ายอดเครดิตได้เฉพาะบิลขายเชื่อเท่านั้น");
+          }
+          await lockCreditCustomer(tx, creditCustomerId);
+        }
 
         const originalItems = await tx
           .select()
@@ -2285,6 +2336,13 @@ export const posRouter = createRouter({
             )
           )
         );
+        if (creditCustomerId !== null) {
+          const ledger = await readCustomerCredit(tx, branchId, creditCustomerId);
+          const invoice = ledger.invoices.find(row => row.id === originalSale.id);
+          if (!invoice || refundAmount > invoice.remaining) {
+            throw new Error("ยอดคืนเข้าบัญชีเกินยอดค้างของบิล กรุณาตรวจสอบการรับชำระก่อน");
+          }
+        }
         const allocatedDiscount = r2(selectedGross - refundAmount);
         const vatAmount = r2(
           (refundAmount * originalSale.vatRate) / (100 + originalSale.vatRate)
@@ -2476,7 +2534,10 @@ export const posRouter = createRouter({
     }),
 
   voidSale: adminQuery
-    .input(z.object({ id: z.number() }))
+    .input(z.object({
+      id: z.number(),
+      reason: z.string().trim().min(3).max(500).optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
@@ -2503,6 +2564,31 @@ export const posRouter = createRouter({
             throw new Error(
               "บิลนี้มีรายการคืนสินค้าแล้ว กรุณายกเลิกเอกสารคืนสินค้าก่อน"
             );
+        }
+        if (lockedSale.paymentMethod === "credit" && lockedSale.customerId !== null) {
+          const customerId = lockedSale.customerId;
+          await lockCreditCustomer(tx, customerId);
+          if (lockedSale.transactionType === "sale") {
+            const ledger = await readCustomerCredit(tx, branchId, customerId);
+            const invoice = ledger.invoices.find(row => row.id === lockedSale.id);
+            if (!invoice || invoice.remaining < r2(lockedSale.total)) {
+              throw new Error("บิลนี้มีเงินชำระแล้ว กรุณาตรวจสอบและกลับรายการรับชำระก่อนยกเลิก");
+            }
+          }
+          if (lockedSale.creditDueOn && !input.reason) {
+            throw new Error("กรุณาระบุเหตุผลที่ยกเลิกบิลขายเชื่อ");
+          }
+          await tx.insert(creditEvents).values({
+            branchId,
+            customerId,
+            kind: "sale_voided",
+            actorId: ctx.staff.id,
+            actorName: ctx.staff.name,
+            data: {
+              reference: lockedSale.receiptNo,
+              notes: input.reason ?? "ยกเลิกบิลเดิมผ่านหน้าจอขาย",
+            },
+          });
         }
         const items = await tx
           .select()
@@ -2562,6 +2648,9 @@ export const posRouter = createRouter({
         throw new Error("แก้ไขบิลที่ยกเลิกแล้วไม่ได้");
       if (sale.transactionType !== "sale")
         throw new Error("เอกสารคืนสินค้าไม่สามารถแก้ไขหัวบิลได้");
+      if (sale.paymentMethod === "credit" || input.paymentMethod === "credit") {
+        throw new Error("กรุณาออกบิลขายเชื่อผ่านขั้นตอนอนุมัติและบันทึกหลักฐานที่หน้าขาย");
+      }
       const completedReturn = await db.query.sales.findFirst({
         columns: { id: true },
         where: and(
@@ -2751,6 +2840,9 @@ export const posRouter = createRouter({
         where: and(eq(sales.id, input.id), eq(sales.branchId, branchId)),
       });
       if (!sale) throw new Error("ไม่พบบิล");
+      if (sale.paymentMethod === "credit") {
+        throw new Error("บิลขายเชื่อต้องเก็บเป็นหลักฐาน กรุณาใช้ยกเลิกบิล");
+      }
       if (sale.transactionType === "sale") {
         const linkedReturn = await db.query.sales.findFirst({
           columns: { id: true },

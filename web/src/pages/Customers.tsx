@@ -554,7 +554,7 @@ export default function Customers() {
 
                     <div className="space-y-2">
                       <Label htmlFor="customer-credit-limit">
-                        วงเงินเครดิต
+                        วงเงินสำหรับบัญชีเครดิตเดิม
                       </Label>
                       <div className="relative">
                         <Input
@@ -577,7 +577,7 @@ export default function Customers() {
                         </span>
                       </div>
                       <p className="text-xs text-slate-500">
-                        เว้นว่างหรือใส่ 0 = ไม่จำกัด
+                        บัญชีเดิมใส่ 0 เพื่อไม่จำกัดวงเงิน อนุมัติบัญชีใหม่หรือปรับเงื่อนไขในเมนูลูกหนี้เครดิต
                       </p>
                     </div>
                   </div>

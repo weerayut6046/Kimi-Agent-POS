@@ -1,3 +1,5 @@
+import type { CreditSaleProof } from "./credit";
+
 export type SalePaymentMethod =
   "cash" | "qr" | "card" | "credit" | "thungngern";
 
@@ -6,6 +8,7 @@ export type DesktopSaleInput = {
   staffName: string;
   memberId?: number;
   customerId?: number;
+  creditDeliveryRef?: string;
   items: Array<{ productId: number; qty: number }>;
   discount: number;
   paymentMethod: SalePaymentMethod;
@@ -56,6 +59,8 @@ export type DesktopReceipt = {
     pointsRedeemed: number;
     memberName: string | null;
     customerName: string | null;
+    creditDueOn?: string | null;
+    creditProof?: CreditSaleProof | null;
   };
   items: Array<{
     name: string;
