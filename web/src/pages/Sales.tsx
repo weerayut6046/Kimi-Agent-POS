@@ -104,6 +104,7 @@ export default function Sales() {
   const activePromotion = activeBillThresholdPromotion(settingMap);
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [voidReason, setVoidReason] = useState("");
   const [taxSaleId, setTaxSaleId] = useState<number | null>(null);
   const [editSale, setEditSale] = useState<SaleRow | null>(null);
   const [returnSaleId, setReturnSaleId] = useState<number | null>(null);
@@ -163,6 +164,10 @@ export default function Sales() {
     utils.pos.dashboard.invalidate();
     utils.catalog.listProducts.invalidate();
     utils.membership.listMembers.invalidate();
+    utils.credit.summary.invalidate();
+    utils.credit.detail.invalidate();
+    utils.credit.caseFile.invalidate();
+    utils.credit.checkout.invalidate();
   };
 
   const voidMut = trpc.pos.voidSale.useMutation({
@@ -288,12 +293,16 @@ export default function Sales() {
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => setDetailId(s.id)}
+                        onClick={() => {
+                          setVoidReason("");
+                          setDetailId(s.id);
+                        }}
                       >
                         <Eye className="w-4 h-4" />
                       </Button>
                       {canManage &&
                         s.status === "completed" &&
+                        s.paymentMethod !== "credit" &&
                         s.transactionType !== "return" &&
                         s.returnStatus !== "partial" &&
                         s.returnStatus !== "full" && (
@@ -306,7 +315,7 @@ export default function Sales() {
                             <Pencil className="w-4 h-4" />
                           </Button>
                         )}
-                      {canManage && (
+                      {canManage && s.paymentMethod !== "credit" && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -408,6 +417,12 @@ export default function Sales() {
                   </div>
                 </section>
               </div>
+              {isAdmin && detail.sale.status === "completed" && detail.sale.creditDueOn && (
+                <label className="block space-y-1 border-t bg-white px-4 py-2 text-sm">
+                  เหตุผลที่ยกเลิกบิลขายเชื่อ
+                  <Input value={voidReason} onChange={e => setVoidReason(e.target.value)} maxLength={500} />
+                </label>
+              )}
               <DialogFooter className="shrink-0 flex-wrap border-t border-slate-200 bg-white px-4 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:pb-3.5">
                 <Button
                   variant="outline"
@@ -452,7 +467,7 @@ export default function Sales() {
                 {detail.sale.status === "completed" && isAdmin && (
                   <Button
                     variant="destructive"
-                    disabled={voidMut.isPending}
+                    disabled={voidMut.isPending || (!!detail.sale.creditDueOn && voidReason.trim().length < 3)}
                     onClick={async () => {
                       if (
                         await confirmAction(
@@ -461,7 +476,7 @@ export default function Sales() {
                             : "ยืนยันยกเลิกบิลนี้? (คืนสต๊อกและแต้มอัตโนมัติ)"
                         )
                       ) {
-                        voidMut.mutate({ id: detail.sale.id });
+                        voidMut.mutate({ id: detail.sale.id, reason: voidReason.trim() || undefined });
                       }
                     }}
                   >
@@ -507,7 +522,7 @@ export default function Sales() {
           staffName={staff?.name ?? ""}
           promotion={activePromotion}
           payMethods={PAY_METHODS.filter(
-            m => (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
+            m => m !== "credit" && (settingMap?.[`pay_${m}_enabled`] ?? "1") !== "0"
           )}
           onClose={() => setAddOpen(false)}
           onCreated={invalidate}
@@ -551,7 +566,7 @@ function ReturnSaleDialog({
 
   const methodOptions = PAY_METHODS.filter(method => {
     if ((settingMap?.[`pay_${method}_enabled`] ?? "1") === "0") return false;
-    if (method === "credit" && !detail?.sale.customerId) return false;
+    if (method === "credit" && (detail?.sale.paymentMethod !== "credit" || !detail.sale.customerId)) return false;
     return true;
   });
 
@@ -913,7 +928,7 @@ function EditSaleDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PAY_METHODS.map(k => (
+                    {PAY_METHODS.filter(k => k !== "credit").map(k => (
                       <SelectItem key={k} value={k}>
                         {paymentLabel[k]}
                       </SelectItem>

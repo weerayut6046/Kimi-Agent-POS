@@ -246,6 +246,13 @@
       "when": 1791417542767,
       "tag": "0034_special_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794034694459,
+      "tag": "0035_fuel_credit_accounts",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
   branches,
+  creditAccounts,
   customers,
   products,
   members,
@@ -144,6 +145,11 @@ describe("createSale", () => {
       .insert(customers)
       .values({ name: "ลูกค้าเครดิตทดสอบ", creditLimit: 2400 })
       .returning();
+    await t.db.insert(creditAccounts).values({
+      branchId: 1,
+      customerId: customer!.id,
+      status: "legacy",
+    });
 
     const { sale, items } = await t.caller().pos.createSale({
       items: [{ productId: fuel!.id, qty: 2400 / fuel!.price }],

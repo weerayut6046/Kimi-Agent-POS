@@ -73,7 +73,7 @@ import {
   parseReceiptPaper,
   printReceiptSilent,
 } from "@/lib/printDoc";
-import { fmtDateTH, fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
+import { fmtDateTH, fmtDateKeyTH, fmtMoney, fmtNum, paymentLabel } from "@/lib/format";
 import type { Product, Member, Customer } from "@db/schema";
 import type {
   DesktopReceipt,
@@ -223,6 +223,7 @@ export default function Pos() {
   >("cash");
   const [received, setReceived] = useState("");
   const [creditCustomer, setCreditCustomer] = useState<Customer | null>(null);
+  const [creditDeliveryRef, setCreditDeliveryRef] = useState("");
   const [custQ, setCustQ] = useState("");
   const [fuelDialog, setFuelDialog] = useState<Product | null>(null);
   const [fuelMode, setFuelMode] = useState<"liters" | "baht">("baht");
@@ -658,6 +659,7 @@ export default function Pos() {
     setLoyaltyChoice(null);
     setReceived("");
     setCreditCustomer(null);
+    setCreditDeliveryRef("");
     setCustQ("");
     setMobileCartOpen(false);
     setErr("");
@@ -685,6 +687,7 @@ export default function Pos() {
       utils.catalog.listProducts.invalidate();
     }
     utils.credit.summary.invalidate();
+    utils.credit.checkout.invalidate();
     if (member) utils.membership.listMembers.invalidate();
   };
 
@@ -747,10 +750,13 @@ export default function Pos() {
         payMethod === "credit" && !creditCustomer && custQ.trim().length >= 2,
     }
   );
-  const { data: creditDetail } = trpc.credit.detail.useQuery(
-    { customerId: creditCustomer?.id ?? -1 },
+  const { data: creditDetail, error: creditDetailError } = trpc.credit.checkout.useQuery(
+    { customerId: creditCustomer?.id ?? 1 },
     { enabled: payMethod === "credit" && creditCustomer != null }
   );
+  const creditOverLimit =
+    creditDetail?.limit != null &&
+    roundSaleMoney(Math.max(0, creditDetail.outstanding) + total) > creditDetail.limit;
 
   const checkout = async () => {
     if (!currentShift) {
@@ -808,6 +814,21 @@ export default function Pos() {
       setErr("ขณะออฟไลน์ยังไม่รองรับการขายเชื่อ กรุณาเลือกเงินสด QR หรือบัตร");
       return;
     }
+    if (payMethod === "credit") {
+      const creditError =
+        creditDetailError?.message ??
+        (creditDetail
+          ? creditDetail.blockedReason ??
+            (creditOverLimit ? "ยอดรวมบิลนี้จะเกินวงเงินเครดิต" : null) ??
+            (creditDetail.requiresDeliveryRef && !creditDeliveryRef.trim()
+              ? "กรุณาระบุเลขอ้างอิงใบรับน้ำมันที่ลงนามแล้ว"
+              : null)
+          : "กำลังตรวจสถานะเครดิต กรุณาลองอีกครั้ง");
+      if (creditError) {
+        setErr(creditError);
+        return;
+      }
+    }
     if (syncStatus?.online === false && redeemPoints > 0) {
       setErr("ขณะออฟไลน์ยังไม่รองรับการใช้แต้ม กรุณาตั้งค่าแต้มที่ใช้เป็น 0");
       return;
@@ -834,6 +855,8 @@ export default function Pos() {
       staffName: staff?.name ?? "",
       memberId: member?.id,
       customerId: payMethod === "credit" ? creditCustomer?.id : undefined,
+      creditDeliveryRef:
+        payMethod === "credit" ? creditDeliveryRef.trim() || undefined : undefined,
       items: cart.map(l => ({ productId: l.product.id, qty: l.qty })),
       discount: billDiscount,
       paymentMethod: payMethod,
@@ -1659,24 +1682,34 @@ export default function Pos() {
                         <button
                           type="button"
                           aria-label="ยกเลิกลูกค้าเครดิต"
-                          onClick={() => setCreditCustomer(null)}
+                          onClick={() => {
+                            setCreditCustomer(null);
+                            setCreditDeliveryRef("");
+                          }}
                           className="grid size-7 place-items-center rounded-md hover:bg-amber-100"
                         >
                           <X className="size-4 text-amber-700" />
                         </button>
                       </div>
                       <div className="text-xs text-amber-800/70">
-                        ค้างชำระ ฿{fmtMoney(creditDetail?.outstanding ?? 0)}
-                        {creditCustomer.creditLimit > 0 &&
-                          ` / วงเงิน ฿${fmtMoney(creditCustomer.creditLimit)}`}
+                        {creditDetail
+                          ? `ค้างชำระ ฿${fmtMoney(creditDetail.outstanding)}`
+                          : "กำลังตรวจสถานะเครดิต"}
+                        {creditDetail?.limit != null &&
+                          ` / วงเงิน ฿${fmtMoney(creditDetail.limit)}`}
                       </div>
-                      {creditCustomer.creditLimit > 0 &&
-                        (creditDetail?.outstanding ?? 0) + total >
-                          creditCustomer.creditLimit && (
-                          <div data-slot="field-error" className="text-xs text-destructive">
-                            ยอดรวมบิลนี้จะเกินวงเงินเครดิต
-                          </div>
-                        )}
+                      {(creditDetailError || creditDetail?.blockedReason || creditOverLimit) && (
+                        <p role="alert" className="text-sm text-destructive">
+                          {creditDetailError?.message ?? creditDetail?.blockedReason ?? "ยอดรวมบิลนี้จะเกินวงเงินเครดิต"}
+                        </p>
+                      )}
+                      {creditDetail?.requiresDeliveryRef && !creditDetail.blockedReason && (
+                        <label className="block space-y-1 pt-2 text-sm font-medium text-amber-950">
+                          เลขอ้างอิงใบรับน้ำมันที่ลงนามแล้ว
+                          <Input className="h-11 bg-white" maxLength={160} value={creditDeliveryRef} onChange={e => setCreditDeliveryRef(e.target.value)} />
+                          {creditDetail.dueOn && <span className="block text-xs text-amber-900">ครบกำหนด {fmtDateKeyTH(creditDetail.dueOn)}</span>}
+                        </label>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -1698,6 +1731,7 @@ export default function Pos() {
                               className="w-full border-b px-3 py-2.5 text-left last:border-0 hover:bg-blue-50"
                               onClick={() => {
                                 setCreditCustomer(c);
+                                setCreditDeliveryRef("");
                                 setCustQ("");
                               }}
                             >
