@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import {
   ArrowLeftRight,
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { WorkLeavePanel } from "@/components/WorkLeavePanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppConfirm } from "@/components/AppConfirmDialog";
@@ -169,7 +171,7 @@ export default function Workforce() {
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
   const initialTab =
-    requestedTab === "employees" || requestedTab === "payroll"
+    requestedTab === "employees" || requestedTab === "payroll" || requestedTab === "leave"
       ? requestedTab
       : "schedule";
   const utils = trpc.useUtils();
@@ -504,9 +506,12 @@ export default function Workforce() {
       )}
 
       <Tabs defaultValue={initialTab} className="gap-4">
-        <TabsList>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:flex sm:w-fit">
           <TabsTrigger value="schedule">
             <CalendarDays /> ตารางงาน
+          </TabsTrigger>
+          <TabsTrigger value="leave" className="min-h-10">
+            <CalendarPlus /> การลา
           </TabsTrigger>
           <TabsTrigger value="employees">
             <UserRound /> พนักงาน
@@ -631,7 +636,13 @@ export default function Workforce() {
                           </div>
                         </TableCell>
                       )}
-                      <TableCell>{statusBadge(schedule.status)}</TableCell>
+                      <TableCell>
+                        {schedule.approvedLeave ? (
+                          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                            ลาอนุมัติ
+                          </Badge>
+                        ) : statusBadge(schedule.status)}
+                      </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         {schedule.cashAdvance > 0
                           ? `฿${fmtMoney(schedule.cashAdvance)}`
@@ -730,6 +741,18 @@ export default function Workforce() {
               ตารางนี้แสดงเฉพาะกะการทำงานของคุณเท่านั้น
               และไม่สามารถดูตารางของพนักงานคนอื่นได้
             </p>
+          )}
+        </TabsContent>
+
+        <TabsContent value="leave">
+          {staff && (
+            <WorkLeavePanel
+              key={staff.branch.id}
+              branchId={staff.branch.id}
+              staffId={staff.id}
+              canReview={canViewBranchSchedules}
+              canSetQuota={isAdmin}
+            />
           )}
         </TabsContent>
 

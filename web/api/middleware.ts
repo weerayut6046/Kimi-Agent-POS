@@ -140,6 +140,12 @@ async function canUseProcedureMenu(
   );
 }
 
+const offShiftLeaveActions = new Set([
+  "workforce.leave.list",
+  "workforce.leave.submit",
+  "workforce.leave.cancelMine",
+]);
+
 export const publicQuery = authenticatedStaffAction.use(
   async ({ ctx, path, type, next }) => {
     if (!(await canUseProcedureMenu(ctx.staff, path, ctx.req))) {
@@ -148,14 +154,17 @@ export const publicQuery = authenticatedStaffAction.use(
         message: "สิทธิ์ไม่เพียงพอสำหรับเมนูที่ร้องขอ",
       });
     }
-    const systemAccess = await systemAccessForRequest(ctx.req, ctx.staff);
-    if (!systemAccess.allowed) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message:
-          systemAccess.message ??
-          "ไม่สามารถเข้าใช้งานระบบได้ในขณะที่กะของพนักงานคนอื่นกำลังทำงานอยู่",
-      });
+    // ใบลาส่วนตัวเปิดได้แม้พนักงานไม่ได้อยู่ในกะ โดยยังตรวจเมนูและเจ้าของใบลา
+    if (!offShiftLeaveActions.has(path)) {
+      const systemAccess = await systemAccessForRequest(ctx.req, ctx.staff);
+      if (!systemAccess.allowed) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            systemAccess.message ??
+            "ไม่สามารถเข้าใช้งานระบบได้ในขณะที่กะของพนักงานคนอื่นกำลังทำงานอยู่",
+        });
+      }
     }
     const result = await next();
     if (type === "mutation" && result.ok) {
