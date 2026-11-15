@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../shared/widgets/app_page_hero.dart';
@@ -13,6 +12,7 @@ import '../application/pos_provider.dart';
 import '../domain/pos_cart.dart';
 import '../domain/pos_models.dart';
 import '../domain/promotion.dart';
+import 'pos_draft_receipt.dart';
 
 class PosPage extends ConsumerStatefulWidget {
   const PosPage({required this.staff, super.key});
@@ -47,6 +47,8 @@ class _PosPageState extends ConsumerState<PosPage> {
                   product.code.toLowerCase().contains(search));
         }).toList();
         final stockIssue = _cart.stockIssue(data.products);
+        final promotion = PromotionSummary.calculate(data.settings, _cart);
+        final total = _cart.totalAfterDiscount(promotion.discount);
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -56,7 +58,8 @@ class _PosPageState extends ConsumerState<PosPage> {
               products: products,
               category: _category,
               search: _search,
-              cart: _cart,
+              cartLineCount: _cart.lineCount,
+              cartTotal: total,
               bottomPadding: wide || _cart.isEmpty ? 18 : 92,
               onRefresh: () => ref.refresh(provider.future),
               onCategoryChanged: (value) => setState(() => _category = value),
@@ -73,7 +76,7 @@ class _PosPageState extends ConsumerState<PosPage> {
                     width: 390,
                     child: _CartPanel(
                       cart: _cart,
-                      settings: data.settings,
+                      promotion: promotion,
                       stockIssue: stockIssue,
                       onQuantityChanged: _setQuantity,
                       onRemove: _remove,
@@ -94,7 +97,7 @@ class _PosPageState extends ConsumerState<PosPage> {
                     bottom: 12,
                     child: _MobileCartButton(
                       itemCount: _cart.lineCount,
-                      total: _money(_cart.subtotal),
+                      total: formatPosMoney(total),
                       onPressed: () => _openMobileCart(data),
                     ),
                   ),
@@ -211,7 +214,10 @@ class _PosPageState extends ConsumerState<PosPage> {
             child: StatefulBuilder(
               builder: (context, setSheetState) => _CartPanel(
                 cart: _cart,
-                settings: liveBootstrap.settings,
+                promotion: PromotionSummary.calculate(
+                  liveBootstrap.settings,
+                  _cart,
+                ),
                 stockIssue: _cart.stockIssue(liveBootstrap.products),
                 onQuantityChanged: (id, quantity) {
                   _setQuantity(id, quantity);
@@ -281,7 +287,8 @@ class _CatalogPane extends StatelessWidget {
     required this.products,
     required this.category,
     required this.search,
-    required this.cart,
+    required this.cartLineCount,
+    required this.cartTotal,
     required this.bottomPadding,
     required this.onRefresh,
     required this.onCategoryChanged,
@@ -294,7 +301,8 @@ class _CatalogPane extends StatelessWidget {
   final List<PosProduct> products;
   final ProductCategory category;
   final String search;
-  final PosCart cart;
+  final int cartLineCount;
+  final double cartTotal;
   final double bottomPadding;
   final Future<void> Function() onRefresh;
   final ValueChanged<ProductCategory> onCategoryChanged;
@@ -328,14 +336,14 @@ class _CatalogPane extends StatelessWidget {
                 Expanded(
                   child: AppHeroStat(
                     label: 'สินค้าในตะกร้า',
-                    value: '${cart.lineCount} รายการ',
+                    value: '$cartLineCount รายการ',
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppHeroStat(
-                    label: 'ยอดรวม',
-                    value: _money(cart.subtotal),
+                    label: 'ยอดชำระ',
+                    value: formatPosMoney(cartTotal),
                   ),
                 ),
               ],
@@ -488,7 +496,7 @@ class _ProductCard extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      '${_money(product.price)} / ${product.unit}',
+                      '${formatPosMoney(product.price)} / ${product.unit}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -499,7 +507,7 @@ class _ProductCard extends StatelessWidget {
                     if (!product.isFuel)
                       Text(
                         product.stockQty > 0
-                            ? 'คงเหลือ ${_quantity(product.stockQty)} ${product.unit}'
+                            ? 'คงเหลือ ${formatPosQuantity(product.stockQty)} ${product.unit}'
                             : 'สินค้าหมด',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -562,14 +570,14 @@ class _MobileCartButton extends StatelessWidget {
                   label: Text('$itemCount'),
                   backgroundColor: const Color(0xFFFF8A65),
                   child: const Icon(
-                    Icons.shopping_cart_rounded,
+                    Icons.receipt_long_rounded,
                     color: Colors.white,
                     size: 23,
                   ),
                 ),
                 const SizedBox(width: 13),
                 const Text(
-                  'ดูตะกร้า',
+                  'ดูบิลร่าง',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 15,
@@ -602,7 +610,7 @@ class _MobileCartButton extends StatelessWidget {
 class _CartPanel extends StatelessWidget {
   const _CartPanel({
     required this.cart,
-    required this.settings,
+    required this.promotion,
     required this.stockIssue,
     required this.onQuantityChanged,
     required this.onRemove,
@@ -610,7 +618,7 @@ class _CartPanel extends StatelessWidget {
   });
 
   final PosCart cart;
-  final Map<String, String> settings;
+  final PromotionSummary promotion;
   final String? stockIssue;
   final void Function(int productId, double quantity) onQuantityChanged;
   final ValueChanged<int> onRemove;
@@ -618,58 +626,20 @@ class _CartPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final promotion = PromotionSummary.calculate(settings, cart);
-    final total = (cart.subtotal - promotion.discount).clamp(0, cart.subtotal);
-
-    return ColoredBox(
-      color: Colors.white,
+    return SafeArea(
+      top: false,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.shopping_cart_rounded),
-                const SizedBox(width: 9),
-                Text(
-                  'ตะกร้าปัจจุบัน',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
             Expanded(
-              child: cart.isEmpty
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.shopping_basket_outlined,
-                            size: 54,
-                            color: Colors.black26,
-                          ),
-                          SizedBox(height: 10),
-                          Text('แตะสินค้าเพื่อเพิ่มลงตะกร้า'),
-                        ],
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: cart.lines.length,
-                      separatorBuilder: (_, _) => const Divider(height: 20),
-                      itemBuilder: (context, index) {
-                        final line = cart.lines[index];
-                        return _CartLineTile(
-                          line: line,
-                          onQuantityChanged: (quantity) =>
-                              onQuantityChanged(line.product.id, quantity),
-                          onRemove: () => onRemove(line.product.id),
-                        );
-                      },
-                    ),
+              child: PosDraftReceipt(
+                cart: cart,
+                promotion: promotion,
+                onQuantityChanged: onQuantityChanged,
+                onRemove: onRemove,
+              ),
             ),
             if (stockIssue != null) ...[
               const SizedBox(height: 8),
@@ -689,19 +659,6 @@ class _CartPanel extends StatelessWidget {
                   ),
                 ),
             ],
-            const Divider(height: 22),
-            _TotalLine(label: 'ยอดก่อนส่วนลด', value: _money(cart.subtotal)),
-            if (promotion.discount > 0)
-              _TotalLine(
-                label: 'ส่วนลดโปรโมชั่น',
-                value: '−${_money(promotion.discount)}',
-              ),
-            const SizedBox(height: 7),
-            _TotalLine(
-              label: 'ยอดชำระ',
-              value: _money(total.toDouble()),
-              emphasized: true,
-            ),
             const SizedBox(height: 14),
             FilledButton.icon(
               onPressed: cart.isEmpty || stockIssue != null ? null : onCheckout,
@@ -714,77 +671,6 @@ class _CartPanel extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _CartLineTile extends StatelessWidget {
-  const _CartLineTile({
-    required this.line,
-    required this.onQuantityChanged,
-    required this.onRemove,
-  });
-
-  final CartLine line;
-  final ValueChanged<double> onQuantityChanged;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final step = 1.0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                line.product.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            IconButton(
-              tooltip: 'นำออก',
-              visualDensity: VisualDensity.compact,
-              onPressed: onRemove,
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
-          ],
-        ),
-        Text(
-          '${_money(line.product.price)} / ${line.product.unit}',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 7),
-        Row(
-          children: [
-            IconButton.filledTonal(
-              visualDensity: VisualDensity.compact,
-              onPressed: () => onQuantityChanged(line.quantity - step),
-              icon: const Icon(Icons.remove_rounded),
-            ),
-            Expanded(
-              child: Text(
-                '${_quantity(line.quantity)} ${line.product.unit}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            IconButton.filledTonal(
-              visualDensity: VisualDensity.compact,
-              onPressed: () => onQuantityChanged(line.quantity + step),
-              icon: const Icon(Icons.add_rounded),
-            ),
-            const SizedBox(width: 9),
-            Text(
-              _money(line.amount),
-              style: const TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }
@@ -825,7 +711,7 @@ class _FuelAmountDialogState extends State<_FuelAmountDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('ราคา ${_money(widget.product.price)} ต่อลิตร'),
+              Text('ราคา ${formatPosMoney(widget.product.price)} ต่อลิตร'),
               const SizedBox(height: 14),
               SegmentedButton<bool>(
                 segments: const [
@@ -860,7 +746,7 @@ class _FuelAmountDialogState extends State<_FuelAmountDialog> {
               const SizedBox(height: 12),
               Text(
                 entered > 0
-                    ? '${_quantity(liters)} ลิตร · ${_money(total)}'
+                    ? '${formatPosQuantity(liters)} ลิตร · ${formatPosMoney(total)}'
                     : 'กรอกจำนวนที่ต้องการ',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w800),
@@ -1199,12 +1085,9 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
     return requested.clamp(0, _maxRedeemPoints);
   }
 
-  double get _total =>
-      (widget.cart.subtotal -
-              _promotion.discount -
-              (_redeemPoints * _pointValue))
-          .clamp(0, widget.cart.subtotal)
-          .toDouble();
+  double get _total => widget.cart.totalAfterDiscount(
+    _promotion.discount + (_redeemPoints * _pointValue),
+  );
 
   @override
   void initState() {
@@ -1238,9 +1121,9 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _TotalLine(
+              PosReceiptTotalLine(
                 label: 'ยอดชำระ',
-                value: _money(_total),
+                value: formatPosMoney(_total),
                 emphasized: true,
               ),
               if (_promotion.labels.isNotEmpty) ...[
@@ -1391,7 +1274,7 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
                         labelText: 'จำนวนแต้มที่ใช้ (สูงสุด $_maxRedeemPoints)',
                         prefixIcon: const Icon(Icons.stars_outlined),
                         helperText:
-                            'ส่วนลด ${_money(_redeemPoints * _pointValue)}',
+                            'ส่วนลด ${formatPosMoney(_redeemPoints * _pointValue)}',
                       ),
                     ),
                   ],
@@ -1439,7 +1322,7 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
                 ),
                 const SizedBox(height: 9),
                 Text(
-                  'เงินทอน ${_money(change.toDouble())}',
+                  'เงินทอน ${formatPosMoney(change.toDouble())}',
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
@@ -1505,7 +1388,7 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
                                   customer.phone,
                                   customer.vehiclePlate,
                                   if (customer.creditLimit > 0)
-                                    'วงเงิน ${_money(customer.creditLimit)}',
+                                    'วงเงิน ${formatPosMoney(customer.creditLimit)}',
                                 ].where((part) => part.isNotEmpty).join(' · '),
                               ),
                               onTap: () => _selectCustomer(customer),
@@ -1528,9 +1411,9 @@ class _CheckoutDialogState extends ConsumerState<_CheckoutDialog> {
                       _creditDetail == null
                           ? 'กำลังตรวจสอบยอดค้าง...'
                           : [
-                              'ค้าง ${_money(_number(_creditDetail?['outstanding']))}',
+                              'ค้าง ${formatPosMoney(_number(_creditDetail?['outstanding']))}',
                               _customer!.creditLimit > 0
-                                  ? 'วงเงิน ${_money(_customer!.creditLimit)}'
+                                  ? 'วงเงิน ${formatPosMoney(_customer!.creditLimit)}'
                                   : 'ไม่จำกัดวงเงิน',
                             ].join(' · '),
                     ),
@@ -1833,7 +1716,7 @@ class _ThungngernDialogState extends ConsumerState<_ThungngernDialog> {
       builder: (context) => AlertDialog(
         title: const Text('ยืนยันว่าได้รับเงินแล้ว?'),
         content: Text(
-          'ตรวจสอบยอด ${_money(widget.session.amount)} ในบัญชีร้านก่อนยืนยัน',
+          'ตรวจสอบยอด ${formatPosMoney(widget.session.amount)} ในบัญชีร้านก่อนยืนยัน',
         ),
         actions: [
           TextButton(
@@ -1926,7 +1809,7 @@ class _ThungngernDialogState extends ConsumerState<_ThungngernDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _money(widget.session.amount),
+                formatPosMoney(widget.session.amount),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.w900,
@@ -2078,25 +1961,37 @@ class _ReceiptDialog extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          '${item.name} × ${_quantity(item.quantity)} ${item.unit}',
+                          '${item.name} × ${formatPosQuantity(item.quantity)} ${item.unit}',
                         ),
                       ),
-                      Text(_money(item.amount)),
+                      Text(formatPosMoney(item.amount)),
                     ],
                   ),
                 ),
               const Divider(height: 22),
-              _TotalLine(label: 'ยอดก่อนส่วนลด', value: _money(sale.subtotal)),
+              PosReceiptTotalLine(
+                label: 'ยอดก่อนส่วนลด',
+                value: formatPosMoney(sale.subtotal),
+              ),
               if (sale.discount > 0)
-                _TotalLine(label: 'ส่วนลด', value: '−${_money(sale.discount)}'),
-              _TotalLine(
+                PosReceiptTotalLine(
+                  label: 'ส่วนลด',
+                  value: '−${formatPosMoney(sale.discount)}',
+                ),
+              PosReceiptTotalLine(
                 label: 'ยอดสุทธิ',
-                value: _money(sale.total),
+                value: formatPosMoney(sale.total),
                 emphasized: true,
               ),
-              _TotalLine(label: 'ชำระโดย', value: sale.paymentMethod.label),
+              PosReceiptTotalLine(
+                label: 'ชำระโดย',
+                value: sale.paymentMethod.label,
+              ),
               if (sale.paymentMethod == PaymentMethod.cash)
-                _TotalLine(label: 'เงินทอน', value: _money(sale.changeAmount)),
+                PosReceiptTotalLine(
+                  label: 'เงินทอน',
+                  value: formatPosMoney(sale.changeAmount),
+                ),
             ],
           ),
         ),
@@ -2187,36 +2082,6 @@ class _InlineError extends StatelessWidget {
   }
 }
 
-class _TotalLine extends StatelessWidget {
-  const _TotalLine({
-    required this.label,
-    required this.value,
-    this.emphasized = false,
-  });
-
-  final String label;
-  final String value;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = emphasized
-        ? Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)
-        : Theme.of(context).textTheme.bodyMedium;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          Expanded(child: Text(label, style: style)),
-          Text(value, style: style),
-        ],
-      ),
-    );
-  }
-}
-
 class _LoadError extends StatelessWidget {
   const _LoadError({required this.error, required this.onRetry});
 
@@ -2271,11 +2136,6 @@ Color _productColor(PosProduct product) {
   if (code.contains('95')) return const Color(0xFFE26938);
   return const Color(0xFF775CE5);
 }
-
-String _money(double value) =>
-    NumberFormat.currency(locale: 'th_TH', symbol: '฿').format(value);
-
-String _quantity(double value) => NumberFormat('0.###', 'th_TH').format(value);
 
 double _number(Object? value) =>
     value is num ? value.toDouble() : double.tryParse('$value') ?? 0;

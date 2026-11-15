@@ -5,9 +5,6 @@ import QRCode from "qrcode";
 import {
   Fuel,
   Droplet,
-  Minus,
-  Plus,
-  Trash2,
   UserPlus,
   X,
   Printer,
@@ -50,7 +47,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -63,6 +59,7 @@ import { useStaff } from "@/hooks/useStaff";
 import { useDesktopSync } from "@/hooks/useDesktopSync";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TaxInvoiceDialog } from "@/components/TaxInvoiceDialog";
+import { PosDraftReceipt } from "@/components/PosDraftReceipt";
 import { ReceiptDoc } from "@/components/ReceiptDoc";
 import {
   ThungngernQrDialog,
@@ -1200,6 +1197,20 @@ export default function Pos() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4 bg-white px-4 py-4 sm:px-5">
+              <PosDraftReceipt
+                lines={pricedCart}
+                productById={productById}
+                subtotal={subtotal}
+                promotionDiscount={billDiscount}
+                pointsDiscount={redeemDiscount}
+                total={total}
+                onQuantityChange={setQty}
+                onRemove={productId =>
+                  setCart(lines =>
+                    lines.filter(line => line.product.id !== productId)
+                  )
+                }
+              />
               {/* สมาชิก */}
               {member ? (
                 <div
@@ -1294,102 +1305,8 @@ export default function Pos() {
                 </div>
               )}
 
-              <Separator className="bg-slate-200" />
-
-              {/* รายการ */}
-              <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
-                {cart.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 py-8 text-center">
-                    <ShoppingBasket className="mx-auto size-8 text-slate-300" />
-                    <p className="mt-2 text-sm font-medium text-slate-500">
-                      ยังไม่มีสินค้าในบิล
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-400">
-                      แตะรายการทางซ้ายเพื่อเพิ่มสินค้า
-                    </p>
-                  </div>
-                )}
-                {pricedCart.map(l => {
-                  const currentProduct = productById.get(l.product.id);
-                  const availableStock = currentProduct?.stockQty ?? 0;
-                  const soldOut =
-                    l.product.category !== "fuel" && availableStock <= 0;
-                  const atStockLimit =
-                    l.product.category !== "fuel" && l.qty >= availableStock;
-                  return (
-                    <div
-                      key={l.product.id}
-                      className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm transition-colors hover:border-primary/30"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold text-slate-800">
-                            {l.product.name}
-                            {soldOut && (
-                              <Badge className="ml-2 bg-red-100 text-red-700 hover:bg-red-100">
-                                หมดแล้ว
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="mt-0.5 text-xs text-slate-400">
-                            ฿{fmtMoney(l.product.price)} / {l.product.unit}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          aria-label={`ลบ ${l.product.name}`}
-                          onClick={() =>
-                            setCart(c =>
-                              c.filter(x => x.product.id !== l.product.id)
-                            )
-                          }
-                          className="grid size-7 place-items-center rounded-md text-slate-300 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <div className="flex items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                          <button
-                            type="button"
-                            aria-label="ลดจำนวน"
-                            className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-primary"
-                            onClick={() => setQty(l.product.id, l.qty - 1)}
-                          >
-                            <Minus className="size-3.5" />
-                          </button>
-                          <span className="min-w-[74px] border-x border-slate-200 px-2 text-center text-xs font-semibold number-display">
-                            {fmtNum(l.values.qty)} {l.product.unit}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label="เพิ่มจำนวน"
-                            disabled={atStockLimit}
-                            className="grid size-8 place-items-center text-slate-500 hover:bg-white hover:text-primary disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
-                            onClick={() => setQty(l.product.id, l.qty + 1)}
-                          >
-                            <Plus className="size-3.5" />
-                          </button>
-                        </div>
-                        <div className="font-heading font-bold text-slate-900 number-display">
-                          ฿{fmtMoney(l.values.amount)}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <Separator className="bg-slate-200" />
-
               {/* ส่วนลด/แต้ม */}
               <div className="space-y-2.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">ยอดรวมสินค้า</span>
-                  <span className="font-medium number-display">
-                    ฿{fmtMoney(subtotal)}
-                  </span>
-                </div>
                 {activeBillPromotion && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
                     <div className="flex items-center justify-between gap-3">
@@ -1563,19 +1480,6 @@ export default function Pos() {
                     )}
                   </div>
                 )}
-                <div className="pos-sidebar mt-3 flex items-end justify-between rounded-xl px-4 py-4 text-white shadow-[0_10px_24px_rgba(15,39,52,0.18)] ring-1 ring-white/10">
-                  <div>
-                    <div className="text-xs font-medium text-white/70">
-                      ยอดสุทธิ
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-white/45">
-                      รวมภาษีและส่วนลดแล้ว
-                    </div>
-                  </div>
-                  <span className="font-heading text-2xl font-bold number-display">
-                    ฿{fmtMoney(total)}
-                  </span>
-                </div>
               </div>
 
               {/* ชำระเงิน */}
@@ -1835,7 +1739,7 @@ export default function Pos() {
                   type="button"
                   onClick={() => setMobileCartOpen(true)}
                   className="mobile-pos-cart-trigger fixed bottom-[calc(86px+env(safe-area-inset-bottom))] left-3 right-3 z-20 h-14 justify-between rounded-xl px-4 shadow-lg shadow-primary/25 lg:hidden"
-                  aria-label={`เปิดตะกร้า ${cart.length} รายการ ยอดรวม ${fmtMoney(total)} บาท`}
+                  aria-label={`ดูบิลร่าง ${cart.length} รายการ ยอดชำระ ${fmtMoney(total)} บาท`}
                 >
                   <span className="flex items-center gap-2">
                     <span className="relative grid size-9 place-items-center rounded-xl bg-white/10">
@@ -1844,7 +1748,7 @@ export default function Pos() {
                         {cart.length}
                       </span>
                     </span>
-                    ดูรายการขาย
+                    ดูบิลร่าง
                   </span>
                   <span className="flex items-center gap-2 font-heading text-base number-display">
                     ฿{fmtMoney(total)} <ArrowRight className="size-4" />

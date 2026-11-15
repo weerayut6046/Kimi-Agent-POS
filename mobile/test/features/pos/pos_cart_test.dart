@@ -47,6 +47,12 @@ void main() {
       );
     });
 
+    test('rounds the discount to cents before applying it to the total', () {
+      final cart = const PosCart().add(_product, 1);
+
+      expect(cart.totalAfterDiscount(0.375), 49.62);
+    });
+
     test('detects a stock change after items entered the cart', () {
       final cart = const PosCart().add(_product, 4);
       final latest = PosProduct(
