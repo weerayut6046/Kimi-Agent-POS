@@ -26,12 +26,7 @@ import { receiptSaleItemSelection } from "../lib/saleItemView";
 import { assertSaleItemAmounts } from "../payments/sessionService";
 import { calculateSaleItemValues } from "@contracts/saleItemValues";
 import { isMemberCardExpired } from "@contracts/memberExpiry";
-import {
-  attachShiftCashMeter,
-  attachShiftLubricantSales,
-  shiftCashSummary,
-  shiftLubricantSalesSummaries,
-} from "../lib/cash";
+import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import {
   isValidCashCounts,
   shiftCashDifference,
@@ -399,17 +394,10 @@ export const posRouter = createRouter({
           ),
         shiftCashSummary(db, shift),
       ]);
-    const lubricantSales = (
-      await shiftLubricantSalesSummaries(db, branchId, [shift.id])
-    ).get(shift.id) ?? { lubricantAmount: 0, lubricantItems: [] };
     return {
       ...shift,
       posAmount: cash.posSales,
       cash, // สรุปเงินสดของกะ (ใช้โชว์ยอด "ควรมี" ตอนปิดกะ)
-      lubricants: productRows.filter(
-        product => product.active && product.category === "lubricant"
-      ),
-      lubricantSales,
       readings: readings.map(r => {
         const nz = nozzleRows.find(n => n.id === r.nozzleId);
         const product = productRows.find(p => p.id === nz?.productId);
@@ -590,10 +578,6 @@ export const posRouter = createRouter({
         shift: {
           ...createdShift,
           cash,
-          lubricants: prodRows.filter(
-            product => product.active && product.category === "lubricant"
-          ),
-          lubricantSales: { lubricantAmount: 0, lubricantItems: [] },
           readings: createdReadings.map(reading => {
             const nozzle = nozzleRows.find(row => row.id === reading.nozzleId);
             const product = prodRows.find(row => row.id === nozzle?.productId);
@@ -626,18 +610,11 @@ export const posRouter = createRouter({
           .min(1),
         countedCash: z.number().nonnegative().optional(), // เงินสดที่นับได้จริงตอนปิดกะ (กรณีไม่ได้นับแบงก์)
         transferAmount: z.number().nonnegative().optional(), // ยอดเงินที่ลูกค้าโอน
+        // แอปรุ่นเดิมส่งอาร์เรย์ว่างตอนปิดกะ
         lubricantItems: z
-          .array(
-            z.object({
-              productId: z.number().int().positive(),
-              qty: z.number().min(0.001),
-            })
-          )
-          .max(
-            0,
-            "ฟีเจอร์น้ำมันเครื่อง / 2T ที่ขายเพิ่มปิดใช้งานชั่วคราว กรุณาบันทึกการขายผ่านหน้า POS"
-          )
-          .default([]), // น้ำมันเครื่อง/2T ที่ขายเพิ่มและยังไม่ได้ลง POS
+          .array(z.unknown())
+          .max(0, "กรุณาบันทึกการขายน้ำมันเครื่อง / 2T ผ่านหน้า POS")
+          .optional(),
         cashCounts: z
           .record(z.string(), z.number().int().nonnegative())
           .optional(), // การนับแบงก์/เหรียญ
@@ -692,9 +669,6 @@ export const posRouter = createRouter({
       const nozzleRows = await db.query.nozzles.findMany({
         where: (row, operators) => operators.eq(row.branchId, branchId),
       });
-      const productRows = await db.query.products.findMany({
-        where: eq(products.branchId, branchId),
-      });
       const tankRows = await db.query.fuelTanks.findMany({
         where: eq(fuelTanks.branchId, branchId),
       });
@@ -710,37 +684,6 @@ export const posRouter = createRouter({
       const changedProductIds = new Set(
         changedProducts.map(change => change.productId)
       );
-      const lubricantIds = input.lubricantItems.map(item => item.productId);
-      if (new Set(lubricantIds).size !== lubricantIds.length) {
-        throw new Error(
-          "มีรายการน้ำมันเครื่องซ้ำ กรุณารวมจำนวนเป็นรายการเดียว"
-        );
-      }
-      const lubricantLines = input.lubricantItems.map(item => {
-        const product = productRows.find(row => row.id === item.productId);
-        if (!product || !product.active || product.category !== "lubricant") {
-          throw new Error("ไม่พบสินค้าน้ำมันเครื่องที่เปิดใช้งาน");
-        }
-        const values = calculateSaleItemValues(item.qty, product.price);
-        if (values.qty <= 0)
-          throw new Error("จำนวนสินค้าต้องไม่น้อยกว่า 0.001");
-        if (values.qty > product.stockQty) {
-          throw new Error(
-            `สต๊อก ${product.name} ไม่พอ (คงเหลือ ${product.stockQty} ${product.unit})`
-          );
-        }
-        return {
-          product,
-          ...values,
-        };
-      });
-      assertSaleItemAmounts(lubricantLines, "pos_close_shift");
-      const lubricantAmount = r2(
-        lubricantLines.reduce((sum, line) => sum + line.amount, 0)
-      );
-      const settingMap =
-        lubricantLines.length > 0 ? await getSettingMap(db, branchId) : {};
-      const vatRate = Number(settingMap.vat_rate ?? "7");
 
       // Do not allow a shifted/misread P digit to inflate the shift total.
       // Normal per-sale rounding remains allowed, and a price change during
@@ -783,71 +726,13 @@ export const posRouter = createRouter({
         );
       }
       // คำนวณเงินสดที่ควรมีก่อนเข้า transaction เพื่อลดเวลาถือ lock
-      const currentCash = await shiftCashSummary(db, shift);
-      const cash = {
-        ...currentCash,
-        cashSales: r2(currentCash.cashSales + lubricantAmount),
-        posSales: r2(currentCash.posSales + lubricantAmount),
-        expectedCash: r2(currentCash.expectedCash + lubricantAmount),
-      };
+      const cash = await shiftCashSummary(db, shift);
 
       let totalLiters = 0;
       let totalAmount = 0;
       let totalMoneyMeter = 0;
 
       await db.transaction(async tx => {
-        if (lubricantLines.length > 0) {
-          const receiptNo = await nextDocNo(tx, "receipt", branchId);
-          const [manualSale] = await tx
-            .insert(sales)
-            .values({
-              branchId,
-              receiptNo,
-              shiftId: shift.id,
-              staffName: shift.staffName,
-              subtotal: lubricantAmount,
-              discount: 0,
-              vatRate,
-              vatAmount: r2((lubricantAmount * vatRate) / (100 + vatRate)),
-              total: lubricantAmount,
-              paymentMethod: "cash",
-              received: lubricantAmount,
-              changeAmt: 0,
-            })
-            .returning({ id: sales.id });
-          if (!manualSale)
-            throw new Error("บันทึกรายการน้ำมันเครื่องไม่สำเร็จ");
-          await tx.insert(saleItems).values(
-            lubricantLines.map(line => ({
-              branchId,
-              saleId: manualSale.id,
-              productId: line.product.id,
-              name: line.product.name,
-              qty: line.qty,
-              unit: line.product.unit,
-              unitPrice: line.unitPrice,
-              costPerUnit: line.product.cost,
-              productCategory: line.product.category,
-              amount: line.amount,
-            }))
-          );
-          for (const line of lubricantLines) {
-            const updated = await tx
-              .update(products)
-              .set({ stockQty: sql`${products.stockQty} - ${line.qty}` })
-              .where(
-                and(
-                  eq(products.id, line.product.id),
-                  eq(products.branchId, branchId),
-                  gte(products.stockQty, line.qty)
-                )
-              )
-              .returning({ id: products.id });
-            if (updated.length === 0) {
-              throw new Error(`สต๊อก ${line.product.name} ไม่พอ`);
-            }
-          }
-        }
         const tankDeductions = new Map<number, number>();
         for (const rd of input.readings) {
           const open = readings.find(o => o.nozzleId === rd.nozzleId);
@@ -961,7 +846,6 @@ export const posRouter = createRouter({
         ...actorFromReq(ctx.req),
         detail:
           `ปิดกะ #${shift.id} (${shift.staffName}) ลิตร ${totalLiters} ยอด P ${totalMoneyMeter} ` +
-          `น้ำมันเครื่อง ${lubricantAmount} ` +
           `เงินทอน ${cash.openingFloat} เงินสดควรมี ${cash.expectedCash} นับได้ ${countedCash ?? "-"} ` +
           `โอน ${input.transferAmount ?? "-"} POS ${cash.posSales} ค่าใช้จ่าย ${cash.expensesTotal} ` +
           `นับได้รวม ${countedTotal ?? "-"} ต่าง ${cashDiff ?? "-"}`,
@@ -973,7 +857,6 @@ export const posRouter = createRouter({
         totalLiters,
         totalAmount,
         totalMoneyMeter,
-        lubricantAmount,
         diff: r2(totalMoneyMeter - totalAmount),
       };
     }),
@@ -996,11 +879,7 @@ export const posRouter = createRouter({
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input?.limit ?? 200);
       const countedRows = attachShiftCountedTotals(rows);
-      return attachShiftLubricantSales(
-        db,
-        ctx.staff.branchId,
-        await attachShiftCashMeter(db, ctx.staff.branchId, countedRows)
-      );
+      return attachShiftCashMeter(db, ctx.staff.branchId, countedRows);
     }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
@@ -1034,18 +913,15 @@ export const posRouter = createRouter({
           lt(historyShifts.openedAt, bangkokDayStart(input.to, 1))
         );
       }
-      const rows = await getDb()
+      const db = getDb();
+      const rows = await db
         .select(shiftHistorySelection)
         .from(historyShifts)
         .where(and(...conditions))
         .orderBy(desc(historyShifts.openedAt), desc(historyShifts.id))
         .limit(input.limit);
       const countedRows = attachShiftCountedTotals(rows);
-      return attachShiftLubricantSales(
-        getDb(),
-        ctx.staff.branchId,
-        await attachShiftCashMeter(getDb(), ctx.staff.branchId, countedRows)
-      );
+      return attachShiftCashMeter(db, ctx.staff.branchId, countedRows);
     }),
 
   createShiftHistory: adminQuery
@@ -1402,9 +1278,6 @@ export const posRouter = createRouter({
         posAmount: shift.posAmount,
         expensesTotal: cash.expensesTotal,
       });
-      const [lubricantSales] = await attachShiftLubricantSales(db, branchId, [
-        { id: shift.id },
-      ]);
       // เงินสดเทียบยอด P (ใช้ snapshot ตอนปิดกะถ้ามี ไม่งั้นคำนวณย้อนหลัง)
       const [cashMeter] = await attachShiftCashMeter(db, branchId, [
         {
@@ -1453,8 +1326,6 @@ export const posRouter = createRouter({
         countedTotal,
         cashExpectedP: cashMeter.cashExpectedP,
         cashDiffP: cashMeter.cashDiffP,
-        lubricantAmount: lubricantSales.lubricantAmount,
-        lubricantItems: lubricantSales.lubricantItems,
         sales: saleRows,
         priceChangedDuringShift: detailReadings.some(
           reading => reading.priceChangedDuringShift

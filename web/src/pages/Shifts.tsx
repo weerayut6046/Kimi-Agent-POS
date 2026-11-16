@@ -4,7 +4,6 @@ import {
   CalendarClock,
   Clock,
   ClipboardPenLine,
-  Droplet,
   Fuel,
   Gauge,
   Info,
@@ -704,8 +703,6 @@ export default function Shifts() {
     undefined,
     { trpc: { context: { skipBatch: true } } }
   );
-  const currentLubricantAmount =
-    currentShift?.lubricantSales?.lubricantAmount ?? 0;
   const { data: pumps } = trpc.catalog.listPumps.useQuery(undefined, {
     enabled: currentShift === null,
   });
@@ -1026,7 +1023,6 @@ export default function Shifts() {
       numeric[k] = Number(v) || 0;
     return sumCashCounts(numeric);
   }, [cashCounts]);
-  const lubricantShiftAmount = currentLubricantAmount;
   const expectedCashPreview = currentShift?.cash.expectedCash ?? 0;
   const posSalesPreview = currentShift?.cash.posSales ?? 0;
   const expensesPreview = currentShift?.cash.expensesTotal ?? 0;
@@ -1461,19 +1457,6 @@ export default function Shifts() {
                   })}
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-500">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Droplet className="h-4 w-4" />
-                    <div className="text-sm font-semibold">
-                      น้ำมันเครื่อง / 2T ที่ขายเพิ่ม
-                    </div>
-                    <Badge variant="secondary">ปิดใช้งานชั่วคราว</Badge>
-                  </div>
-                  <div className="mt-1 text-xs">
-                    ระหว่างนี้กรุณาบันทึกการขายน้ำมันเครื่อง / 2T ผ่านหน้า POS
-                  </div>
-                </div>
-
                 {/* สรุปเงินสดที่ควรมี (คำนวณจากยอดขาย/ค่าใช้จ่ายจริงในกะ) */}
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                   <div>
@@ -1582,14 +1565,6 @@ export default function Shifts() {
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">
-                        น้ำมันเครื่อง / 2T
-                      </div>
-                      <div className="font-heading text-xl font-semibold text-cyan-700">
-                        ฿{fmtMoney(lubricantShiftAmount)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">
                         รวมยอดกะ (P + POS ทั้งหมด)
                       </div>
                       <div className="font-heading text-xl font-semibold text-violet-700">
@@ -1679,7 +1654,7 @@ export default function Shifts() {
                   }}
                 >
                   <StopCircle className="w-5 h-5 mr-2" /> ยืนยันปิดกะ
-                  (หักถังและสต๊อกอัตโนมัติ)
+                  (ปรับสต๊อกน้ำมันตามมิเตอร์)
                 </Button>
               </CardContent>
             </Card>
@@ -1815,9 +1790,6 @@ export default function Shifts() {
                       <TableHead className="text-right">ยอดจากลิตร</TableHead>
                       <TableHead className="text-right">ลิตร</TableHead>
                       <TableHead>เทียบ</TableHead>
-                      <TableHead className="text-right">
-                        น้ำมันเครื่อง
-                      </TableHead>
                       <TableHead className="text-right">รวมยอดกะ</TableHead>
                       <TableHead className="text-right">ยอด POS</TableHead>
                       <TableHead className="text-right">เงินทอน</TableHead>
@@ -1856,11 +1828,6 @@ export default function Shifts() {
                               }
                             />
                           )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {(s.lubricantAmount ?? 0) > 0
-                            ? `฿${fmtMoney(s.lubricantAmount ?? 0)}`
-                            : "-"}
                         </TableCell>
                         <TableCell className="text-right font-medium">
                           ฿
@@ -2004,7 +1971,7 @@ export default function Shifts() {
                     {(history ?? []).length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={16}
+                          colSpan={15}
                           className="text-center text-muted-foreground py-8"
                         >
                           ยังไม่มีประวัติ
@@ -2700,10 +2667,6 @@ export default function Shifts() {
                       ยอด POS: <b>฿{fmtMoney(detail.posAmount)}</b>
                     </div>
                     <div>
-                      น้ำมันเครื่อง:{" "}
-                      <b>฿{fmtMoney(detail.lubricantAmount ?? 0)}</b>
-                    </div>
-                    <div>
                       รวมยอดกะ:{" "}
                       <b>
                         ฿
@@ -2725,60 +2688,6 @@ export default function Shifts() {
                   </div>
                 </div>
               </section>
-
-              {(detail.lubricantItems?.length ?? 0) > 0 && (
-                <section className="overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-sm shadow-cyan-100/60">
-                  <div className="flex items-center gap-3 border-b border-cyan-100 bg-cyan-50/70 px-4 py-3">
-                    <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
-                      <Droplet className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        น้ำมันเครื่อง / 2T ของกะ
-                      </h3>
-                      <p className="text-[11px] text-slate-500">
-                        รวมรายการจาก POS และรายการที่บันทึกเพิ่มตอนปิดกะ
-                      </p>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>สินค้า</TableHead>
-                          <TableHead className="text-right">จำนวน</TableHead>
-                          <TableHead className="text-right">
-                            ราคาเฉลี่ย
-                          </TableHead>
-                          <TableHead className="text-right">ยอดเงิน</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(detail.lubricantItems ?? []).map(item => (
-                          <TableRow key={item.productId}>
-                            <TableCell>{item.name}</TableCell>
-                            <TableCell className="text-right">
-                              {fmtNum(item.qty)} {item.unit}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              ฿
-                              {fmtMoney(
-                                item.qty > 0 ? item.amount / item.qty : 0
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              ฿{fmtMoney(item.amount)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <div className="mt-3 text-right font-heading text-lg font-semibold text-cyan-800">
-                      รวม ฿{fmtMoney(detail.lubricantAmount ?? 0)}
-                    </div>
-                  </div>
-                </section>
-              )}
 
               {/* กระทบยอดเงินสด */}
               <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">

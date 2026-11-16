@@ -474,10 +474,6 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
                       'รวมยอดกะ (P + POS ทั้งหมด)',
                       _money(_shiftSalesTotal(detail)),
                     ),
-                    _InfoRow(
-                      'น้ำมันเครื่อง',
-                      _money(_num(detail['lubricantAmount'])),
-                    ),
                   ],
                 ),
                 _DetailCard(
