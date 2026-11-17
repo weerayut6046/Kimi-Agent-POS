@@ -62,6 +62,8 @@ import { trpc } from "@/providers/trpc";
 
 type PeriodView = "day" | "month" | "year";
 
+const STANDARD_FUEL_PROFIT_SATANG_PER_LITER = 250;
+
 const CATEGORY_COLORS: Record<"fuel" | "lubricant" | "other", string> = {
   fuel: "#6d5df4",
   lubricant: "#0ea5a4",
@@ -232,6 +234,18 @@ function ProfitValue({ value }: { value: number }) {
       {signedMoney(value)}
     </span>
   );
+}
+
+function StandardFuelProfitValue({ liters }: { liters: number }) {
+  if (liters <= 0) {
+    return <span className="text-amber-800">ข้อมูลลิตรไม่ครบ</span>;
+  }
+
+  const milliliters = Math.round(liters * 1_000);
+  const profitSatang = Math.round(
+    (milliliters * STANDARD_FUEL_PROFIT_SATANG_PER_LITER) / 1_000
+  );
+  return <ProfitValue value={profitSatang / 100} />;
 }
 
 function HeroMetric({
@@ -1109,8 +1123,9 @@ export default function Profitability() {
                           ต้นทุนและกำไรน้ำมันแยกตามประเภท
                         </h3>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          กำไรตามราคาปัจจุบัน = (ราคาขาย − ต้นทุนปัจจุบัน)
-                          × ลิตรจากมิเตอร์ของกะที่ปิดในช่วงที่เลือก
+                          ลิตรจากมิเตอร์ของกะที่ปิดในช่วงที่เลือก ×{" "}
+                          {fmtMoney(STANDARD_FUEL_PROFIT_SATANG_PER_LITER / 100)}{" "}
+                          บาทต่อลิตร
                         </p>
                       </div>
                       <Badge
@@ -1124,16 +1139,10 @@ export default function Profitability() {
 
                     <div className="mb-3 rounded-xl bg-emerald-50 px-4 py-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <strong>กำไรรวมน้ำมันตามราคาปัจจุบัน</strong>
-                        {data.meterProfitSummary.currentFuelProfit != null ? (
-                          <ProfitValue
-                            value={data.meterProfitSummary.currentFuelProfit}
-                          />
-                        ) : (
-                          <span className="text-amber-800">
-                            ข้อมูลราคาหรือลิตรไม่ครบ
-                          </span>
-                        )}
+                        <strong>กำไรมาตรฐานน้ำมันรวม</strong>
+                        <StandardFuelProfitValue
+                          liters={data.meterProfitSummary.fuelLiters}
+                        />
                       </div>
                     </div>
 
@@ -1170,41 +1179,11 @@ export default function Profitability() {
                             </div>
                           </div>
 
-                          <dl className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs">
-                            <div>
-                              <dt>ราคาขายปัจจุบัน</dt>
-                              <dd>
-                                {fuel.currentPricePerLiter > 0
-                                  ? `฿${fmtNum(fuel.currentPricePerLiter)}/ลิตร`
-                                  : "ยังไม่ระบุ"}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>ต้นทุนปัจจุบัน</dt>
-                              <dd>
-                                {fuel.currentCostPerLiter > 0
-                                  ? `฿${fmtNum(fuel.currentCostPerLiter)}/ลิตร`
-                                  : "ยังไม่ระบุ"}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>ส่วนต่างต่อลิตร</dt>
-                              <dd>
-                                {fuel.currentProfitPerLiter == null
-                                  ? "—"
-                                  : `${fmtNum(fuel.currentProfitPerLiter)} บาท`}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>กำไรตามราคาปัจจุบัน</dt>
-                              <dd>
-                                {fuel.currentProfit == null ? (
-                                  "—"
-                                ) : (
-                                  <ProfitValue value={fuel.currentProfit} />
-                                )}
-                              </dd>
-                            </div>
+                          <dl className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs">
+                            <dt>กำไรมาตรฐาน</dt>
+                            <dd>
+                              <StandardFuelProfitValue liters={fuel.liters} />
+                            </dd>
                           </dl>
 
                           <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-4">
