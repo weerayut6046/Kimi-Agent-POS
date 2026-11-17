@@ -191,6 +191,15 @@ describe("reports.profitability", () => {
         .where(eq(products.id, product.id));
     }
 
+    await t.db
+      .update(products)
+      .set({ price: 42.75, cost: 36.625 })
+      .where(eq(products.id, fuel.id));
+    await t.db
+      .update(products)
+      .set({ price: 34, cost: 37.12 })
+      .where(eq(products.id, diesel.id));
+
     const today = bangkokToday();
     const daily = await manager.reports.profitability({
       view: "day",
@@ -248,6 +257,7 @@ describe("reports.profitability", () => {
         fuelRevenueDifference:
           Math.round((178 - fuelCategory.revenue) * 100) / 100,
         fuelCost: 184.2,
+        currentFuelProfit: 2.89,
         fuelCostCoveragePercent: 100,
         revenue: meterAdjustedRevenue,
         cost: 263.2,
@@ -267,6 +277,10 @@ describe("reports.profitability", () => {
           cost: 72.84,
           profitPerLiter: 4.58,
           profit: 9.16,
+          currentPricePerLiter: 42.75,
+          currentCostPerLiter: 36.625,
+          currentProfitPerLiter: 6.125,
+          currentProfit: 12.25,
           usesLatestReceivedCost: true,
         }),
         expect.objectContaining({
@@ -279,6 +293,10 @@ describe("reports.profitability", () => {
           cost: 111.36,
           profitPerLiter: -5.12,
           profit: -15.36,
+          currentPricePerLiter: 34,
+          currentCostPerLiter: 37.12,
+          currentProfitPerLiter: -3.12,
+          currentProfit: -9.36,
           usesLatestReceivedCost: true,
         }),
       ])
@@ -425,6 +443,21 @@ describe("reports.profitability", () => {
           cost: 111.36,
           usesLatestReceivedCost: true,
         }),
+      ])
+    );
+    await t.db
+      .update(products)
+      .set({ cost: 0 })
+      .where(eq(products.id, diesel.id));
+    const missingCost = await manager.reports.profitability({
+      view: "day",
+      date: today.date,
+    });
+    expect(missingCost.meterProfitSummary.currentFuelProfit).toBeNull();
+    expect(missingCost.meterProfitSummary.fuelTypes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ productId: diesel.id, currentProfit: null }),
+        expect.objectContaining({ productId: fuel.id, currentProfit: 12.25 }),
       ])
     );
   });

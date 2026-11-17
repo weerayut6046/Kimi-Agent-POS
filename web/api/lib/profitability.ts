@@ -646,6 +646,8 @@ export async function queryProfitability(
             productId: nozzles.productId,
             productCode: productTable.code,
             productName: productTable.name,
+            currentPricePerLiter: productTable.price,
+            currentCostPerLiter: productTable.cost,
           })
           .from(shiftReadings)
           .innerJoin(
@@ -703,6 +705,8 @@ export async function queryProfitability(
       revenue: number;
       cost: number;
       usesLatestReceivedCost: boolean;
+      currentPricePerLiter: number;
+      currentCostPerLiter: number;
     }
   >();
   for (const reading of meterReadingRows) {
@@ -735,6 +739,8 @@ export async function queryProfitability(
       revenue: 0,
       cost: 0,
       usesLatestReceivedCost,
+      currentPricePerLiter: reading.currentPricePerLiter,
+      currentCostPerLiter: reading.currentCostPerLiter,
     };
     accumulator.liters += liters;
     accumulator.revenue += revenue;
@@ -746,6 +752,10 @@ export async function queryProfitability(
   const fuelTypes = [...fuelTypeAccumulators.values()]
     .map(fuel => {
       const profit = fuel.revenue - fuel.cost;
+      const currentProfitPerLiter =
+        fuel.currentPricePerLiter > 0 && fuel.currentCostPerLiter > 0
+          ? r3(fuel.currentPricePerLiter - fuel.currentCostPerLiter)
+          : null;
       return {
         productId: fuel.productId,
         code: fuel.code,
@@ -758,12 +768,26 @@ export async function queryProfitability(
         profit: r2(profit),
         margin: fuel.revenue !== 0 ? r2((profit / fuel.revenue) * 100) : 0,
         usesLatestReceivedCost: fuel.usesLatestReceivedCost,
+        currentPricePerLiter: fuel.currentPricePerLiter,
+        currentCostPerLiter: fuel.currentCostPerLiter,
+        currentProfitPerLiter,
+        currentProfit:
+          currentProfitPerLiter === null
+            ? null
+            : r2(currentProfitPerLiter * r3(fuel.liters)),
       };
     })
     .filter(fuel => fuel.liters > 0)
     .sort(
       (a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name, "th")
     );
+  const currentFuelProfit =
+    fuelTypes.length > 0 &&
+    r3(fuelTypes.reduce((sum, fuel) => sum + fuel.liters, 0)) ===
+      r3(fuelLitersFromMeter) &&
+    fuelTypes.every(fuel => fuel.currentProfit !== null)
+      ? r2(fuelTypes.reduce((sum, fuel) => sum + (fuel.currentProfit ?? 0), 0))
+      : null;
   const fuelCategory = categories.get("fuel")!;
   const fuelRevenueFromPos = fuelCategory.revenue;
   const otherProductRevenue = totalRevenue - fuelRevenueFromPos;
@@ -901,6 +925,7 @@ export async function queryProfitability(
       fuelRevenueDifference: r2(fuelRevenueFromMeter - fuelRevenueFromPos),
       fuelCost: r2(fuelCostFromMeter),
       fuelTypes,
+      currentFuelProfit,
       fuelCostCoveragePercent:
         fuelLitersFromMeter > 0
           ? Math.min(

@@ -1109,7 +1109,8 @@ export default function Profitability() {
                           ต้นทุนและกำไรน้ำมันแยกตามประเภท
                         </h3>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          แต่ละชนิดใช้ต้นทุนจากการรับเข้าน้ำมันครั้งล่าสุดของชนิดนั้น
+                          กำไรตามราคาปัจจุบัน = (ราคาขาย − ต้นทุนปัจจุบัน)
+                          × ลิตรจากมิเตอร์ของกะที่ปิดในช่วงที่เลือก
                         </p>
                       </div>
                       <Badge
@@ -1119,6 +1120,21 @@ export default function Profitability() {
                         {fmtNum(data.meterProfitSummary.fuelTypes.length)}{" "}
                         ประเภท
                       </Badge>
+                    </div>
+
+                    <div className="mb-3 rounded-xl bg-emerald-50 px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <strong>กำไรรวมน้ำมันตามราคาปัจจุบัน</strong>
+                        {data.meterProfitSummary.currentFuelProfit != null ? (
+                          <ProfitValue
+                            value={data.meterProfitSummary.currentFuelProfit}
+                          />
+                        ) : (
+                          <span className="text-amber-800">
+                            ข้อมูลราคาหรือลิตรไม่ครบ
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
@@ -1154,6 +1170,43 @@ export default function Profitability() {
                             </div>
                           </div>
 
+                          <dl className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs">
+                            <div>
+                              <dt>ราคาขายปัจจุบัน</dt>
+                              <dd>
+                                {fuel.currentPricePerLiter > 0
+                                  ? `฿${fmtNum(fuel.currentPricePerLiter)}/ลิตร`
+                                  : "ยังไม่ระบุ"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>ต้นทุนปัจจุบัน</dt>
+                              <dd>
+                                {fuel.currentCostPerLiter > 0
+                                  ? `฿${fmtNum(fuel.currentCostPerLiter)}/ลิตร`
+                                  : "ยังไม่ระบุ"}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>ส่วนต่างต่อลิตร</dt>
+                              <dd>
+                                {fuel.currentProfitPerLiter == null
+                                  ? "—"
+                                  : `${fmtNum(fuel.currentProfitPerLiter)} บาท`}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>กำไรตามราคาปัจจุบัน</dt>
+                              <dd>
+                                {fuel.currentProfit == null ? (
+                                  "—"
+                                ) : (
+                                  <ProfitValue value={fuel.currentProfit} />
+                                )}
+                              </dd>
+                            </div>
+                          </dl>
+
                           <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-4">
                             <div>
                               <p className="text-[10px] text-slate-400">
@@ -1165,7 +1218,7 @@ export default function Profitability() {
                             </div>
                             <div>
                               <p className="text-[10px] text-slate-400">
-                                ยอดขาย
+                                ยอดขายจากมิเตอร์
                               </p>
                               <p className="mt-1 text-sm font-semibold text-violet-700 tabular-nums">
                                 {signedMoney(fuel.revenue)}
@@ -1181,7 +1234,7 @@ export default function Profitability() {
                             </div>
                             <div>
                               <p className="text-[10px] text-slate-400">
-                                กำไรขั้นต้น
+                                กำไรจากมิเตอร์
                               </p>
                               <div className="mt-1 text-sm font-semibold tabular-nums">
                                 <ProfitValue value={fuel.profit} />
@@ -1191,7 +1244,7 @@ export default function Profitability() {
 
                           <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
                             <span>
-                              กำไรต่อลิตร {signedMoney(fuel.profitPerLiter)}
+                              กำไรจากมิเตอร์ต่อลิตร {signedMoney(fuel.profitPerLiter)}
                             </span>
                             <span>มาร์จิ้น {percent(fuel.margin)}</span>
                           </div>
