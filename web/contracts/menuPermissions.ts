@@ -96,14 +96,6 @@ export const MENU_PERMISSION_DEFINITIONS = [
     apiPrefixes: [] as const,
   },
   {
-    key: "profitability",
-    path: "/reports/profitability",
-    label: "ต้นทุนและกำไร",
-    group: "document",
-    roles: MANAGER_AND_ADMIN,
-    apiPrefixes: ["reports.profitability"] as const,
-  },
-  {
     key: "expenses",
     path: "/expenses",
     label: "ค่าใช้จ่าย",
@@ -249,19 +241,16 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   if (path === "pos.dashboard") return ["dashboard"];
   if (path === "pos.createSale") return ["pos"];
 
-  // reports router ใช้ร่วมกันระหว่างหน้าต้นทุนและกำไรกับหน้าสต๊อก
   if (
-    path.startsWith("reports.profitability") ||
-    path === "reports.fuelProfit" ||
     path === "reports.exportDailyExcel" ||
     path === "reports.exportRangeExcel"
   ) {
-    return ["profitability"];
+    return ["sales"];
   }
 
-  // Z-Report ที่ตัดข้อมูลต้นทุนออกแล้วใช้ข้อมูลชุดเดียวกับภาพรวมและประวัติการขาย
+  // Z-Report ใช้ข้อมูลร่วมกับภาพรวมและประวัติการขาย
   if (path === "reports.daily") {
-    return ["dashboard", "sales", "profitability"];
+    return ["dashboard", "sales"];
   }
 
   if (

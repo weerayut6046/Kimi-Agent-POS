@@ -152,30 +152,6 @@ describe("reports.daily — Z-report", () => {
   });
 });
 
-// อาศัยข้อมูลจาก describe ก่อนหน้า: วันนี้มีบิลน้ำมัน GSH95 10 ลิตร = 407.40 (cost 39.2/ลิตร)
-describe("reports.fuelProfit — กำไรต่อลิตร", () => {
-  it("คำนวณกำไรจากต้นทุนสินค้าปัจจุบัน", async () => {
-    const r = await t
-      .caller("manager")
-      .reports.fuelProfit({ date: todayStr() });
-    expect(r.items).toHaveLength(1);
-    expect(r.items[0]).toEqual({
-      name: "แก๊สโซฮอล์ 95",
-      liters: 10,
-      revenue: 407.4,
-      costPerLiter: 39.2,
-      profitPerLiter: 1.54,
-      profitTotal: 15.4,
-    });
-  });
-
-  it("cashier เรียกไม่ได้ (มีข้อมูลต้นทุน)", async () => {
-    await expect(
-      t.caller("cashier").reports.fuelProfit({ date: todayStr() })
-    ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
-  });
-});
-
 describe("reports.export*Excel — ส่งออกไฟล์", () => {
   it("exportDailyExcel คืน xlsx ถูกต้อง ครบทุก sheet", async () => {
     const res = await t
@@ -186,15 +162,28 @@ describe("reports.export*Excel — ส่งออกไฟล์", () => {
     expect(buf.subarray(0, 2).toString("latin1")).toBe("PK"); // zip/xlsx magic
     expect(wb.worksheets.map(w => w.name)).toEqual([
       "สรุป",
-      "ลิตรและกำไรน้ำมัน",
+      "ลิตรและยอดขายน้ำมัน",
       "กะการทำงาน",
       "ค่าใช้จ่าย",
       "ชำระหนี้",
       "บิลขาย",
     ]);
+    const fuelSheet = wb.getWorksheet("ลิตรและยอดขายน้ำมัน")!;
+    expect(fuelSheet.getRow(1).values).toEqual([
+      undefined,
+      "ชนิดน้ำมัน",
+      "ลิตร",
+      "ยอดขาย (บาท)",
+    ]);
+    expect(fuelSheet.getRow(2).values).toEqual([
+      undefined,
+      "แก๊สโซฮอล์ 95",
+      10,
+      407.4,
+    ]);
   });
 
-  it("exportRangeExcel วันเดียว → sheet สรุปรายวัน/บิลขาย/กำไร", async () => {
+  it("exportRangeExcel วันเดียว → sheet สรุปรายวัน/บิลขาย/ยอดขายน้ำมัน", async () => {
     const res = await t
       .caller("manager")
       .reports.exportRangeExcel({ from: todayStr(), to: todayStr() });
@@ -203,7 +192,7 @@ describe("reports.export*Excel — ส่งออกไฟล์", () => {
     expect(wb.worksheets.map(w => w.name)).toEqual([
       "สรุปรายวัน",
       "บิลขาย",
-      "ลิตรและกำไรน้ำมัน",
+      "ลิตรและยอดขายน้ำมัน",
     ]);
     // title + ว่าง + header + ข้อมูล 1 วัน + แถวรวม
     expect(wb.getWorksheet("สรุปรายวัน")!.rowCount).toBe(5);

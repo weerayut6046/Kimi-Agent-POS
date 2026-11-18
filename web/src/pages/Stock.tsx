@@ -264,7 +264,6 @@ export default function Stock() {
       utils.catalog.listTanks.invalidate();
       utils.catalog.listRefills.invalidate();
       utils.catalog.listProducts.invalidate();
-      utils.reports.profitability.invalidate();
       setRefillTank(null);
       setLiters("");
       setCost("");

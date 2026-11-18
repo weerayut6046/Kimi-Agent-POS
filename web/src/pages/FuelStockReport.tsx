@@ -202,24 +202,6 @@ export default function FuelStockReport() {
         product.soldLiters > 0
       );
     }) ?? [];
-  const rowProfit = rows.map(product => {
-    return {
-      productId: product.productId,
-      profitPerLiter: product.profitPerLiter,
-      totalProfit: product.stockProfit,
-    };
-  });
-  const profitByProductId = new Map(
-    rowProfit.map(item => [item.productId, item])
-  );
-  const periodTotalProfit = rowProfit.reduce(
-    (sum, item) => sum + item.totalProfit,
-    0
-  );
-  const periodProfitPerLiter =
-    selectedPeriod && selectedPeriod.receivedLiters > 0
-      ? selectedPeriod.profitPerLiter
-      : 0;
   const tankChartData = sortProductsByTankOrder(
     rows.map((product, index) => {
       const currentProduct = currentProductById.get(product.productId);
@@ -305,7 +287,7 @@ export default function FuelStockReport() {
           รายงานนี้มีข้อมูลราคาซื้อ
         </h1>
         <p className="text-sm text-muted-foreground">
-          เฉพาะผู้ดูแลระบบหรือผู้จัดการเท่านั้นที่ดูราคาซื้อและกำไรน้ำมันได้
+          รายงานนี้เปิดให้ผู้ดูแลระบบและผู้จัดการ
         </p>
         <Button asChild variant="outline">
           <Link to="/stock">
@@ -330,7 +312,7 @@ export default function FuelStockReport() {
             สรุปยอดสต๊อกน้ำมัน
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            สรุปรับเข้า ราคาซื้อ ขายออก ราคาขาย กำไร และคงเหลือ แยกตามชนิดน้ำมัน
+            สรุปยอดรับเข้า ขายออก และคงเหลือ แยกตามชนิดน้ำมัน
           </p>
         </div>
 
@@ -579,13 +561,11 @@ export default function FuelStockReport() {
             </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto px-0 pb-0 sm:px-6">
-            <Table className="min-w-[1480px]">
+            <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>ชนิดน้ำมัน</TableHead>
                   <TableHead className="text-right">รับเข้า (ลิตร)</TableHead>
-                  <TableHead className="text-right">ราคาซื้อ/ลิตร</TableHead>
-                  <TableHead className="text-right">มูลค่าซื้อ</TableHead>
                   <TableHead
                     className="text-right"
                     title="จำนวนลิตรที่ขายจริงจากรายการขาย POS ในช่วงเดือนหรือปีที่เลือก"
@@ -597,15 +577,6 @@ export default function FuelStockReport() {
                   </TableHead>
                   <TableHead
                     className="text-right"
-                    title="ราคาที่ตั้งไว้ของสินค้า ณ สิ้นวันรับเข้า และวันนี้ใช้ราคาปัจจุบัน"
-                  >
-                    <div>ราคาขาย/ลิตร</div>
-                    <div className="text-[10px] font-normal">
-                      ราคาที่ตั้งไว้รายวัน
-                    </div>
-                  </TableHead>
-                  <TableHead
-                    className="text-right"
                     title="ผลรวมจำนวนเงินจากรายการขาย POS ที่ขายสำเร็จ แยกตามชนิดน้ำมันและช่วงเวลาที่เลือก"
                   >
                     <div>ยอดขาย</div>
@@ -613,8 +584,6 @@ export default function FuelStockReport() {
                       รวมเงินจากรายการขาย POS
                     </div>
                   </TableHead>
-                  <TableHead className="text-right">กำไร/ลิตร</TableHead>
-                  <TableHead className="text-right">กำไรรวม</TableHead>
                   <TableHead className="text-right">คงเหลือปัจจุบัน</TableHead>
                 </TableRow>
               </TableHeader>
@@ -623,9 +592,6 @@ export default function FuelStockReport() {
                   const currentProduct = currentProductById.get(
                     product.productId
                   );
-                  const profit = profitByProductId.get(product.productId);
-                  const profitPerLiter = profit?.profitPerLiter ?? 0;
-                  const totalProfit = profit?.totalProfit ?? 0;
                   return (
                     <TableRow key={product.productId}>
                       <TableCell>
@@ -637,45 +603,11 @@ export default function FuelStockReport() {
                       <TableCell className="text-right font-medium text-cyan-700">
                         {fmtNum(product.receivedLiters)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        {product.avgPurchaseCost > 0 ? (
-                          <div>
-                            ฿{fmtMoney(product.avgPurchaseCost)}
-                            {product.costBasis !== "period_weighted" && (
-                              <div className="text-[10px] text-muted-foreground">
-                                ต้นทุนปัจจุบัน
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ฿{fmtMoney(product.purchaseCost)}
-                      </TableCell>
                       <TableCell className="text-right font-medium text-violet-700">
                         {fmtNum(product.soldLiters)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {product.avgSalePrice > 0
-                          ? `฿${fmtMoney(product.avgSalePrice)}`
-                          : "-"}
-                      </TableCell>
-                      <TableCell className="text-right">
                         ฿{fmtMoney(product.revenue)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {product.avgSalePrice > 0 && product.avgPurchaseCost > 0
-                          ? `฿${fmtMoney(profitPerLiter)}`
-                          : "-"}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right font-bold ${
-                          totalProfit < 0 ? "text-red-600" : "text-emerald-700"
-                        }`}
-                      >
-                        ฿{fmtMoney(totalProfit)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="font-bold">
@@ -703,37 +635,10 @@ export default function FuelStockReport() {
                     {fmtNum(selectedPeriod.receivedLiters)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {selectedPeriod.receivedLiters > 0
-                      ? `฿${fmtMoney(selectedPeriod.avgPurchaseCost)}`
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ฿{fmtMoney(selectedPeriod.purchaseCost)}
-                  </TableCell>
-                  <TableCell className="text-right">
                     {fmtNum(selectedPeriod.soldLiters)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {selectedPeriod.receivedLiters > 0
-                      ? `฿${fmtMoney(selectedPeriod.avgSalePrice)}`
-                      : "-"}
-                  </TableCell>
-                  <TableCell className="text-right">
                     ฿{fmtMoney(selectedPeriod.revenue)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {selectedPeriod.receivedLiters > 0
-                      ? `฿${fmtMoney(periodProfitPerLiter)}`
-                      : "-"}
-                  </TableCell>
-                  <TableCell
-                    className={`text-right ${
-                      periodTotalProfit < 0
-                        ? "text-red-600"
-                        : "text-emerald-700"
-                    }`}
-                  >
-                    ฿{fmtMoney(periodTotalProfit)}
                   </TableCell>
                   <TableCell className="text-right text-xs text-muted-foreground">
                     แยกตามชนิดด้านบน
@@ -742,7 +647,7 @@ export default function FuelStockReport() {
                 {rows.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={10}
+                      colSpan={5}
                       className="py-10 text-center text-muted-foreground"
                     >
                       ไม่มีข้อมูลน้ำมันในงวดนี้
@@ -761,10 +666,6 @@ export default function FuelStockReport() {
           เฉพาะรายการที่ขายสำเร็จมารวมกัน โดยแยกตามชนิดน้ำมัน สาขา
           และเดือนหรือปีที่เลือก ไม่รวมรายการที่ยกเลิก ที่มาของยอดขาย:
           ระบบรวมจำนวนเงินของรายการขาย POS ที่ขายสำเร็จ โดยใช้เงื่อนไขเดียวกัน
-          ราคาขายใช้ราคาที่ตั้งไว้ ณ สิ้นวันของการรับเข้า
-          (วันนี้ใช้ราคาปัจจุบัน) กำไร/ลิตร = ราคาขาย/ลิตร − ราคาซื้อ/ลิตร
-          และกำไรรวม = กำไร/ลิตร × รับเข้า (ลิตร) หากไม่มีการรับเข้าในงวด
-          ระบบจะแสดงต้นทุนสินค้าปัจจุบันแทน
           ส่วนคงเหลือปัจจุบันแสดงแยกตามชนิดน้ำมันและไม่นำมารวมกัน
         </p>
       )}

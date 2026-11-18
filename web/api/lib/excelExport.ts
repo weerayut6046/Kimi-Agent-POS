@@ -43,13 +43,10 @@ function dayDate(s: string) {
   return new Date(y!, m! - 1, d!);
 }
 
-export interface FuelProfitRow {
+export interface FuelSalesRow {
   name: string;
   liters: number;
   revenue: number;
-  costPerLiter: number; // ต้นทุน/ลิตร จาก products.cost ปัจจุบัน (0 = ยังไม่ได้ตั้งต้นทุน)
-  profitPerLiter: number;
-  profitTotal: number;
 }
 
 export interface BillRow {
@@ -116,7 +113,7 @@ export interface DailyReportData {
   >;
   fuelLiters: { name: string; liters: number }[];
   totalLiters: number;
-  fuelProfit: FuelProfitRow[];
+  fuelSales: FuelSalesRow[];
   shifts: ShiftRow[];
   expenses: { items: ExpenseRow[]; total: number };
   debtPayments: {
@@ -128,9 +125,6 @@ export interface DailyReportData {
   bills: BillRow[];
 }
 
-export type FuelStockCostBasis =
-  "period_weighted" | "current_product" | "missing";
-
 export interface FuelStockProductRow {
   productId: number;
   code: string;
@@ -138,20 +132,11 @@ export interface FuelStockProductRow {
   openingStock: number;
   receivedLiters: number;
   refillCount: number;
-  purchaseCost: number;
-  avgPurchaseCost: number;
   soldLiters: number;
   revenue: number;
-  avgSalePrice: number;
-  costOfSales: number;
-  grossProfit: number;
-  profitPerLiter: number;
-  stockProfit: number;
-  grossMargin: number;
   closingStock: number;
   netMovement: number;
   inventoryTurnover: number;
-  costBasis: FuelStockCostBasis;
 }
 
 export interface FuelStockPeriodRow {
@@ -163,16 +148,8 @@ export interface FuelStockPeriodRow {
   openingStock: number;
   receivedLiters: number;
   refillCount: number;
-  purchaseCost: number;
-  avgPurchaseCost: number;
   soldLiters: number;
   revenue: number;
-  avgSalePrice: number;
-  costOfSales: number;
-  grossProfit: number;
-  profitPerLiter: number;
-  stockProfit: number;
-  grossMargin: number;
   closingStock: number;
   netMovement: number;
   inventoryTurnover: number;
@@ -186,25 +163,15 @@ export interface FuelStockSummaryData {
   rangeStart: Date;
   rangeEnd: Date;
   stockMethod: string;
-  profitMethod: string;
   totals: {
     openingStock: number;
     receivedLiters: number;
     refillCount: number;
-    purchaseCost: number;
-    avgPurchaseCost: number;
     soldLiters: number;
     revenue: number;
-    avgSalePrice: number;
-    costOfSales: number;
-    grossProfit: number;
-    profitPerLiter: number;
-    stockProfit: number;
-    grossMargin: number;
     closingStock: number;
     currentStock: number;
     currentCapacity: number;
-    currentStockValue: number;
     netMovement: number;
     inventoryTurnover: number;
     stockCoverageDays: number | null;
@@ -225,8 +192,6 @@ export interface FuelStockSummaryData {
     fillPercent: number;
     lowTankCount: number;
     tankCount: number;
-    estimatedValue: number;
-    currentCostPerLiter: number;
   }>;
 }
 
@@ -266,44 +231,23 @@ function addTable(
   }
 }
 
-function sheetFuelProfit(wb: ExcelJS.Workbook, profit: FuelProfitRow[]) {
-  const ws = wb.addWorksheet("ลิตรและกำไรน้ำมัน");
-  widths(ws, [22, 12, 14, 14, 14, 14]);
-  ws.addRow([
-    "กำไรคำนวณจากต้นทุนสินค้าปัจจุบัน (โดยประมาณ) — ต้นทุน/ลิตร = 0 คือยังไม่ได้ตั้งต้นทุนในข้อมูลสินค้า",
-  ]).font = { italic: true, color: { argb: "FF6B7280" } };
-  ws.addRow([]);
+function sheetFuelSales(wb: ExcelJS.Workbook, fuelSales: FuelSalesRow[]) {
+  const ws = wb.addWorksheet("ลิตรและยอดขายน้ำมัน");
+  widths(ws, [22, 12, 16]);
   addTable(
     ws,
-    [
-      "ชนิดน้ำมัน",
-      "ลิตร",
-      "ยอดขาย (บาท)",
-      "ต้นทุน/ลิตร",
-      "กำไร/ลิตร",
-      "กำไรรวม (บาท)",
-    ],
-    profit.map(p => [
-      p.name,
-      p.liters,
-      p.revenue,
-      p.costPerLiter,
-      p.profitPerLiter,
-      p.profitTotal,
-    ]),
-    [1, 2, 3, 4, 5]
+    ["ชนิดน้ำมัน", "ลิตร", "ยอดขาย (บาท)"],
+    fuelSales.map(fuel => [fuel.name, fuel.liters, fuel.revenue]),
+    [1, 2]
   );
-  if (profit.length > 0) {
-    const tr = ws.addRow([
+  if (fuelSales.length > 0) {
+    const total = ws.addRow([
       "รวม",
-      profit.reduce((s, p) => s + p.liters, 0),
-      profit.reduce((s, p) => s + p.revenue, 0),
-      null,
-      null,
-      profit.reduce((s, p) => s + p.profitTotal, 0),
+      fuelSales.reduce((sum, fuel) => sum + fuel.liters, 0),
+      fuelSales.reduce((sum, fuel) => sum + fuel.revenue, 0),
     ]);
-    tr.font = { bold: true };
-    [2, 3, 4, 5, 6].forEach(ci => (tr.getCell(ci).numFmt = MONEY));
+    total.font = { bold: true };
+    [2, 3].forEach(column => (total.getCell(column).numFmt = MONEY));
   }
 }
 
@@ -398,7 +342,7 @@ export async function buildDailyWorkbook(
     [1]
   );
 
-  sheetFuelProfit(wb, daily.fuelProfit);
+  sheetFuelSales(wb, daily.fuelSales);
 
   // กะการทำงาน
   const wsShift = wb.addWorksheet("กะการทำงาน");
@@ -488,7 +432,7 @@ export async function buildRangeWorkbook(opts: {
   from: string; // YYYY-MM-DD
   to: string;
   days: DailyReportData[];
-  profit: FuelProfitRow[];
+  fuelSales: FuelSalesRow[];
 }): Promise<Buffer> {
   const { default: ExcelJS } = await import("exceljs");
   const wb = new ExcelJS.Workbook();
@@ -570,7 +514,7 @@ export async function buildRangeWorkbook(opts: {
     wb,
     opts.days.flatMap(d => d.bills)
   );
-  sheetFuelProfit(wb, opts.profit);
+  sheetFuelSales(wb, opts.fuelSales);
   return toBuffer(wb);
 }
 
@@ -598,76 +542,50 @@ export async function buildFuelStockWorkbook(
   wb.created = new Date(report.generatedAt);
 
   const ws = wb.addWorksheet("สรุปสต๊อกน้ำมัน");
-  widths(ws, [14, 24, 15, 15, 16, 15, 15, 16, 15, 16, 18]);
+  widths(ws, [14, 24, 16, 16, 16, 25]);
   ws.views = [{ state: "frozen", ySplit: 3 }];
   const title = ws.addRow([
     `สรุปยอดสต๊อกน้ำมัน — ${period.label}${period.isPartial ? " (ถึงปัจจุบัน)" : ""}`,
   ]);
   title.font = { bold: true, size: 14 };
   ws.addRow([
-    "ขายออก = รวมลิตรจากรายการขาย POS ที่สำเร็จ | ยอดขาย = รวมเงินจากรายการขาย POS ที่สำเร็จ | กำไรรวม = กำไร/ลิตร × รับเข้า",
+    "ขายออก = รวมลิตรจากรายการขาย POS ที่สำเร็จ | ยอดขาย = รวมเงินจากรายการขาย POS ที่สำเร็จ",
   ]).font = { italic: true, color: { argb: "FF6B7280" } };
-  const profitRows = products.map(product => ({
-    product,
-    profitPerLiter: product.profitPerLiter,
-    totalProfit: product.stockProfit,
-  }));
-  const totalProfit = profitRows.reduce(
-    (sum, item) => sum + item.totalProfit,
-    0
-  );
-  const totalProfitPerLiter =
-    period.receivedLiters > 0 ? period.profitPerLiter : null;
   addTable(
     ws,
     [
       "รหัส",
       "ชนิดน้ำมัน",
       "รับเข้า (ลิตร)",
-      "ราคาซื้อ/ลิตร",
-      "มูลค่าซื้อ",
       "ขายออก (ลิตร)",
-      "ราคาขาย/ลิตร",
       "ยอดขาย",
-      "กำไร/ลิตร",
-      "กำไรรวม",
       "คงเหลือปัจจุบัน (ลิตร)",
     ],
-    profitRows.map(({ product, profitPerLiter, totalProfit }) => [
+    products.map(product => [
       product.code,
       product.name,
       product.receivedLiters,
-      product.avgPurchaseCost,
-      product.purchaseCost,
       product.soldLiters,
-      product.avgSalePrice,
       product.revenue,
-      profitPerLiter,
-      totalProfit,
       currentByProduct.get(product.productId)?.currentLiters ?? 0,
     ]),
-    [2, 3, 4, 5, 6, 7, 8, 9, 10]
+    [2, 3, 4, 5]
   );
   const total = ws.addRow([
     "",
     "รวมงวด",
     period.receivedLiters,
-    period.receivedLiters > 0 ? period.avgPurchaseCost : null,
-    period.purchaseCost,
     period.soldLiters,
-    period.soldLiters > 0 ? period.avgSalePrice : null,
     period.revenue,
-    totalProfitPerLiter,
-    totalProfit,
     "แยกตามชนิด",
   ]);
   total.font = { bold: true };
-  for (let column = 3; column <= 10; column += 1) {
+  for (let column = 3; column <= 5; column += 1) {
     total.getCell(column).numFmt = MONEY;
   }
   ws.autoFilter = {
     from: { row: 3, column: 1 },
-    to: { row: 3, column: 11 },
+    to: { row: 3, column: 6 },
   };
 
   return toBuffer(wb);

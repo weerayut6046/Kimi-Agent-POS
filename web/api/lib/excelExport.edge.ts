@@ -1,6 +1,6 @@
 import type {
   DailyReportData,
-  FuelProfitRow,
+  FuelSalesRow,
   FuelStockPeriodRow,
   FuelStockProductRow,
   FuelStockSummaryData,
@@ -9,7 +9,7 @@ import { Buffer } from "node:buffer";
 
 export type {
   DailyReportData,
-  FuelProfitRow,
+  FuelSalesRow,
   FuelStockPeriodRow,
   FuelStockProductRow,
   FuelStockSummaryData,
@@ -282,23 +282,17 @@ export async function buildDailyWorkbook(
       ],
     },
     {
-      name: "ลิตรและกำไรน้ำมัน",
+      name: "ลิตรและยอดขายน้ำมัน",
       rows: [
         [
           "ชนิดน้ำมัน",
           "ลิตร",
           "ยอดขาย (บาท)",
-          "ต้นทุน/ลิตร",
-          "กำไร/ลิตร",
-          "กำไรรวม (บาท)",
         ],
-        ...daily.fuelProfit.map(item => [
+        ...daily.fuelSales.map(item => [
           item.name,
           item.liters,
           item.revenue,
-          item.costPerLiter,
-          item.profitPerLiter,
-          item.profitTotal,
         ]),
       ],
     },
@@ -403,7 +397,7 @@ export async function buildRangeWorkbook(input: {
   from: string;
   to: string;
   days: DailyReportData[];
-  profit: FuelProfitRow[];
+  fuelSales: FuelSalesRow[];
 }): Promise<Buffer> {
   return workbook([
     {
@@ -517,23 +511,17 @@ export async function buildRangeWorkbook(input: {
       ],
     },
     {
-      name: "ลิตรและกำไรน้ำมัน",
+      name: "ลิตรและยอดขายน้ำมัน",
       rows: [
         [
           "ชนิดน้ำมัน",
           "ลิตร",
           "ยอดขาย (บาท)",
-          "ต้นทุน/ลิตร",
-          "กำไร/ลิตร",
-          "กำไรรวม (บาท)",
         ],
-        ...input.profit.map(item => [
+        ...input.fuelSales.map(item => [
           item.name,
           item.liters,
           item.revenue,
-          item.costPerLiter,
-          item.profitPerLiter,
-          item.profitTotal,
         ]),
       ],
     },
@@ -567,45 +555,30 @@ export async function buildFuelStockWorkbook(
           }`,
         ],
         [
-          "ขายออก = รวมลิตรจากรายการขาย POS ที่สำเร็จ | ยอดขาย = รวมเงินจากรายการขาย POS ที่สำเร็จ | กำไรรวม = กำไร/ลิตร × รับเข้า",
+          "ขายออก = รวมลิตรจากรายการขาย POS ที่สำเร็จ | ยอดขาย = รวมเงินจากรายการขาย POS ที่สำเร็จ",
         ],
         [
           "รหัส",
           "ชนิดน้ำมัน",
           "รับเข้า (ลิตร)",
-          "ราคาซื้อ/ลิตร",
-          "มูลค่าซื้อ",
           "ขายออก (ลิตร)",
-          "ราคาขาย/ลิตร",
           "ยอดขาย",
-          "กำไร/ลิตร",
-          "กำไรรวม",
           "คงเหลือปัจจุบัน (ลิตร)",
         ],
         ...products.map(product => [
           product.code,
           product.name,
           product.receivedLiters,
-          product.avgPurchaseCost,
-          product.purchaseCost,
           product.soldLiters,
-          product.avgSalePrice,
           product.revenue,
-          product.profitPerLiter,
-          product.stockProfit,
           currentByProduct.get(product.productId)?.currentLiters ?? 0,
         ]),
         [
           "",
           "รวมงวด",
           period.receivedLiters,
-          period.avgPurchaseCost,
-          period.purchaseCost,
           period.soldLiters,
-          period.avgSalePrice,
           period.revenue,
-          period.profitPerLiter,
-          period.stockProfit,
           "แยกตามชนิด",
         ],
       ],
