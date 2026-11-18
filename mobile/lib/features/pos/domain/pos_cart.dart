@@ -30,6 +30,13 @@ class PosCart {
   int get lineCount => lines.length;
   double get subtotal =>
       _round(lines.fold<double>(0, (sum, line) => sum + line.amount), 2);
+
+  double totalAfterDiscount(double discount) {
+    final amount = subtotal;
+    final discounted = amount - _round(discount, 2);
+    return _round(discounted.clamp(0, amount).toDouble(), 2);
+  }
+
   double get fuelLiters => lines
       .where((line) => line.product.isFuel)
       .fold<double>(0, (sum, line) => sum + _round(line.quantity, 3));
