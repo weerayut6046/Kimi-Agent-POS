@@ -23,14 +23,11 @@ const daily: DailyReportData = {
   },
   fuelLiters: [{ name: "แก๊สโซฮอล์ 95", liters: 30 }],
   totalLiters: 30,
-  fuelProfit: [
+  fuelSales: [
     {
       name: "แก๊สโซฮอล์ 95",
       liters: 30,
       revenue: 1200,
-      costPerLiter: 38,
-      profitPerLiter: 2,
-      profitTotal: 60,
     },
   ],
   shifts: [],
@@ -72,12 +69,15 @@ describe("Supabase Edge Excel export", () => {
     const workbook = await loadWorkbook(buffer);
     expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([
       "สรุป",
-      "ลิตรและกำไรน้ำมัน",
+      "ลิตรและยอดขายน้ำมัน",
       "กะการทำงาน",
       "ค่าใช้จ่าย",
       "ชำระหนี้",
       "บิลขาย",
     ]);
+    expect(
+      workbook.getWorksheet("ลิตรและยอดขายน้ำมัน")?.getRow(1).values
+    ).toEqual([undefined, "ชนิดน้ำมัน", "ลิตร", "ยอดขาย (บาท)"]);
     expect(
       workbook.getWorksheet("บิลขาย")?.getRow(2).getCell(3).value,
     ).toBe("เจ้าของปั๊ม");
@@ -88,13 +88,13 @@ describe("Supabase Edge Excel export", () => {
       from: daily.date,
       to: daily.date,
       days: [daily],
-      profit: daily.fuelProfit,
+      fuelSales: daily.fuelSales,
     });
     const workbook = await loadWorkbook(buffer);
     expect(workbook.worksheets.map(sheet => sheet.name)).toEqual([
       "สรุปรายวัน",
       "บิลขาย",
-      "ลิตรและกำไรน้ำมัน",
+      "ลิตรและยอดขายน้ำมัน",
     ]);
     expect(workbook.getWorksheet("สรุปรายวัน")?.rowCount).toBe(5);
   });

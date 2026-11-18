@@ -19,16 +19,11 @@ import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
 import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
-import {
-  profitabilityInputSchema,
-  queryProfitability,
-} from "../lib/profitability";
 import { shiftCashDifference, shiftCountedTotal } from "@contracts/cash";
 import {
   debtPayments,
   fuelTanks,
   nozzles,
-  priceChanges,
   products,
   saleItems,
   sales,
@@ -45,7 +40,6 @@ import {
   type FuelStockPeriodRow,
   type FuelStockProductRow,
   type FuelStockSummaryData,
-  type FuelProfitRow,
 } from "../lib/excelExport";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -106,12 +100,9 @@ function bangkokParts(date: Date) {
 type FuelStockView = "monthly" | "yearly";
 type FuelMovement = {
   receivedLiters: number;
-  purchaseCost: number;
   refillCount: number;
   soldLiters: number;
   revenue: number;
-  configuredSaleValue: number;
-  stockProfit: number;
 };
 
 type FuelStockPeriod = {
@@ -125,12 +116,9 @@ type FuelStockPeriod = {
 
 const emptyMovement = (): FuelMovement => ({
   receivedLiters: 0,
-  purchaseCost: 0,
   refillCount: 0,
   soldLiters: 0,
   revenue: 0,
-  configuredSaleValue: 0,
-  stockProfit: 0,
 });
 
 function makeFuelStockPeriods(
@@ -184,37 +172,10 @@ function addMovement(
   const current = target.get(productId) ?? emptyMovement();
   target.set(productId, {
     receivedLiters: r3(current.receivedLiters + (patch.receivedLiters ?? 0)),
-    purchaseCost: r2(current.purchaseCost + (patch.purchaseCost ?? 0)),
     refillCount: current.refillCount + (patch.refillCount ?? 0),
     soldLiters: r3(current.soldLiters + (patch.soldLiters ?? 0)),
     revenue: r2(current.revenue + (patch.revenue ?? 0)),
-    configuredSaleValue: r2(
-      current.configuredSaleValue + (patch.configuredSaleValue ?? 0)
-    ),
-    stockProfit: r2(current.stockProfit + (patch.stockProfit ?? 0)),
   });
-}
-
-function fuelPeriodKey(date: Date, view: FuelStockView) {
-  const shifted = new Date(date.getTime() + BANGKOK_OFFSET_MS);
-  const year = shifted.getUTCFullYear();
-  return view === "monthly"
-    ? `${year}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`
-    : String(year);
-}
-
-function bangkokDayEnd(date: Date, now: Date) {
-  const shifted = new Date(date.getTime() + BANGKOK_OFFSET_MS);
-  const end = new Date(
-    Date.UTC(
-      shifted.getUTCFullYear(),
-      shifted.getUTCMonth(),
-      shifted.getUTCDate() + 1
-    ) -
-      BANGKOK_OFFSET_MS -
-      1
-  );
-  return end > now ? now : end;
 }
 
 async function queryFuelMovements(
@@ -240,7 +201,6 @@ async function queryFuelMovements(
     periodKey: refillPeriodSql,
     productId: fuelTanks.productId,
     receivedLiters: sql<number>`coalesce(sum(${tankRefills.liters}), 0)`,
-    purchaseCost: sql<number>`coalesce(sum(${tankRefills.liters} * ${tankRefills.costPerLiter}), 0)`,
     refillCount: sql<number>`count(*)`,
   };
   const saleSelect = {
@@ -312,7 +272,6 @@ async function queryFuelMovements(
     const periodKey = String(row.periodKey);
     addMovement(getBucket(periodKey), Number(row.productId), {
       receivedLiters: Number(row.receivedLiters),
-      purchaseCost: Number(row.purchaseCost),
       refillCount: Number(row.refillCount),
     });
   }
@@ -337,94 +296,15 @@ export async function queryFuelStockSummary(
   const reportStart = periods[0]!.start;
   const reportEnd = periods.at(-1)!.end;
 
-  const [
-    productRows,
-    tankRows,
-    groupedMovements,
-    refillPricingRows,
-    priceChangeRows,
-  ] = await Promise.all([
+  const [productRows, tankRows, movementsByPeriod] = await Promise.all([
     db
-      .select()
+      .select({ id: products.id, code: products.code, name: products.name })
       .from(products)
-      .where(
-        and(eq(products.branchId, branchId), eq(products.category, "fuel"))
-      )
+      .where(and(eq(products.branchId, branchId), eq(products.category, "fuel")))
       .orderBy(asc(products.name)),
     db.select().from(fuelTanks).where(eq(fuelTanks.branchId, branchId)),
     queryFuelMovements(db, branchId, reportStart, reportEnd, input.view),
-    db
-      .select({
-        productId: fuelTanks.productId,
-        liters: tankRefills.liters,
-        costPerLiter: tankRefills.costPerLiter,
-        createdAt: tankRefills.createdAt,
-      })
-      .from(tankRefills)
-      .innerJoin(
-        fuelTanks,
-        and(
-          eq(tankRefills.tankId, fuelTanks.id),
-          eq(fuelTanks.branchId, branchId)
-        )
-      )
-      .where(
-        and(
-          eq(tankRefills.branchId, branchId),
-          gte(tankRefills.createdAt, reportStart),
-          lt(tankRefills.createdAt, reportEnd)
-        )
-      ),
-    db
-      .select()
-      .from(priceChanges)
-      .where(eq(priceChanges.branchId, branchId))
-      .orderBy(desc(priceChanges.createdAt), desc(priceChanges.id)),
   ]);
-
-  const movementsByPeriod = new Map<string, Map<number, FuelMovement>>();
-  for (const period of periods) {
-    const merged = new Map<number, FuelMovement>();
-    for (const [productId, values] of groupedMovements.get(period.key) ?? []) {
-      addMovement(merged, productId, values);
-    }
-    movementsByPeriod.set(period.key, merged);
-  }
-
-  const productById = new Map(
-    productRows.map(product => [product.id, product])
-  );
-  const priceChangesByProduct = new Map<
-    number,
-    Array<(typeof priceChangeRows)[number]>
-  >();
-  for (const change of priceChangeRows) {
-    if (change.productId == null) continue;
-    const changes = priceChangesByProduct.get(change.productId) ?? [];
-    changes.push(change);
-    priceChangesByProduct.set(change.productId, changes);
-  }
-  const configuredPriceAt = (productId: number, at: Date) => {
-    let price = productById.get(productId)?.price ?? 0;
-    for (const change of priceChangesByProduct.get(productId) ?? []) {
-      if (change.createdAt > at) price = change.oldPrice;
-    }
-    return price;
-  };
-  for (const refill of refillPricingRows) {
-    const bucket = movementsByPeriod.get(
-      fuelPeriodKey(refill.createdAt, input.view)
-    );
-    if (!bucket) continue;
-    const salePrice = configuredPriceAt(
-      refill.productId,
-      bangkokDayEnd(refill.createdAt, now)
-    );
-    addMovement(bucket, refill.productId, {
-      configuredSaleValue: refill.liters * salePrice,
-      stockProfit: refill.liters * (salePrice - refill.costPerLiter),
-    });
-  }
 
   const afterMovements =
     reportEnd < now
@@ -475,17 +355,6 @@ export async function queryFuelStockSummary(
       const openingStock = r3(
         closingStock - movement.receivedLiters + movement.soldLiters
       );
-      const hasPeriodCost =
-        movement.receivedLiters > 0 && movement.purchaseCost > 0;
-      const avgPurchaseCost = hasPeriodCost
-        ? r3(movement.purchaseCost / movement.receivedLiters)
-        : product.cost;
-      const costOfSales = r2(movement.soldLiters * avgPurchaseCost);
-      const grossProfit = r2(movement.revenue - costOfSales);
-      const profitPerLiter =
-        movement.receivedLiters > 0
-          ? r3(movement.stockProfit / movement.receivedLiters)
-          : 0;
       const averageStock = (openingStock + closingStock) / 2;
       closingByProduct.set(product.id, openingStock);
 
@@ -496,29 +365,12 @@ export async function queryFuelStockSummary(
         openingStock,
         receivedLiters: movement.receivedLiters,
         refillCount: movement.refillCount,
-        purchaseCost: movement.purchaseCost,
-        avgPurchaseCost,
         soldLiters: movement.soldLiters,
         revenue: movement.revenue,
-        avgSalePrice:
-          movement.receivedLiters > 0
-            ? r3(movement.configuredSaleValue / movement.receivedLiters)
-            : product.price,
-        costOfSales,
-        grossProfit,
-        profitPerLiter,
-        stockProfit: movement.stockProfit,
-        grossMargin:
-          movement.revenue > 0 ? r2((grossProfit / movement.revenue) * 100) : 0,
         closingStock,
         netMovement: r3(movement.receivedLiters - movement.soldLiters),
         inventoryTurnover:
           averageStock > 0 ? r2(movement.soldLiters / averageStock) : 0,
-        costBasis: hasPeriodCost
-          ? "period_weighted"
-          : product.cost > 0
-            ? "current_product"
-            : "missing",
       };
     });
 
@@ -531,21 +383,11 @@ export async function queryFuelStockSummary(
     const receivedLiters = r3(
       productItems.reduce((sum, item) => sum + item.receivedLiters, 0)
     );
-    const purchaseCost = r2(
-      productItems.reduce((sum, item) => sum + item.purchaseCost, 0)
-    );
     const soldLiters = r3(
       productItems.reduce((sum, item) => sum + item.soldLiters, 0)
     );
     const revenue = r2(
       productItems.reduce((sum, item) => sum + item.revenue, 0)
-    );
-    const costOfSales = r2(
-      productItems.reduce((sum, item) => sum + item.costOfSales, 0)
-    );
-    const grossProfit = r2(revenue - costOfSales);
-    const stockProfit = r2(
-      productItems.reduce((sum, item) => sum + item.stockProfit, 0)
     );
     const averageStock = (openingStock + closingStock) / 2;
     resultPeriods.unshift({
@@ -560,25 +402,8 @@ export async function queryFuelStockSummary(
         (sum, item) => sum + item.refillCount,
         0
       ),
-      purchaseCost,
-      avgPurchaseCost:
-        receivedLiters > 0 ? r3(purchaseCost / receivedLiters) : 0,
       soldLiters,
       revenue,
-      avgSalePrice:
-        receivedLiters > 0
-          ? r3(
-              productItems.reduce(
-                (sum, item) => sum + item.avgSalePrice * item.receivedLiters,
-                0
-              ) / receivedLiters
-            )
-          : 0,
-      costOfSales,
-      grossProfit,
-      profitPerLiter: receivedLiters > 0 ? r3(stockProfit / receivedLiters) : 0,
-      stockProfit,
-      grossMargin: revenue > 0 ? r2((grossProfit / revenue) * 100) : 0,
       closingStock,
       netMovement: r3(receivedLiters - soldLiters),
       inventoryTurnover: averageStock > 0 ? r2(soldLiters / averageStock) : 0,
@@ -605,28 +430,16 @@ export async function queryFuelStockSummary(
           : 0,
       lowTankCount: current.lowTankCount,
       tankCount: current.tankCount,
-      estimatedValue: r2(current.liters * product.cost),
-      currentCostPerLiter: product.cost,
     };
   });
   const receivedLiters = r3(
     resultPeriods.reduce((sum, period) => sum + period.receivedLiters, 0)
-  );
-  const purchaseCost = r2(
-    resultPeriods.reduce((sum, period) => sum + period.purchaseCost, 0)
   );
   const soldLiters = r3(
     resultPeriods.reduce((sum, period) => sum + period.soldLiters, 0)
   );
   const revenue = r2(
     resultPeriods.reduce((sum, period) => sum + period.revenue, 0)
-  );
-  const costOfSales = r2(
-    resultPeriods.reduce((sum, period) => sum + period.costOfSales, 0)
-  );
-  const grossProfit = r2(revenue - costOfSales);
-  const stockProfit = r2(
-    resultPeriods.reduce((sum, period) => sum + period.stockProfit, 0)
   );
   const openingStock = resultPeriods[0]?.openingStock ?? 0;
   const closingStock = resultPeriods.at(-1)?.closingStock ?? 0;
@@ -663,8 +476,6 @@ export async function queryFuelStockSummary(
     rangeEnd: reportEnd,
     stockMethod:
       "ยอดคงเหลือย้อนหลังประมาณจากยอดคงเหลือปัจจุบัน ± รายการรับเข้าและยอดขายที่บันทึกในระบบ",
-    profitMethod:
-      "กำไรสต๊อกคำนวณรายวันจาก (ราคาขายที่ตั้งไว้ ณ สิ้นวัน − ราคาซื้อ) × จำนวนรับเข้า; วันนี้ใช้ราคาขายปัจจุบัน",
     totals: {
       openingStock,
       receivedLiters,
@@ -672,28 +483,13 @@ export async function queryFuelStockSummary(
         (sum, period) => sum + period.refillCount,
         0
       ),
-      purchaseCost,
-      avgPurchaseCost:
-        receivedLiters > 0 ? r3(purchaseCost / receivedLiters) : 0,
       soldLiters,
       revenue,
-      avgSalePrice: soldLiters > 0 ? r3(revenue / soldLiters) : 0,
-      costOfSales,
-      grossProfit,
-      profitPerLiter: receivedLiters > 0 ? r3(stockProfit / receivedLiters) : 0,
-      stockProfit,
-      grossMargin: revenue > 0 ? r2((grossProfit / revenue) * 100) : 0,
       closingStock,
       currentStock,
       currentCapacity: r3(
         currentProducts.reduce(
           (sum, product) => sum + product.capacityLiters,
-          0
-        )
-      ),
-      currentStockValue: r2(
-        currentProducts.reduce(
-          (sum, product) => sum + product.estimatedValue,
           0
         )
       ),
@@ -714,7 +510,7 @@ export async function queryFuelStockSummary(
 
 /**
  * รายงานปิดวัน (Z-report) ของวันที่ระบุ — ใช้ร่วมกันทั้งหน้าเว็บและส่งออก Excel
- * คืน bills + fuelProfit ด้วย (ข้อมูลต้นทุน) — procedure สาธารณะต้อง strip ออกก่อนส่ง
+ * ข้อมูลบิลและยอดขายแยกชนิดน้ำมันใช้สำหรับไฟล์ Excel
  */
 export async function queryDailyReport(
   db: ReturnType<typeof getDb>,
@@ -746,15 +542,17 @@ export async function queryDailyReport(
     })
   ) as Record<(typeof PAY_METHODS)[number], { count: number; total: number }>;
 
-  // ---- ลิตรน้ำมัน + กำไร (sale_items ของบิล completed เฉพาะสินค้าหมวด fuel) ----
-  const fuelByName = new Map<
-    string,
-    { liters: number; revenue: number; costPerLiter: number }
-  >();
+  // ---- ลิตรและยอดขายน้ำมันจากบิลที่ขายสำเร็จ ----
+  const fuelByName = new Map<string, { liters: number; revenue: number }>();
   let totalLiters = 0;
   if (completed.length > 0) {
     const itemRows = await db
-      .select()
+      .select({
+        productId: saleItems.productId,
+        name: saleItems.name,
+        qty: saleItems.qty,
+        amount: saleItems.amount,
+      })
       .from(saleItems)
       .where(
         and(
@@ -765,39 +563,25 @@ export async function queryDailyReport(
           )
         )
       );
-    const prodRows = await db.query.products.findMany({
-      where: (row, operators) => operators.eq(row.branchId, branchId),
-    });
+    const fuelProducts = await db
+      .select({ id: products.id })
+      .from(products)
+      .where(and(eq(products.branchId, branchId), eq(products.category, "fuel")));
+    const fuelIds = new Set(fuelProducts.map(product => product.id));
     for (const it of itemRows) {
-      const p = prodRows.find(pr => pr.id === it.productId);
-      if (p?.category !== "fuel") continue;
-      const acc = fuelByName.get(it.name) ?? {
-        liters: 0,
-        revenue: 0,
-        costPerLiter: p.cost,
-      };
+      if (it.productId == null || !fuelIds.has(it.productId)) continue;
+      const acc = fuelByName.get(it.name) ?? { liters: 0, revenue: 0 };
       acc.liters = r2(acc.liters + it.qty);
       acc.revenue = r2(acc.revenue + it.amount);
       fuelByName.set(it.name, acc);
       totalLiters = r2(totalLiters + it.qty);
     }
   }
-  const fuelLiters = [...fuelByName.entries()].map(([name, v]) => ({
+  const fuelSales = [...fuelByName.entries()].map(([name, totals]) => ({
     name,
-    liters: v.liters,
+    ...totals,
   }));
-  // กำไรโดยประมาณจากต้นทุนสินค้าปัจจุบัน (cost = 0 คือยังไม่ได้ตั้งต้นทุน)
-  const fuelProfit: FuelProfitRow[] = [...fuelByName.entries()].map(
-    ([name, v]) => ({
-      name,
-      liters: v.liters,
-      revenue: v.revenue,
-      costPerLiter: v.costPerLiter,
-      profitPerLiter:
-        v.liters > 0 ? r2(v.revenue / v.liters - v.costPerLiter) : 0,
-      profitTotal: r2(v.revenue - v.costPerLiter * v.liters),
-    })
-  );
+  const fuelLiters = fuelSales.map(({ name, liters }) => ({ name, liters }));
 
   // ---- กะที่เปิดหรือปิดในวันนั้น (แนบยอดเงินสดควรมี/ส่วนต่างต่อกะ) ----
   const shiftRows = await db
@@ -891,7 +675,7 @@ export async function queryDailyReport(
     byMethod,
     fuelLiters,
     totalLiters,
-    fuelProfit,
+    fuelSales,
     shifts: shiftsWithCash,
     expenses: expenseResult,
     debtPayments: {
@@ -1179,34 +963,18 @@ async function queryTankReconciliation(
 }
 
 export const reportsRouter = createRouter({
-  // ยอดขาย ต้นทุน กำไรขั้นต้น ค่าใช้จ่าย และกำไรสุทธิทุกหมวดสินค้า
-  profitability: managerQuery
-    .input(profitabilityInputSchema)
-    .query(({ input, ctx }) =>
-      queryProfitability(getDb(), input, ctx.staff.branchId)
-    ),
-
-  // Z-report หน้าเว็บ — strip bills + fuelProfit (ข้อมูลต้นทุน) ออก เหลือเฉพาะยอดขาย
+  // Z-Report สำหรับดูยอดขายและปิดวัน
   daily: publicQuery
     .input(z.object({ date: dateSchema }))
     .query(async ({ input, ctx }) => {
       const {
         bills: _bills,
-        fuelProfit: _profit,
+        fuelSales: _fuelSales,
         ...pub
       } = await queryDailyReport(getDb(), input.date, ctx.staff.branchId);
       return pub;
     }),
 
-  // กำไรโดยประมาณต่อลิตรของวัน (มีข้อมูลต้นทุน — เฉพาะ admin/manager)
-  fuelProfit: managerQuery
-    .input(z.object({ date: dateSchema }))
-    .query(async ({ input, ctx }) => {
-      const r = await queryDailyReport(getDb(), input.date, ctx.staff.branchId);
-      return { date: r.date, items: r.fuelProfit };
-    }),
-
-  // สรุปรับเข้า-ขายออก-คงเหลือและกำไรน้ำมัน เฉพาะผู้ที่เห็นข้อมูลต้นทุน
   fuelStockSummary: managerQuery
     .input(fuelStockInputSchema)
     .query(({ input, ctx }) =>
@@ -1288,44 +1056,24 @@ export const reportsRouter = createRouter({
         days.push(await queryDailyReport(db, toDateStr(d), ctx.staff.branchId));
       }
 
-      // รวมกำไรน้ำมันทั้งช่วง (ต่อชนิดน้ำมัน)
-      const acc = new Map<
-        string,
-        {
-          liters: number;
-          revenue: number;
-          profitTotal: number;
-          costPerLiter: number;
-        }
-      >();
-      for (const d of days) {
-        for (const p of d.fuelProfit) {
-          const a = acc.get(p.name) ?? {
-            liters: 0,
-            revenue: 0,
-            profitTotal: 0,
-            costPerLiter: p.costPerLiter,
-          };
-          a.liters = r2(a.liters + p.liters);
-          a.revenue = r2(a.revenue + p.revenue);
-          a.profitTotal = r2(a.profitTotal + p.profitTotal);
-          acc.set(p.name, a);
+      const totalsByFuel = new Map<string, { liters: number; revenue: number }>();
+      for (const day of days) {
+        for (const fuel of day.fuelSales) {
+          const totals = totalsByFuel.get(fuel.name) ?? { liters: 0, revenue: 0 };
+          totals.liters = r2(totals.liters + fuel.liters);
+          totals.revenue = r2(totals.revenue + fuel.revenue);
+          totalsByFuel.set(fuel.name, totals);
         }
       }
-      const profit: FuelProfitRow[] = [...acc.entries()].map(([name, a]) => ({
-        name,
-        liters: a.liters,
-        revenue: a.revenue,
-        costPerLiter: a.costPerLiter,
-        profitPerLiter: a.liters > 0 ? r2(a.profitTotal / a.liters) : 0,
-        profitTotal: a.profitTotal,
-      }));
 
       const buf = await buildRangeWorkbook({
         from: input.from,
         to: input.to,
         days,
-        profit,
+        fuelSales: [...totalsByFuel.entries()].map(([name, totals]) => ({
+          name,
+          ...totals,
+        })),
       });
       return {
         fileName: `sales-${input.from.replaceAll("-", "")}_${input.to.replaceAll("-", "")}.xlsx`,

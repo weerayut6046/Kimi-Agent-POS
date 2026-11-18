@@ -77,7 +77,7 @@ describe("staff menu permissions", () => {
     );
     expect(
       initialGroups.find(group => group.name === "ผู้จัดการ")?.menuPermissions
-    ).toContain("profitability");
+    ).toContain("sales");
 
     const created = await t.caller("admin").auth.createAccessGroup({
       name: "พนักงานทดสอบ",
@@ -164,13 +164,8 @@ describe("staff menu permissions", () => {
         roles: ["admin", "manager"],
       })
     );
-    expect(
-      catalog.find(permission => permission.key === "profitability")
-    ).toEqual(
-      expect.objectContaining({
-        label: "ต้นทุนและกำไร",
-        roles: ["admin", "manager"],
-      })
+    expect(catalog.map(permission => permission.key)).not.toContain(
+      "profitability"
     );
     expect(
       catalog.find(permission => permission.key === "fuel_forecast")
