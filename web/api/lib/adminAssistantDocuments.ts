@@ -121,7 +121,7 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
           label: `ดาวน์โหลด Z-Report ${date}`,
           date,
         },
-        navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability"),
+        navigate("เปิดรายงานปิดวัน", "/reports"),
       ],
     };
   }
@@ -131,14 +131,14 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
       return {
         answer:
           "กรุณาระบุวันที่เริ่มต้นและสิ้นสุด เช่น “ขอรายงานยอดขาย Excel ตั้งแต่ 2026-07-01 ถึง 2026-07-22” (สูงสุด 92 วัน)",
-        actions: [navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability")],
+        actions: [navigate("เปิดรายงานปิดวัน", "/reports")],
       };
     }
     const span = daySpan(request.from, request.to);
     if (span < 0 || span > 91) {
       return {
         answer: "ช่วงวันที่ไม่ถูกต้องหรือยาวเกิน 92 วัน กรุณาระบุช่วงใหม่",
-        actions: [navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability")],
+        actions: [navigate("เปิดรายงานปิดวัน", "/reports")],
       };
     }
     return {
@@ -172,14 +172,14 @@ export function buildAdminDocumentResponse(request: AdminDocumentRequest): {
   return {
     answer: [
       "เอกสารที่ admin ขอผ่านแชตได้:",
-      `- Z-Report รายวัน: ดาวน์โหลด Excel จากหน้าต้นทุนและกำไร`,
+      `- Z-Report รายวัน: ดาวน์โหลด Excel จากหน้ารายงานปิดวัน`,
       "- รายงานยอดขายตามช่วงเวลา: ระบุวันเริ่มต้นและวันสิ้นสุดเพื่อดาวน์โหลด Excel",
       ...documentCatalog.map(item => `- ${item.title}: ${item.description}`),
       "เอกสารที่มีข้อมูลลูกค้าหรือเลขบิลจะให้เลือกภายในหน้าระบบ ไม่ส่งข้อมูลนั้นให้ DeepSeek",
     ].join("\n"),
     actions: [
       dailyAction,
-      navigate("เปิดหน้าต้นทุนและกำไร", "/reports/profitability"),
+      navigate("เปิดรายงานปิดวัน", "/reports"),
       ...documentCatalog.map(item => item.action),
     ],
   };

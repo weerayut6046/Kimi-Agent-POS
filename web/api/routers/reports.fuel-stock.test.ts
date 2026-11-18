@@ -24,7 +24,7 @@ beforeAll(async () => {
 afterAll(() => test.cleanup());
 
 describe("reports.fuelStockSummary", () => {
-  it("สรุปรับเข้า ขายออก คงเหลือ ราคาซื้อ/ขาย และกำไรตามชนิดน้ำมัน", async () => {
+  it("สรุปรับเข้า ขายออก ยอดขาย และคงเหลือตามชนิดน้ำมัน", async () => {
     const gsh95 = await test.db.query.products.findFirst({
       where: and(eq(products.branchId, 1), eq(products.code, "GSH95")),
     });
@@ -63,75 +63,18 @@ describe("reports.fuelStockSummary", () => {
     expect(row).toMatchObject({
       receivedLiters: 100,
       refillCount: 1,
-      purchaseCost: 3800,
-      avgPurchaseCost: 38,
       soldLiters: 10,
       revenue: 407.4,
-      avgSalePrice: 40.74,
-      costOfSales: 380,
-      grossProfit: 27.4,
-      profitPerLiter: 2.74,
-      stockProfit: 274,
-      costBasis: "period_weighted",
       openingStock: tank.currentLiters,
       closingStock: tank.currentLiters + 90,
     });
-    expect(row!.grossMargin).toBeCloseTo(6.73, 2);
+    expect(row).not.toHaveProperty("stockProfit");
+    expect(row).not.toHaveProperty("avgPurchaseCost");
     expect(report.totals.receivedLiters).toBe(100);
     expect(report.totals.soldLiters).toBe(10);
     expect(report.totals.topProduct?.name).toBe(gsh95.name);
     expect(report.totals.currentCapacity).toBeGreaterThan(0);
     expect(report.stockMethod).toContain("ยอดคงเหลือปัจจุบัน");
-  });
-
-  it("กำไรสต๊อกเปลี่ยนตามราคาขายที่ตั้งไว้ของวันนั้น", async () => {
-    const main = test.caller("admin");
-    const created = await main.auth.createBranch({
-      code: "PRICE1",
-      name: "สาขาทดสอบราคาขายรายวัน",
-      address: "",
-      phone: "",
-      taxId: "",
-      cloneCurrentSetup: true,
-    });
-    const branch = test.caller("admin", 1, created.branch.id);
-    const branchProducts = await branch.catalog.listProducts();
-    const diesel = branchProducts.find(product => product.code === "DB7");
-    const branchTanks = await branch.catalog.listTanks();
-    const dieselTank = branchTanks.find(tank => tank.productId === diesel?.id);
-    if (!diesel || !dieselTank) throw new Error("ไม่พบสินค้า/ถัง DB7");
-
-    await branch.catalog.updateProduct({ id: diesel.id, price: 35.69 });
-    await branch.catalog.refillTank({
-      tankId: dieselTank.id,
-      liters: 100,
-      costPerLiter: 31.72,
-    });
-
-    const { year, key } = bangkokYearMonth();
-    const firstReport = await branch.reports.fuelStockSummary({
-      view: "monthly",
-      year,
-    });
-    const firstRow = firstReport.periods
-      .find(period => period.key === key)
-      ?.products.find(product => product.productId === diesel.id);
-    expect(firstRow?.soldLiters).toBe(0);
-    expect(firstRow?.avgSalePrice).toBeCloseTo(35.69, 2);
-    expect(firstRow?.profitPerLiter).toBeCloseTo(3.97, 2);
-    expect(firstRow?.stockProfit).toBeCloseTo(397, 2);
-
-    await branch.catalog.updateProduct({ id: diesel.id, price: 34.69 });
-    const reducedReport = await branch.reports.fuelStockSummary({
-      view: "monthly",
-      year,
-    });
-    const reducedRow = reducedReport.periods
-      .find(period => period.key === key)
-      ?.products.find(product => product.productId === diesel.id);
-    expect(reducedRow?.avgSalePrice).toBeCloseTo(34.69, 2);
-    expect(reducedRow?.profitPerLiter).toBeCloseTo(2.97, 2);
-    expect(reducedRow?.stockProfit).toBeCloseTo(297, 2);
   });
 
   it("รายปีคืน 5 ปี และปฏิเสธปีอนาคต", async () => {
@@ -150,7 +93,7 @@ describe("reports.fuelStockSummary", () => {
     ).rejects.toThrow("อนาคต");
   });
 
-  it("cashier ดูข้อมูลต้นทุนไม่ได้", async () => {
+  it("cashier เปิดรายงานสต๊อกน้ำมันไม่ได้", async () => {
     const { year } = bangkokYearMonth();
     await expect(
       test.caller("cashier").reports.fuelStockSummary({ view: "monthly", year })
@@ -203,7 +146,7 @@ describe("reports.fuelStockSummary", () => {
     ).toBe(777);
   });
 
-  it("ส่งออก Excel เป็นตารางสรุปราคาซื้อ-ขายและคงเหลือแยกชนิด", async () => {
+  it("ส่งออก Excel สรุปรับเข้า ขายออก ยอดขาย และคงเหลือตามชนิด", async () => {
     const { year, key } = bangkokYearMonth();
     const month = Number(key.slice(5));
     const exported = await test
@@ -223,21 +166,23 @@ describe("reports.fuelStockSummary", () => {
     ]);
     const summarySheet = workbook.getWorksheet("สรุปสต๊อกน้ำมัน")!;
     expect(summarySheet.rowCount).toBeGreaterThan(3);
-    expect(summarySheet.getRow(3).values).toEqual(
-      expect.arrayContaining([
-        "ชนิดน้ำมัน",
-        "ราคาซื้อ/ลิตร",
-        "ราคาขาย/ลิตร",
-        "คงเหลือปัจจุบัน (ลิตร)",
-      ])
-    );
-    expect(summarySheet.getRow(summarySheet.rowCount).getCell(11).value).toBe(
+    expect(summarySheet.getRow(3).values).toEqual([
+      undefined,
+      "รหัส",
+      "ชนิดน้ำมัน",
+      "รับเข้า (ลิตร)",
+      "ขายออก (ลิตร)",
+      "ยอดขาย",
+      "คงเหลือปัจจุบัน (ลิตร)",
+    ]);
+    expect(summarySheet.getRow(summarySheet.rowCount).getCell(6).value).toBe(
       "แยกตามชนิด"
     );
     const gsh95Row = summarySheet
       .getRows(4, summarySheet.rowCount - 3)
       ?.find(row => row.getCell(1).value === "GSH95");
-    expect(gsh95Row?.getCell(9).value).toBeCloseTo(2.74, 2);
-    expect(gsh95Row?.getCell(10).value).toBeCloseTo(274, 2);
+    expect(gsh95Row?.getCell(3).value).toBe(100);
+    expect(gsh95Row?.getCell(4).value).toBe(10);
+    expect(gsh95Row?.getCell(5).value).toBeCloseTo(407.4, 2);
   });
 });

@@ -82,7 +82,7 @@ extension OperationsModuleInfo on OperationsModule {
     OperationsModule.expenses => 'ค่าใช้จ่ายของวันที่เลือก',
     OperationsModule.reports => 'ยอดขาย เงินสด และปริมาณน้ำมันของวันที่เลือก',
     OperationsModule.fuelStockReport =>
-      'รับเข้า ขายออก คงเหลือ และกำไรของน้ำมันรายเดือนหรือรายปี',
+      'รับเข้า ขายออก และคงเหลือของน้ำมันรายเดือนหรือรายปี',
     OperationsModule.tankReconciliation =>
       'เปรียบเทียบค่าวัดจริงกับยอดรับเข้าและมิเตอร์หัวจ่าย',
     OperationsModule.taxInvoices => 'ค้นหาเอกสารภาษีที่ออกแล้ว',

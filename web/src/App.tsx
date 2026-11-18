@@ -22,7 +22,7 @@ const Customers = lazy(() => import("@/pages/Customers"));
 const Debts = lazy(() => import("@/pages/Debts"));
 const Sales = lazy(() => import("@/pages/Sales"));
 const Expenses = lazy(() => import("@/pages/Expenses"));
-const Profitability = lazy(() => import("@/pages/Profitability"));
+const Reports = lazy(() => import("@/pages/Reports"));
 const FuelStockReport = lazy(() => import("@/pages/FuelStockReport"));
 const TankReconciliation = lazy(() => import("@/pages/TankReconciliation"));
 const TaxInvoices = lazy(() => import("@/pages/TaxInvoices"));
@@ -296,13 +296,9 @@ export default function App() {
           />
           <Route
             path="/reports"
-            element={<Navigate to="/reports/profitability" replace />}
-          />
-          <Route
-            path="/reports/profitability"
             element={
-              <MenuRoute permission="profitability" managerOnly>
-                <Profitability />
+              <MenuRoute permission="sales" managerOnly>
+                <Reports />
               </MenuRoute>
             }
           />

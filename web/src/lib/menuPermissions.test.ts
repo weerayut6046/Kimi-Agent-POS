@@ -15,8 +15,6 @@ describe("menu permissions", () => {
     );
     expect(hasMenuPermission("cashier", null, "documents")).toBe(false);
     expect(hasMenuPermission("manager", null, "documents")).toBe(true);
-    expect(hasMenuPermission("cashier", null, "profitability")).toBe(false);
-    expect(hasMenuPermission("manager", null, "profitability")).toBe(true);
     expect(hasMenuPermission("cashier", null, "settings")).toBe(true);
     expect(hasMenuPermission("manager", null, "settings")).toBe(true);
   });
@@ -145,13 +143,9 @@ describe("menu permissions", () => {
     expect(getApiMenuPermissions("auth.deploymentInfo")).toEqual([]);
   });
 
-  it.each([
-    ["cashier", false],
-    ["manager", true],
-    ["admin", true],
-  ] as const)(
-    "preserves table module defaults and the %s profitability ceiling",
-    (role, canViewProfitability) => {
+  it.each(["cashier", "manager", "admin"] as const)(
+    "ignores the retired profitability key for %s",
+    role => {
       expect(getRoleMenuPermissions(role)).toEqual(
         expect.arrayContaining([
           "customers",
@@ -161,16 +155,10 @@ describe("menu permissions", () => {
           "workforce",
         ])
       );
-      expect(hasMenuPermission(role, null, "profitability")).toBe(
-        canViewProfitability
-      );
+      expect(getRoleMenuPermissions(role)).not.toContain("profitability");
       expect(
-        normalizeMenuPermissions(role, [
-          "customers",
-          "settings",
-          "profitability",
-        ]).includes("profitability")
-      ).toBe(canViewProfitability);
+        normalizeMenuPermissions(role, ["customers", "settings", "profitability"])
+      ).toEqual(normalizeMenuPermissions(role, ["customers", "settings"]));
     }
   );
 
@@ -306,20 +294,9 @@ describe("menu permissions", () => {
       "settings",
     ]);
     expect(getApiMenuPermissions("pos.currentShift")).toEqual([]);
-    expect(getApiMenuPermissions("reports.profitability")).toEqual([
-      "profitability",
-    ]);
-    expect(getApiMenuPermissions("reports.exportDailyExcel")).toEqual([
-      "profitability",
-    ]);
-    expect(getApiMenuPermissions("reports.exportRangeExcel")).toEqual([
-      "profitability",
-    ]);
-    expect(getApiMenuPermissions("reports.daily")).toEqual([
-      "dashboard",
-      "sales",
-      "profitability",
-    ]);
+    expect(getApiMenuPermissions("reports.exportDailyExcel")).toEqual(["sales"]);
+    expect(getApiMenuPermissions("reports.exportRangeExcel")).toEqual(["sales"]);
+    expect(getApiMenuPermissions("reports.daily")).toEqual(["dashboard", "sales"]);
     expect(getApiMenuPermissions("reports.fuelStockSummary")).toEqual([
       "stock",
     ]);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { ClipboardList, Fuel, Gauge, Printer } from "lucide-react";
+import { ClipboardList, Download, Fuel, Gauge, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +17,9 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useStaff } from "@/hooks/useStaff";
 import { ZReportDoc } from "@/components/ZReportDoc";
+import { downloadBase64, XLSX_MIME } from "@/lib/download";
 import { printElement } from "@/lib/printDoc";
+import { hasMenuPermission } from "@contracts/menuPermissions";
 import {
   fmtMoney,
   fmtNum,
@@ -36,32 +38,50 @@ function todayStr() {
 
 const PAY_METHODS = ["cash", "qr", "card", "credit", "thungngern"] as const;
 const DEBT_METHODS = ["cash", "qr", "transfer"] as const;
+const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 export default function Reports() {
   const { staff } = useStaff();
-  const canManage = staff?.role === "admin" || staff?.role === "manager";
+  const canViewStock =
+    staff != null &&
+    hasMenuPermission(staff.role, staff.menuPermissions, "stock");
+  const utils = trpc.useUtils();
   const [searchParams] = useSearchParams();
   const requestedDate = searchParams.get("date") ?? "";
-  const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   const [date, setDate] = useState(
     validDate(requestedDate) ? requestedDate : todayStr()
   );
+  const [rangeFrom, setRangeFrom] = useState(date);
+  const [rangeTo, setRangeTo] = useState(date);
+  const [exporting, setExporting] = useState<"daily" | "range" | null>(null);
+  const [exportError, setExportError] = useState("");
   const {
     data: r,
     isLoading,
     error,
   } = trpc.reports.daily.useQuery(
     { date },
-    { enabled: /^\d{4}-\d{2}-\d{2}$/.test(date) }
+    { enabled: validDate(date) }
   );
   const { data: settingMap } = trpc.catalog.getSettings.useQuery();
   const { data: logoUrl } = trpc.catalog.getShopLogo.useQuery();
 
-  // กำไรต่อลิตรมีข้อมูลต้นทุน — เฉพาะ admin/manager (server บังคับด้วย managerQuery)
-  const { data: profit } = trpc.reports.fuelProfit.useQuery(
-    { date },
-    { enabled: canManage && /^\d{4}-\d{2}-\d{2}$/.test(date) }
-  );
+  const runExport = async (
+    type: "daily" | "range",
+    fetch: () => Promise<{ fileName: string; contentBase64: string }>
+  ) => {
+    setExportError("");
+    setExporting(type);
+    try {
+      const file = await fetch();
+      downloadBase64(file.fileName, file.contentBase64, XLSX_MIME);
+    } catch (failure) {
+      setExportError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setExporting(null);
+    }
+  };
+
   const printReport = () => {
     const el = document.getElementById("zreport-print");
     if (el) printElement(el, "size: auto; margin: 8mm");
@@ -75,14 +95,14 @@ export default function Reports() {
           (Z-Report)
         </h1>
         <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
-          {canManage && (
+          {canViewStock && (
             <Button asChild className="flex-1 sm:flex-none" variant="outline">
               <Link to="/reports/fuel-stock">
                 <Fuel className="mr-1 size-4" /> สรุปสต๊อกน้ำมัน
               </Link>
             </Button>
           )}
-          {canManage && (
+          {canViewStock && (
             <Button asChild className="flex-1 sm:flex-none" variant="outline">
               <Link to="/reports/tank-reconciliation">
                 <Gauge className="mr-1 size-4" /> กระทบยอดถัง
@@ -109,8 +129,75 @@ export default function Reports() {
           >
             <Printer className="w-4 h-4 mr-1" /> พิมพ์ Z-report
           </Button>
+          <Button
+            className="flex-1 sm:flex-none"
+            variant="outline"
+            disabled={exporting !== null || !validDate(date)}
+            onClick={() =>
+              runExport("daily", () =>
+                utils.reports.exportDailyExcel.fetch({ date })
+              )
+            }
+          >
+            <Download className="mr-1 size-4" />
+            {exporting === "daily" ? "กำลังสร้างไฟล์..." : "Excel รายวัน"}
+          </Button>
         </div>
       </div>
+      <Card>
+        <CardContent className="pt-4">
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={event => {
+              event.preventDefault();
+              void runExport("range", () =>
+                utils.reports.exportRangeExcel.fetch({
+                  from: rangeFrom,
+                  to: rangeTo,
+                })
+              );
+            }}
+          >
+            <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
+              <Label htmlFor="z-range-from">จากวันที่</Label>
+              <Input
+                id="z-range-from"
+                type="date"
+                value={rangeFrom}
+                onChange={event => setRangeFrom(event.target.value)}
+              />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1 sm:flex-none">
+              <Label htmlFor="z-range-to">ถึงวันที่</Label>
+              <Input
+                id="z-range-to"
+                type="date"
+                min={rangeFrom}
+                value={rangeTo}
+                onChange={event => setRangeTo(event.target.value)}
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={
+                exporting !== null ||
+                !validDate(rangeFrom) ||
+                !validDate(rangeTo) ||
+                rangeFrom > rangeTo
+              }
+            >
+              <Download className="mr-1 size-4" />
+              {exporting === "range" ? "กำลังสร้างไฟล์..." : "Excel ตามช่วงวันที่"}
+            </Button>
+          </form>
+          {exportError && (
+            <p className="mt-2 text-sm text-destructive" role="alert">
+              {exportError}
+            </p>
+          )}
+        </CardContent>
+      </Card>
       {error && (
         <p
           data-slot="notice"
@@ -252,76 +339,6 @@ export default function Reports() {
               </CardContent>
             </Card>
           </div>
-
-          {/* กำไรโดยประมาณต่อลิตร (มีข้อมูลต้นทุน — เฉพาะ admin/manager) */}
-          {canManage && profit && profit.items.length > 0 && (
-            <Card>
-              <CardContent className="pt-4">
-                <h2 className="font-heading font-semibold mb-1">
-                  กำไรน้ำมันโดยประมาณ
-                </h2>
-                <p className="text-xs text-muted-foreground mb-2">
-                  คำนวณจากต้นทุนสินค้าปัจจุบัน (ตั้งในหน้าสต็อก) —
-                  ถ้าต้นทุน/ลิตรเป็น 0 แปลว่ายังไม่ได้ตั้งต้นทุน
-                </p>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ชนิดน้ำมัน</TableHead>
-                      <TableHead className="text-right">ลิตร</TableHead>
-                      <TableHead className="text-right">ยอดขาย</TableHead>
-                      <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
-                      <TableHead className="text-right">กำไร/ลิตร</TableHead>
-                      <TableHead className="text-right">กำไรรวม</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {profit.items.map(p => (
-                      <TableRow key={p.name}>
-                        <TableCell>{p.name}</TableCell>
-                        <TableCell className="text-right">
-                          {fmtNum(p.liters)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          ฿{fmtMoney(p.revenue)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {p.costPerLiter > 0
-                            ? `฿${fmtMoney(p.costPerLiter)}`
-                            : "-"}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          ฿{fmtMoney(p.profitPerLiter)}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold">
-                          ฿{fmtMoney(p.profitTotal)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="font-semibold">
-                      <TableCell>รวม</TableCell>
-                      <TableCell className="text-right">
-                        {fmtNum(profit.items.reduce((s, p) => s + p.liters, 0))}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ฿
-                        {fmtMoney(
-                          profit.items.reduce((s, p) => s + p.revenue, 0)
-                        )}
-                      </TableCell>
-                      <TableCell colSpan={2} />
-                      <TableCell className="text-right">
-                        ฿
-                        {fmtMoney(
-                          profit.items.reduce((s, p) => s + p.profitTotal, 0)
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
 
           {/* กะการทำงาน */}
           <Card>
