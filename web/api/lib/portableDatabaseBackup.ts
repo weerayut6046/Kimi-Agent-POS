@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../queries/connection";
 
 const BACKUP_FORMAT = "kimi-agent-pos-database-backup";
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 const BACKUP_SCHEMA = "pos";
 const MAX_COMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
@@ -40,6 +40,8 @@ const BACKUP_TABLES: readonly BackupTableDefinition[] = [
   { name: "member_card_batches", orderBy: "id", identityColumn: "id" },
   { name: "member_cards", orderBy: "id", identityColumn: "id" },
   { name: "customers", orderBy: "id", identityColumn: "id" },
+  { name: "credit_accounts", orderBy: "branch_id, customer_id" },
+  { name: "credit_events", orderBy: "id", identityColumn: "id" },
   { name: "sales", orderBy: "id", identityColumn: "id" },
   { name: "sale_items", orderBy: "id", identityColumn: "id" },
   { name: "point_transactions", orderBy: "id", identityColumn: "id" },
@@ -77,7 +79,7 @@ type BackupPayload = {
 
 type BackupEnvelope = {
   format: typeof BACKUP_FORMAT;
-  version: typeof BACKUP_VERSION;
+  version: 1 | typeof BACKUP_VERSION;
   checksum: {
     algorithm: "SHA-256";
     value: string;
@@ -222,7 +224,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseEnvelope(value: unknown): BackupEnvelope {
   if (!isRecord(value)) throw new Error("รูปแบบไฟล์สำรองข้อมูลไม่ถูกต้อง");
-  if (value.format !== BACKUP_FORMAT || value.version !== BACKUP_VERSION) {
+  if (
+    value.format !== BACKUP_FORMAT ||
+    (value.version !== 1 && value.version !== BACKUP_VERSION)
+  ) {
     throw new Error("ไฟล์สำรองข้อมูลคนละชนิดหรือเวอร์ชันนี้ยังไม่รองรับ");
   }
   if (!isRecord(value.checksum) || value.checksum.algorithm !== "SHA-256") {
@@ -241,7 +246,9 @@ function parseEnvelope(value: unknown): BackupEnvelope {
   if (!Array.isArray(value.payload.tables)) {
     throw new Error("ไฟล์สำรองข้อมูลไม่มีรายการตาราง");
   }
-  const expectedNames = BACKUP_TABLES.map(table => table.name);
+  const expectedNames = BACKUP_TABLES.map(table => table.name).filter(
+    name => value.version !== 1 || (name !== "credit_accounts" && name !== "credit_events")
+  );
   const actualNames = value.payload.tables.map(table =>
     isRecord(table) ? String(table.name ?? "") : ""
   );
@@ -274,7 +281,7 @@ function parseEnvelope(value: unknown): BackupEnvelope {
 
   return {
     format: BACKUP_FORMAT,
-    version: BACKUP_VERSION,
+    version: value.version,
     checksum: {
       algorithm: "SHA-256",
       value: String(value.checksum.value),
@@ -382,6 +389,16 @@ export async function restorePortableDatabaseBackup(input: {
           null::${sql.raw(tableName)},
           ${JSON.stringify(data.rows)}::jsonb
         )
+      `);
+    }
+    if (envelope.version === 1) {
+      // ไฟล์ก่อนเพิ่มระบบอนุมัติยังคืนข้อมูลเครดิตเดิมได้โดยไม่สร้างกำหนดชำระย้อนหลัง
+      await tx.execute(sql`
+        insert into pos.credit_accounts (branch_id, customer_id, status)
+        select distinct branch_id, customer_id, 'legacy'
+        from pos.sales
+        where payment_method = 'credit' and transaction_type = 'sale'
+          and status = 'completed' and customer_id is not null
       `);
     }
     for (const table of BACKUP_TABLES) {

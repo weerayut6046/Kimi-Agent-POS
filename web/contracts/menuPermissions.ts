@@ -240,6 +240,7 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   if (path === "pos.currentShift") return [];
   if (path === "pos.dashboard") return ["dashboard"];
   if (path === "pos.createSale") return ["pos"];
+  if (path === "credit.checkout") return ["pos"];
 
   if (
     path === "reports.exportDailyExcel" ||

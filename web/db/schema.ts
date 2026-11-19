@@ -5,6 +5,7 @@ import {
   bigint,
   boolean,
   timestamp,
+  date,
   numeric,
   jsonb,
   uuid,
@@ -16,6 +17,13 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { MenuPermissionKey } from "@contracts/menuPermissions";
+import type {
+  CreditAccountState,
+  CreditEventData,
+  CreditEventKind,
+  CreditSaleProof,
+  CreditTerms,
+} from "@contracts/credit";
 import type {
   PaymentConfirmedBy,
   ThungngernSaleSnapshot,
@@ -947,6 +955,8 @@ export const sales = posSchema
         (): AnyPgColumn => customers.id,
         { onDelete: "set null" }
       ), // ลูกค้าเครดิต (เฉพาะบิลขายเชื่อ)
+      creditDueOn: date("credit_due_on"),
+      creditProof: jsonb("credit_proof").$type<CreditSaleProof>(),
       subtotal: numeric("subtotal", {
         precision: 18,
         scale: 3,
@@ -1009,6 +1019,15 @@ export const sales = posSchema
         t.transactionType
       ),
       originalSaleIdx: index("sales_original_sale_idx").on(t.originalSaleId),
+      creditLedgerIdx: index("sales_credit_ledger_idx")
+        .on(t.branchId, t.customerId, t.createdAt, t.id)
+        .where(sql`${t.paymentMethod} = 'credit' AND ${t.status} = 'completed'`),
+      creditProofCheck: check(
+        "sales_credit_proof_check",
+        sql`(${t.creditDueOn} IS NULL AND ${t.creditProof} IS NULL) OR
+          (${t.creditDueOn} IS NOT NULL AND ${t.creditProof} IS NOT NULL AND
+           ${t.paymentMethod} = 'credit' AND ${t.transactionType} = 'sale' AND ${t.customerId} IS NOT NULL)`
+      ),
     })
   )
   .enableRLS();
@@ -1400,6 +1419,65 @@ export const customers = posSchema
   })
   .enableRLS();
 
+export const creditAccounts = posSchema
+  .table(
+    "credit_accounts",
+    {
+      branchId: integer("branch_id")
+        .notNull()
+        .references(() => branches.id, { onDelete: "restrict" }),
+      customerId: integer("customer_id")
+        .notNull()
+        .references(() => customers.id, { onDelete: "restrict" }),
+      status: text("status").$type<CreditAccountState>().notNull(),
+      terms: jsonb("terms").$type<CreditTerms>(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      pk: primaryKey({ columns: [t.branchId, t.customerId] }),
+      customerIdx: index("credit_accounts_customer_idx").on(t.customerId),
+      statusCheck: check(
+        "credit_accounts_status_check",
+        sql`${t.status} IN ('legacy', 'approved', 'suspended') AND
+            (${t.status} <> 'approved' OR ${t.terms} IS NOT NULL)`
+      ),
+    })
+  )
+  .enableRLS();
+
+// เก็บเหตุการณ์และสำเนารายการกลับบัญชีแยกจากยอดที่ใช้คำนวณ
+export const creditEvents = posSchema
+  .table(
+    "credit_events",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .references(() => branches.id, { onDelete: "restrict" }),
+      customerId: integer("customer_id")
+        .notNull()
+        .references(() => customers.id, { onDelete: "restrict" }),
+      kind: text("kind").$type<CreditEventKind>().notNull(),
+      data: jsonb("data").$type<CreditEventData>().notNull(),
+      actorId: integer("actor_id").notNull(),
+      actorName: text("actor_name").notNull(),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      timelineIdx: index("credit_events_timeline_idx").on(
+        t.branchId,
+        t.customerId,
+        t.id
+      ),
+      customerIdx: index("credit_events_customer_idx").on(t.customerId),
+    })
+  )
+  .enableRLS();
+
 // ============ ใบกำกับภาษีเต็มรูป ============
 export const taxInvoices = posSchema
   .table(
@@ -1450,6 +1528,10 @@ export const debtPayments = posSchema
       customerId: integer("customer_id")
         .notNull()
         .references(() => customers.id, { onDelete: "restrict" }),
+      saleId: integer("sale_id").references(() => sales.id, {
+        onDelete: "restrict",
+      }),
+      requestId: uuid("request_id"),
       amount: numeric("amount", {
         precision: 18,
         scale: 3,
@@ -1473,6 +1555,11 @@ export const debtPayments = posSchema
         t.branchId,
         t.paymentNo
       ),
+      requestUnique: uniqueIndex("debtpay_branch_request_unique").on(
+        t.branchId,
+        t.requestId
+      ),
+      saleIdx: index("debtpay_sale_idx").on(t.saleId),
       customerIdx: index("debtpay_customer_idx").on(t.customerId),
       shiftIdx: index("debtpay_shift_idx").on(t.shiftId),
       createdIdx: index("debtpay_created_idx").on(t.createdAt),

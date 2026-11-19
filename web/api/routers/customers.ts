@@ -9,7 +9,7 @@ import {
   RevenueDepartmentUnavailableError,
   TaxpayerNotFoundError,
 } from "../lib/revenueDepartment";
-import { customers } from "@db/schema";
+import { creditAccounts, creditEvents, customers } from "@db/schema";
 import { TRPCError } from "@trpc/server";
 
 const customerInput = z.object({
@@ -123,6 +123,15 @@ export const customersRouter = createRouter({
       const db = getDb();
       const outstanding = await outstandingOf(db, input.id);
       if (outstanding > 0) throw new Error("ลบไม่ได้ ลูกค้ามียอดค้างชำระ");
+      const [account, event] = await Promise.all([
+        db.select({ customerId: creditAccounts.customerId }).from(creditAccounts)
+          .where(eq(creditAccounts.customerId, input.id)).limit(1),
+        db.select({ id: creditEvents.id }).from(creditEvents)
+          .where(eq(creditEvents.customerId, input.id)).limit(1),
+      ]);
+      if (account.length || event.length) {
+        throw new Error("บัญชีนี้มีประวัติเครดิตที่ต้องเก็บ กรุณาพักเครดิตแทน");
+      }
       await db.delete(customers).where(eq(customers.id, input.id));
       return { ok: true };
     }),

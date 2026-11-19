@@ -1,4 +1,5 @@
-import { fmtMoney, fmtNum, fmtDateTimeTH, paymentLabel } from "@/lib/format";
+import { fmtMoney, fmtNum, fmtDateTimeTH, fmtDateKeyTH, paymentLabel } from "@/lib/format";
+import type { CreditSaleProof } from "@contracts/credit";
 import {
   DEFAULT_POINT_REDEEM_VALUE,
   positiveSettingNumber,
@@ -23,6 +24,8 @@ type ReceiptSale = {
   pointsRedeemed?: number;
   memberName?: string | null;
   customerName?: string | null;
+  creditDueOn?: string | null;
+  creditProof?: CreditSaleProof | null;
   transactionType?: "sale" | "return";
   originalReceiptNo?: string | null;
   returnReason?: string | null;
@@ -179,6 +182,18 @@ export function ReceiptDoc({
           <div className="flex justify-between gap-3">
             <span>ลูกค้า</span>
             <span className="text-right">{sale.customerName}</span>
+          </div>
+        )}
+        {sale.creditDueOn && (
+          <div className="flex justify-between gap-3">
+            <span>ครบกำหนดชำระ</span>
+            <span className="text-right">{fmtDateKeyTH(sale.creditDueOn)}</span>
+          </div>
+        )}
+        {sale.creditProof && (
+          <div className="break-words">
+            <div>สัญญา {sale.creditProof.agreementRef}</div>
+            <div>ใบรับน้ำมัน {sale.creditProof.deliveryRef}</div>
           </div>
         )}
       </section>

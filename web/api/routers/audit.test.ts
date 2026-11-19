@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { desc, eq } from "drizzle-orm";
-import { auditLogs, members, priceChanges, products } from "@db/schema";
+import { auditLogs, creditAccounts, members, priceChanges, products } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสระบบ audit log + ประวัติเปลี่ยนราคา ผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed เหมือน production)
@@ -113,6 +113,7 @@ describe("audit log จาก mutation ต่างๆ", () => {
   it("credit.receivePayment → audit receive_debt_payment", async () => {
     const water = await productByCode("WATER");
     const cust = await t.caller("manager").customers.create({ name: "ลูกค้าทดสอบ audit", creditLimit: 0 });
+    await t.db.insert(creditAccounts).values({ branchId: 1, customerId: cust!.id, status: "legacy" });
     await t.caller().pos.createSale({
       items: [{ productId: water.id, qty: 4 }], // 12.5 × 4 = 50 บาท
       paymentMethod: "credit",

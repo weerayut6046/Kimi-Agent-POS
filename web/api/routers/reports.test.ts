@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
-import { products, settings } from "@db/schema";
+import { creditAccounts, products, settings } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสรายงานปิดวัน (Z-report) ผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed)
@@ -70,6 +70,7 @@ describe("reports.daily — Z-report", () => {
       paymentMethod: "qr",
     });
     // บิล D: เครดิต 30 (ต้องมีลูกค้า)
+    await t.db.insert(creditAccounts).values({ branchId: 1, customerId: cust!.id, status: "legacy" });
     await t.caller().pos.createSale({
       items: [{ productId: water.id, qty: 3 }],
       paymentMethod: "credit",
