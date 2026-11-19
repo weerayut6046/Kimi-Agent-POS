@@ -5,6 +5,7 @@ import {
   bigint,
   boolean,
   timestamp,
+  date,
   numeric,
   jsonb,
   uuid,
@@ -16,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { MenuPermissionKey } from "@contracts/menuPermissions";
+import { WORK_LEAVE_STATUSES, WORK_LEAVE_TYPES } from "@contracts/workLeave";
 import type {
   PaymentConfirmedBy,
   ThungngernSaleSnapshot,
@@ -288,6 +290,88 @@ export const workSchedules = posSchema
         t.workDate,
         t.shiftTemplateId,
         t.staffId
+      ),
+    })
+  )
+  .enableRLS();
+
+export const workLeaveRequests = posSchema
+  .table(
+    "work_leave_requests",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .references(() => branches.id, { onDelete: "restrict" }),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "cascade" }),
+      type: text("type", { enum: WORK_LEAVE_TYPES }).notNull(),
+      startOn: date("start_on").notNull(),
+      endOn: date("end_on").notNull(),
+      note: text("note"),
+      status: text("status", { enum: WORK_LEAVE_STATUSES })
+        .notNull()
+        .default("pending"),
+      chargedDays: integer("charged_days"),
+      reviewedBy: integer("reviewed_by").references(() => staffUsers.id, {
+        onDelete: "set null",
+      }),
+      reviewerName: text("reviewer_name"),
+      reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+      reviewNote: text("review_note"),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    t => ({
+      staffDatesIdx: index("leave_request_staff_dates_idx").on(
+        t.staffId, t.branchId, t.startOn, t.endOn
+      ),
+      branchDatesIdx: index("leave_request_branch_dates_idx").on(t.branchId, t.startOn),
+      reviewerIdx: index("leave_request_reviewer_idx").on(t.reviewedBy),
+      datesCheck: check(
+        "leave_request_dates_check",
+        sql`${t.endOn} >= ${t.startOn} and extract(year from ${t.startOn}) = extract(year from ${t.endOn})`
+      ),
+      daysCheck: check(
+        "leave_request_days_check",
+        sql`(${t.status} <> 'approved' or ${t.chargedDays} is not null) and
+            (${t.chargedDays} is null or ${t.chargedDays} between 0 and (${t.endOn} - ${t.startOn} + 1))`
+      ),
+      typeCheck: check(
+        "leave_request_type_check",
+        sql`${t.type} in ('sick', 'personal', 'vacation', 'other')`
+      ),
+      statusCheck: check(
+        "leave_request_status_check",
+        sql`${t.status} in ('pending', 'approved', 'rejected', 'cancelled')`
+      ),
+    })
+  )
+  .enableRLS();
+
+export const workLeaveQuotas = posSchema
+  .table(
+    "work_leave_quotas",
+    {
+      branchId: integer("branch_id")
+        .notNull()
+        .references(() => branches.id, { onDelete: "restrict" }),
+      staffId: integer("staff_id")
+        .notNull()
+        .references(() => staffUsers.id, { onDelete: "cascade" }),
+      year: integer("year").notNull(),
+      type: text("type", { enum: WORK_LEAVE_TYPES }).notNull(),
+      days: integer("days").notNull(),
+    },
+    t => ({
+      pk: primaryKey({ columns: [t.branchId, t.year, t.staffId, t.type] }),
+      staffIdx: index("leave_quota_staff_idx").on(t.staffId),
+      valuesCheck: check(
+        "leave_quota_values_check",
+        sql`${t.year} between 2000 and 2100 and ${t.days} between 0 and 366 and
+            ${t.type} in ('sick', 'personal', 'vacation', 'other')`
       ),
     })
   )

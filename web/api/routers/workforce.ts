@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   employeeProfiles,
@@ -10,8 +10,14 @@ import {
 } from "@db/schema";
 import { adminQuery, managerQuery } from "../guard";
 import { actorFromReq, logAudit } from "../lib/audit";
+import {
+  approvedLeaveScheduleFlag,
+  assertWorkScheduleAvailable,
+  lockWorkforceStaff,
+} from "../lib/workLeave";
 import { createRouter, publicQuery } from "../middleware";
 import { getDb } from "../queries/connection";
+import { workLeaveRouter } from "./workLeave";
 
 const dateText = z
   .string()
@@ -216,6 +222,11 @@ function listSchedules(
       shiftTemplateId: workSchedules.shiftTemplateId,
       staffId: workSchedules.staffId,
       status: workSchedules.status,
+      approvedLeave: approvedLeaveScheduleFlag(
+        branchId,
+        workSchedules.staffId,
+        workSchedules.workDate
+      ),
       cashAdvance: workSchedules.cashAdvance,
       note: workSchedules.note,
       staffName: staffUsers.name,
@@ -239,7 +250,20 @@ function listSchedules(
     );
 }
 
+function sameScheduleAssignment(row: typeof workSchedules.$inferSelect) {
+  return and(
+    eq(workSchedules.id, row.id),
+    eq(workSchedules.branchId, row.branchId),
+    eq(workSchedules.staffId, row.staffId),
+    eq(workSchedules.workDate, row.workDate),
+    eq(workSchedules.shiftTemplateId, row.shiftTemplateId),
+    eq(workSchedules.status, row.status)
+  );
+}
+
 export const workforceRouter = createRouter({
+  leave: workLeaveRouter,
+
   listTemplates: publicQuery.query(async ({ ctx }) =>
     getDb()
       .select()
@@ -404,6 +428,10 @@ export const workforceRouter = createRouter({
       let payrollUpdated = false;
       let advanceDeduction = 0;
       await db.transaction(async tx => {
+        await lockWorkforceStaff(tx, input.staffId);
+        if (input.status !== "leave") {
+          await assertWorkScheduleAvailable(tx, branchId, input.staffId, input.workDate);
+        }
         [{ id }] = await tx
           .insert(workSchedules)
           .values({ ...input, branchId })
@@ -469,12 +497,21 @@ export const workforceRouter = createRouter({
       const { id, ...values } = input;
       let payrollUpdated = false;
       await db.transaction(async tx => {
-        await tx
+        await lockWorkforceStaff(tx, existing.staffId, input.staffId);
+        const changesAssignment =
+          existing.staffId !== input.staffId ||
+          existing.workDate !== input.workDate ||
+          existing.shiftTemplateId !== input.shiftTemplateId ||
+          existing.status !== input.status;
+        if (changesAssignment && input.status !== "leave") {
+          await assertWorkScheduleAvailable(tx, branchId, input.staffId, input.workDate);
+        }
+        const [updated] = await tx
           .update(workSchedules)
           .set(values)
-          .where(
-            and(eq(workSchedules.id, id), eq(workSchedules.branchId, branchId))
-          );
+          .where(sameScheduleAssignment(existing))
+          .returning({ id: workSchedules.id });
+        if (!updated) throw new Error("ตารางงานเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่");
         const affected = new Map(
           [
             {
@@ -660,17 +697,17 @@ export const workforceRouter = createRouter({
 
       let payrollUpdated = false;
       await db.transaction(async tx => {
-        await tx
+        await lockWorkforceStaff(tx, first.staffId, second.staffId);
+        await assertWorkScheduleAvailable(tx, branchId, second.staffId, first.workDate);
+        await assertWorkScheduleAvailable(tx, branchId, first.staffId, second.workDate);
+        const updated = await tx
           .update(workSchedules)
           .set({
             staffId: sql<number>`case when ${workSchedules.id} = ${first.id} then cast(${second.staffId} as integer) else cast(${first.staffId} as integer) end`,
           })
-          .where(
-            and(
-              eq(workSchedules.branchId, branchId),
-              inArray(workSchedules.id, [first.id, second.id])
-            )
-          );
+          .where(or(sameScheduleAssignment(first), sameScheduleAssignment(second)))
+          .returning({ id: workSchedules.id });
+        if (updated.length !== 2) throw new Error("ตารางงานเปลี่ยนแล้ว กรุณาโหลดข้อมูลใหม่");
         const affected = new Map(
           [
             { staffId: first.staffId, month: first.workDate.slice(0, 7) },

@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, not } from "drizzle-orm";
 import { shifts, workSchedules } from "@db/schema";
 import { bangkokDateKey } from "@contracts/promotion";
 import type { StaffSessionClaims } from "./session";
 import { getDb } from "../queries/connection";
+import { approvedLeaveScheduleFlag } from "./workLeave";
 
 export type SystemAccessReason =
   | "role_exempt"
@@ -105,15 +106,17 @@ export async function systemAccessForStaff(
     };
   }
 
-  const schedule = await db.query.workSchedules.findFirst({
-    columns: { id: true },
-    where: and(
+  const [schedule] = await db
+    .select({ id: workSchedules.id })
+    .from(workSchedules)
+    .where(and(
       eq(workSchedules.branchId, staff.branchId),
       eq(workSchedules.staffId, staff.id),
       eq(workSchedules.workDate, workDate),
-      inArray(workSchedules.status, ["scheduled", "completed"])
-    ),
-  });
+      inArray(workSchedules.status, ["scheduled", "completed"]),
+      not(approvedLeaveScheduleFlag(staff.branchId, workSchedules.staffId, workSchedules.workDate))
+    ))
+    .limit(1);
   if (schedule) {
     return {
       allowed: true,
