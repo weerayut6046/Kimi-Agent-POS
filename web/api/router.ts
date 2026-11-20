@@ -9,6 +9,7 @@ import { creditRouter } from "./routers/credit";
 import { dbadminRouter } from "./routers/dbadmin";
 import { expensesRouter } from "./routers/expenses";
 import { reportsRouter } from "./routers/reports";
+import { fuelCostingRouter } from "./routers/fuelCosting";
 import { auditRouter } from "./routers/audit";
 import { securityRouter } from "./routers/security";
 import { workforceRouter } from "./routers/workforce";
@@ -34,6 +35,7 @@ export const appRouter = createRouter({
   dbadmin: dbadminRouter,
   expenses: expensesRouter,
   reports: reportsRouter,
+  fuelCosting: fuelCostingRouter,
   audit: auditRouter,
   security: securityRouter,
   workforce: workforceRouter,

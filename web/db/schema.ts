@@ -1327,6 +1327,14 @@ export const tankRefills = posSchema
         .notNull()
         .default(0),
       note: text("note"),
+      netCostAmount: numeric("net_cost_amount", {
+        precision: 24,
+        scale: 6,
+        mode: "number",
+      }),
+      costProductId: integer("cost_product_id").references(() => products.id, {
+        onDelete: "restrict",
+      }),
       createdAt: timestamp("created_at", { withTimezone: true })
         .notNull()
         .defaultNow(),
@@ -1334,6 +1342,42 @@ export const tankRefills = posSchema
     t => ({
       branchIdx: index("tankrefill_branch_idx").on(t.branchId),
       tankIdx: index("tankrefill_tank_idx").on(t.tankId),
+    })
+  )
+  .enableRLS();
+
+export const fuelCostOpenings = posSchema
+  .table(
+    "fuel_cost_openings",
+    {
+      id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+      branchId: integer("branch_id")
+        .notNull()
+        .references(() => branches.id, { onDelete: "restrict" }),
+      productId: integer("product_id")
+        .notNull()
+        .references(() => products.id, { onDelete: "restrict" }),
+      effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull(),
+      liters: numeric("liters", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      }).notNull(),
+      unitCost: numeric("unit_cost", {
+        precision: 18,
+        scale: 6,
+        mode: "number",
+      }).notNull(),
+      note: text("note").notNull().default(""),
+      createdAt: timestamp("created_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+    },
+    table => ({
+      productUnique: uniqueIndex("fuel_cost_opening_branch_product_unique").on(
+        table.branchId,
+        table.productId
+      ),
     })
   )
   .enableRLS();

@@ -975,26 +975,57 @@ export const catalogRouter = createRouter({
         tankId: z.number(),
         liters: z.number().positive(),
         costPerLiter: z.number().nonnegative().default(0),
+        costIncludesVat: z.boolean().optional(),
+        purchaseVatRate: z.number().finite().min(0).max(100).optional(),
+        freight: z.number().finite().nonnegative().max(1e9).default(0),
+        purchaseDiscount: z.number().finite().nonnegative().max(1e9).default(0),
         note: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      const tank = await db.query.fuelTanks.findFirst({
-        where: and(
-          eq(fuelTanks.id, input.tankId),
-          eq(fuelTanks.branchId, branchId)
-        ),
-      });
-      if (!tank) throw new Error("ไม่พบถัง");
-      const next = tank.currentLiters + input.liters;
-      if (next > tank.capacityLiters) throw new Error("เกินความจุถัง");
-      await db.transaction(async tx => {
-        await tx.insert(tankRefills).values({ ...input, branchId });
+      const purchaseAmount =
+        input.liters * input.costPerLiter +
+        input.freight -
+        input.purchaseDiscount;
+      if (purchaseAmount < 0) throw new Error("ส่วนลดซื้อเกินมูลค่ารับเข้า");
+      const netCostAmount =
+        input.costPerLiter > 0 &&
+        input.costIncludesVat !== undefined &&
+        input.purchaseVatRate !== undefined
+          ? Math.round(
+              (purchaseAmount /
+                (input.costIncludesVat ? 1 + input.purchaseVatRate / 100 : 1)) *
+                1e6
+            ) / 1e6
+          : null;
+      const next = await db.transaction(async tx => {
+        const [tank] = await tx
+          .select()
+          .from(fuelTanks)
+          .where(
+            and(
+              eq(fuelTanks.id, input.tankId),
+              eq(fuelTanks.branchId, branchId)
+            )
+          )
+          .for("update");
+        if (!tank) throw new Error("ไม่พบถัง");
+        const nextLiters = tank.currentLiters + input.liters;
+        if (nextLiters > tank.capacityLiters) throw new Error("เกินความจุถัง");
+        await tx.insert(tankRefills).values({
+          tankId: input.tankId,
+          liters: input.liters,
+          costPerLiter: input.costPerLiter,
+          note: input.note,
+          netCostAmount,
+          costProductId: tank.productId,
+          branchId,
+        });
         await tx
           .update(fuelTanks)
-          .set({ currentLiters: next })
+          .set({ currentLiters: nextLiters })
           .where(
             and(
               eq(fuelTanks.id, input.tankId),
@@ -1010,6 +1041,7 @@ export const catalogRouter = createRouter({
               eq(products.branchId, branchId)
             )
           );
+        return nextLiters;
       });
       return { ok: true, currentLiters: next };
     }),

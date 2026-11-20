@@ -104,6 +104,14 @@ export const MENU_PERMISSION_DEFINITIONS = [
     apiPrefixes: ["expenses."] as const,
   },
   {
+    key: "fuel_costing",
+    path: "/reports/fuel-costing",
+    label: "ต้นทุนและกำไรน้ำมัน",
+    group: "document",
+    roles: MANAGER_AND_ADMIN,
+    apiPrefixes: ["fuelCosting."] as const,
+  },
+  {
     key: "tax_invoices",
     path: "/tax-invoices",
     label: "ใบกำกับภาษี",
