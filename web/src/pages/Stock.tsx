@@ -202,6 +202,10 @@ export default function Stock() {
   } | null>(null);
   const [liters, setLiters] = useState("");
   const [cost, setCost] = useState("");
+  const [purchaseVatRate, setPurchaseVatRate] = useState("7");
+  const [costIncludesVat, setCostIncludesVat] = useState(true);
+  const [freight, setFreight] = useState("");
+  const [purchaseDiscount, setPurchaseDiscount] = useState("");
   const [readTank, setReadTank] = useState<{
     id: number;
     name: string;
@@ -267,6 +271,9 @@ export default function Stock() {
       setRefillTank(null);
       setLiters("");
       setCost("");
+      setFreight("");
+      setPurchaseDiscount("");
+      utils.fuelCosting.report.invalidate();
       setErr("");
     },
     onError: e => setErr(e.message),
@@ -945,7 +952,7 @@ export default function Stock() {
                     รายละเอียดการรับเข้า
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    ต้นทุนของล็อตนี้จะใช้เป็นต้นทุนสินค้าล่าสุด
+                    ต้นทุนสุทธิของล็อตนี้จะนำไปถัวเฉลี่ยในรายงานต้นทุนและกำไรน้ำมัน
                   </p>
                 </div>
               </div>
@@ -965,7 +972,7 @@ export default function Stock() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-semibold text-slate-700">
-                    ต้นทุนต่อลิตร (บาท)
+                    ราคาซื้อต่อลิตร (บาท ตามฐาน VAT ที่เลือก)
                   </Label>
                   <Input
                     type="number"
@@ -977,6 +984,50 @@ export default function Stock() {
                     className="bg-white"
                   />
                 </div>
+                <label className="grid gap-2 text-xs font-semibold text-slate-700">
+                  ฐานราคาซื้อ ค่าขนส่ง และส่วนลด
+                  <select
+                    className="h-11 min-w-0 rounded-xl border bg-white px-3 text-sm"
+                    value={costIncludesVat ? "inclusive" : "exclusive"}
+                    onChange={event =>
+                      setCostIncludesVat(event.target.value === "inclusive")
+                    }
+                  >
+                    <option value="inclusive">รวม VAT ที่ขอคืนได้</option>
+                    <option value="exclusive">ไม่รวม VAT ที่ขอคืนได้</option>
+                  </select>
+                </label>
+                <label className="grid gap-2 text-xs font-semibold text-slate-700">
+                  VAT ที่ขอคืนได้ (%)
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={purchaseVatRate}
+                    onChange={event => setPurchaseVatRate(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-2 text-xs font-semibold text-slate-700">
+                  ค่าขนส่งของล็อต (บาท)
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={freight}
+                    onChange={event => setFreight(event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-2 text-xs font-semibold text-slate-700">
+                  ส่วนลดซื้อของล็อต (บาท)
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={purchaseDiscount}
+                    onChange={event => setPurchaseDiscount(event.target.value)}
+                  />
+                </label>
               </div>
             </section>
           </div>
@@ -989,6 +1040,10 @@ export default function Stock() {
                   tankId: refillTank!.id,
                   liters: Number(liters),
                   costPerLiter: Number(cost) || 0,
+                  costIncludesVat,
+                  purchaseVatRate: Number(purchaseVatRate),
+                  freight: Number(freight) || 0,
+                  purchaseDiscount: Number(purchaseDiscount) || 0,
                 })
               }
             >

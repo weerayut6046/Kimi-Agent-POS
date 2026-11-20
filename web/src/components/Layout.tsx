@@ -174,6 +174,14 @@ const menus: MenuItem[] = [
     group: "document",
   },
   {
+    permission: "fuel_costing",
+    to: "/reports/fuel-costing",
+    label: "ต้นทุนและกำไรน้ำมัน",
+    icon: ChartNoAxesCombined,
+    managerOnly: true,
+    group: "document",
+  },
+  {
     permission: "expenses",
     to: "/expenses",
     label: "ค่าใช้จ่าย",
@@ -252,6 +260,7 @@ const routePreloaders: Record<string, () => Promise<unknown>> = {
   "/sales": () => import("@/pages/Sales"),
   "/expenses": () => import("@/pages/Expenses"),
   "/reports": () => import("@/pages/Reports"),
+  "/reports/fuel-costing": () => import("@/pages/FuelCosting"),
   "/tax-invoices": () => import("@/pages/TaxInvoices"),
   "/documents": () => import("@/pages/Documents"),
   "/audit": () => import("@/pages/Audit"),

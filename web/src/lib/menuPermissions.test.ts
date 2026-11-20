@@ -10,6 +10,17 @@ import {
 
 describe("menu permissions", () => {
   it("keeps legacy users on the previous role defaults", () => {
+    expect(hasMenuPermission("cashier", null, "fuel_costing")).toBe(false);
+    expect(hasMenuPermission("manager", null, "fuel_costing")).toBe(true);
+    expect(getApiMenuPermissions("fuelCosting.report")).toEqual([
+      "fuel_costing",
+    ]);
+    expect(getApiMenuPermissions("fuelCosting.setOpening")).toEqual([
+      "fuel_costing",
+    ]);
+    expect(
+      normalizeMenuPermissions("cashier", ["pos", "fuel_costing"])
+    ).toEqual(["pos"]);
     expect(normalizeMenuPermissions("cashier", null)).toEqual(
       getRoleMenuPermissions("cashier")
     );
@@ -157,7 +168,11 @@ describe("menu permissions", () => {
       );
       expect(getRoleMenuPermissions(role)).not.toContain("profitability");
       expect(
-        normalizeMenuPermissions(role, ["customers", "settings", "profitability"])
+        normalizeMenuPermissions(role, [
+          "customers",
+          "settings",
+          "profitability",
+        ])
       ).toEqual(normalizeMenuPermissions(role, ["customers", "settings"]));
     }
   );
@@ -294,9 +309,16 @@ describe("menu permissions", () => {
       "settings",
     ]);
     expect(getApiMenuPermissions("pos.currentShift")).toEqual([]);
-    expect(getApiMenuPermissions("reports.exportDailyExcel")).toEqual(["sales"]);
-    expect(getApiMenuPermissions("reports.exportRangeExcel")).toEqual(["sales"]);
-    expect(getApiMenuPermissions("reports.daily")).toEqual(["dashboard", "sales"]);
+    expect(getApiMenuPermissions("reports.exportDailyExcel")).toEqual([
+      "sales",
+    ]);
+    expect(getApiMenuPermissions("reports.exportRangeExcel")).toEqual([
+      "sales",
+    ]);
+    expect(getApiMenuPermissions("reports.daily")).toEqual([
+      "dashboard",
+      "sales",
+    ]);
     expect(getApiMenuPermissions("reports.fuelStockSummary")).toEqual([
       "stock",
     ]);
