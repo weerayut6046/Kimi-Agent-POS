@@ -29,15 +29,13 @@ describe("fuel costing APIs", () => {
         .fuelCosting.report({ from: "2026-01-01", to: "2026-01-31" })
     ).rejects.toThrow("สิทธิ์");
     await expect(
-      t
-        .caller("manager")
-        .fuelCosting.setOpening({
-          productId: 999999,
-          effectiveAt: new Date("2026-01-01"),
-          liters: 1,
-          unitCost: 30,
-          note: "test",
-        })
+      t.caller("manager").fuelCosting.setOpening({
+        productId: 999999,
+        effectiveAt: new Date("2026-01-01"),
+        liters: 1,
+        unitCost: 30,
+        note: "test",
+      })
     ).rejects.toThrow("ไม่พบ");
     await expect(
       t
@@ -46,36 +44,30 @@ describe("fuel costing APIs", () => {
     ).rejects.toThrow();
   });
   it("saves an immutable opening and uses invoice amounts, discounts and VAT", async () => {
-    await t
-      .caller("manager")
-      .fuelCosting.setOpening({
-        productId,
-        effectiveAt: new Date("2026-01-01T00:00:00+07:00"),
-        liters: 2000,
-        unitCost: 30,
-        note: "ตรวจใบซื้อแล้ว",
-      });
+    await t.caller("manager").fuelCosting.setOpening({
+      productId,
+      effectiveAt: new Date("2026-01-01T00:00:00+07:00"),
+      liters: 2000,
+      unitCost: 30,
+      note: "ตรวจใบซื้อแล้ว",
+    });
     await expect(
-      t
-        .caller("manager")
-        .fuelCosting.setOpening({
-          productId,
-          effectiveAt: new Date("2026-01-01"),
-          liters: 1,
-          unitCost: 1,
-          note: "duplicate",
-        })
+      t.caller("manager").fuelCosting.setOpening({
+        productId,
+        effectiveAt: new Date("2026-01-01"),
+        liters: 1,
+        unitCost: 1,
+        note: "duplicate",
+      })
     ).rejects.toThrow("แล้ว");
-    await t.db
-      .insert(tankRefills)
-      .values({
-        tankId,
-        branchId: 1,
-        liters: 3000,
-        costPerLiter: 34.24,
-        netCostAmount: 96000,
-        createdAt: new Date("2026-01-02T10:00:00+07:00"),
-      });
+    await t.db.insert(tankRefills).values({
+      tankId,
+      branchId: 1,
+      liters: 3000,
+      costPerLiter: 34.24,
+      netCostAmount: 96000,
+      createdAt: new Date("2026-01-02T10:00:00+07:00"),
+    });
     const [sale] = await t.db
       .insert(sales)
       .values({
@@ -85,6 +77,7 @@ describe("fuel costing APIs", () => {
         discount: 107,
         total: 36273,
         vatRate: 7,
+        vatAmount: 2373,
         createdAt: new Date("2026-01-03T10:00:00+07:00"),
       })
       .returning();
@@ -144,30 +137,24 @@ describe("fuel costing APIs", () => {
         r => r.id === receipt.id
       )
     ).toBe(true);
-    await t
-      .caller("manager")
-      .fuelCosting.confirmReceiptCost({
-        id: receipt.id,
-        netAmount: 600,
-        note: "ยืนยันใบซื้อ",
-      });
+    await t.caller("manager").fuelCosting.confirmReceiptCost({
+      id: receipt.id,
+      netAmount: 600,
+      note: "ยืนยันใบซื้อ",
+    });
     await expect(
-      t
-        .caller("manager")
-        .fuelCosting.confirmReceiptCost({
-          id: receipt.id,
-          netAmount: 50,
-          note: "overwrite",
-        })
+      t.caller("manager").fuelCosting.confirmReceiptCost({
+        id: receipt.id,
+        netAmount: 50,
+        note: "overwrite",
+      })
     ).rejects.toThrow("แล้ว");
     await expect(
-      t
-        .caller("cashier")
-        .fuelCosting.confirmReceiptCost({
-          id: receipt.id,
-          netAmount: 50,
-          note: "cashier",
-        })
+      t.caller("cashier").fuelCosting.confirmReceiptCost({
+        id: receipt.id,
+        netAmount: 50,
+        note: "cashier",
+      })
     ).rejects.toThrow("สิทธิ์");
   });
 });

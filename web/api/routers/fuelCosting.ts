@@ -244,7 +244,7 @@ export const fuelCostingRouter = createRouter({
           amount: saleItems.amount,
           subtotal: sales.subtotal,
           total: sales.total,
-          vatRate: sales.vatRate,
+          vatAmount: sales.vatAmount,
           reference: sales.receiptNo,
           transactionType: sales.transactionType,
         })
@@ -294,8 +294,7 @@ export const fuelCostingRouter = createRouter({
             liters: Math.abs(row.qty),
             netAmount:
               row.subtotal !== 0
-                ? (row.amount * (row.total / row.subtotal)) /
-                  (1 + row.vatRate / 100)
+                ? row.amount * ((row.total - row.vatAmount) / row.subtotal)
                 : 0,
             reference: row.reference,
           })),
