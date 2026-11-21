@@ -922,7 +922,7 @@ function BusinessLayout() {
 
         <SheetContent
           side="left"
-          className="pos-sidebar flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
+          className="pos-sidebar flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 bg-[hsl(var(--pos-sidebar))] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
         >
           <SheetHeader className="pos-sidebar-brand flex h-[78px] shrink-0 justify-center border-b border-white/10 px-5 pr-12 text-left">
             <SheetTitle className="pos-sidebar-title font-heading text-base font-semibold text-white">
