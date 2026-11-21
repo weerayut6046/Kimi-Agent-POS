@@ -71,6 +71,7 @@ type MenuItem = {
   to: string;
   label: string;
   shortLabel?: string;
+  reportDescription?: string;
   icon: LucideIcon;
   end?: boolean;
   adminOnly?: boolean;
@@ -169,6 +170,7 @@ const menus: MenuItem[] = [
     permission: "sales",
     to: "/reports",
     label: "รายงานปิดวัน",
+    reportDescription: "สรุปยอดขายและปิดวัน",
     icon: ClipboardList,
     managerOnly: true,
     group: "document",
@@ -177,6 +179,7 @@ const menus: MenuItem[] = [
     permission: "fuel_costing",
     to: "/reports/fuel-costing",
     label: "ต้นทุนและกำไรน้ำมัน",
+    reportDescription: "ต้นทุนเฉลี่ยและกำไรจริง",
     icon: ChartNoAxesCombined,
     managerOnly: true,
     group: "document",
@@ -491,39 +494,68 @@ function BusinessLayout() {
   };
 
   const renderNavItem = (menu: MenuItem, closeOnClick = false) => {
+    const isReport = Boolean(menu.reportDescription);
     const link = (
       <NavLink
         to={menu.to}
-        end={
-          menu.end ||
-          (menu.to === "/stock" && currentMenu?.permission === "fuel_forecast")
-        }
+        end={menu.end || currentMenu?.to !== menu.to}
         onMouseEnter={() => void preloadRoute(menu.to)}
         onFocus={() => void preloadRoute(menu.to)}
         onTouchStart={() => void preloadRoute(menu.to)}
         onClick={closeOnClick ? () => setMobileMenuOpen(false) : undefined}
         className={({ isActive }) =>
-          cn(
-            "pos-nav-link group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-            isActive
-              ? "pos-nav-active"
-              : "text-white/60 hover:bg-white/[0.07] hover:text-white"
-          )
+          isReport
+            ? cn(
+                "pos-report-link group relative flex min-h-14 min-w-0 items-center gap-2.5 rounded-xl px-2.5 py-2 text-sidebar-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                isActive
+                  ? "bg-sidebar-accent shadow-sm"
+                  : "hover:bg-sidebar-accent/60"
+              )
+            : cn(
+                "pos-nav-link group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                isActive
+                  ? "pos-nav-active"
+                  : "text-white/60 hover:bg-white/[0.07] hover:text-white"
+              )
         }
       >
         {({ isActive }) => (
           <>
+            {isReport && isActive && (
+              <span
+                className="absolute inset-y-4 left-0 w-0.5 rounded-full bg-sidebar-primary"
+                aria-hidden="true"
+              />
+            )}
             <span
               className={cn(
-                "pos-nav-icon grid size-8 shrink-0 place-items-center rounded-lg transition-all duration-200",
-                isActive
-                  ? "pos-nav-icon-active"
-                  : "bg-white/[0.04] text-white/50 group-hover:bg-white/10 group-hover:text-primary"
+                "grid size-8 shrink-0 place-items-center rounded-lg transition-colors duration-200",
+                isReport
+                  ? isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                    : "bg-sidebar-accent text-sidebar-foreground/60"
+                  : cn(
+                      "pos-nav-icon",
+                      isActive
+                        ? "pos-nav-icon-active"
+                        : "bg-white/[0.04] text-white/50 group-hover:bg-white/10 group-hover:text-primary"
+                    )
               )}
             >
-              <menu.icon className="size-[18px]" />
+              <menu.icon className="size-[18px]" aria-hidden="true" />
             </span>
-            <span className="pos-nav-label">{menu.label}</span>
+            {isReport ? (
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold leading-5">
+                  {menu.label}
+                </span>
+                <span className="mt-0.5 block text-[10px] leading-4 text-sidebar-foreground/60">
+                  {menu.reportDescription}
+                </span>
+              </span>
+            ) : (
+              <span className="pos-nav-label">{menu.label}</span>
+            )}
             {menu.to === "/pos" && !isActive && (
               <span className="ml-auto size-2 rounded-full bg-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]" />
             )}
@@ -533,6 +565,30 @@ function BusinessLayout() {
     );
 
     return link;
+  };
+
+  const renderNavGroup = (groupMenus: MenuItem[], closeOnClick = false) => {
+    const reports = groupMenus.filter(menu => menu.reportDescription);
+    return (
+      <div className="space-y-1">
+        {reports.length > 0 && (
+          <div
+            role="group"
+            aria-label="รายงานสถานี"
+            className="pos-report-nav mb-2 space-y-1 rounded-2xl border border-sidebar-border bg-sidebar-accent/20 p-1"
+          >
+            {reports.map(menu => (
+              <div key={menu.to}>{renderNavItem(menu, closeOnClick)}</div>
+            ))}
+          </div>
+        )}
+        {groupMenus
+          .filter(menu => !menu.reportDescription)
+          .map(menu => (
+            <div key={menu.to}>{renderNavItem(menu, closeOnClick)}</div>
+          ))}
+      </div>
+    );
   };
 
   const renderWorkspaceSwitcher = () => (
@@ -638,11 +694,7 @@ function BusinessLayout() {
                     <div className="pos-sidebar-section-label mb-1.5 px-3 text-[9px] font-bold uppercase tracking-[0.18em] text-white/[0.28]">
                       {groupLabels[group]}
                     </div>
-                    <div className="space-y-1">
-                      {groupMenus.map(menu => (
-                        <div key={menu.to}>{renderNavItem(menu)}</div>
-                      ))}
-                    </div>
+                    {renderNavGroup(groupMenus)}
                   </div>
                 );
               }
@@ -870,7 +922,7 @@ function BusinessLayout() {
 
         <SheetContent
           side="left"
-          className="pos-sidebar flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
+          className="pos-sidebar flex w-[304px] max-w-[88vw] flex-col gap-0 border-0 bg-[hsl(var(--pos-sidebar))] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white"
         >
           <SheetHeader className="pos-sidebar-brand flex h-[78px] shrink-0 justify-center border-b border-white/10 px-5 pr-12 text-left">
             <SheetTitle className="pos-sidebar-title font-heading text-base font-semibold text-white">
@@ -893,11 +945,7 @@ function BusinessLayout() {
                     <div className="pos-sidebar-section-label mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/[0.35]">
                       {groupLabels[group]}
                     </div>
-                    <div className="space-y-1">
-                      {groupMenus.map(menu => (
-                        <div key={menu.to}>{renderNavItem(menu, true)}</div>
-                      ))}
-                    </div>
+                    {renderNavGroup(groupMenus, true)}
                   </div>
                 );
               }
