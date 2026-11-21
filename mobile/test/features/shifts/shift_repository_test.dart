@@ -105,7 +105,7 @@ void main() {
     });
     expect(input['countedCash'], 1250);
     expect(input['cashCounts'], {'1000': 1, '100': 2, '20': 2, '5': 2});
-    expect(input['lubricantItems'], isEmpty);
+    expect(input.containsKey('lubricantItems'), isFalse);
   });
 }
 
