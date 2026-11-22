@@ -91,7 +91,6 @@ class ShiftRepository {
         if (cashCounts != null && cashCounts.isNotEmpty)
           'cashCounts': cashCounts,
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-        'lubricantItems': <Object>[],
       },
       branchId: branchId,
     );
