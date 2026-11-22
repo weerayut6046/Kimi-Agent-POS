@@ -59,13 +59,13 @@ describe("pos dashboard", () => {
     expect(dashboard.todayBills).toBe(1);
     expect(dashboard.todayPosTotal).toBe(sale.total);
     expect(dashboard.todayShiftTotal).toBe(5000);
-    expect(dashboard.todayTotal).toBe(5000 + sale.total);
+    expect(dashboard.todayTotal).toBe(sale.total);
     expect(dashboard.todayShiftCount).toBe(1);
     expect(dashboard.shiftLitersToday).toBe(100);
     expect(dashboard.litersToday).toBe(100);
     expect(dashboard.fuelSource).toBe("shift");
     expect(dashboard.chart.at(-1)).toMatchObject({
-      total: 5000 + sale.total,
+      total: sale.total,
       posTotal: sale.total,
       shiftTotal: 5000,
       shifts: 1,

@@ -1502,13 +1502,9 @@ export default function Shifts() {
                       </div>
                       {hasCounts && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          ส่วนต่างเงินสดเดิม (สด + โอน เทียบเงินสดควรมี)
+                          เงินสดที่นับได้เทียบกับเงินสดที่ควรมี
                           <DiffBadge
-                            diff={r2(
-                              countedTotal +
-                                transferPreview -
-                                expectedCashPreview
-                            )}
+                            diff={r2(countedTotal - expectedCashPreview)}
                           />
                         </div>
                       )}
@@ -1590,17 +1586,10 @@ export default function Shifts() {
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">
-                        รวมยอดกะ (P + POS ทั้งหมด)
+                        ยอดขายตามบิล POS
                       </div>
                       <div className="font-heading text-xl font-semibold text-violet-700">
-                        ฿
-                        {fmtMoney(
-                          r2(
-                            (closePreview.money > 0
-                              ? closePreview.money
-                              : closePreview.amountL) + posSalesPreview
-                          )
-                        )}
+                        ฿{fmtMoney(posSalesPreview)}
                       </div>
                     </div>
                     {hasCountedSummary && (
@@ -1818,7 +1807,6 @@ export default function Shifts() {
                       <TableHead className="text-right">
                         น้ำมันเครื่อง
                       </TableHead>
-                      <TableHead className="text-right">รวมยอดกะ</TableHead>
                       <TableHead className="text-right">ยอด POS</TableHead>
                       <TableHead className="text-right">เงินทอน</TableHead>
                       <TableHead className="text-right">ยอดนับได้รวม</TableHead>
@@ -1862,16 +1850,6 @@ export default function Shifts() {
                             ? `฿${fmtMoney(s.lubricantAmount ?? 0)}`
                             : "-"}
                         </TableCell>
-                        <TableCell className="text-right font-medium">
-                          ฿
-                          {fmtMoney(
-                            r2(
-                              (s.totalMoneyMeter > 0
-                                ? s.totalMoneyMeter
-                                : s.totalAmount) + s.posAmount
-                            )
-                          )}
-                        </TableCell>
                         <TableCell className="text-right">
                           ฿{fmtMoney(s.posAmount)}
                         </TableCell>
@@ -1886,10 +1864,10 @@ export default function Shifts() {
                             : "-"}
                         </TableCell>
                         <TableCell>
-                          {s.countedTotal != null && s.expectedCash != null ? (
+                          {s.countedCash != null && s.expectedCash != null ? (
                             <DiffBadge
                               diff={shiftCashDifference({
-                                countedTotal: s.countedTotal,
+                                countedCash: s.countedCash,
                                 expectedCash: s.expectedCash,
                               })!}
                             />
@@ -2004,7 +1982,7 @@ export default function Shifts() {
                     {(history ?? []).length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={16}
+                          colSpan={15}
                           className="text-center text-muted-foreground py-8"
                         >
                           ยังไม่มีประวัติ
@@ -2702,19 +2680,6 @@ export default function Shifts() {
                     <div>
                       น้ำมันเครื่อง:{" "}
                       <b>฿{fmtMoney(detail.lubricantAmount ?? 0)}</b>
-                    </div>
-                    <div>
-                      รวมยอดกะ:{" "}
-                      <b>
-                        ฿
-                        {fmtMoney(
-                          r2(
-                            (detail.totalMoneyMeter > 0
-                              ? detail.totalMoneyMeter
-                              : detail.totalAmount) + detail.posAmount
-                          )
-                        )}
-                      </b>
                     </div>
                     {detail.status === "closed" && (
                       <MeterDiffBadge

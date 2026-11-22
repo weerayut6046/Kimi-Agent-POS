@@ -166,91 +166,105 @@ export default function FuelCosting() {
     ? items.reduce((sum, item) => sum + (item.ledger?.costOfSales ?? 0), 0)
     : null;
 
-  const exportCsv = () => {
-    const rows: Array<Array<string | number | null>> = [
-      ["ต้นทุนเฉลี่ยเคลื่อนที่ น้ำมัน", from, to],
-      ["ฐานคำนวณ", "ยอดขาย POS หลังส่วนลด และต้นทุนไม่รวม VAT ที่ขอคืนได้"],
-      [
-        "น้ำมัน",
-        "วันเวลา",
-        "ประเภท",
-        "อ้างอิง",
-        "ลิตร",
-        "ยอดขาย/รับเข้าสุทธิ",
-        "ต้นทุนขาย",
-        "กำไรขั้นต้น",
-        "ลิตรคงเหลือ",
-        "ต้นทุนเฉลี่ย",
-        "สถานะ",
-      ],
-    ];
-    for (const item of items) {
-      if (!item.ledger) {
+  const [exporting, setExporting] = useState(false);
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const { items: exportItems } =
+        await utils.client.fuelCosting.report.query({
+          from,
+          to,
+          fullDetails: true,
+        });
+      const rows: Array<Array<string | number | null>> = [
+        ["ต้นทุนเฉลี่ยเคลื่อนที่ น้ำมัน", from, to],
+        ["ฐานคำนวณ", "ยอดขาย POS หลังส่วนลด และต้นทุนไม่รวม VAT ที่ขอคืนได้"],
+        [
+          "น้ำมัน",
+          "วันเวลา",
+          "ประเภท",
+          "อ้างอิง",
+          "ลิตร",
+          "ยอดขาย/รับเข้าสุทธิ",
+          "ต้นทุนขาย",
+          "กำไรขั้นต้น",
+          "ลิตรคงเหลือ",
+          "ต้นทุนเฉลี่ย",
+          "สถานะ",
+        ],
+      ];
+      for (const item of exportItems) {
+        if (!item.ledger) {
+          rows.push([
+            item.name,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "ยังไม่มียอดยกมา",
+          ]);
+          continue;
+        }
+        for (const row of item.ledger.rows)
+          rows.push([
+            item.name,
+            fmtDateTime(row.at),
+            kindLabel[row.kind],
+            row.reference,
+            row.liters,
+            row.netAmount,
+            row.costOfSales,
+            row.profit,
+            row.balanceLiters,
+            row.averageCost,
+            row.issue ?? "",
+          ]);
         rows.push([
           item.name,
           "",
+          "สรุปงวด",
           "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "ยังไม่มียอดยกมา",
+          item.ledger.soldLiters,
+          item.ledger.revenue,
+          item.ledger.costOfSales,
+          item.ledger.grossProfit,
+          item.ledger.closingLiters,
+          item.ledger.averageCost,
+          item.ledger.complete ? "ข้อมูลครบ" : "ข้อมูลต้นทุนยังไม่ครบ",
         ]);
-        continue;
       }
-      for (const row of item.ledger.rows)
-        rows.push([
-          item.name,
-          fmtDateTime(row.at),
-          kindLabel[row.kind],
-          row.reference,
-          row.liters,
-          row.netAmount,
-          row.costOfSales,
-          row.profit,
-          row.balanceLiters,
-          row.averageCost,
-          row.issue ?? "",
-        ]);
-      rows.push([
-        item.name,
-        "",
-        "สรุปงวด",
-        "",
-        item.ledger.soldLiters,
-        item.ledger.revenue,
-        item.ledger.costOfSales,
-        item.ledger.grossProfit,
-        item.ledger.closingLiters,
-        item.ledger.averageCost,
-        item.ledger.complete ? "ข้อมูลครบ" : "ข้อมูลต้นทุนยังไม่ครบ",
-      ]);
+      const csv = rows
+        .map(row =>
+          row
+            .map(cell => {
+              const value = String(cell ?? "");
+              const safe =
+                /^[=+@-]/.test(value) && typeof cell === "string"
+                  ? "'" + value
+                  : value;
+              return '"' + safe.replaceAll('"', '""') + '"';
+            })
+            .join(",")
+        )
+        .join("\r\n");
+      const url = URL.createObjectURL(
+        new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `fuel-costing-${from}-${to}.csv`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ส่งออกไม่สำเร็จ");
+    } finally {
+      setExporting(false);
     }
-    const csv = rows
-      .map(row =>
-        row
-          .map(cell => {
-            const value = String(cell ?? "");
-            const safe =
-              /^[=+@-]/.test(value) && typeof cell === "string"
-                ? "'" + value
-                : value;
-            return '"' + safe.replaceAll('"', '""') + '"';
-          })
-          .join(",")
-      )
-      .join("\r\n");
-    const url = URL.createObjectURL(
-      new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `fuel-costing-${from}-${to}.csv`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -282,7 +296,7 @@ export default function FuelCosting() {
           />
           <Button
             onClick={exportCsv}
-            disabled={!report.data || report.isFetching}
+            disabled={!report.data || report.isFetching || exporting}
             className="col-span-2 h-11 min-w-0 rounded-xl bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 sm:col-span-1 sm:h-12 sm:px-5"
           >
             <Download className="size-4" /> ส่งออก CSV

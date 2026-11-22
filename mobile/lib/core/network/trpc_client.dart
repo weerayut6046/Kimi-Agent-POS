@@ -70,6 +70,33 @@ class TrpcClient {
     return _decode(response, procedure);
   }
 
+  Future<String> staffPinSession(String username, String pin) async {
+    const procedure = 'staffAuth.loginWithPin';
+    final response = await _httpClient.post(
+      _procedureUri(procedure),
+      headers: _publicHeaders,
+      body: jsonEncode({
+        'json': {'username': username, 'pin': pin},
+      }),
+    );
+    final result = _decode(response, procedure);
+    final session = result is Map ? result['authSession'] : null;
+    final token = session is Map ? session['refreshToken'] : null;
+    if (token is! String || token.isEmpty) {
+      throw const TrpcException(
+        procedure: procedure,
+        message: 'สร้างเซสชันมือถือไม่สำเร็จ',
+      );
+    }
+    return token;
+  }
+
+  Map<String, String> get _publicHeaders => {
+    'apikey': _publishableKey,
+    'content-type': 'application/json',
+    'x-region': _functionRegion,
+  };
+
   Uri _procedureUri(String procedure, [Map<String, String>? queryParameters]) {
     final basePath = _baseUri.path.replaceFirst(RegExp(r'/+$'), '');
     return _baseUri.replace(
@@ -88,9 +115,7 @@ class TrpcClient {
     }
     return <String, String>{
       'authorization': 'Bearer $accessToken',
-      'apikey': _publishableKey,
-      'content-type': 'application/json',
-      'x-region': _functionRegion,
+      ..._publicHeaders,
       if (branchId != null) 'x-branch-id': '$branchId',
     };
   }

@@ -71,7 +71,7 @@ class _DashboardContent extends StatelessWidget {
         AppPageHero(
           eyebrow: 'Live overview',
           title: branchName,
-          subtitle: 'รวมยอดจากกะที่ปิดวันนี้และยอดขาย POS',
+          subtitle: 'ยอดขายตามบิล POS และมิเตอร์ของกะที่ปิดวันนี้',
           icon: Icons.space_dashboard_rounded,
           status: summary.hasOpenShift ? 'กะเปิดอยู่' : 'รอเปิดกะ',
           statusColor: summary.hasOpenShift
@@ -81,7 +81,7 @@ class _DashboardContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'ยอดขายวันนี้',
+                'ยอดขาย POS วันนี้',
                 style: TextStyle(color: Color(0x8CFFFFFF), fontSize: 11.5),
               ),
               const SizedBox(height: 3),
@@ -150,8 +150,8 @@ class _DashboardContent extends StatelessWidget {
               childAspectRatio: columns == 4 ? 1.45 : 1.25,
               children: [
                 _MetricCard(
-                  label: 'รวม P + POS วันนี้',
-                  value: currency.format(summary.todayTotal),
+                  label: 'จำนวนบิลวันนี้',
+                  value: number.format(summary.todayBills),
                   icon: Icons.payments_rounded,
                   color: const Color(0xFF6656E8),
                 ),
@@ -196,7 +196,7 @@ class _DashboardContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'รวมยอด P จากกะที่ปิดและยอดขาย POS',
+                  'ยอดขายตามบิล POS แยกจากยอดมิเตอร์กะปิด',
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(color: Colors.black54),

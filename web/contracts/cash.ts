@@ -45,11 +45,11 @@ export function shiftCountedTotal(input: {
   return Math.round(total * 100) / 100;
 }
 
-/** ส่วนต่างของกะ = ยอดนับได้รวม − เงินสดที่ควรมี */
+/** ส่วนต่างของกะ = เงินสดที่นับจริง − เงินสดที่ควรมี */
 export function shiftCashDifference(input: {
-  countedTotal: number | null;
+  countedCash: number | null;
   expectedCash: number | null;
 }): number | null {
-  if (input.countedTotal == null || input.expectedCash == null) return null;
-  return Math.round((input.countedTotal - input.expectedCash) * 100) / 100;
+  if (input.countedCash == null || input.expectedCash == null) return null;
+  return Math.round((input.countedCash - input.expectedCash) * 100) / 100;
 }

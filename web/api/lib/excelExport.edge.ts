@@ -1,3 +1,4 @@
+import { fmtDateTH, fmtDateTimeTH } from "./dates";
 import type {
   DailyReportData,
   FuelSalesRow,
@@ -31,23 +32,6 @@ const DEBT_LABEL: Record<string, string> = {
   qr: "QR พร้อมเพย์",
   transfer: "โอน",
 };
-
-function fmtDateTH(value: Date | string): string {
-  const date = new Date(value);
-  return `${String(date.getDate()).padStart(2, "0")}/${String(
-    date.getMonth() + 1
-  ).padStart(2, "0")}/${date.getFullYear() + 543}`;
-}
-
-function fmtDateTimeTH(value: Date | string): string {
-  const date = new Date(value);
-  return `${fmtDateTH(date)} ${String(date.getHours()).padStart(
-    2,
-    "0"
-  )}:${String(date.getMinutes()).padStart(2, "0")}:${String(
-    date.getSeconds()
-  ).padStart(2, "0")}`;
-}
 
 function xml(value: unknown): string {
   return String(value)
@@ -255,7 +239,7 @@ export async function buildDailyWorkbook(
     {
       name: "สรุป",
       rows: [
-        [`รายงานปิดวัน (Z-Report) — ${fmtDateTH(`${daily.date}T00:00:00`)}`],
+        [`รายงานปิดวัน (Z-Report) — ${fmtDateTH(daily.date)}`],
         [],
         ["วันที่", daily.date],
         ["ยอดขาย", daily.totalSales],
@@ -403,11 +387,7 @@ export async function buildRangeWorkbook(input: {
     {
       name: "สรุปรายวัน",
       rows: [
-        [
-          `รายงานยอดขาย ${fmtDateTH(
-            `${input.from}T00:00:00`
-          )} – ${fmtDateTH(`${input.to}T00:00:00`)}`,
-        ],
+        [`รายงานยอดขาย ${fmtDateTH(input.from)} – ${fmtDateTH(input.to)}`],
         [],
         [
           "วันที่",
