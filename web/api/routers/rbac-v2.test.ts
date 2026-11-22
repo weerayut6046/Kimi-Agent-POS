@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { bangkokDateKey } from "@contracts/promotion";
@@ -100,7 +101,7 @@ describe("RBAC session and financial gates", () => {
 
   it("uses current account status, role and branch for each verified bearer request", async () => {
     const staffId = await createFixtureStaff("manager", "bearerfixture", 1);
-    const authUserId = "624e1230-5022-494c-9f8c-6cb4bce5d3c0";
+    const authUserId = randomUUID();
     await test.db
       .update(staffUsers)
       .set({ supabaseAuthUserId: authUserId })
@@ -108,7 +109,7 @@ describe("RBAC session and financial gates", () => {
     const nowSeconds = Math.floor(Date.now() / 1000);
     const claims = {
       sub: authUserId,
-      session_id: "60809b82-88dc-4346-9aa0-b0262b89473c",
+      session_id: randomUUID(),
       exp: nowSeconds + 3600,
     };
     getClaims.mockResolvedValue({ data: { claims }, error: null });
