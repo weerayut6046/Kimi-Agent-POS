@@ -16,7 +16,7 @@ import {
 import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
-import { bangkokDateKey, dayRange } from "../lib/dates";
+import { dayRange } from "../lib/dates";
 import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
 import { queryExpenses } from "./expenses";
 import { shiftCashDifference, shiftCountedTotal } from "@contracts/cash";
@@ -31,7 +31,6 @@ import {
   shifts,
   tankReadings,
   tankRefills,
-  tankWithdrawals,
 } from "@db/schema";
 import {
   buildDailyWorkbook,
@@ -63,6 +62,13 @@ const fuelStockInputSchema = z
     "ยังไม่สามารถออกรายงานของปีในอนาคตได้"
   );
 
+/** Date → "YYYY-MM-DD" แบบ local (ห้ามใช้ toISOString เพราะจะเป็น UTC) */
+function toDateStr(d: Date) {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 const THAI_MONTHS = [
   "ม.ค.",
   "ก.พ.",
@@ -93,7 +99,6 @@ function bangkokParts(date: Date) {
 
 type FuelStockView = "monthly" | "yearly";
 type FuelMovement = {
-  dispensedLiters: number;
   receivedLiters: number;
   refillCount: number;
   soldLiters: number;
@@ -110,7 +115,6 @@ type FuelStockPeriod = {
 };
 
 const emptyMovement = (): FuelMovement => ({
-  dispensedLiters: 0,
   receivedLiters: 0,
   refillCount: 0,
   soldLiters: 0,
@@ -167,7 +171,6 @@ function addMovement(
 ) {
   const current = target.get(productId) ?? emptyMovement();
   target.set(productId, {
-    dispensedLiters: r3(current.dispensedLiters + (patch.dispensedLiters ?? 0)),
     receivedLiters: r3(current.receivedLiters + (patch.receivedLiters ?? 0)),
     refillCount: current.refillCount + (patch.refillCount ?? 0),
     soldLiters: r3(current.soldLiters + (patch.soldLiters ?? 0)),
@@ -255,32 +258,7 @@ async function queryFuelMovements(
     saleQuery = saleQuery.groupBy(products.id);
   }
 
-  const meterPeriod =
-    view === "monthly"
-      ? sql<string>`to_char(${tankWithdrawals.occurredAt} at time zone 'Asia/Bangkok','YYYY-MM')`
-      : view === "yearly"
-        ? sql<string>`to_char(${tankWithdrawals.occurredAt} at time zone 'Asia/Bangkok','YYYY')`
-        : sql<string>`'__all__'::text`;
-  const meterQuery = db
-    .select({
-      periodKey: meterPeriod,
-      productId: tankWithdrawals.productId,
-      liters: sql<number>`sum(${tankWithdrawals.liters})`.mapWith(Number),
-    })
-    .from(tankWithdrawals)
-    .where(
-      and(
-        eq(tankWithdrawals.branchId, branchId),
-        gte(tankWithdrawals.occurredAt, start),
-        lt(tankWithdrawals.occurredAt, end)
-      )
-    )
-    .groupBy(meterPeriod, tankWithdrawals.productId);
-  const [refillRows, saleRows, meterRows] = await Promise.all([
-    refillQuery,
-    saleQuery,
-    meterQuery,
-  ]);
+  const [refillRows, saleRows] = await Promise.all([refillQuery, saleQuery]);
   const result = new Map<string, Map<number, FuelMovement>>();
   const getBucket = (periodKey: string) => {
     const existing = result.get(periodKey);
@@ -289,11 +267,6 @@ async function queryFuelMovements(
     result.set(periodKey, created);
     return created;
   };
-
-  for (const row of meterRows)
-    addMovement(getBucket(row.periodKey), row.productId, {
-      dispensedLiters: row.liters,
-    });
 
   for (const row of refillRows) {
     const periodKey = String(row.periodKey);
@@ -367,7 +340,7 @@ export async function queryFuelStockSummary(
     const movement = after.get(product.id) ?? emptyMovement();
     closingByProduct.set(
       product.id,
-      r3(current - movement.receivedLiters + movement.dispensedLiters)
+      r3(current - movement.receivedLiters + movement.soldLiters)
     );
   }
 
@@ -380,7 +353,7 @@ export async function queryFuelStockSummary(
       const movement = movementMap.get(product.id) ?? emptyMovement();
       const closingStock = closingByProduct.get(product.id) ?? 0;
       const openingStock = r3(
-        closingStock - movement.receivedLiters + movement.dispensedLiters
+        closingStock - movement.receivedLiters + movement.soldLiters
       );
       const averageStock = (openingStock + closingStock) / 2;
       closingByProduct.set(product.id, openingStock);
@@ -395,7 +368,7 @@ export async function queryFuelStockSummary(
         soldLiters: movement.soldLiters,
         revenue: movement.revenue,
         closingStock,
-        netMovement: r3(movement.receivedLiters - movement.dispensedLiters),
+        netMovement: r3(movement.receivedLiters - movement.soldLiters),
         inventoryTurnover:
           averageStock > 0 ? r2(movement.soldLiters / averageStock) : 0,
       };
@@ -432,7 +405,7 @@ export async function queryFuelStockSummary(
       soldLiters,
       revenue,
       closingStock,
-      netMovement: r3(closingStock - openingStock),
+      netMovement: r3(receivedLiters - soldLiters),
       inventoryTurnover: averageStock > 0 ? r2(soldLiters / averageStock) : 0,
       products: productItems,
     });
@@ -502,7 +475,7 @@ export async function queryFuelStockSummary(
     rangeStart: reportStart,
     rangeEnd: reportEnd,
     stockMethod:
-      "ยอดคงเหลือย้อนหลังประมาณจากยอดคงเหลือปัจจุบัน โดยย้อนรายการรับเข้าและลิตรที่ตัดถังตามมิเตอร์กะปิด ยอดขาย POS แสดงแยกต่างหาก",
+      "ยอดคงเหลือย้อนหลังประมาณจากยอดคงเหลือปัจจุบัน ± รายการรับเข้าและยอดขายที่บันทึกในระบบ",
     totals: {
       openingStock,
       receivedLiters,
@@ -520,7 +493,7 @@ export async function queryFuelStockSummary(
           0
         )
       ),
-      netMovement: r3(closingStock - openingStock),
+      netMovement: r3(receivedLiters - soldLiters),
       inventoryTurnover: averageStock > 0 ? r2(soldLiters / averageStock) : 0,
       stockCoverageDays:
         soldLiters > 0 ? r2(currentStock / (soldLiters / periodDays)) : null,
@@ -598,10 +571,10 @@ export async function queryDailyReport(
     for (const it of itemRows) {
       if (it.productId == null || !fuelIds.has(it.productId)) continue;
       const acc = fuelByName.get(it.name) ?? { liters: 0, revenue: 0 };
-      acc.liters = r3(acc.liters + it.qty);
+      acc.liters = r2(acc.liters + it.qty);
       acc.revenue = r2(acc.revenue + it.amount);
       fuelByName.set(it.name, acc);
-      totalLiters = r3(totalLiters + it.qty);
+      totalLiters = r2(totalLiters + it.qty);
     }
   }
   const fuelSales = [...fuelByName.entries()].map(([name, totals]) => ({
@@ -645,7 +618,7 @@ export async function queryDailyReport(
       countedTotal,
       cashExpected,
       cashDiff: shiftCashDifference({
-        countedCash: s.countedCash,
+        countedTotal,
         expectedCash: cashExpected,
       }),
     };
@@ -658,7 +631,7 @@ export async function queryDailyReport(
       id: s.id,
       expectedCash: s.cashExpected,
       totalMoneyMeter: s.totalMoneyMeter,
-      countedCash: s.countedCash,
+      countedTotal: s.countedTotal,
     }))
   );
   const shiftsWithCash = baseShifts.map((s, i) => ({
@@ -1075,20 +1048,19 @@ export const reportsRouter = createRouter({
 
       const db = getDb();
       const days: DailyReportData[] = [];
-      for (let d = start; d < end; d = new Date(d.getTime() + 86_400_000)) {
-        days.push(
-          await queryDailyReport(db, bangkokDateKey(d), ctx.staff.branchId)
-        );
+      for (
+        let d = start;
+        d < end;
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
+      ) {
+        days.push(await queryDailyReport(db, toDateStr(d), ctx.staff.branchId));
       }
 
       const totalsByFuel = new Map<string, { liters: number; revenue: number }>();
       for (const day of days) {
         for (const fuel of day.fuelSales) {
-          const totals = totalsByFuel.get(fuel.name) ?? {
-            liters: 0,
-            revenue: 0,
-          };
-          totals.liters = r3(totals.liters + fuel.liters);
+          const totals = totalsByFuel.get(fuel.name) ?? { liters: 0, revenue: 0 };
+          totals.liters = r2(totals.liters + fuel.liters);
           totals.revenue = r2(totals.revenue + fuel.revenue);
           totalsByFuel.set(fuel.name, totals);
         }

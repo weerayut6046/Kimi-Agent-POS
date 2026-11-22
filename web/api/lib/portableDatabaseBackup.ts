@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../queries/connection";
 
 const BACKUP_FORMAT = "kimi-agent-pos-database-backup";
-const BACKUP_VERSION = 2;
+const BACKUP_VERSION = 1;
 const BACKUP_SCHEMA = "pos";
 const MAX_COMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
@@ -15,7 +15,7 @@ type BackupTableDefinition = {
 
 // Insert order follows the foreign-key graph. Keep this list explicit so a
 // file can never select from or restore into an arbitrary database object.
-const LEGACY_BACKUP_TABLES: readonly BackupTableDefinition[] = [
+const BACKUP_TABLES: readonly BackupTableDefinition[] = [
   { name: "branches", orderBy: "id", identityColumn: "id" },
   {
     name: "staff_access_groups",
@@ -60,15 +60,7 @@ const LEGACY_BACKUP_TABLES: readonly BackupTableDefinition[] = [
   { name: "security_events", orderBy: "id" },
   { name: "login_attempts", orderBy: "id", identityColumn: "id" },
   { name: "security_reports", orderBy: "id", identityColumn: "id" },
-  { name: "tank_withdrawals", orderBy: "shift_id, tank_id" },
 ] as const;
-
-const CURRENT_BACKUP_TABLES: readonly BackupTableDefinition[] = [
-  ...LEGACY_BACKUP_TABLES,
-  { name: "fuel_cost_openings", orderBy: "id", identityColumn: "id" },
-  { name: "attendance_sessions", orderBy: "id", identityColumn: "id" },
-  { name: "attendance_events", orderBy: "id", identityColumn: "id" },
-];
 
 type BackupTableData = {
   name: string;
@@ -85,7 +77,7 @@ type BackupPayload = {
 
 type BackupEnvelope = {
   format: typeof BACKUP_FORMAT;
-  version: 1 | typeof BACKUP_VERSION;
+  version: typeof BACKUP_VERSION;
   checksum: {
     algorithm: "SHA-256";
     value: string;
@@ -105,7 +97,6 @@ export type PortableDatabaseBackup = {
 };
 
 export type PortableDatabaseRestore = {
-  legacyBackup: boolean;
   fileName: string;
   createdAt: string;
   sha256: string;
@@ -209,14 +200,13 @@ function resultRows(value: unknown): Record<string, unknown>[] {
 }
 
 async function readTableData(
-  tx: Pick<ReturnType<typeof getDb>, "execute">,
   table: BackupTableDefinition
 ): Promise<BackupTableData> {
   const tableName = quotedTable(table.name);
   const query = sql.raw(
     `select coalesce(jsonb_agg(to_jsonb(source) order by ${table.orderBy}), '[]'::jsonb) as rows from ${tableName} as source`
   );
-  const rawResult = (await tx.execute(query)) as unknown;
+  const rawResult = (await getDb().execute(query)) as unknown;
   const result = Array.isArray(rawResult)
     ? (rawResult as Array<{ rows: unknown }>)
     : isRecord(rawResult) && Array.isArray(rawResult.rows)
@@ -232,10 +222,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseEnvelope(value: unknown): BackupEnvelope {
   if (!isRecord(value)) throw new Error("รูปแบบไฟล์สำรองข้อมูลไม่ถูกต้อง");
-  if (
-    value.format !== BACKUP_FORMAT ||
-    (value.version !== 1 && value.version !== BACKUP_VERSION)
-  ) {
+  if (value.format !== BACKUP_FORMAT || value.version !== BACKUP_VERSION) {
     throw new Error("ไฟล์สำรองข้อมูลคนละชนิดหรือเวอร์ชันนี้ยังไม่รองรับ");
   }
   if (!isRecord(value.checksum) || value.checksum.algorithm !== "SHA-256") {
@@ -254,18 +241,10 @@ function parseEnvelope(value: unknown): BackupEnvelope {
   if (!Array.isArray(value.payload.tables)) {
     throw new Error("ไฟล์สำรองข้อมูลไม่มีรายการตาราง");
   }
+  const expectedNames = BACKUP_TABLES.map(table => table.name);
   const actualNames = value.payload.tables.map(table =>
     isRecord(table) ? String(table.name ?? "") : ""
   );
-  const expectedTables =
-    value.version === 1
-      ? LEGACY_BACKUP_TABLES.filter(
-          table =>
-            table.name !== "tank_withdrawals" ||
-            actualNames.includes(table.name)
-        )
-      : CURRENT_BACKUP_TABLES;
-  const expectedNames = expectedTables.map(table => table.name);
   if (
     actualNames.length !== expectedNames.length ||
     actualNames.some((name, index) => name !== expectedNames[index])
@@ -295,7 +274,7 @@ function parseEnvelope(value: unknown): BackupEnvelope {
 
   return {
     format: BACKUP_FORMAT,
-    version: value.version,
+    version: BACKUP_VERSION,
     checksum: {
       algorithm: "SHA-256",
       value: String(value.checksum.value),
@@ -335,15 +314,8 @@ async function decodeAndVerifyBackup(
 
 export async function createPortableDatabaseBackup(): Promise<PortableDatabaseBackup> {
   const created = new Date();
-  const tables = await getDb().transaction(
-    async tx => {
-      const snapshot: BackupTableData[] = [];
-      for (const table of CURRENT_BACKUP_TABLES)
-        snapshot.push(await readTableData(tx, table));
-      return snapshot;
-    },
-    { isolationLevel: "repeatable read", accessMode: "read only" }
-  );
+  const tables: BackupTableData[] = [];
+  for (const table of BACKUP_TABLES) tables.push(await readTableData(table));
   const payload: BackupPayload = {
     createdAt: created.toISOString(),
     schema: BACKUP_SCHEMA,
@@ -392,21 +364,15 @@ export async function restorePortableDatabaseBackup(input: {
   const tablesByName = new Map(
     envelope.payload.tables.map(table => [table.name, table] as const)
   );
-  // Credentials and outstanding authentication challenges cannot be moved to another station.
-  // List them explicitly so a future foreign key cannot silently erase a new business table.
-  const truncateTargets = [
-    ...CURRENT_BACKUP_TABLES.map(table => table.name),
-    "passkey_credentials",
-    "passkey_challenges",
-  ]
-    .map(quotedTable)
-    .join(", ");
+  const truncateTargets = BACKUP_TABLES.map(table =>
+    quotedTable(table.name)
+  ).join(", ");
 
   await getDb().transaction(async tx => {
     await tx.execute(
-      sql.raw(`truncate table ${truncateTargets} restart identity restrict`)
+      sql.raw(`truncate table ${truncateTargets} restart identity cascade`)
     );
-    for (const table of CURRENT_BACKUP_TABLES) {
+    for (const table of BACKUP_TABLES) {
       const data = tablesByName.get(table.name);
       if (!data?.rows.length) continue;
       const tableName = quotedTable(table.name);
@@ -418,12 +384,7 @@ export async function restorePortableDatabaseBackup(input: {
         )
       `);
     }
-    if (!tablesByName.has("tank_withdrawals")) {
-      await tx.execute(
-        sql`insert into pos.tank_withdrawals select * from pos.legacy_tank_withdrawals`
-      );
-    }
-    for (const table of CURRENT_BACKUP_TABLES) {
+    for (const table of BACKUP_TABLES) {
       if (!table.identityColumn) continue;
       const tableName = quotedTable(table.name);
       await tx.execute(
@@ -435,7 +396,6 @@ export async function restorePortableDatabaseBackup(input: {
   });
 
   return {
-    legacyBackup: envelope.version === 1,
     fileName: input.fileName,
     createdAt: envelope.payload.createdAt,
     sha256: fileSha256,
@@ -444,6 +404,4 @@ export async function restorePortableDatabaseBackup(input: {
   };
 }
 
-export const portableBackupTableNames = CURRENT_BACKUP_TABLES.map(
-  table => table.name
-);
+export const portableBackupTableNames = BACKUP_TABLES.map(table => table.name);

@@ -42,7 +42,6 @@ release2/
 release3/
 # ฐานข้อมูล SQLite ตอน dev
 data/
-!mobile/lib/features/*/data/
 # cache prebuilt native binaries (pack-exe.mjs)
 .cache/
 # Test coverage

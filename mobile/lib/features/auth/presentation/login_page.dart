@@ -201,11 +201,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                 : null,
                           ),
                           const SizedBox(height: 18),
-                          const _FieldLabel('PIN'),
+                          const _FieldLabel('รหัสผ่าน'),
                           const SizedBox(height: 8),
                           TextFormField(
                             controller: _password,
-                            keyboardType: TextInputType.number,
                             obscureText: _obscurePassword,
                             textInputAction: TextInputAction.done,
                             autocorrect: false,
@@ -220,8 +219,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                               prefixIcon: const Icon(Icons.key_rounded),
                               suffixIcon: IconButton(
                                 tooltip: _obscurePassword
-                                    ? 'แสดง PIN'
-                                    : 'ซ่อน PIN',
+                                    ? 'แสดงรหัสผ่าน'
+                                    : 'ซ่อนรหัสผ่าน',
                                 onPressed: () => setState(
                                   () => _obscurePassword = !_obscurePassword,
                                 ),
@@ -232,9 +231,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                 ),
                               ),
                             ),
-                            validator: (value) =>
-                                !RegExp(r'^\d{4,6}$').hasMatch(value ?? '')
-                                ? 'กรุณากรอก PIN 4–6 หลัก'
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'กรุณากรอกรหัสผ่าน'
                                 : null,
                           ),
                           if (widget.errorMessage != null) ...[
