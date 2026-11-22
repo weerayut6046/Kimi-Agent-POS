@@ -154,53 +154,53 @@ describe("เงินสดเทียบยอด P", () => {
     ).toBeNull();
   });
 
-  it("เงินสดต่าง = ยอดนับได้รวม − เงินสดควรมี", () => {
+  it("เงินสดต่าง = เงินสดที่นับจริง − เงินสดควรมี", () => {
+    expect(shiftCashDifference({ countedCash: 1575, expectedCash: 1200 })).toBe(
+      375
+    );
     expect(
-      shiftCashDifference({ countedTotal: 1575, expectedCash: 1200 })
-    ).toBe(375);
-    expect(
-      shiftCashDifference({ countedTotal: null, expectedCash: 1200 })
+      shiftCashDifference({ countedCash: null, expectedCash: 1200 })
     ).toBeNull();
   });
 
-  it("attachShiftCashMeter คำนวณเงินสดควรมีเทียบ P และหักจากยอดนับได้รวม", async () => {
+  it("attachShiftCashMeter คำนวณเงินสดควรมีเทียบ P และเทียบกับเงินสดที่นับจริง", async () => {
     const rows = await attachShiftCashMeter(t.db, 1, [
       // expectedCash 2900 = ทอน 1000 + ขายเงินสด 1900 (บิล 1 และ 3)
       // ยอด P 2100 = น้ำมันที่ออกจริง (1000 + 500 เครดิต + 600 ในบิลปน)
-      // ยอดนับได้รวม 3460 → ต่าง = 3460 − 2960 = 500
+      // เงินสดที่นับได้ 3460 → ต่าง = 3460 − 2960 = 500
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedTotal: 3460,
+        countedCash: 3460,
       },
       // ไม่มี snapshot expectedCash → null
       {
         id: shiftB,
         expectedCash: null,
         totalMoneyMeter: 300,
-        countedTotal: 350,
+        countedCash: 350,
       },
       // ไม่มียอด P (กะเก่าก่อนระบบ P) → null
       {
         id: shiftB,
         expectedCash: 100,
         totalMoneyMeter: 0,
-        countedTotal: 200,
+        countedCash: 200,
       },
       // ไม่ได้นับเงินสด → ได้ cashExpectedP แต่ cashDiffP เป็น null
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedTotal: null,
+        countedCash: null,
       },
-      // ยอดนับได้รวมเท่ากับยอดที่ควรมีเทียบ P
+      // เงินสดที่นับได้เท่ากับยอดที่ควรมีเทียบ P
       {
         id: shiftA,
         expectedCash: 2900,
         totalMoneyMeter: 2100,
-        countedTotal: 2960,
+        countedCash: 2960,
       },
     ]);
 
@@ -212,7 +212,7 @@ describe("เงินสดเทียบยอด P", () => {
     expect(rows[4]).toMatchObject({ cashExpectedP: 2960, cashDiffP: 0 });
   });
 
-  it("shiftHistory แนบ cashExpectedP/cashDiffP จาก snapshot ของกะและยอดนับได้รวม", async () => {
+  it("shiftHistory แนบ cashExpectedP/cashDiffP จาก snapshot ของกะและเงินสดที่นับจริง", async () => {
     await t.db
       .update(shifts)
       .set({
@@ -226,7 +226,7 @@ describe("เงินสดเทียบยอด P", () => {
     const hist = await t.caller().pos.shiftHistory();
     const row = hist.find(s => s.id === shiftA)!;
     expect(row.cashExpectedP).toBe(2960);
-    expect(row.cashDiffP).toBe(500); // ยอดนับได้รวม 3460 − 2960
+    expect(row.cashDiffP).toBe(0); // เงินสดที่นับได้ 2960 − เงินสดที่ควรมี 2960
 
     // กะที่ไม่มี snapshot expectedCash → เป็น null ทั้งคู่
     const legacy = hist.find(s => s.id === shiftB)!;

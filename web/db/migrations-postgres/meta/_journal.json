@@ -253,6 +253,13 @@
       "when": 1795217710000,
       "tag": "0035_fuel_moving_average_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795345200000,
+      "tag": "0036_shift_tank_withdrawals",
+      "breakpoints": true
     }
   ]
 }

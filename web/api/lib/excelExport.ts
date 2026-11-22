@@ -1,3 +1,4 @@
+import { fmtDateTH, fmtDateTimeTH } from "./dates";
 import type ExcelJS from "exceljs";
 
 /**
@@ -19,29 +20,9 @@ const DEBT_LABEL: Record<string, string> = {
   transfer: "โอน",
 };
 
+const LITERS = "#,##0.000";
 const MONEY = "#,##0.00";
 const INT = "#,##0";
-
-// วันที่แบบเอกสารไทย (พ.ศ.) — เขียนเป็นข้อความลงเซลล์ กันปัญหา locale ของ Excel
-function fmtDateTH(d: Date | string) {
-  const dt = new Date(d);
-  const dd = String(dt.getDate()).padStart(2, "0");
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}/${dt.getFullYear() + 543}`;
-}
-function fmtDateTimeTH(d: Date | string) {
-  const dt = new Date(d);
-  const hh = String(dt.getHours()).padStart(2, "0");
-  const mi = String(dt.getMinutes()).padStart(2, "0");
-  const ss = String(dt.getSeconds()).padStart(2, "0");
-  return `${fmtDateTH(dt)} ${hh}:${mi}:${ss}`;
-}
-
-/** "YYYY-MM-DD" → Date เที่ยงคืน local (ห้าม new Date(s) ตรงๆ เพราะ parse เป็น UTC วันอาจเพี้ยน) */
-function dayDate(s: string) {
-  const [y, m, d] = s.split("-").map(Number);
-  return new Date(y!, m! - 1, d!);
-}
 
 export interface FuelSalesRow {
   name: string;
@@ -220,13 +201,15 @@ function addTable(
   headers: string[],
   rows: (string | number | null)[][],
   moneyCols: number[] = [],
-  intCols: number[] = []
+  intCols: number[] = [],
+  literCols: number[] = []
 ) {
   const hr = ws.addRow(headers);
   headerCells(hr);
   for (const r of rows) {
     const row = ws.addRow(r);
     moneyCols.forEach(ci => (row.getCell(ci + 1).numFmt = MONEY));
+    literCols.forEach(ci => (row.getCell(ci + 1).numFmt = LITERS));
     intCols.forEach(ci => (row.getCell(ci + 1).numFmt = INT));
   }
 }
@@ -238,7 +221,9 @@ function sheetFuelSales(wb: ExcelJS.Workbook, fuelSales: FuelSalesRow[]) {
     ws,
     ["ชนิดน้ำมัน", "ลิตร", "ยอดขาย (บาท)"],
     fuelSales.map(fuel => [fuel.name, fuel.liters, fuel.revenue]),
-    [1, 2]
+    [2],
+    [],
+    [1]
   );
   if (fuelSales.length > 0) {
     const total = ws.addRow([
@@ -247,7 +232,8 @@ function sheetFuelSales(wb: ExcelJS.Workbook, fuelSales: FuelSalesRow[]) {
       fuelSales.reduce((sum, fuel) => sum + fuel.revenue, 0),
     ]);
     total.font = { bold: true };
-    [2, 3].forEach(column => (total.getCell(column).numFmt = MONEY));
+    total.getCell(2).numFmt = LITERS;
+    total.getCell(3).numFmt = MONEY;
   }
 }
 
@@ -299,7 +285,7 @@ export async function buildDailyWorkbook(
   const ws = wb.addWorksheet("สรุป");
   widths(ws, [30, 18, 14, 18]);
   const title = ws.addRow([
-    `รายงานปิดวัน (Z-Report) — ${fmtDateTH(dayDate(daily.date))}`,
+    `รายงานปิดวัน (Z-Report) — ${fmtDateTH(daily.date)}`,
   ]);
   title.font = { bold: true, size: 14 };
   ws.addRow([]);
@@ -318,7 +304,8 @@ export async function buildDailyWorkbook(
     const row = ws.addRow([k, v]);
     row.getCell(1).font = { bold: true };
     if (typeof v === "number")
-      row.getCell(2).numFmt = k === "จำนวนบิล" ? INT : MONEY;
+      row.getCell(2).numFmt =
+        k === "จำนวนบิล" ? INT : k === "ลิตรน้ำมันรวม" ? LITERS : MONEY;
   }
   ws.addRow([]);
   ws.addRow(["แยกตามวิธีชำระ"]).font = { bold: true };
@@ -388,7 +375,9 @@ export async function buildDailyWorkbook(
       s.cashDiff,
       s.cashDiffP,
     ]),
-    [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    [6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    [],
+    [5]
   );
 
   // ค่าใช้จ่าย
@@ -441,7 +430,7 @@ export async function buildRangeWorkbook(opts: {
   const ws = wb.addWorksheet("สรุปรายวัน");
   widths(ws, [12, 14, 8, 8, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14]);
   const title = ws.addRow([
-    `รายงานยอดขาย ${fmtDateTH(dayDate(opts.from))} – ${fmtDateTH(dayDate(opts.to))}`,
+    `รายงานยอดขาย ${fmtDateTH(opts.from)} – ${fmtDateTH(opts.to)}`,
   ]);
   title.font = { bold: true, size: 14 };
   ws.addRow([]);
@@ -465,7 +454,7 @@ export async function buildRangeWorkbook(opts: {
       "เงินสดคาดหวัง",
     ],
     opts.days.map(d => [
-      fmtDateTH(dayDate(d.date)),
+      fmtDateTH(d.date),
       d.totalSales,
       d.billCount,
       d.voidedCount,
@@ -481,8 +470,9 @@ export async function buildRangeWorkbook(opts: {
       d.debtPayments.total,
       d.expectedCash,
     ]),
-    [1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
-    [2, 3]
+    [1, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14],
+    [2, 3],
+    [11]
   );
   if (opts.days.length > 0) {
     const sum = (f: (d: DailyReportData) => number) =>
@@ -505,7 +495,8 @@ export async function buildRangeWorkbook(opts: {
       sum(d => d.expectedCash),
     ]);
     tr.font = { bold: true };
-    [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].forEach(
+    tr.getCell(12).numFmt = LITERS;
+    [2, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15].forEach(
       ci => (tr.getCell(ci).numFmt = MONEY)
     );
   }
@@ -569,7 +560,9 @@ export async function buildFuelStockWorkbook(
       product.revenue,
       currentByProduct.get(product.productId)?.currentLiters ?? 0,
     ]),
-    [2, 3, 4, 5]
+    [4],
+    [],
+    [2, 3, 5]
   );
   const total = ws.addRow([
     "",
@@ -581,7 +574,7 @@ export async function buildFuelStockWorkbook(
   ]);
   total.font = { bold: true };
   for (let column = 3; column <= 5; column += 1) {
-    total.getCell(column).numFmt = MONEY;
+    total.getCell(column).numFmt = column === 5 ? MONEY : LITERS;
   }
   ws.autoFilter = {
     from: { row: 3, column: 1 },

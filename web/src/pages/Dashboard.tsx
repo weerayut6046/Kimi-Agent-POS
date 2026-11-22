@@ -136,7 +136,7 @@ export default function Dashboard() {
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Card className="gap-0 p-4 sm:p-5">
           <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>ยอดขายวันนี้</span>
+            <span>ยอดขายตามบิล POS วันนี้</span>
             <Banknote className="size-4 text-primary" />
           </div>
           <div className="mt-3 font-heading text-2xl font-bold text-slate-950 number-display sm:text-3xl">
@@ -144,7 +144,9 @@ export default function Dashboard() {
           </div>
           <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-700">
             <TrendingUp className="size-3" />
-            {isPlaceholderData ? "กำลังอัปเดตข้อมูล" : "อัปเดตแบบเรียลไทม์"}
+            {isPlaceholderData
+              ? "กำลังอัปเดตข้อมูล"
+              : `ยอดมิเตอร์กะปิด ฿${fmtMoney(data.todayShiftTotal)}`}
           </div>
         </Card>
         <Card className="gap-0 p-4 sm:p-5">
@@ -169,7 +171,9 @@ export default function Dashboard() {
             <span className="text-sm font-medium text-slate-400">ลิตร</span>
           </div>
           <div className="mt-2 text-[11px] text-slate-500">
-            จากกะที่ปิดแล้ว {todayShiftCount} กะ
+            {data.fuelSource === "shift"
+              ? `จากกะที่ปิดแล้ว ${todayShiftCount} กะ`
+              : "จากรายการขายน้ำมันใน POS"}
           </div>
         </Card>
         <Card
@@ -247,7 +251,7 @@ export default function Dashboard() {
                 จังหวะยอดขาย 7 วัน
               </CardTitle>
               <p className="mt-1 text-xs text-slate-400">
-                ยอด P จากกะที่ปิด + ยอด POS รายวัน
+                ยอดขายตามบิล POS รายวัน
               </p>
             </div>
             <div className="grid size-10 place-items-center rounded-lg bg-accent text-accent-foreground">

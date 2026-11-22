@@ -298,37 +298,39 @@ export const catalogRouter = createRouter({
         });
       }
       const db = getDb();
-      const before = await db.query.products.findFirst({
-        where: and(
+      const actor = actorFromReq(ctx.req);
+      const priceChange = await db.transaction(async tx => {
+        const scope = and(
           eq(products.id, id),
           eq(products.branchId, ctx.staff.branchId)
-        ),
-      });
-      if (!before) throw new Error("ไม่พบสินค้า");
-      const priceChanged =
-        patch.price !== undefined && patch.price !== before.price;
-      await db
-        .update(products)
-        .set(patch)
-        .where(
-          and(eq(products.id, id), eq(products.branchId, ctx.staff.branchId))
         );
-      // บันทึกประวัติ + audit เฉพาะตอนราคาเปลี่ยนจริง
-      if (priceChanged) {
-        const actor = actorFromReq(ctx.req);
-        await db.insert(priceChanges).values({
+        const [before] = await tx
+          .select()
+          .from(products)
+          .where(scope)
+          .for("update");
+        if (!before) throw new Error("ไม่พบสินค้า");
+        await tx.update(products).set(patch).where(scope);
+        if (patch.price === undefined || patch.price === before.price)
+          return null;
+        await tx.insert(priceChanges).values({
           branchId: ctx.staff.branchId,
-          productId: before.id,
+          productId: id,
           productCode: patch.code ?? before.code,
           productName: patch.name ?? before.name,
           oldPrice: before.price,
-          newPrice: patch.price!,
+          newPrice: patch.price,
           changedBy: actor.actorName,
+          createdAt: new Date(),
         });
+        return { before, price: patch.price };
+      });
+      if (priceChange) {
+        const { before, price } = priceChange;
         logAudit({
           action: "update_price",
           ...actor,
-          detail: `เปลี่ยนราคา ${before.code} ${before.name}: ${before.price.toFixed(2)} → ${patch.price!.toFixed(2)}`,
+          detail: `เปลี่ยนราคา ${before.code} ${before.name}: ${before.price.toFixed(2)} → ${price.toFixed(2)}`,
           refType: "product",
           refId: before.id,
         });

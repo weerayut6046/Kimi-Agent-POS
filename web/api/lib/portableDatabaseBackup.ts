@@ -60,6 +60,7 @@ const BACKUP_TABLES: readonly BackupTableDefinition[] = [
   { name: "security_events", orderBy: "id" },
   { name: "login_attempts", orderBy: "id", identityColumn: "id" },
   { name: "security_reports", orderBy: "id", identityColumn: "id" },
+  { name: "tank_withdrawals", orderBy: "shift_id, tank_id" },
 ] as const;
 
 type BackupTableData = {
@@ -241,9 +242,11 @@ function parseEnvelope(value: unknown): BackupEnvelope {
   if (!Array.isArray(value.payload.tables)) {
     throw new Error("ไฟล์สำรองข้อมูลไม่มีรายการตาราง");
   }
-  const expectedNames = BACKUP_TABLES.map(table => table.name);
   const actualNames = value.payload.tables.map(table =>
     isRecord(table) ? String(table.name ?? "") : ""
+  );
+  const expectedNames = BACKUP_TABLES.map(table => table.name).filter(
+    name => name !== "tank_withdrawals" || actualNames.includes(name)
   );
   if (
     actualNames.length !== expectedNames.length ||
@@ -383,6 +386,9 @@ export async function restorePortableDatabaseBackup(input: {
           ${JSON.stringify(data.rows)}::jsonb
         )
       `);
+    }
+    if (!tablesByName.has("tank_withdrawals")) {
+      await tx.execute(sql`insert into pos.tank_withdrawals select * from pos.legacy_tank_withdrawals`);
     }
     for (const table of BACKUP_TABLES) {
       if (!table.identityColumn) continue;

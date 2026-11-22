@@ -1302,6 +1302,33 @@ export const fuelTanks = posSchema
   )
   .enableRLS();
 
+// Physical withdrawals survive edits to a shift or the nozzle-to-tank mapping.
+export const tankWithdrawals = posSchema
+  .table(
+    "tank_withdrawals",
+    {
+      branchId: integer("branch_id").notNull(),
+      shiftId: integer("shift_id").notNull(),
+      tankId: integer("tank_id").notNull(),
+      productId: integer("product_id").notNull(),
+      occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+      liters: numeric("liters", {
+        precision: 18,
+        scale: 3,
+        mode: "number",
+      }).notNull(),
+    },
+    t => ({
+      pk: primaryKey({ columns: [t.shiftId, t.tankId] }),
+      periodIdx: index("tank_withdrawal_period_idx").on(
+        t.branchId,
+        t.occurredAt
+      ),
+      litersCheck: check("tank_withdrawal_liters_check", sql`${t.liters} >= 0`),
+    })
+  )
+  .enableRLS();
+
 export const tankRefills = posSchema
   .table(
     "tank_refills",

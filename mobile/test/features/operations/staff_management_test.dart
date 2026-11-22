@@ -142,10 +142,7 @@ void main() {
     expect(find.text('ขายหน้าลาน'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('staff-name')), 'มาลี ใหม่');
     await tester.enterText(find.byKey(const Key('staff-username')), 'Mali.01');
-    await tester.enterText(
-      find.byKey(const Key('staff-password')),
-      'ValidPass1',
-    );
+    await tester.enterText(find.byKey(const Key('staff-password')), '1472');
     await tester.tap(find.byKey(const Key('save-staff')));
     await tester.pumpAndSettle();
 
