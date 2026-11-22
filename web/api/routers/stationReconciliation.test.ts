@@ -4,7 +4,13 @@ import {
   createPortableDatabaseBackup,
   restorePortableDatabaseBackup,
 } from "../lib/portableDatabaseBackup";
-import { tankWithdrawals } from "@db/schema";
+import {
+  attendanceEvents,
+  attendanceSessions,
+  fuelCostOpenings,
+  staffUsers,
+  tankWithdrawals,
+} from "@db/schema";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { bangkokDateKey } from "../lib/dates";
 import { and, eq } from "drizzle-orm";
@@ -350,34 +356,108 @@ it("fuel costing movement export can reconcile every underlying row and the tota
   );
 });
 
-it("restores physical withdrawals from a current backup and estimates them for a legacy backup", async () => {
+it("restores opening costs, margin, meter withdrawals and staff attendance from one backup", async () => {
   const physical = await t.db.select().from(tankWithdrawals);
+  const bases = await t.db.select().from(fuelCostOpenings);
   expect(physical.length).toBeGreaterThan(0);
+  expect(bases.length).toBeGreaterThan(0);
+  const [staff] = await t.db.select().from(staffUsers).limit(1);
+  const [session] = await t.db
+    .insert(attendanceSessions)
+    .values({
+      branchId: 1,
+      staffId: staff.id,
+      workDate: "2025-01-15",
+      clockInMethod: "manual",
+    })
+    .returning();
+  const [event] = await t.db
+    .insert(attendanceEvents)
+    .values({
+      branchId: 1,
+      staffId: staff.id,
+      sessionId: session.id,
+      method: "manual",
+      eventType: "clock_in",
+      idempotencyKey: "audit-backup-clock-in",
+    })
+    .returning();
+
   const backup = await createPortableDatabaseBackup();
   await t.db.delete(tankWithdrawals);
-  await restorePortableDatabaseBackup(backup);
+  await t.db.delete(fuelCostOpenings);
+  await t.db.delete(attendanceSessions);
+  expect((await restorePortableDatabaseBackup(backup)).legacyBackup).toBe(
+    false
+  );
+  expect(await t.db.select().from(fuelCostOpenings)).toEqual(bases);
   expect(await t.db.select().from(tankWithdrawals)).toEqual(
     expect.arrayContaining(physical)
   );
+  expect(await t.db.select().from(attendanceSessions)).toContainEqual(session);
+  expect(await t.db.select().from(attendanceEvents)).toContainEqual(event);
+  const report = await t
+    .caller("manager")
+    .fuelCosting.report({ from: "2025-01-01", to: "2025-01-31" });
+  const diesel = await product("DB7");
+  expect(
+    report.items.find(item => item.id === diesel.id)?.ledger
+  ).toMatchObject({
+    revenue: 40040,
+    costOfSales: 30030,
+    grossProfit: 10010,
+  });
 
   const envelope = JSON.parse(
     gunzipSync(Buffer.from(backup.contentBase64, "base64")).toString()
   );
-  const legacyTables = (
-    envelope.payload.tables as { name: string; rowCount: number }[]
-  ).filter(table => table.name !== "tank_withdrawals");
-  envelope.payload.tables = legacyTables;
-  envelope.payload.totalRows = legacyTables.reduce(
-    (sum, table) => sum + table.rowCount,
-    0
+  const originalTables = envelope.payload.tables as {
+    name: string;
+    rowCount: number;
+  }[];
+  function editedBackup(version: number, omit: string[]) {
+    const tables = originalTables.filter(table => !omit.includes(table.name));
+    const payload = {
+      ...envelope.payload,
+      tables,
+      totalRows: tables.reduce((sum, table) => sum + table.rowCount, 0),
+    };
+    const checksum = {
+      algorithm: "SHA-256",
+      value: createHash("sha256").update(JSON.stringify(payload)).digest("hex"),
+    };
+    return {
+      fileName: backup.fileName,
+      contentBase64: gzipSync(
+        JSON.stringify({ ...envelope, payload, version, checksum })
+      ).toString("base64"),
+    };
+  }
+
+  await expect(
+    restorePortableDatabaseBackup(editedBackup(2, ["fuel_cost_openings"]))
+  ).rejects.toThrow("ชุดตาราง");
+  expect(await t.db.select().from(fuelCostOpenings)).toEqual(bases);
+
+  const missing = [
+    "fuel_cost_openings",
+    "attendance_sessions",
+    "attendance_events",
+  ];
+  expect(
+    (await restorePortableDatabaseBackup(editedBackup(1, missing))).legacyBackup
+  ).toBe(true);
+  expect(await t.db.select().from(tankWithdrawals)).toEqual(
+    expect.arrayContaining(physical)
   );
-  envelope.checksum.value = createHash("sha256")
-    .update(JSON.stringify(envelope.payload))
-    .digest("hex");
-  await restorePortableDatabaseBackup({
-    fileName: backup.fileName,
-    contentBase64: gzipSync(JSON.stringify(envelope)).toString("base64"),
-  });
+  expect(await t.db.select().from(fuelCostOpenings)).toHaveLength(0);
+  expect(
+    (
+      await restorePortableDatabaseBackup(
+        editedBackup(1, [...missing, "tank_withdrawals"])
+      )
+    ).legacyBackup
+  ).toBe(true);
   const estimated = await t.db.select().from(tankWithdrawals);
   expect(estimated).toHaveLength(physical.length);
   expect(estimated.map(r => r.liters).sort()).toEqual(

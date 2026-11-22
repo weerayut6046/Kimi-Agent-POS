@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
-import { settings } from "@db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { branches, settings } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 let t: TestDb;
@@ -69,6 +69,34 @@ describe("dbadmin file backup", () => {
       ),
     });
     expect(marker?.value).toBe("ก่อนสำรอง");
+  });
+
+  it("preserves business records if a new dependent table has no restore rule", async () => {
+    const { backup } = await t.caller("admin").dbadmin.backup();
+    await t.db.execute(
+      sql`create table pos.future_shift_notes (branch_id integer references pos.branches(id), note text)`
+    );
+    try {
+      await t.db.execute(
+        sql`insert into pos.future_shift_notes values (1, 'keep this note')`
+      );
+      await expect(
+        t.caller("admin").dbadmin.restoreUpload({
+          fileName: backup.fileName,
+          contentBase64: backup.contentBase64,
+          confirmation: "กู้คืนข้อมูล",
+        })
+      ).rejects.toThrow();
+      const notes = await t.db
+        .select({ id: branches.id })
+        .from(branches)
+        .where(
+          sql`exists (select 1 from pos.future_shift_notes where branch_id = ${branches.id} and note = 'keep this note')`
+        );
+      expect(notes).toEqual([{ id: 1 }]);
+    } finally {
+      await t.db.execute(sql`drop table pos.future_shift_notes`);
+    }
   });
 
   it("ปฏิเสธผู้ใช้ทั่วไป คำยืนยันผิด และไฟล์เสียหาย", async () => {

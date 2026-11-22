@@ -4106,6 +4106,13 @@ Content-Type: application/json
                   onChange={event => void chooseRestoreBackup(event)}
                 />
 
+                {restoreBackup.data?.restored.legacyBackup && (
+                  <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                    กู้คืนไฟล์รุ่น 1 แล้ว กรุณาตรวจสอบต้นทุนยกมาน้ำมันและประวัติเข้าออกงาน
+                    จากบันทึกเดิมก่อนใช้รายงานกำไรหรือคำนวณค่าแรง
+                  </p>
+                )}
+
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4203,7 +4210,7 @@ Content-Type: application/json
                       <AlertTriangle className="size-4" /> ข้อมูลที่ไม่รวมในไฟล์
                     </div>
                     <p className="mt-2 text-xs leading-relaxed">
-                      ไม่รวมรหัสผ่านบัญชี Auth, ไฟล์รูปจริงใน Storage,
+                      ไม่รวมรหัสผ่านบัญชี Auth, Passkey และไฟล์รูปจริงใน Storage,
                       การตั้งค่า Edge Functions/Realtime และ API keys
                       ของระบบโฮสต์ จึงต้องเก็บข้อมูลเหล่านี้แยกต่างหาก
                     </p>
@@ -4329,6 +4336,9 @@ Content-Type: application/json
                   ระบบจะตรวจชนิดไฟล์ เวอร์ชัน และ SHA-256 ก่อนเริ่ม
                   จากนั้นล้างและกู้คืนทุกตารางใน transaction เดียว
                   ควรดาวน์โหลดไฟล์สำรองปัจจุบันก่อนดำเนินการ
+                  ไฟล์รุ่น 1 ไม่มีต้นทุนยกมาน้ำมันและประวัติเข้าออกงาน
+                  หากกู้คืนจากรุ่นนี้ ข้อมูลสองส่วนนี้จะว่าง
+                  ผู้ที่ใช้ Passkey ต้องลงทะเบียน Passkey ใหม่หลังกู้คืนทุกเวอร์ชัน
                 </p>
               </div>
 
