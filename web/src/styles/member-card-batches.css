@@ -1,0 +1,69 @@
+/* The card faces are decorative. Functional barcodes are rendered in the batch detail. */
+.member-batch-art {
+  position: relative;
+  width: clamp(4.25rem, 19vw, 10.5rem);
+  aspect-ratio: 1.58;
+  flex: none;
+  margin-inline: 0.15rem 0.65rem;
+  transform: rotate(-7deg);
+  color: white;
+  pointer-events: none;
+}
+.member-batch-art-back,
+.member-batch-art-front {
+  position: absolute;
+  inset: 0;
+  border-radius: 10% / 16%;
+  border: 1px solid rgb(255 255 255 / 45%);
+}
+.member-batch-art-back {
+  background: linear-gradient(105deg, #6395ac, #c2e8de);
+  transform: translate(5%, -10%) rotate(12deg);
+}
+.member-batch-art-front {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: start;
+  overflow: hidden;
+  padding: 7% 10%;
+  background:
+    radial-gradient(
+      ellipse at 118% 120%,
+      transparent 43%,
+      #75d5c2 43.5% 46%,
+      transparent 46.5% 50%,
+      #5aa5bb 50.5% 52%,
+      transparent 52.5%
+    ),
+    linear-gradient(120deg, #22425f, #295978 65%, #347a8e);
+  box-shadow: 0 5px 12px rgb(4 18 34 / 30%);
+}
+.member-batch-art-front strong {
+  font:
+    italic 800 clamp(0.9rem, 3vw, 2.1rem)/1 system-ui,
+    sans-serif;
+  letter-spacing: -0.08em;
+}
+.member-batch-art-front span {
+  font:
+    600 clamp(0.32rem, 0.85vw, 0.63rem)/1.3 system-ui,
+    sans-serif;
+  letter-spacing: 0.12em;
+}
+
+.member-batch-proof {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2cqw;
+  aspect-ratio: 85.6 / 53.98;
+  padding: 4cqw;
+  overflow: hidden;
+  border-radius: 4cqw;
+  background:
+    radial-gradient(ellipse at 110% -18%, #257a98 0 27%, transparent 27.5%),
+    radial-gradient(ellipse at -10% 125%, #b72f4a 0 25%, transparent 25.5%),
+    linear-gradient(125deg, #081b38, #1b467b);
+  color: white;
+}
