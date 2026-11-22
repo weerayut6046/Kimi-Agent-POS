@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   payment: vi.fn(),
   session: vi.fn(),
   subscribe: vi.fn(),
+  menu: vi.fn(),
+  systemAccess: vi.fn(),
 }));
 
 vi.mock("./lib/deployment", () => ({
@@ -17,6 +19,12 @@ vi.mock("./lib/env", () => ({
 vi.mock("./router", () => ({ appRouter: {} }));
 vi.mock("./lib/authorization", () => ({
   activeStaffSessionFromRequest: mocks.session,
+}));
+vi.mock("./middleware", () => ({
+  canUseProcedureMenu: mocks.menu,
+}));
+vi.mock("./lib/systemAccess", () => ({
+  systemAccessForRequest: mocks.systemAccess,
 }));
 vi.mock("./lib/realtime", () => ({
   RealtimeCapacityError: class extends Error {},
@@ -36,6 +44,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.mode = "business";
   mocks.session.mockResolvedValue(null);
+  mocks.menu.mockResolvedValue(false);
+  mocks.systemAccess.mockResolvedValue({ allowed: false });
   mocks.backup.mockResolvedValue({
     objectName: "business-backup.sql.gz",
     sizeBytes: 100,
@@ -52,6 +62,7 @@ describe("deployment boundary for HTTP endpoints", () => {
     ["POST", "/api/internal/database-backup"],
     ["GET", "/api/realtime"],
     ["POST", "/api/payments/incoming"],
+    ["GET", "/api/lan-info"],
   ])(
     "blocks %s %s in a platform deployment before service access",
     async (method, url) => {
@@ -94,6 +105,50 @@ describe("deployment boundary for HTTP endpoints", () => {
     expect(response.status).toBe(401);
     expect(mocks.session).toHaveBeenCalledOnce();
     expect(mocks.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("stops a realtime stream when the staff's branch lease ends", async () => {
+    vi.useFakeTimers();
+    const unsubscribe = vi.fn();
+    try {
+      const session = { id: 4, branchId: 1, exp: Date.now() / 1000 + 60 };
+      mocks.session.mockResolvedValueOnce(session).mockResolvedValueOnce({ ...session, branchId: 2 });
+      mocks.subscribe.mockReturnValue({ touch: vi.fn(), unsubscribe });
+      const response = await app.request("/api/realtime", {
+        headers: { authorization: "Bearer realtime-session" },
+      });
+      const reader = response.body!.getReader();
+      const ready = await reader.read();
+      expect(new TextDecoder().decode(ready.value)).toContain("event: ready");
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect((await reader.read()).done).toBe(true);
+      expect(unsubscribe).toHaveBeenCalledOnce();
+      const [first, next] = mocks.session.mock.calls;
+      expect(next[0]).not.toBe(first[0]);
+      expect(next[0].headers.get("authorization")).toBe("Bearer realtime-session");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requires an active staff session, stock menu and system access for LAN discovery", async () => {
+    expect((await app.request("/api/lan-info")).status).toBe(401);
+    expect(mocks.menu).not.toHaveBeenCalled();
+
+    const staff = { id: 4, branchId: 1 };
+    mocks.session.mockResolvedValue(staff);
+    expect((await app.request("/api/lan-info")).status).toBe(403);
+    expect(mocks.menu).toHaveBeenCalledWith(staff, "stockCount.listSessions", expect.any(Request));
+    expect(mocks.systemAccess).not.toHaveBeenCalled();
+
+    mocks.menu.mockResolvedValue(true);
+    expect((await app.request("/api/lan-info")).status).toBe(403);
+    mocks.systemAccess.mockResolvedValue({ allowed: true });
+    const response = await app.request("/api/lan-info");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
   it("dispatches business payment hooks and reads the deployment on each request", async () => {

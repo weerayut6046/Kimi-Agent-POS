@@ -15,6 +15,7 @@ import {
   products,
   saleItems,
   sales,
+  shifts,
   staffUsers,
 } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
@@ -67,6 +68,38 @@ afterEach(() => {
 afterAll(() => t.cleanup());
 
 describe("AI assistant security", () => {
+  it("requires active staff and respects the branch shift lock", async () => {
+    const input = { messages: [{ role: "user" as const, content: "สวัสดี" }] };
+    const proposal = { proposalId: "277b182e-480f-4ecb-85bc-9ab4896d26cf" };
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const anonymous = t.anonymousCaller().assistant;
+    await expect(anonymous.chat(input)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(anonymous.executeAction(proposal)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+
+    const [shift] = await t.db
+      .insert(shifts)
+      .values({ branchId: 1, staffId: 2, staffName: "Fixture shift owner" })
+      .returning({ id: shifts.id });
+    try {
+      const staff = t.caller("cashier").assistant;
+      await expect(staff.chat(input)).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+      await expect(staff.executeAction(proposal)).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await t.db.delete(shifts).where(eq(shifts.id, shift.id));
+    }
+  });
+
   it("redacts common credentials and direct identifiers before external processing", () => {
     const redacted = redactSensitiveText(
       "PIN: 1234 โทร 0812345678 email buyer@example.com เลข 1234567890123 postgresql://user:pass@db.local/app"

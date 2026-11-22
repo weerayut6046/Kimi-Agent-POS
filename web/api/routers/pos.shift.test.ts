@@ -55,7 +55,16 @@ describe("openShift / closeShift", () => {
     const r1 = cur!.readings.find(r => r.nozzleId === nz[0]!.id)!;
     expect(r1.openMeter).toBe(152340.5);
     expect(r1.pricePerLiter).toBe(40.74); // snapshot ราคาตอนเปิดกะ
-    expect(r1.costPerLiter).toBe(39.2); // snapshot ต้นทุนสำหรับกำไรจากยอด P
+    expect(r1.costPerLiter).toBe(0);
+    expect(r1.product?.cost).toBe(0);
+    expect(shift.readings.every(reading => reading.costPerLiter === 0)).toBe(
+      true
+    );
+    const ownerView = await t.caller("admin").pos.currentShift();
+    expect(
+      ownerView?.readings.find(reading => reading.nozzleId === nz[0]!.id)
+        ?.costPerLiter
+    ).toBe(39.2); // snapshot ต้นทุนสำหรับกำไรจากยอด P
   });
 
   it("ไม่ส่งภาพให้ AI ถ้าไม่ใช่กะที่เปิดอยู่ของสาขา", async () => {
@@ -600,5 +609,63 @@ describe("เงินทอนเริ่มกะและนับเงิ�
       where: eq(auditLogs.action, "close_shift"),
     });
     expect(logs.some(l => l.refId === cur!.id)).toBe(true);
+  });
+});
+
+describe("closing state and POS receipt replay", () => {
+  it("closes an open shift once and permits replay of a saved receipt after close", async () => {
+    const [nozzle] = await allNozzles();
+    const product = await t.db.query.products.findFirst({
+      where: eq(products.code, "WATER"),
+    });
+    const caller = t.caller();
+    const { shiftId } = await caller.pos.openShift({
+      staffName: "กะทดสอบ",
+      readings: [
+        {
+          nozzleId: nozzle.id,
+          openMeter: nozzle.currentMeter,
+          openMoney: nozzle.currentMoney,
+        },
+      ],
+    });
+    const saleInput = {
+      shiftId,
+      clientReceiptNo: "OFF-ABC123-20260721162539-0012",
+      items: [{ productId: product!.id, qty: 1 }],
+    };
+    const created = await caller.pos.createSale(saleInput);
+    const closeInput = {
+      shiftId,
+      readings: [
+        {
+          nozzleId: nozzle.id,
+          closeMeter: nozzle.currentMeter,
+          closeMoney: nozzle.currentMoney,
+        },
+      ],
+    };
+    const closes = await Promise.allSettled([
+      t.caller().pos.closeShift(closeInput),
+      t.caller().pos.closeShift(closeInput),
+    ]);
+    expect(closes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "fulfilled" }),
+        expect.objectContaining({
+          status: "rejected",
+          reason: expect.objectContaining({ code: "PRECONDITION_FAILED" }),
+        }),
+      ])
+    );
+    expect(await caller.pos.createSale(saleInput)).toMatchObject({
+      sale: { id: created.sale.id },
+    });
+    await expect(
+      caller.pos.createSale({
+        ...saleInput,
+        clientReceiptNo: "OFF-ABC123-20260721162539-0013",
+      })
+    ).rejects.toThrow("ไม่พบกะที่เปิดอยู่");
   });
 });

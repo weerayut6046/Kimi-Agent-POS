@@ -181,7 +181,7 @@ const menus: MenuItem[] = [
     label: "ต้นทุนและกำไรน้ำมัน",
     reportDescription: "ต้นทุนเฉลี่ยและกำไรจริง",
     icon: ChartNoAxesCombined,
-    managerOnly: true,
+    adminOnly: true,
     group: "document",
   },
   {

@@ -12,6 +12,7 @@ import type {
   DesktopSyncStatus,
 } from "../../web/contracts/offline";
 import { calculateSaleItemValues } from "../../web/contracts/saleItemValues";
+import { DEFAULT_SETTINGS } from "../../web/contracts/settings";
 
 type RemoteSaleInput = DesktopSaleRequest["input"] & {
   clientReceiptNo: string;
@@ -23,6 +24,12 @@ type CachedResponse = {
   contentType: string;
   bodyBase64: string;
   storedAt: string;
+};
+
+type QueryResponse = {
+  result?: {
+    data?: { json: unknown; meta?: { values?: Record<string, unknown> } };
+  };
 };
 
 type QueuedSale = {
@@ -37,6 +44,7 @@ type QueuedSale = {
 
 type PersistedState = {
   version: 1;
+  cacheVersion: number;
   remoteOrigin: string | null;
   deviceId: string;
   receiptCounter: number;
@@ -63,6 +71,22 @@ type RuntimeOptions = {
 };
 
 const CACHE_LIMIT = 250;
+const CACHE_VERSION = 2;
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+const PUBLIC_OFFLINE_QUERIES = new Set([
+  "auth.deploymentInfo",
+  "catalog.lanInfo",
+  "ping",
+]);
+const STAFF_OFFLINE_QUERIES = new Set([
+  "auth.currentStaff",
+  "auth.systemAccess",
+  "catalog.getSettings",
+  "catalog.getShopLogo",
+  "catalog.listProducts",
+  "payments.thungngernStatus",
+  "pos.currentShift",
+]);
 const REQUEST_TIMEOUT_MS = 8_000;
 const SYNC_INTERVAL_MS = 10_000;
 
@@ -90,6 +114,7 @@ function normalizeRemoteOrigin(value: string): string {
 function newState(remoteOrigin: string): PersistedState {
   return {
     version: 1,
+    cacheVersion: CACHE_VERSION,
     remoteOrigin,
     deviceId: randomUUID(),
     receiptCounter: 0,
@@ -97,6 +122,85 @@ function newState(remoteOrigin: string): PersistedState {
     queue: [],
     lastSyncedAt: null,
   };
+}
+
+function cachedCredentialExpiry(headers: Headers): number {
+  const bearer = headers
+    .get("authorization")
+    ?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  const localSession = headers.get("x-staff-session");
+  if (Boolean(bearer) === Boolean(localSession)) return 0;
+  const encoded = bearer ? bearer.split(".")[1] : localSession?.split(".")[0];
+  if (!encoded) return 0;
+  try {
+    // This only expires a response already authorized by the upstream API
+    // for the exact credential used in the cache key.
+    const { exp } = JSON.parse(
+      Buffer.from(encoded, "base64url").toString("utf8")
+    );
+    return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function cacheSafeResponse(procedures: string[], body: Buffer): string | null {
+  try {
+    const response = JSON.parse(body.toString("utf8")) as
+      | QueryResponse
+      | QueryResponse[];
+    const entries = Array.isArray(response) ? response : [response];
+    if (entries.length !== procedures.length) return null;
+    for (const [index, procedure] of procedures.entries()) {
+      const data = entries[index]?.result?.data;
+      if (!data || !Object.hasOwn(data, "json")) return null;
+      if (procedure === "catalog.listProducts") {
+        if (!Array.isArray(data.json)) return null;
+        data.json = data.json.map(product => ({ ...product, cost: 0 }));
+      } else if (procedure === "catalog.getSettings") {
+        if (typeof data.json !== "object" || data.json === null) return null;
+        data.json = Object.fromEntries(
+          Object.entries(data.json).filter(([key]) =>
+            Object.hasOwn(DEFAULT_SETTINGS, key)
+          )
+        );
+      } else if (procedure === "pos.currentShift" && data.json) {
+        // Checkout needs the active shift identity. Closing data and controls
+        // require a live response with current permissions and totals.
+        const { id, branchId, openedAt, staffName, status } = data.json as Record<
+          string,
+          unknown
+        >;
+        data.json = {
+          id,
+          branchId,
+          openedAt,
+          staffName,
+          status,
+          canSubmit: false,
+          cash: {
+            openingFloat: 0,
+            cashSales: 0,
+            posSales: 0,
+            cashDebtPayments: 0,
+            expensesTotal: 0,
+            expectedCash: 0,
+          },
+          readings: [],
+          lubricants: [],
+          lubricantSales: { lubricantAmount: 0, lubricantItems: [] },
+        };
+        if (data.meta?.values) {
+          data.meta.values = Object.hasOwn(data.meta.values, "openedAt")
+            ? { openedAt: data.meta.values.openedAt }
+            : {};
+        }
+      }
+    }
+    return Buffer.from(JSON.stringify(response)).toString("base64");
+  } catch {
+    return null;
+  }
 }
 
 function isQueuedSale(value: unknown): value is QueuedSale {
@@ -249,8 +353,17 @@ export class DesktopOfflineRuntime {
       // Legacy cached rows have no proven business origin. Bind an empty queue
       // safely and discard only the cache, never pending receipts.
       this.state.remoteOrigin = this.options.remoteOrigin;
+      this.state.cacheVersion = CACHE_VERSION;
       this.state.cache = {};
       this.state.lastSyncedAt = null;
+      this.saveState();
+    } else if (
+      !this.deploymentBindingError() &&
+      this.state.cacheVersion !== CACHE_VERSION
+    ) {
+      // Existing keys did not include a branch or legacy session identity.
+      this.state.cacheVersion = CACHE_VERSION;
+      this.state.cache = {};
       this.saveState();
     }
     this.lastError = this.deploymentBindingError();
@@ -470,6 +583,7 @@ export class DesktopOfflineRuntime {
       }
       return {
         version: 1,
+        cacheVersion: parsed.cacheVersion ?? 1,
         remoteOrigin:
           typeof parsed.remoteOrigin === "string" ? parsed.remoteOrigin : null,
         deviceId: parsed.deviceId,
@@ -695,12 +809,6 @@ export class DesktopOfflineRuntime {
     // Installation status and first-owner writes require a live server result.
     // A mixed tRPC batch is equally sensitive because it includes that status.
     const initialSetupRequest = this.isInitialSetupRequest(requestUrl);
-    const key = this.cacheKey(
-      method,
-      requestUrl,
-      body,
-      req.headers.authorization
-    );
     const remoteUrl = `${this.options.remoteOrigin}${requestUrl.pathname}${requestUrl.search}`;
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
@@ -744,6 +852,19 @@ export class DesktopOfflineRuntime {
       headers.delete("referer");
     }
 
+    const procedures = method === "GET" ? this.procedurePaths(requestUrl) : [];
+    const cacheable = procedures.length > 0 && procedures.every(procedure =>
+      PUBLIC_OFFLINE_QUERIES.has(procedure) || STAFF_OFFLINE_QUERIES.has(procedure)
+    );
+    const requiresStaff = procedures.some(procedure => STAFF_OFFLINE_QUERIES.has(procedure));
+    const cacheExpires = requiresStaff
+      ? cachedCredentialExpiry(headers)
+      : Infinity;
+    const key =
+      cacheable && cacheExpires > Date.now()
+        ? this.cacheKey(requestUrl, headers)
+        : null;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -755,17 +876,25 @@ export class DesktopOfflineRuntime {
       });
       const responseBody = Buffer.from(await response.arrayBuffer());
       this.setOnline(true);
-      if (response.ok && this.isCacheable(method) && !initialSetupRequest) {
-        this.state.cache[key] = {
-          status: response.status,
-          contentType:
-            response.headers.get("content-type") ??
-            "application/json; charset=utf-8",
-          bodyBase64: responseBody.toString("base64"),
-          storedAt: new Date().toISOString(),
-        };
-        this.pruneCache();
-        this.saveState();
+      if (key) {
+        const bodyBase64 = response.status === 200
+          ? cacheSafeResponse(procedures, responseBody)
+          : null;
+        if (bodyBase64) {
+          this.state.cache[key] = {
+            status: response.status,
+            contentType:
+              response.headers.get("content-type") ??
+              "application/json; charset=utf-8",
+            bodyBase64,
+            storedAt: new Date().toISOString(),
+          };
+          this.pruneCache();
+          this.saveState();
+        } else if (this.state.cache[key]) {
+          delete this.state.cache[key];
+          this.saveState();
+        }
       }
       res.writeHead(response.status, {
         "content-type":
@@ -777,8 +906,13 @@ export class DesktopOfflineRuntime {
       if (this.state.queue.length > 0) void this.syncPending();
     } catch (error) {
       this.setOnline(false, messageOf(error));
-      const cached = initialSetupRequest ? undefined : this.state.cache[key];
-      if (cached) {
+      const cached = key ? this.state.cache[key] : undefined;
+      const now = Date.now();
+      const cachedAt = cached ? Date.parse(cached.storedAt) : 0;
+      if (
+        cached && now < cacheExpires && cachedAt <= now &&
+        now - cachedAt <= CACHE_MAX_AGE_MS
+      ) {
         res.writeHead(cached.status, {
           "content-type": cached.contentType,
           "cache-control": "no-store",
@@ -898,30 +1032,28 @@ export class DesktopOfflineRuntime {
     });
   }
 
-  private cacheKey(
-    method: string,
-    requestUrl: URL,
-    body: Buffer,
-    staffSession: string | string[] | undefined
-  ): string {
+  private cacheKey(requestUrl: URL, headers: Headers): string {
     return createHash("sha256")
-      .update(method)
-      .update("\0")
-      .update(requestUrl.pathname)
-      .update(requestUrl.search)
-      .update("\0")
-      .update(body)
-      .update("\0")
       .update(
-        Array.isArray(staffSession)
-          ? staffSession.join(",")
-          : (staffSession ?? "")
+        JSON.stringify([
+          requestUrl.pathname,
+          requestUrl.search,
+          headers.get("authorization"),
+          headers.get("x-staff-session"),
+          headers.get("x-branch-id"),
+        ])
       )
       .digest("hex");
   }
 
-  private isCacheable(method: string): boolean {
-    return method === "GET";
+  private procedurePaths(requestUrl: URL): string[] {
+    const prefix = "/api/trpc/";
+    try {
+      const pathname = decodeURIComponent(requestUrl.pathname);
+      return pathname.startsWith(prefix) ? pathname.slice(prefix.length).split(",") : [];
+    } catch {
+      return [];
+    }
   }
 
   private isInitialSetupRequest(requestUrl: URL): boolean {

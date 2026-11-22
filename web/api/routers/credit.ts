@@ -109,15 +109,14 @@ export const creditRouter = createRouter({
       const outstanding = await outstandingOf(db, customer.id, branchId);
       if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
 
-      // ถ้ามีกะเปิดอยู่ให้ผูก shiftId อัตโนมัติ (เหมือนค่าใช้จ่าย) — ต้องหาก่อนเข้า tx
-      const openShift = await db.query.shifts.findFirst({
-        where: and(
-          eq(shifts.branchId, branchId),
-          eq(shifts.status, "open"),
-        ),
-      });
-
       const paymentId = await db.transaction(async tx => {
+        // Serialize linking the receipt with the shift's cash snapshot at close.
+        const [openShift] = await tx
+          .select({ id: shifts.id })
+          .from(shifts)
+          .where(and(eq(shifts.branchId, branchId), eq(shifts.status, "open")))
+          .limit(1)
+          .for("update");
         const paymentNo = await nextDocNo(
           tx,
           "debt_payment",
@@ -132,7 +131,7 @@ export const creditRouter = createRouter({
             amount,
             method: input.method,
             shiftId: openShift?.id ?? null,
-            staffName: input.staffName,
+            staffName: ctx.staff.name,
             note: input.note,
           })
           .returning({ id: debtPayments.id });

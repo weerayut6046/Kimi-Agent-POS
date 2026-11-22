@@ -129,10 +129,12 @@ describe("staff menu permissions", () => {
   it("does not expose access configuration to non-admin users", async () => {
     const publicStaff = await t.caller().auth.listStaff();
     expect(publicStaff.some(user => "menuPermissions" in user)).toBe(false);
-    expect(publicStaff.some(user => "supabaseAuthUserId" in user)).toBe(false);
 
     const adminStaff = await t.caller("admin").auth.listStaffAccess();
-    expect(adminStaff.some(user => "supabaseAuthUserId" in user)).toBe(false);
+    const staffRecords = [...publicStaff, ...adminStaff];
+    expect(staffRecords.some(user => "supabaseAuthUserId" in user)).toBe(false);
+    expect(staffRecords.some(user => "passkeyUserHandle" in user)).toBe(false);
+    expect(staffRecords.some(user => "pin" in user)).toBe(false);
 
     await expect(t.caller("cashier").auth.listStaffAccess()).rejects.toThrow(
       "สิทธิ์ไม่เพียงพอ"

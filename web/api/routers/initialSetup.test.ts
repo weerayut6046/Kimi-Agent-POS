@@ -71,8 +71,6 @@ beforeEach(async () => {
     refreshToken: "mock-refresh",
     expiresAt: 9999999999,
   });
-  const { clearActiveStaffCache } = await import("../lib/authorization");
-  clearActiveStaffCache();
 });
 afterEach(() => {
   Object.assign(environment, originalEnvironment);

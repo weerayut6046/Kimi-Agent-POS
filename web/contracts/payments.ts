@@ -38,6 +38,8 @@ export type ThungngernSaleSnapshot = {
   pointsToRedeem: number;
   pointsEarned: number;
   shiftId: number | null;
+  /** Verified operator for new sessions. Legacy snapshots may omit it. */
+  staffId?: number;
   staffName: string;
 };
 

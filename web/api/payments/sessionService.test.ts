@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
+  branches,
   members,
   paymentSettings,
   paymentSessions,
   products,
   sales,
+  shifts,
+  staffBranches,
+  staffUsers,
 } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 import { crc16Ccitt } from "../lib/promptpay";
@@ -702,6 +706,10 @@ describe("payments router — startThungngern / sessionStatus / verifySlip guard
       pointsToRedeem: 0,
     });
     expect(started.amount).toBe(20);
+    expect((await storedSession(started.sessionId))?.saleSnapshot).toMatchObject({
+      staffId: 3,
+      staffName: "สมชาย (พนักงาน)",
+    });
     expect(started.refCode).toMatch(/^TNG-[A-Z2-9]{8}$/);
     // payload ต้องล็อกยอด 20.00 และจบด้วย CRC
     expect(started.payload).toContain("540520.00");
@@ -720,6 +728,146 @@ describe("payments router — startThungngern / sessionStatus / verifySlip guard
     });
     expect(confirmed.receipt.sale.total).toBe(20);
     expect(confirmed.receipt.sale.paymentMethod).toBe("thungngern");
+  });
+
+  it("allows receipt QR from Sales but requires POS permission to start checkout", async () => {
+    const p = await water();
+    await t.db
+      .update(staffUsers)
+      .set({ menuPermissions: ["sales", "settings"] })
+      .where(eq(staffUsers.id, 3));
+    try {
+      const staff = t.caller("cashier");
+      await expect(
+        staff.payments.promptpayQr({ amount: 10 })
+      ).resolves.toMatchObject({
+        payload: expect.any(String),
+      });
+      await expect(
+        staff.payments.startThungngern({ items: [{ productId: p.id, qty: 1 }] })
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    } finally {
+      await t.db
+        .update(staffUsers)
+        .set({ menuPermissions: null })
+        .where(eq(staffUsers.id, 3));
+    }
+  });
+
+  it("scopes payment sessions to their operator or a supervisor in the selected branch", async () => {
+    const p = await water();
+    const [peer] = await t.db
+      .insert(staffUsers)
+      .values({
+        username: "payment-peer",
+        name: "พนักงานทดสอบ",
+        pin: "test-only",
+      })
+      .returning();
+    await t.db.insert(staffBranches).values({ staffId: peer.id, branchId: 1 });
+    const { appRouter } = await import("../router");
+    const { issueStaffSession } = await import("../lib/session");
+    const peerCaller = appRouter.createCaller({
+      req: new Request("http://test.local/api", {
+        headers: {
+          "x-staff-session": issueStaffSession({
+            id: peer.id,
+            username: peer.username,
+            name: peer.name,
+            role: peer.role,
+          }),
+        },
+      }),
+      resHeaders: new Headers(),
+    });
+    const [otherBranch] = await t.db
+      .insert(branches)
+      .values({ code: "PAY-OTHER", name: "สาขาอื่น" })
+      .returning();
+    const { sessionId } = await t.caller("cashier").payments.startThungngern({
+      items: [{ productId: p.id, qty: 1 }],
+    });
+
+    const target = { sessionId };
+    await expect(
+      peerCaller.payments.sessionStatus(target)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      peerCaller.payments.manualConfirm(target)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      peerCaller.payments.cancelSession(target)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      peerCaller.payments.verifySlip({ ...target, qrCode: "test-only-qr-value" })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      t.caller("admin", 1, otherBranch.id).payments.sessionStatus(target)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      t.caller("manager").payments.sessionStatus(target)
+    ).resolves.toMatchObject({ view: { status: "pending" } });
+    await expect(
+      t.caller("manager").payments.cancelSession(target)
+    ).resolves.toEqual({ ok: true });
+  });
+
+  it("limits unowned legacy sessions to branch supervisors and prevents expired confirmation", async () => {
+    const session = await makeSession();
+    const target = { sessionId: session.id };
+    await expect(
+      t.caller("cashier").payments.sessionStatus(target)
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      t.caller("manager").payments.sessionStatus(target)
+    ).resolves.toMatchObject({ view: { status: "pending" } });
+
+    await t.db
+      .update(paymentSessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(paymentSessions.id, session.id));
+    const before = await saleCount();
+    await expect(
+      t.caller("manager").payments.manualConfirm(target)
+    ).rejects.toThrow("session การชำระนี้หมดเวลาแล้ว");
+    expect(await saleCount()).toBe(before);
+  });
+
+  it("rejects another branch's shift and does not attach payments to a finalized shift", async () => {
+    const p = await water();
+    const [otherBranch] = await t.db
+      .insert(branches)
+      .values({ code: "PAY-SHIFT-OTHER", name: "สาขาอื่น" })
+      .returning();
+    const [otherShift, currentShift] = await t.db
+      .insert(shifts)
+      .values([
+        { branchId: otherBranch.id, staffName: "สาขาอื่น" },
+        { branchId: 1, staffId: 3, staffName: "สมชาย (พนักงาน)" },
+      ])
+      .returning();
+    const cashier = t.caller("cashier");
+    const cart = { items: [{ productId: p.id, qty: 1 }] };
+    await expect(
+      cashier.payments.startThungngern({ ...cart, shiftId: otherShift.id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const { sessionId } = await cashier.payments.startThungngern({
+      ...cart,
+      shiftId: currentShift.id,
+    });
+    await t.db
+      .update(shifts)
+      .set({ status: "closed", closedAt: new Date() })
+      .where(eq(shifts.id, currentShift.id));
+    await expect(
+      cashier.payments.startThungngern({ ...cart, shiftId: currentShift.id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const before = await saleCount();
+    await expect(
+      cashier.payments.manualConfirm({ sessionId })
+    ).rejects.toThrow("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
+    expect(await saleCount()).toBe(before);
+    expect((await storedSession(sessionId))?.status).toBe("pending");
   });
 
   it("verifySlip ปฏิเสธเมื่อยังไม่ได้ตั้ง Slip2Go secret", async () => {

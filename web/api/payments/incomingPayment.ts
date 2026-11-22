@@ -138,11 +138,11 @@ async function buildWebhookRef(
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
+  if (typeof error !== "object" || error === null) return false;
+  const { code, cause } = error as { code?: unknown; cause?: unknown };
+  return code === "23505" || (
+    typeof cause === "object" && cause !== null &&
+    "code" in cause && cause.code === "23505"
   );
 }
 
@@ -191,15 +191,28 @@ export async function processIncomingPayment(input: {
     MAX_REF_LENGTH
   );
 
-  // แจ้งซ้ำด้วย ref เดิม → คืนบิลเดิม ไม่ปิดบิลซ้ำ (กันแอป retry/แจ้งเตือนยิงซ้ำ)
-  const alreadyProcessed = await db.query.paymentSessions.findFirst({
-    where: eq(paymentSessions.transRef, webhookRef),
-  });
-  if (alreadyProcessed) {
+  async function existingNotification(): Promise<IncomingPaymentResult | null> {
+    const alreadyProcessed = await db.query.paymentSessions.findFirst({
+      columns: { branchId: true, saleId: true, refCode: true },
+      where: eq(paymentSessions.transRef, webhookRef),
+    });
+    if (!alreadyProcessed) return null;
+    // Keep the global replay constraint while limiting returned sale data to
+    // the branch whose credential was accepted for this request.
+    if (alreadyProcessed.branchId !== branchId) {
+      return {
+        status: 409,
+        body: { ok: false, error: "ไม่สามารถใช้รหัสแจ้งเตือนนี้ได้" },
+      };
+    }
     const receiptNo = alreadyProcessed.saleId
       ? (
           await db.query.sales.findFirst({
-            where: eq(sales.id, alreadyProcessed.saleId),
+            columns: { receiptNo: true },
+            where: and(
+              eq(sales.id, alreadyProcessed.saleId),
+              eq(sales.branchId, branchId)
+            ),
           })
         )?.receiptNo
       : undefined;
@@ -214,6 +227,8 @@ export async function processIncomingPayment(input: {
       },
     };
   }
+  const existing = await existingNotification();
+  if (existing) return existing;
 
   const now = new Date();
   const pendingSessions = await db.query.paymentSessions.findMany({
@@ -296,11 +311,9 @@ export async function processIncomingPayment(input: {
     };
   } catch (error) {
     if (isUniqueViolation(error)) {
-      // webhook อีกตัว (หรือการแจ้งซ้ำ) ปิดบิลด้วย ref เดียวกันไปแล้วพอดี
-      return {
-        status: 200,
-        body: { ok: true, matched: true, duplicate: true, refCode: session.refCode },
-      };
+      // A concurrent notification may have stored the reference first.
+      const existing = await existingNotification();
+      if (existing) return existing;
     }
     const message =
       error instanceof Error ? error.message : "ปิดบิลจาก webhook ไม่สำเร็จ";

@@ -26,7 +26,6 @@ import { adminQuery } from "../guard";
 import { createRouter } from "../middleware";
 import { getDb } from "../queries/connection";
 import { requireBusinessDeployment } from "../lib/deployment";
-import { clearActiveStaffCache } from "../lib/authorization";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { buildPromptPayPayload } from "../lib/promptpay";
 import {
@@ -107,7 +106,6 @@ export const onboardingRouter = createRouter({
         ]);
         await confirmProgress(tx, branchId, "profile");
       });
-      clearActiveStaffCache();
       logAudit({
         action: "business_setup_profile",
         ...actorFromReq(ctx.req),

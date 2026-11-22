@@ -15,10 +15,12 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { createRouter, publicQuery } from "../middleware";
-import { adminQuery, managerQuery } from "../guard";
+import { canUseProcedureMenu, createRouter, publicQuery } from "../middleware";
+import { adminQuery, businessActionQuery, managerQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { nextDocNo } from "../lib/docNumbers";
+import { canPerformBusinessAction } from "../lib/businessPermissions";
+import { redactProductCost } from "../lib/financialVisibility";
 import { outstandingOf } from "../lib/debt";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { expireDueMemberPoints } from "../lib/memberExpiry";
@@ -75,14 +77,63 @@ import {
   customers,
   settings,
   priceChanges,
-  debtPayments,
   expenses,
+  auditLogs,
+  branches,
+  staffBranches,
+  type Shift,
   type Sale,
   type SaleItem,
 } from "@db/schema";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+function shiftStatusOnly(shift: Shift): Shift {
+  return {
+    id: shift.id,
+    branchId: shift.branchId,
+    staffId: shift.staffId,
+    staffName: shift.staffName,
+    openedAt: shift.openedAt,
+    closedAt: shift.closedAt,
+    status: shift.status,
+    openingFloat: 0,
+    totalLiters: 0,
+    totalAmount: 0,
+    totalMoneyMeter: 0,
+    posAmount: 0,
+    countedCash: null,
+    transferAmount: null,
+    expectedCash: null,
+    cashCounts: null,
+    note: null,
+  };
+}
+
+const emptyShiftCash = {
+  openingFloat: 0,
+  cashSales: 0,
+  posSales: 0,
+  cashDebtPayments: 0,
+  expensesTotal: 0,
+  expectedCash: 0,
+};
+
+function finalizedHistoryChangeDenied(
+  shift: Pick<Shift, "status"> | undefined
+): never {
+  if (!shift) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "ไม่พบประวัติการตัดกะ" });
+  }
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      shift.status === "open"
+        ? "รายการนี้เป็นกะที่กำลังเปิด กรุณาปิดกะก่อน"
+        : "กะที่ปิดแล้วแก้ไขหรือลบโดยตรงไม่ได้",
+  });
+}
 const meterAiRateLimits = new Map<
   string,
   { windowStartedAt: number; requestCount: number }
@@ -368,6 +419,26 @@ export const posRouter = createRouter({
       orderBy: (s, { desc: d }) => [d(s.openedAt)],
     });
     if (!shift) return null;
+    const mayOversee = canPerformBusinessAction(
+      ctx.staff.role,
+      "closing.approve"
+    );
+    const ownsShift = shift.staffId === ctx.staff.id;
+    if (
+      (!ownsShift && !mayOversee) ||
+      !(await canUseProcedureMenu(ctx.staff, "pos.shiftDetail", ctx.req))
+    ) {
+      // The POS and app shell still need the branch's active shift to operate.
+      return {
+        ...shiftStatusOnly(shift),
+        canSubmit: false,
+        cash: emptyShiftCash,
+        lubricants: [],
+        lubricantSales: { lubricantAmount: 0, lubricantItems: [] },
+        readings: [],
+      };
+    }
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
     const [readings, nozzleRows, pumpRows, productRows, priceChangeRows, cash] =
       await Promise.all([
         db
@@ -404,11 +475,12 @@ export const posRouter = createRouter({
     ).get(shift.id) ?? { lubricantAmount: 0, lubricantItems: [] };
     return {
       ...shift,
+      canSubmit: true,
       posAmount: cash.posSales,
       cash, // สรุปเงินสดของกะ (ใช้โชว์ยอด "ควรมี" ตอนปิดกะ)
-      lubricants: productRows.filter(
-        product => product.active && product.category === "lubricant"
-      ),
+      lubricants: productRows
+        .filter(product => product.active && product.category === "lubricant")
+        .map(product => redactProductCost(product, canReadCost)),
       lubricantSales,
       readings: readings.map(r => {
         const nz = nozzleRows.find(n => n.id === r.nozzleId);
@@ -418,9 +490,10 @@ export const posRouter = createRouter({
           .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
         return {
           ...r,
+          costPerLiter: canReadCost ? r.costPerLiter : 0,
           nozzle: nz ?? null,
           pump: pumpRows.find(p => p.id === nz?.pumpId) ?? null,
-          product: product ?? null,
+          product: product ? redactProductCost(product, canReadCost) : null,
           currentPrice: product?.price ?? r.pricePerLiter,
           priceChangedDuringShift: changesDuringShift.length > 0,
           priceChangesDuringShift: changesDuringShift,
@@ -429,7 +502,7 @@ export const posRouter = createRouter({
     };
   }),
 
-  shiftMeterVerify: publicQuery
+  shiftMeterVerify: businessActionQuery("meter.create")
     .input(
       z.object({
         shiftId: z.number().int().positive(),
@@ -442,10 +515,17 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const branchId = ctx.staff.branchId;
       const shift = await getDb().query.shifts.findFirst({
-        columns: { id: true, status: true },
-        where: and(eq(shifts.id, input.shiftId), eq(shifts.branchId, branchId)),
+        columns: { id: true },
+        where: and(
+          eq(shifts.id, input.shiftId),
+          eq(shifts.branchId, branchId),
+          eq(shifts.status, "open"),
+          canPerformBusinessAction(ctx.staff.role, "closing.approve")
+            ? undefined
+            : eq(shifts.staffId, ctx.staff.id)
+        ),
       });
-      if (!shift || shift.status !== "open") {
+      if (!shift) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "ไม่พบกะที่เปิดอยู่สำหรับตรวจมิเตอร์",
@@ -492,7 +572,7 @@ export const posRouter = createRouter({
       }
     }),
 
-  openShift: publicQuery
+  openShift: businessActionQuery("shift.submit")
     .input(
       z.object({
         staffId: z.number().optional(),
@@ -512,10 +592,7 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      const existing = await db.query.shifts.findFirst({
-        where: and(eq(shifts.branchId, branchId), eq(shifts.status, "open")),
-      });
-      if (existing) throw new Error("มีกะที่เปิดอยู่แล้ว กรุณาปิดกะก่อน");
+      const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
       const prodRows = await db.query.products.findMany({
         where: eq(products.branchId, branchId),
       });
@@ -537,6 +614,21 @@ export const posRouter = createRouter({
 
       const { createdShift, createdReadings } = await db.transaction(
         async tx => {
+          // Serialize opening attempts within a branch to keep a single active shift.
+          await tx
+            .select({ id: branches.id })
+            .from(branches)
+            .where(eq(branches.id, branchId))
+            .for("no key update");
+          const existing = await tx.query.shifts.findFirst({
+            columns: { id: true },
+            where: and(
+              eq(shifts.branchId, branchId),
+              eq(shifts.status, "open")
+            ),
+          });
+          if (existing) throw new Error("มีกะที่เปิดอยู่แล้ว กรุณาปิดกะก่อน");
+
           const [createdShift] = await tx
             .insert(shifts)
             .values({
@@ -577,11 +669,8 @@ export const posRouter = createRouter({
       );
 
       const cash = {
+        ...emptyShiftCash,
         openingFloat: createdShift.openingFloat,
-        cashSales: 0,
-        posSales: 0,
-        cashDebtPayments: 0,
-        expensesTotal: 0,
         expectedCash: createdShift.openingFloat,
       };
       return {
@@ -589,19 +678,23 @@ export const posRouter = createRouter({
         shiftId: createdShift.id,
         shift: {
           ...createdShift,
+          canSubmit: true,
           cash,
-          lubricants: prodRows.filter(
-            product => product.active && product.category === "lubricant"
-          ),
+          lubricants: prodRows
+            .filter(
+              product => product.active && product.category === "lubricant"
+            )
+            .map(product => redactProductCost(product, canReadCost)),
           lubricantSales: { lubricantAmount: 0, lubricantItems: [] },
           readings: createdReadings.map(reading => {
             const nozzle = nozzleRows.find(row => row.id === reading.nozzleId);
             const product = prodRows.find(row => row.id === nozzle?.productId);
             return {
               ...reading,
+              costPerLiter: canReadCost ? reading.costPerLiter : 0,
               nozzle: nozzle ?? null,
               pump: pumpRows.find(row => row.id === nozzle?.pumpId) ?? null,
-              product: product ?? null,
+              product: product ? redactProductCost(product, canReadCost) : null,
               currentPrice: product?.price ?? reading.pricePerLiter,
               priceChangedDuringShift: false,
               priceChangesDuringShift: [],
@@ -611,7 +704,7 @@ export const posRouter = createRouter({
       };
     }),
 
-  closeShift: publicQuery
+  closeShift: businessActionQuery("shift.submit")
     .input(
       z.object({
         shiftId: z.number(),
@@ -647,11 +740,24 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      // Staff submit their own shift. Supervisors may close an active shift for the branch.
+      const openShiftScope = and(
+        eq(shifts.id, input.shiftId),
+        eq(shifts.branchId, branchId),
+        eq(shifts.status, "open"),
+        canPerformBusinessAction(ctx.staff.role, "closing.approve")
+          ? undefined
+          : eq(shifts.staffId, ctx.staff.id)
+      );
       const shift = await db.query.shifts.findFirst({
-        where: and(eq(shifts.id, input.shiftId), eq(shifts.branchId, branchId)),
+        where: openShiftScope,
       });
-      if (!shift || shift.status !== "open")
-        throw new Error("ไม่พบกะที่เปิดอยู่");
+      if (!shift) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "ไม่พบกะที่เปิดอยู่",
+        });
+      }
 
       // ถ้าส่งการนับแบงก์/เหรียญมา → คำนวณยอดเงินสดนับได้ฝั่งเซิร์ฟเวอร์ (ไม่เชื่อยอดจาก client)
       let countedCash =
@@ -782,20 +888,29 @@ export const posRouter = createRouter({
             suggestion
         );
       }
-      // คำนวณเงินสดที่ควรมีก่อนเข้า transaction เพื่อลดเวลาถือ lock
-      const currentCash = await shiftCashSummary(db, shift);
-      const cash = {
-        ...currentCash,
-        cashSales: r2(currentCash.cashSales + lubricantAmount),
-        posSales: r2(currentCash.posSales + lubricantAmount),
-        expectedCash: r2(currentCash.expectedCash + lubricantAmount),
-      };
-
       let totalLiters = 0;
       let totalAmount = 0;
       let totalMoneyMeter = 0;
 
-      await db.transaction(async tx => {
+      const cash = await db.transaction(async tx => {
+        const [lockedShift] = await tx
+          .select({ id: shifts.id })
+          .from(shifts)
+          .where(openShiftScope)
+          .for("update");
+        if (!lockedShift) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "ไม่พบกะที่เปิดอยู่",
+          });
+        }
+        const currentCash = await shiftCashSummary(tx, shift);
+        const cash = {
+          ...currentCash,
+          cashSales: r2(currentCash.cashSales + lubricantAmount),
+          posSales: r2(currentCash.posSales + lubricantAmount),
+          expectedCash: r2(currentCash.expectedCash + lubricantAmount),
+        };
         if (lubricantLines.length > 0) {
           const receiptNo = await nextDocNo(tx, "receipt", branchId);
           const [manualSale] = await tx
@@ -943,6 +1058,7 @@ export const posRouter = createRouter({
             note: input.note,
           })
           .where(and(eq(shifts.id, shift.id), eq(shifts.branchId, branchId)));
+        return cash;
       });
 
       // ฝั่งนับได้รวมยอดเงินโอนตอนปิดกะด้วย (นับได้ + โอน)
@@ -989,6 +1105,9 @@ export const posRouter = createRouter({
         .where(
           and(
             eq(historyShifts.branchId, ctx.staff.branchId),
+            canPerformBusinessAction(ctx.staff.role, "closing.approve")
+              ? undefined
+              : eq(historyShifts.staffId, ctx.staff.id),
             gte(historyShifts.openedAt, period.start),
             lt(historyShifts.openedAt, period.end)
           )
@@ -1004,7 +1123,7 @@ export const posRouter = createRouter({
     }),
 
   // ค้นหาและจัดการประวัติการตัดกะ — เฉพาะ admin เจ้าของปั๊ม
-  searchShiftHistory: adminQuery
+  searchShiftHistory: businessActionQuery("closing.history.manage")
     .input(shiftHistorySearchInput)
     .query(async ({ input, ctx }) => {
       const conditions = [eq(historyShifts.branchId, ctx.staff.branchId)];
@@ -1048,7 +1167,7 @@ export const posRouter = createRouter({
       );
     }),
 
-  createShiftHistory: adminQuery
+  createShiftHistory: businessActionQuery("shift.history.create")
     .input(shiftHistoryRecordInput)
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -1129,6 +1248,21 @@ export const posRouter = createRouter({
       }
 
       const id = await db.transaction(async tx => {
+        if (values.staffId != null) {
+          const assignment = await tx.query.staffBranches.findFirst({
+            columns: { staffId: true },
+            where: and(
+              eq(staffBranches.staffId, values.staffId),
+              eq(staffBranches.branchId, branchId)
+            ),
+          });
+          if (!assignment) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "ไม่พบพนักงานในสาขาปัจจุบัน",
+            });
+          }
+        }
         const [created] = await tx
           .insert(shifts)
           .values({
@@ -1159,201 +1293,44 @@ export const posRouter = createRouter({
             }))
           );
         }
+        await tx.insert(auditLogs).values({
+          action: "create_shift_history",
+          actorId: ctx.staff.id,
+          actorName: ctx.staff.name,
+          branchId,
+          detail: `เพิ่มประวัติตัดกะ #${created.id} (${values.staffName}) เปิด ${values.openedAt.toISOString()} ปิด ${values.closedAt.toISOString()}${readingValues ? ` พร้อมเลขมิเตอร์ ${readingValues.length} หัวจ่าย` : ""}`,
+          refType: "shift",
+          refId: created.id,
+        });
         return created.id;
-      });
-      logAudit({
-        action: "create_shift_history",
-        ...actorFromReq(ctx.req),
-        detail: `เพิ่มประวัติตัดกะ #${id} (${values.staffName}) เปิด ${values.openedAt.toISOString()} ปิด ${values.closedAt.toISOString()}${readingValues ? ` พร้อมเลขมิเตอร์ ${readingValues.length} หัวจ่าย` : ""}`,
-        refType: "shift",
-        refId: id,
       });
       return { ok: true, id, totalLiters, totalAmount, totalMoneyMeter };
     }),
 
-  updateShiftHistory: adminQuery
+  updateShiftHistory: businessActionQuery("closing.history.manage")
     .input(shiftHistoryUpdateInput)
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const branchId = ctx.staff.branchId;
-      const current = await db.query.shifts.findFirst({
-        where: and(eq(shifts.id, input.id), eq(shifts.branchId, branchId)),
+      const shift = await getDb().query.shifts.findFirst({
+        columns: { status: true },
+        where: and(
+          eq(shifts.id, input.id),
+          eq(shifts.branchId, ctx.staff.branchId)
+        ),
       });
-      if (!current) throw new Error("ไม่พบประวัติการตัดกะ");
-      if (current.status === "open") {
-        throw new Error("แก้ไขกะที่กำลังเปิดไม่ได้ กรุณาปิดกะก่อน");
-      }
-      const {
-        id,
-        readings: readingValues,
-        cashCounts: cashCountValues,
-        ...values
-      } = input;
-      if (cashCountValues != null && !isValidCashCounts(cashCountValues)) {
-        throw new Error("มูลค่าแบงก์/เหรียญไม่ถูกต้อง");
-      }
-      const countedCash =
-        cashCountValues == null
-          ? values.countedCash
-          : sumCashCounts(cashCountValues);
-      const cashCountsJson =
-        cashCountValues === undefined
-          ? values.countedCash !== current.countedCash
-            ? null
-            : current.cashCounts
-          : cashCountValues === null
-            ? null
-            : JSON.stringify(cashCountValues);
-      let totalLiters = r3(values.totalLiters);
-      let totalAmount = r2(values.totalAmount);
-      let totalMoneyMeter = r2(values.totalMoneyMeter);
-      const existingReadings = readingValues
-        ? await db
-            .select()
-            .from(shiftReadings)
-            .where(
-              and(
-                eq(shiftReadings.shiftId, id),
-                eq(shiftReadings.branchId, branchId)
-              )
-            )
-        : [];
-
-      if (readingValues) {
-        if (
-          readingValues.length !== existingReadings.length ||
-          new Set(readingValues.map(reading => reading.nozzleId)).size !==
-            readingValues.length
-        ) {
-          throw new Error("ข้อมูลหัวจ่ายของกะไม่ครบหรือซ้ำกัน");
-        }
-        totalLiters = 0;
-        totalAmount = 0;
-        totalMoneyMeter = 0;
-        for (const reading of readingValues) {
-          const existing = existingReadings.find(
-            row => row.nozzleId === reading.nozzleId
-          );
-          if (!existing) throw new Error("ไม่พบหัวจ่ายในประวัติกะนี้");
-          if (reading.closeMeter < existing.openMeter) {
-            throw new Error("เลขลิตรปิดกะต้องมากกว่าหรือเท่าเลขตั้งต้น");
-          }
-          if (reading.closeMoney < existing.openMoney) {
-            throw new Error("เลขเงินปิดกะ (P) ต้องมากกว่าหรือเท่าเลขตั้งต้น");
-          }
-          const liters = r3(reading.closeMeter - existing.openMeter);
-          const money = r2(reading.closeMoney - existing.openMoney);
-          totalLiters = r3(totalLiters + liters);
-          totalAmount = r2(totalAmount + r2(liters * existing.pricePerLiter));
-          totalMoneyMeter = r2(totalMoneyMeter + money);
-        }
-      }
-
-      await db.transaction(async tx => {
-        for (const reading of readingValues ?? []) {
-          await tx
-            .update(shiftReadings)
-            .set({
-              closeMeter: r2(reading.closeMeter),
-              closeMoney: r2(reading.closeMoney),
-            })
-            .where(
-              and(
-                eq(shiftReadings.shiftId, id),
-                eq(shiftReadings.nozzleId, reading.nozzleId),
-                eq(shiftReadings.branchId, branchId)
-              )
-            );
-        }
-        await tx
-          .update(shifts)
-          .set({
-            ...values,
-            staffId: values.staffId ?? null,
-            status: "closed",
-            totalLiters,
-            totalAmount,
-            totalMoneyMeter,
-            posAmount: r2(values.posAmount),
-            openingFloat: r2(values.openingFloat),
-            countedCash: countedCash == null ? null : r2(countedCash),
-            transferAmount:
-              values.transferAmount == null ? null : r2(values.transferAmount),
-            expectedCash:
-              values.expectedCash == null ? null : r2(values.expectedCash),
-            cashCounts: cashCountsJson,
-            note: values.note || null,
-          })
-          .where(and(eq(shifts.id, id), eq(shifts.branchId, branchId)));
-      });
-      logAudit({
-        action: "update_shift_history",
-        ...actorFromReq(ctx.req),
-        detail: `แก้ไขประวัติตัดกะ #${id} (${current.staffName} → ${values.staffName})${readingValues ? ` และเลขปิดกะ ${readingValues.length} หัวจ่าย` : ""}`,
-        refType: "shift",
-        refId: id,
-      });
-      return { ok: true, totalLiters, totalAmount, totalMoneyMeter };
+      finalizedHistoryChangeDenied(shift);
     }),
 
-  deleteShiftHistory: adminQuery
+  deleteShiftHistory: businessActionQuery("closing.history.manage")
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const branchId = ctx.staff.branchId;
-      const current = await db.query.shifts.findFirst({
-        where: and(eq(shifts.id, input.id), eq(shifts.branchId, branchId)),
+      const shift = await getDb().query.shifts.findFirst({
+        columns: { status: true },
+        where: and(
+          eq(shifts.id, input.id),
+          eq(shifts.branchId, ctx.staff.branchId)
+        ),
       });
-      if (!current) throw new Error("ไม่พบประวัติการตัดกะ");
-      if (current.status === "open") {
-        throw new Error("ลบกะที่กำลังเปิดไม่ได้ กรุณาปิดกะก่อน");
-      }
-      await db.transaction(async tx => {
-        // เก็บเอกสารการเงินจริงไว้ แต่ยกเลิกการผูกกับประวัติกะที่ถูกลบ
-        await tx
-          .update(sales)
-          .set({ shiftId: null })
-          .where(
-            and(eq(sales.shiftId, current.id), eq(sales.branchId, branchId))
-          );
-        await tx
-          .update(debtPayments)
-          .set({ shiftId: null })
-          .where(
-            and(
-              eq(debtPayments.shiftId, current.id),
-              eq(debtPayments.branchId, branchId)
-            )
-          );
-        await tx
-          .update(expenses)
-          .set({ shiftId: null })
-          .where(
-            and(
-              eq(expenses.shiftId, current.id),
-              eq(expenses.branchId, branchId)
-            )
-          );
-        await tx
-          .delete(shiftReadings)
-          .where(
-            and(
-              eq(shiftReadings.shiftId, current.id),
-              eq(shiftReadings.branchId, branchId)
-            )
-          );
-        await tx
-          .delete(shifts)
-          .where(and(eq(shifts.id, current.id), eq(shifts.branchId, branchId)));
-      });
-      logAudit({
-        action: "delete_shift_history",
-        ...actorFromReq(ctx.req),
-        detail: `ลบประวัติตัดกะ #${current.id} (${current.staffName}) โดยไม่ลบรายการขาย/รับชำระ/ค่าใช้จ่าย`,
-        refType: "shift",
-        refId: current.id,
-      });
-      return { ok: true };
+      finalizedHistoryChangeDenied(shift);
     }),
 
   shiftDetail: publicQuery
@@ -1362,9 +1339,17 @@ export const posRouter = createRouter({
       const db = getDb();
       const branchId = ctx.staff.branchId;
       const shift = await db.query.shifts.findFirst({
-        where: and(eq(shifts.id, input.id), eq(shifts.branchId, branchId)),
+        where: and(
+          eq(shifts.id, input.id),
+          eq(shifts.branchId, branchId),
+          canPerformBusinessAction(ctx.staff.role, "closing.approve")
+            ? undefined
+            : eq(shifts.staffId, ctx.staff.id)
+        ),
       });
-      if (!shift) throw new Error("ไม่พบกะ");
+      if (!shift)
+        throw new TRPCError({ code: "NOT_FOUND", message: "ไม่พบกะ" });
+      const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
       const readings = await db
         .select()
         .from(shiftReadings)
@@ -1436,8 +1421,9 @@ export const posRouter = createRouter({
         const amountL = liters != null ? r2(liters * r.pricePerLiter) : null;
         return {
           ...r,
+          costPerLiter: canReadCost ? r.costPerLiter : 0,
           nozzle: nz ?? null,
-          product: prod ?? null,
+          product: prod ? redactProductCost(prod, canReadCost) : null,
           liters,
           money, // ยอดจากมิเตอร์เงิน P
           amount: amountL, // ยอดจากลิตร × ราคา
@@ -1493,17 +1479,6 @@ export const posRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      if (input.shiftId != null) {
-        const shift = await db.query.shifts.findFirst({
-          where: and(
-            eq(shifts.id, input.shiftId),
-            eq(shifts.branchId, branchId),
-            eq(shifts.status, "open")
-          ),
-          columns: { id: true },
-        });
-        if (!shift) throw new Error("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
-      }
       if (input.clientReceiptNo) {
         const existing = await db.query.sales.findFirst({
           where: and(
@@ -1540,6 +1515,21 @@ export const posRouter = createRouter({
             items: existingItems,
           };
         }
+      }
+      const openShiftScope =
+        input.shiftId == null
+          ? undefined
+          : and(
+              eq(shifts.id, input.shiftId),
+              eq(shifts.branchId, branchId),
+              eq(shifts.status, "open")
+            );
+      if (openShiftScope) {
+        const shift = await db.query.shifts.findFirst({
+          where: openShiftScope,
+          columns: { id: true },
+        });
+        if (!shift) throw new Error("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
       }
       const prodRows = await db.query.products.findMany({
         where: eq(products.branchId, branchId),
@@ -1731,6 +1721,14 @@ export const posRouter = createRouter({
       }
 
       const saleId = await db.transaction(async tx => {
+        if (openShiftScope) {
+          const [shift] = await tx
+            .select({ id: shifts.id })
+            .from(shifts)
+            .where(openShiftScope)
+            .for("update");
+          if (!shift) throw new Error("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
+        }
         const receiptNo =
           input.clientReceiptNo ?? (await nextDocNo(tx, "receipt", branchId));
         const inserted = await tx
@@ -3013,12 +3011,15 @@ export const posRouter = createRouter({
       isLow: tank.currentLiters <= tank.lowAlertAt,
     }));
     const lowTanks = tankRows.filter(t => t.currentLiters <= t.lowAlertAt);
-    const lowProducts = productRows.filter(
-      product =>
-        product.active &&
-        product.category !== "fuel" &&
-        product.stockQty <= product.lowStockAt
-    );
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
+    const lowProducts = productRows
+      .filter(
+        product =>
+          product.active &&
+          product.category !== "fuel" &&
+          product.stockQty <= product.lowStockAt
+      )
+      .map(product => redactProductCost(product, canReadCost));
 
     return {
       todayTotal: r2(todayPosTotal + todayShiftTotal),
@@ -3031,7 +3032,7 @@ export const posRouter = createRouter({
       fuelSource,
       fuelByCode,
       chart,
-      openShift: openShift ?? null,
+      openShift: openShift ? shiftStatusOnly(openShift) : null,
       tanks,
       lowTanks,
       lowProducts,

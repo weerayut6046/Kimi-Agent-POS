@@ -6,6 +6,7 @@ import {
   products,
   saleItems,
   sales,
+  shifts,
   type PaymentSession,
 } from "@db/schema";
 import type {
@@ -531,6 +532,7 @@ export async function finalizeThungngernSession(
   confirmedBy: PaymentConfirmedBy,
   externalRef: string | null = null
 ): Promise<FinalizeResult> {
+  const now = new Date();
   const claimedSaleId = await db.transaction(async tx => {
     const claimed = await tx
       .update(paymentSessions)
@@ -541,13 +543,14 @@ export async function finalizeThungngernSession(
         // externalRef ของการชำระผ่านสลิปคือ transRef ของธนาคาร — บันทึกแยกคอลัมน์
         // เพื่อบังคับ unique (สลิป 1 ใบใช้ปิดบิลได้ครั้งเดียว)
         transRef: externalRef,
-        confirmedAt: new Date(),
+        confirmedAt: now,
       })
       .where(
         and(
           eq(paymentSessions.id, sessionId),
           eq(paymentSessions.branchId, branchId),
-          eq(paymentSessions.status, "pending")
+          eq(paymentSessions.status, "pending"),
+          gt(paymentSessions.expiresAt, now)
         )
       )
       .returning({ id: paymentSessions.id });
@@ -557,6 +560,21 @@ export async function finalizeThungngernSession(
       where: eq(paymentSessions.id, sessionId),
     });
     if (!session) throw new Error("ไม่พบ session การชำระเงิน");
+    const { shiftId } = session.saleSnapshot;
+    if (shiftId != null) {
+      const [shift] = await tx
+        .select({ id: shifts.id })
+        .from(shifts)
+        .where(
+          and(
+            eq(shifts.id, shiftId),
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "open")
+          )
+        )
+        .for("update");
+      if (!shift) throw new Error("ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน");
+    }
     const saleId = await insertSaleFromSnapshot(
       tx,
       branchId,
@@ -593,7 +611,7 @@ export async function finalizeThungngernSession(
   if (session.status === "cancelled") {
     throw new Error("session การชำระนี้ถูกยกเลิกแล้ว");
   }
-  if (session.status === "expired") {
+  if (session.status === "expired" || session.expiresAt <= now) {
     throw new Error("session การชำระนี้หมดเวลาแล้ว กรุณาสร้าง QR ใหม่");
   }
   throw new Error("ปิด session การชำระไม่สำเร็จ กรุณาลองใหม่");

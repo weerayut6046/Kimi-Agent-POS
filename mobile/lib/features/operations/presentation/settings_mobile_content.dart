@@ -108,9 +108,9 @@ class _SettingsHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final roleLabel = switch (staff.role) {
-      StaffRole.admin => 'ผู้ดูแลระบบ',
-      StaffRole.manager => 'ผู้จัดการ',
-      StaffRole.cashier => 'พนักงานขาย',
+      StaffRole.admin => 'เจ้าของกิจการ (Owner)',
+      StaffRole.manager => 'ผู้จัดการ (Manager)',
+      StaffRole.cashier => 'พนักงาน (Staff)',
     };
     return Container(
       padding: const EdgeInsets.all(18),

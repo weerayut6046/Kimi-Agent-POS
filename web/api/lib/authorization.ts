@@ -11,11 +11,6 @@ import {
 import { branchForStaff, defaultBranchForStaff } from "./branches";
 import { env } from "./env";
 
-const ACTIVE_STAFF_CACHE_MS = 5_000;
-const activeStaffCache = new Map<
-  string,
-  Omit<StaffSessionClaims, "exp"> & { validUntil: number }
->();
 const requestSessionPromises = new WeakMap<
   Request,
   Promise<StaffSessionClaims | null>
@@ -77,7 +72,8 @@ async function supabaseAuthUserId(request: Request): Promise<{
     error ||
     !data?.claims ||
     typeof data.claims.sub !== "string" ||
-    typeof data.claims.exp !== "number"
+    typeof data.claims.exp !== "number" ||
+    !(data.claims.exp > Date.now() / 1000)
   ) {
     return null;
   }
@@ -86,9 +82,8 @@ async function supabaseAuthUserId(request: Request): Promise<{
 }
 
 /**
- * Resolve the signed identity and current database account state once. The
- * short cache keeps deactivation/role changes close to immediate while
- * avoiding repeated staff/branch reads inside a warm Edge isolate.
+ * Resolve the verified identity and current database account and branch state.
+ * Share the result within one request, including tRPC batches.
  */
 async function resolveActiveStaffSession(
   request: Request
@@ -124,15 +119,6 @@ async function resolveActiveStaffSession(
   if (!identity) return null;
 
   const requestedBranch = requestedBranchId(request);
-  const cacheKey = `${identity.id}:${requestedBranch ?? "default"}`;
-  const cached = activeStaffCache.get(cacheKey);
-  if (cached && cached.validUntil > Date.now()) {
-    const { validUntil: _validUntil, ...cachedStaff } = cached;
-    const activeSession = { ...cachedStaff, exp: identity.exp };
-    bindStaffSessionToRequest(request, activeSession);
-    return activeSession;
-  }
-
   const staff = await getDb().query.staffUsers.findFirst({
     where: eq(staffUsers.supabaseAuthUserId, identity.id),
   });
@@ -153,12 +139,6 @@ async function resolveActiveStaffSession(
     branchName: branch.name,
     exp: identity.exp,
   };
-  const { exp: _exp, ...cacheableSession } = session;
-  if (activeStaffCache.size >= 500) activeStaffCache.clear();
-  activeStaffCache.set(cacheKey, {
-    ...cacheableSession,
-    validUntil: Date.now() + ACTIVE_STAFF_CACHE_MS,
-  });
   bindStaffSessionToRequest(request, session);
   return session;
 }
@@ -186,8 +166,4 @@ export async function activeStaffSessionFromRequest(
       requestSessionPromises.delete(request);
     }
   }
-}
-
-export function clearActiveStaffCache(): void {
-  activeStaffCache.clear();
 }

@@ -148,11 +148,12 @@ describe("รับชำระหนี้", () => {
       customerId: cust.id,
       amount: 15,
       method: "cash",
-      staffName: "ผู้จัดการ",
+      staffName: "ชื่อที่ส่งจากไคลเอนต์",
     });
 
     expect(payment!.paymentNo).toMatch(/^P\d{5}$/);
     expect(payment!.amount).toBe(15);
+    expect(payment!.staffName).toBe("สมหญิง (ผู้จัดการสาขา)");
     expect(await outstandingOf(cust.id)).toBe(25);
 
     const detail = await t.caller().credit.detail({ customerId: cust.id });

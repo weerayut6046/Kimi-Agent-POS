@@ -808,8 +808,12 @@ export default function Stock() {
                     <TableHead>วันที่</TableHead>
                     <TableHead>ถัง</TableHead>
                     <TableHead className="text-right">ลิตร</TableHead>
-                    <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
-                    <TableHead className="text-right">รวมต้นทุน</TableHead>
+                    {isAdmin && (
+                      <>
+                        <TableHead className="text-right">ต้นทุน/ลิตร</TableHead>
+                        <TableHead className="text-right">รวมต้นทุน</TableHead>
+                      </>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -820,18 +824,22 @@ export default function Stock() {
                       <TableCell className="text-right">
                         {fmtNum(r.liters)}
                       </TableCell>
-                      <TableCell className="text-right">
-                        ฿{fmtMoney(r.costPerLiter)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ฿{fmtMoney(r.liters * r.costPerLiter)}
-                      </TableCell>
+                      {isAdmin && (
+                        <>
+                          <TableCell className="text-right">
+                            ฿{fmtMoney(r.costPerLiter)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            ฿{fmtMoney(r.liters * r.costPerLiter)}
+                          </TableCell>
+                        </>
+                      )}
                     </TableRow>
                   ))}
                   {(refills ?? []).length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={isAdmin ? 5 : 3}
                         className="text-center text-muted-foreground py-6"
                       >
                         ยังไม่มีประวัติ

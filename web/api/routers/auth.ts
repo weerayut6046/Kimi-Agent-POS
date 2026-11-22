@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import {
@@ -8,7 +8,7 @@ import {
   createRouter,
   publicQuery,
 } from "../middleware";
-import { adminQuery, staffIdFromHeader } from "../guard";
+import { adminQuery, businessActionQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import {
   assistantActionProposals,
@@ -50,6 +50,7 @@ import {
 } from "../lib/branches";
 import { systemAccessForRequest } from "../lib/systemAccess";
 import { getDeploymentInfo } from "../lib/deployment";
+import type { StaffSessionClaims } from "../lib/session";
 
 const LOGIN_REPORT_WINDOW_MS = 60_000;
 const LOGIN_REPORT_MAX_PER_WINDOW = 20;
@@ -58,14 +59,75 @@ const menuPermissionsInput = z.array(z.enum(MENU_PERMISSION_KEYS)).min(1);
 const staffPinInput = z
   .string()
   .regex(/^\d{4,6}$/, "PIN ต้องเป็นตัวเลข 4-6 หลัก");
+const staffAdministrationQuery = businessActionQuery("users.manage_staff");
+
+type StaffReader = Pick<ReturnType<typeof getDb>, "query" | "select">;
+
+function denyStaffAdministration(): never {
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "สิทธิ์ไม่เพียงพอสำหรับการจัดการบัญชีพนักงานนี้",
+  });
+}
+
+async function lockStaffAdministration(
+  db: StaffReader,
+  staff: StaffSessionClaims,
+  targetId?: number
+) {
+  // Lock in a consistent order so concurrent Owner removals serialize.
+  const locked = await db
+    .select()
+    .from(staffUsers)
+    .where(
+      or(
+        eq(staffUsers.id, staff.id),
+        targetId === undefined ? undefined : eq(staffUsers.id, targetId),
+        staff.role === "admin" && targetId !== undefined
+          ? and(eq(staffUsers.role, "admin"), eq(staffUsers.active, true))
+          : undefined
+      )
+    )
+    .orderBy(asc(staffUsers.id))
+    .for("update");
+  const actor = locked.find(user => user.id === staff.id);
+  if (!actor?.active || actor.role !== staff.role) denyStaffAdministration();
+  if (staff.role === "manager") {
+    const [workingBranch] = await db
+      .select({ id: branches.id, active: branches.active })
+      .from(staffBranches)
+      .innerJoin(branches, eq(branches.id, staffBranches.branchId))
+      .where(eq(staffBranches.staffId, staff.id))
+      .orderBy(desc(staffBranches.isDefault), asc(branches.id))
+      .limit(1);
+    if (!workingBranch?.active || workingBranch.id !== staff.branchId)
+      denyStaffAdministration();
+  }
+  return {
+    target: locked.find(user => user.id === targetId),
+    activeOwnerCount: locked.filter(
+      user => user.active && user.role === "admin"
+    ).length,
+  };
+}
+
+function assertActiveOwnerRemains(activeOwnerCount: number) {
+  if (activeOwnerCount <= 1) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "ต้องเหลือผู้ดูแลระบบที่ใช้งานอยู่อย่างน้อย 1 คน",
+    });
+  }
+}
 
 async function ensureStaffPinAvailable(
   pinHash: string,
   branchIds: number[],
   excludeStaffId?: number,
-  plainPin?: string
+  plainPin?: string,
+  db: StaffReader = getDb()
 ) {
-  const matches = await getDb()
+  const matches = await db
     .select({ id: staffUsers.id, name: staffUsers.name, pin: staffUsers.pin })
     .from(staffUsers)
     .innerJoin(staffBranches, eq(staffBranches.staffId, staffUsers.id))
@@ -99,10 +161,13 @@ function effectiveMenuPermissions(
   return normalizeMenuPermissions(role, inheritedPermissions);
 }
 
-async function accessGroupForUser(accessGroupId: number | null) {
+async function accessGroupForUser(
+  accessGroupId: number | null,
+  db: StaffReader = getDb()
+) {
   if (!accessGroupId) return null;
   return (
-    (await getDb().query.staffAccessGroups.findFirst({
+    (await db.query.staffAccessGroups.findFirst({
       where: eq(staffAccessGroups.id, accessGroupId),
     })) ?? null
   );
@@ -559,49 +624,91 @@ export const authRouter = createRouter({
     const staffIds = memberships.map(membership => membership.staffId);
     if (staffIds.length === 0) return [];
     const rows = await db.query.staffUsers.findMany({
+      columns: {
+        id: true,
+        name: true,
+        username: true,
+        role: true,
+        active: true,
+        pin: true,
+      },
       where: inArray(staffUsers.id, staffIds),
     });
-    return rows.map(
-      ({
-        pin,
-        menuPermissions: _menuPermissions,
-        supabaseAuthUserId: _supabaseAuthUserId,
-        ...rest
-      }) => ({
-        ...rest,
-        pinReady: pin.startsWith("staff-pin-hmac-v1:"),
-      })
-    );
+    return rows.map(({ pin, ...rest }) => ({
+      ...rest,
+      pinReady: pin.startsWith("staff-pin-hmac-v1:"),
+    }));
   }),
 
-  listStaffAccess: adminQuery.query(async () => {
+  listStaffAccess: staffAdministrationQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const [rows, groups, memberships] = await Promise.all([
-      db.query.staffUsers.findMany(),
-      db.query.staffAccessGroups.findMany(),
-      db.query.staffBranches.findMany(),
+    const isOwner = ctx.staff.role === "admin";
+    const staffInWorkingBranch = db
+      .select({ staffId: staffBranches.staffId })
+      .from(staffBranches)
+      .groupBy(staffBranches.staffId)
+      .having(
+        and(
+          eq(sql<number>`count(*)`, 1),
+          eq(sql<number>`min(${staffBranches.branchId})`, ctx.staff.branchId)
+        )
+      );
+    const rows = await db.query.staffUsers.findMany({
+      columns: {
+        id: true,
+        username: true,
+        name: true,
+        role: true,
+        accessGroupId: true,
+        menuPermissions: true,
+        active: true,
+        createdAt: true,
+        pin: true,
+      },
+      where: isOwner
+        ? undefined
+        : and(
+            eq(staffUsers.role, "cashier"),
+            inArray(staffUsers.id, staffInWorkingBranch)
+          ),
+    });
+    const groupIds = rows.flatMap(user =>
+      user.accessGroupId === null ? [] : [user.accessGroupId]
+    );
+    const staffIds = rows.map(user => user.id);
+    const [groups, memberships] = await Promise.all([
+      groupIds.length === 0
+        ? []
+        : db.query.staffAccessGroups.findMany({
+            where: inArray(staffAccessGroups.id, groupIds),
+          }),
+      isOwner && staffIds.length > 0
+        ? db.query.staffBranches.findMany({
+            where: inArray(staffBranches.staffId, staffIds),
+          })
+        : [],
     ]);
     const groupsById = new Map(groups.map(group => [group.id, group]));
-    return rows.map(
-      ({ pin, supabaseAuthUserId: _supabaseAuthUserId, ...rest }) => {
-        const accessGroup = rest.accessGroupId
-          ? groupsById.get(rest.accessGroupId)
-          : null;
-        return {
-          ...rest,
-          pinReady: pin.startsWith("staff-pin-hmac-v1:"),
-          menuPermissions: effectiveMenuPermissions(
-            rest.role,
-            rest.menuPermissions,
-            accessGroup
-          ),
-          accessGroup: accessGroupSummary(accessGroup),
-          branchIds: memberships
-            .filter(membership => membership.staffId === rest.id)
-            .map(membership => membership.branchId),
-        };
-      }
-    );
+    return rows.map(({ pin, ...rest }) => {
+      const accessGroup = rest.accessGroupId
+        ? groupsById.get(rest.accessGroupId)
+        : null;
+      return {
+        ...rest,
+        pinReady: pin.startsWith("staff-pin-hmac-v1:"),
+        menuPermissions: effectiveMenuPermissions(
+          rest.role,
+          rest.menuPermissions,
+          accessGroup
+        ),
+        accessGroup: accessGroupSummary(accessGroup),
+        branchIds: isOwner
+          ? memberships
+              .filter(membership => membership.staffId === rest.id)
+              .map(membership => membership.branchId)
+          : [ctx.staff.branchId],
+      };
+    });
   }),
 
   listAccessGroups: adminQuery.query(async () => {
@@ -739,7 +846,7 @@ export const authRouter = createRouter({
       return { ok: true };
     }),
 
-  createStaff: adminQuery
+  createStaff: staffAdministrationQuery
     .input(
       z.object({
         username: z
@@ -769,6 +876,16 @@ export const authRouter = createRouter({
             "สาขาที่เลือกเปลี่ยนแล้ว กรุณาโหลดข้อมูลพนักงานใหม่ก่อนสร้างบัญชี",
         });
       }
+      const branchIds = [...new Set(input.branchIds ?? [ctx.staff.branchId])];
+      if (
+        ctx.staff.role === "manager" &&
+        (input.role !== "cashier" ||
+          input.accessGroupId !== undefined ||
+          input.menuPermissions !== undefined ||
+          branchIds.some(branchId => branchId !== ctx.staff.branchId))
+      ) {
+        denyStaffAdministration();
+      }
       const db = getDb();
       const username = normalizeStaffUsername(input.username);
       const dup = await db.query.staffUsers.findFirst({
@@ -794,7 +911,6 @@ export const authRouter = createRouter({
           throw new Error("ต้องเปิดสิทธิ์อย่างน้อย 1 เมนู");
         }
       }
-      const branchIds = [...new Set(input.branchIds ?? [ctx.staff.branchId])];
       const validBranches = await db.query.branches.findMany({
         where: inArray(branches.id, branchIds),
         columns: { id: true, active: true },
@@ -828,6 +944,7 @@ export const authRouter = createRouter({
       let id: number;
       try {
         id = await db.transaction(async tx => {
+          await lockStaffAdministration(tx, ctx.staff);
           const [created] = await tx
             .insert(staffUsers)
             .values({
@@ -865,7 +982,7 @@ export const authRouter = createRouter({
       return { ok: true };
     }),
 
-  updateStaff: adminQuery
+  updateStaff: staffAdministrationQuery
     .input(
       z.object({
         id: z.number(),
@@ -895,106 +1012,141 @@ export const authRouter = createRouter({
           : {}),
       };
       const db = getDb();
-      const target = await db.query.staffUsers.findFirst({
-        where: eq(staffUsers.id, id),
-      });
-      if (!target) throw new Error("ไม่พบพนักงาน");
-      const patch: Record<string, unknown> = { ...rest };
-      if (pin) patch.pin = hashStaffPin(pin);
-      const nextRole = rest.role ?? target.role;
-      const requestedGroupId =
-        rest.accessGroupId !== undefined
-          ? rest.accessGroupId
-          : target.accessGroupId;
-      const accessGroup = requestedGroupId
-        ? await accessGroupForUser(requestedGroupId)
-        : null;
-      if (requestedGroupId && !accessGroup) {
-        throw new Error("ไม่พบกลุ่มสิทธิ์");
-      }
-      if (nextRole === "admin") {
-        patch.accessGroupId = null;
-      } else if (accessGroup && accessGroup.role !== nextRole) {
-        if (rest.accessGroupId !== undefined) {
-          throw new Error("กลุ่มสิทธิ์ไม่ตรงกับระดับผู้ใช้");
-        }
-        patch.accessGroupId = null;
-      }
-      if (rest.menuPermissions !== undefined) {
-        const normalized = effectiveMenuPermissions(
-          nextRole,
-          rest.menuPermissions
-        );
-        if (nextRole !== "admin" && normalized.length === 0) {
-          throw new Error("ต้องเปิดสิทธิ์อย่างน้อย 1 เมนู");
-        }
-        patch.menuPermissions = nextRole === "admin" ? null : normalized;
-      } else if (rest.role === "admin") {
-        patch.menuPermissions = null;
-      }
-      if (
-        requestedBranchIds &&
-        id === ctx.staff.id &&
-        !requestedBranchIds.includes(ctx.staff.branchId)
-      ) {
-        throw new Error("นำสาขาที่กำลังใช้งานออกจากบัญชีตัวเองไม่ได้");
-      }
       const branchIds = requestedBranchIds
         ? [...new Set(requestedBranchIds)]
         : null;
-      if (branchIds) {
-        const validBranches = await db.query.branches.findMany({
-          where: inArray(branches.id, branchIds),
-          columns: { id: true, active: true },
-        });
-        if (
-          validBranches.length !== branchIds.length ||
-          validBranches.some(branch => !branch.active)
-        ) {
-          throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
-        }
-      }
-      const currentBranchIds = (
-        await db.query.staffBranches.findMany({
-          where: eq(staffBranches.staffId, id),
-          columns: { branchId: true },
-        })
-      ).map(membership => membership.branchId);
-      const nextBranchIds = branchIds ?? currentBranchIds;
-      const gainsBranch = nextBranchIds.some(
-        branchId => !currentBranchIds.includes(branchId)
-      );
-      // Existing accounts can have duplicate legacy PIN hashes. Editing an
-      // unrelated field must not block them; check when the PIN or its branch
-      // scope actually changes.
-      if (pin || gainsBranch) {
-        const nextPinHash = pin ? hashStaffPin(pin) : target.pin;
-        await ensureStaffPinAvailable(nextPinHash, nextBranchIds, id, pin);
-      }
-      await db.transaction(async tx => {
-        await tx.update(staffUsers).set(patch).where(eq(staffUsers.id, id));
-        if (branchIds) {
-          const previousDefault = await tx.query.staffBranches.findFirst({
-            where: and(
-              eq(staffBranches.staffId, id),
-              eq(staffBranches.isDefault, true)
-            ),
-            columns: { branchId: true },
-          });
-          await tx.delete(staffBranches).where(eq(staffBranches.staffId, id));
-          const defaultBranchId =
-            previousDefault && branchIds.includes(previousDefault.branchId)
-              ? previousDefault.branchId
-              : branchIds[0];
-          await tx.insert(staffBranches).values(
-            branchIds.map(branchId => ({
-              staffId: id,
-              branchId,
-              isDefault: branchId === defaultBranchId,
-            }))
+      const { target, nextRole, accessGroup } = await db.transaction(
+        async tx => {
+          const { target, activeOwnerCount } = await lockStaffAdministration(
+            tx,
+            ctx.staff,
+            id
           );
+          if (!target) {
+            if (ctx.staff.role === "manager") denyStaffAdministration();
+            throw new TRPCError({ code: "NOT_FOUND", message: "ไม่พบพนักงาน" });
+          }
+          const currentBranchIds = (
+            await tx.query.staffBranches.findMany({
+              where: eq(staffBranches.staffId, id),
+              columns: { branchId: true },
+            })
+          ).map(membership => membership.branchId);
+          if (
+            ctx.staff.role === "manager" &&
+            (target.role !== "cashier" ||
+              (rest.role !== undefined && rest.role !== "cashier") ||
+              rest.accessGroupId !== undefined ||
+              rest.menuPermissions !== undefined ||
+              currentBranchIds.length !== 1 ||
+              currentBranchIds[0] !== ctx.staff.branchId ||
+              branchIds?.some(branchId => branchId !== ctx.staff.branchId))
+          ) {
+            denyStaffAdministration();
+          }
+          const patch: Record<string, unknown> = { ...rest };
+          if (pin) patch.pin = hashStaffPin(pin);
+          const nextRole = rest.role ?? target.role;
+          if (
+            target.active &&
+            target.role === "admin" &&
+            (nextRole !== "admin" || rest.active === false)
+          ) {
+            assertActiveOwnerRemains(activeOwnerCount);
+          }
+          const requestedGroupId =
+            rest.accessGroupId !== undefined
+              ? rest.accessGroupId
+              : target.accessGroupId;
+          const accessGroup = requestedGroupId
+            ? await accessGroupForUser(requestedGroupId, tx)
+            : null;
+          if (requestedGroupId && !accessGroup) {
+            throw new Error("ไม่พบกลุ่มสิทธิ์");
+          }
+          if (nextRole === "admin") {
+            patch.accessGroupId = null;
+          } else if (accessGroup && accessGroup.role !== nextRole) {
+            if (rest.accessGroupId !== undefined) {
+              throw new Error("กลุ่มสิทธิ์ไม่ตรงกับระดับผู้ใช้");
+            }
+            patch.accessGroupId = null;
+          }
+          if (rest.menuPermissions !== undefined) {
+            const normalized = effectiveMenuPermissions(
+              nextRole,
+              rest.menuPermissions
+            );
+            if (nextRole !== "admin" && normalized.length === 0) {
+              throw new Error("ต้องเปิดสิทธิ์อย่างน้อย 1 เมนู");
+            }
+            patch.menuPermissions = nextRole === "admin" ? null : normalized;
+          } else if (rest.role === "admin") {
+            patch.menuPermissions = null;
+          }
+          if (
+            requestedBranchIds &&
+            id === ctx.staff.id &&
+            !requestedBranchIds.includes(ctx.staff.branchId)
+          ) {
+            throw new Error("นำสาขาที่กำลังใช้งานออกจากบัญชีตัวเองไม่ได้");
+          }
+          if (branchIds) {
+            const validBranches = await tx.query.branches.findMany({
+              where: inArray(branches.id, branchIds),
+              columns: { id: true, active: true },
+            });
+            if (
+              validBranches.length !== branchIds.length ||
+              validBranches.some(branch => !branch.active)
+            ) {
+              throw new Error("มีสาขาที่เลือกไม่ถูกต้องหรือปิดใช้งานอยู่");
+            }
+          }
+          const nextBranchIds = branchIds ?? currentBranchIds;
+          const gainsBranch = nextBranchIds.some(
+            branchId => !currentBranchIds.includes(branchId)
+          );
+          // Existing accounts can have duplicate legacy PIN hashes. Editing an
+          // unrelated field must not block them; check when the PIN or its branch
+          // scope actually changes.
+          if (pin || gainsBranch) {
+            const nextPinHash = pin ? hashStaffPin(pin) : target.pin;
+            await ensureStaffPinAvailable(
+              nextPinHash,
+              nextBranchIds,
+              id,
+              pin,
+              tx
+            );
+          }
+          if (Object.keys(patch).length > 0) {
+            await tx.update(staffUsers).set(patch).where(eq(staffUsers.id, id));
+          }
+          if (branchIds) {
+            const previousDefault = await tx.query.staffBranches.findFirst({
+              where: and(
+                eq(staffBranches.staffId, id),
+                eq(staffBranches.isDefault, true)
+              ),
+              columns: { branchId: true },
+            });
+            await tx.delete(staffBranches).where(eq(staffBranches.staffId, id));
+            const defaultBranchId =
+              previousDefault && branchIds.includes(previousDefault.branchId)
+                ? previousDefault.branchId
+                : branchIds[0];
+            await tx.insert(staffBranches).values(
+              branchIds.map(branchId => ({
+                staffId: id,
+                branchId,
+                isDefault: branchId === defaultBranchId,
+              }))
+            );
+          }
+          return { target, nextRole, accessGroup };
         }
-      });
+      );
       let authUserId = target.supabaseAuthUserId;
       if (
         !env.localAuthEnabled &&
@@ -1067,38 +1219,40 @@ export const authRouter = createRouter({
   deleteStaff: adminQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      const me = staffIdFromHeader(ctx.req);
-      if (me === input.id) throw new Error("ลบบัญชีตัวเองไม่ได้");
-      const db = getDb();
-      const admins = (await db.query.staffUsers.findMany()).filter(
-        u => u.role === "admin" && u.active
-      );
-      const target = await db.query.staffUsers.findFirst({
-        where: eq(staffUsers.id, input.id),
-      });
-      if (!target) throw new Error("ไม่พบพนักงาน");
-      if (target.role === "admin" && admins.length <= 1) {
-        throw new Error("ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน");
-      }
-      // ประวัติเงินเดือนเป็นเอกสารการเงิน ห้ามลบทิ้งตามบัญชี (FK restrict)
-      // — ถ้ามีแล้วให้ปิดใช้งานบัญชีแทน
-      const hasPayroll = await db.query.payrollRecords.findFirst({
-        where: eq(payrollRecords.staffId, input.id),
-        columns: { id: true },
-      });
-      if (hasPayroll) {
-        throw new Error(
-          `ลบไม่ได้เพราะ ${target.name} มีประวัติเงินเดือนแล้ว หากไม่ต้องการให้ใช้งาน ให้ปิดใช้งานบัญชีแทน (ตั้งค่าระบบ → พนักงาน)`
+      if (ctx.staff.id === input.id) throw new Error("ลบบัญชีตัวเองไม่ได้");
+      const target = await getDb().transaction(async tx => {
+        const { target, activeOwnerCount } = await lockStaffAdministration(
+          tx,
+          ctx.staff,
+          input.id
         );
-      }
-      // คำสั่งผู้ช่วย AI ผูก staff แบบ restrict — ลบตามไปด้วย (audit log หลักยังเก็บไว้)
-      await db
-        .delete(assistantActionProposals)
-        .where(eq(assistantActionProposals.staffId, input.id));
-      if (target.supabaseAuthUserId) {
-        await deleteSupabaseStaffIdentity(target.supabaseAuthUserId);
-      }
-      await db.delete(staffUsers).where(eq(staffUsers.id, input.id));
+        if (!target) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "ไม่พบพนักงาน" });
+        }
+        if (target.role === "admin" && target.active) {
+          assertActiveOwnerRemains(activeOwnerCount);
+        }
+        // ประวัติเงินเดือนเป็นเอกสารการเงิน ห้ามลบทิ้งตามบัญชี (FK restrict)
+        // — ถ้ามีแล้วให้ปิดใช้งานบัญชีแทน
+        const hasPayroll = await tx.query.payrollRecords.findFirst({
+          where: eq(payrollRecords.staffId, input.id),
+          columns: { id: true },
+        });
+        if (hasPayroll) {
+          throw new Error(
+            `ลบไม่ได้เพราะ ${target.name} มีประวัติเงินเดือนแล้ว หากไม่ต้องการให้ใช้งาน ให้ปิดใช้งานบัญชีแทน (ตั้งค่าระบบ → พนักงาน)`
+          );
+        }
+        // คำสั่งผู้ช่วย AI ผูก staff แบบ restrict — ลบตามไปด้วย (audit log หลักยังเก็บไว้)
+        await tx
+          .delete(assistantActionProposals)
+          .where(eq(assistantActionProposals.staffId, input.id));
+        await tx.delete(staffUsers).where(eq(staffUsers.id, input.id));
+        if (target.supabaseAuthUserId) {
+          await deleteSupabaseStaffIdentity(target.supabaseAuthUserId);
+        }
+        return target;
+      });
       logAudit({
         action: "delete_staff",
         ...actorFromReq(ctx.req),

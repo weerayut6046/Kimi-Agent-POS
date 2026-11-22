@@ -161,7 +161,7 @@ export const taxInvoiceRouter = createRouter({
             branchId,
             taxInvoiceNo,
             saleId: input.saleId,
-            issuedBy: input.issuedBy,
+            issuedBy: ctx.staff.name,
             ...customer,
           })
           .returning();

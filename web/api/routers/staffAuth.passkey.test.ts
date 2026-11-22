@@ -208,8 +208,6 @@ describe("app-owned WebAuthn passkey login", () => {
         .update(staffUsers)
         .set({ supabaseAuthUserId: null })
         .where(eq(staffUsers.id, 3));
-      const { clearActiveStaffCache } = await import("../lib/authorization");
-      clearActiveStaffCache();
     }
   });
 

@@ -152,7 +152,6 @@ export const membershipRouter = createRouter({
             id: pointTransactions.id,
             type: pointTransactions.type,
             points: pointTransactions.points,
-            note: pointTransactions.note,
             createdAt: pointTransactions.createdAt,
             branchName: branches.name,
           })
@@ -164,7 +163,11 @@ export const membershipRouter = createRouter({
       ]);
 
       const hasMore = transactionRows.length > input.limit;
-      const transactions = transactionRows.slice(0, input.limit);
+      const transactions = transactionRows.slice(0, input.limit).map(row => ({
+        ...row,
+        // Internal adjustment notes can contain private staff or customer data.
+        note: "",
+      }));
       const summary = summaryRows[0];
       return {
         member: {
@@ -185,7 +188,7 @@ export const membershipRouter = createRouter({
       };
     }),
 
-  listCardBatches: managerQuery.query(async () => {
+  listCardBatches: managerQuery.query(async ({ ctx }) => {
     const db = getDb();
     const batches = await db
       .select({
@@ -200,6 +203,7 @@ export const membershipRouter = createRouter({
       })
       .from(memberCardBatches)
       .innerJoin(branches, eq(memberCardBatches.branchId, branches.id))
+      .where(eq(memberCardBatches.branchId, ctx.staff.branchId))
       .orderBy(desc(memberCardBatches.createdAt))
       .limit(50);
 
@@ -232,7 +236,7 @@ export const membershipRouter = createRouter({
 
   getCardBatch: managerQuery
     .input(z.object({ id: z.number().int().positive() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const [batch] = await db
         .select({
@@ -246,9 +250,19 @@ export const membershipRouter = createRouter({
         })
         .from(memberCardBatches)
         .innerJoin(branches, eq(memberCardBatches.branchId, branches.id))
-        .where(eq(memberCardBatches.id, input.id))
+        .where(
+          and(
+            eq(memberCardBatches.id, input.id),
+            eq(memberCardBatches.branchId, ctx.staff.branchId)
+          )
+        )
         .limit(1);
-      if (!batch) throw new Error("ไม่พบชุดบัตรสมาชิก");
+      if (!batch) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "ไม่พบชุดบัตรสมาชิก",
+        });
+      }
       const cards = await db
         .select()
         .from(memberCards)

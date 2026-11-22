@@ -149,7 +149,7 @@ export const MENU_PERMISSION_DEFINITIONS = [
     label: "ตั้งค่าระบบ",
     group: "system",
     roles: ALL_ROLES,
-    apiPrefixes: ["dbadmin."] as const,
+    apiPrefixes: ["dbadmin.", "assistant."] as const,
   },
   {
     key: "platform",
@@ -214,6 +214,10 @@ export function isRoleEligibleForMenu(
  * ภายใต้ router นั้นถูกตรวจสิทธิ์โดยอัตโนมัติ
  */
 export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
+  // The assistant checks the relevant menu for each tool and confirmed action.
+  if (path === "assistant.chat" || path === "assistant.executeAction") {
+    return [];
+  }
   // These login procedures verify credentials before issuing a staff session.
   if (
     path === "staffAuth.passkeyStatus" ||
@@ -225,10 +229,31 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   if (path.startsWith("staffAuth.")) {
     return ["settings"];
   }
+  if (path === "auth.listStaff") return ["settings", "shifts", "workforce"];
+  if (path === "auth.createStaff") return ["settings", "workforce", "setup"];
+  if (path === "auth.deleteStaff") return ["settings", "workforce"];
+  if (
+    path === "auth.listAllBranches" ||
+    path === "auth.createBranch" ||
+    path === "auth.updateBranch" ||
+    path === "auth.listStaffAccess" ||
+    path === "auth.updateStaff" ||
+    path === "auth.permissionCatalog" ||
+    path === "auth.listAccessGroups" ||
+    path === "auth.createAccessGroup" ||
+    path === "auth.updateAccessGroup" ||
+    path === "auth.deleteAccessGroup"
+  ) {
+    return ["settings"];
+  }
   if (
     path.startsWith("pos.shift") ||
     path === "pos.openShift" ||
-    path === "pos.closeShift"
+    path === "pos.closeShift" ||
+    path === "pos.searchShiftHistory" ||
+    path === "pos.createShiftHistory" ||
+    path === "pos.updateShiftHistory" ||
+    path === "pos.deleteShiftHistory"
   ) {
     return ["shifts"];
   }
@@ -301,6 +326,7 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   }
 
   if (path === "catalog.listPumps") return ["shifts", "settings"];
+  if (path === "catalog.lanInfo") return ["settings", "stock"];
   if (path === "catalog.listTanks") {
     return ["stock", "settings"];
   }
@@ -319,10 +345,18 @@ export function getApiMenuPermissions(path: string): MenuPermissionKey[] {
   // กรณีใช้ร่วมกันจะถูกจำกัดไว้ที่หน้าตั้งค่าโดยอัตโนมัติ (fail closed)
   if (path.startsWith("catalog.")) return ["settings"];
 
-  // งานรับชำระถูกเรียกได้จากหน้าขาย ประวัติการขาย และหน้าตั้งค่า
-  if (path.startsWith("payments.")) {
-    return ["pos", "sales", "settings"];
+  if (
+    path === "payments.config" ||
+    path === "payments.updateConfig" ||
+    path === "payments.validateMerchantQr" ||
+    path === "payments.testConnection"
+  ) {
+    return ["settings"];
   }
+
+  // ใบเสร็จจากหน้าขายและประวัติการขายใช้ QR พร้อมเพย์ร่วมกัน
+  if (path === "payments.promptpayQr") return ["pos", "sales"];
+  if (path.startsWith("payments.")) return ["pos"];
 
   const permissions = MENU_PERMISSION_DEFINITIONS.filter(definition =>
     definition.apiPrefixes.some(prefix => path.startsWith(prefix))

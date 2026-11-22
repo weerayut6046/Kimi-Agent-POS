@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, ilike, ne, sql } from "drizzle-orm";
-import { anonymousQuery, createRouter, publicQuery } from "../middleware";
-import { adminQuery, managerQuery } from "../guard";
+import { and, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { createRouter, publicQuery } from "../middleware";
+import { adminQuery, businessActionQuery, managerQuery } from "../guard";
+import { canPerformBusinessAction } from "../lib/businessPermissions";
+import { redactProductCost } from "../lib/financialVisibility";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
 import { lookupExternalProduct } from "../lib/externalProductLookup";
@@ -10,6 +12,7 @@ import { persistExternalProductImage } from "../lib/productImageStorage";
 import {
   APP_TEMPLATE_IDS,
   APP_THEME_IDS,
+  DEFAULT_SETTINGS,
   mergeSettingDefaults,
 } from "@contracts/settings";
 import {
@@ -33,6 +36,25 @@ import {
 const TANK_DISPLAY_ORDER_KEY = "tank_display_order";
 const PRODUCT_DISPLAY_ORDER_KEY = "product_display_order";
 const appTemplateInput = z.enum(APP_TEMPLATE_IDS);
+// Every response consumed by the settings UI uses the same public keys.
+const clientSettingKeys = [
+  ...Object.keys(DEFAULT_SETTINGS),
+  PRODUCT_DISPLAY_ORDER_KEY,
+  TANK_DISPLAY_ORDER_KEY,
+];
+
+async function readClientSettings(branchId: number) {
+  const rows = await getDb()
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(
+      and(
+        eq(settings.branchId, branchId),
+        inArray(settings.key, clientSettingKeys)
+      )
+    );
+  return mergeSettingDefaults(rows.map(row => [row.key, row.value] as const));
+}
 
 function parseDisplayOrder(value: string | null | undefined): number[] {
   if (!value) return [];
@@ -93,9 +115,8 @@ export const catalogRouter = createRouter({
       if (savedB != null) return 1;
       return (defaultIndex.get(a.id) ?? 0) - (defaultIndex.get(b.id) ?? 0);
     });
-    return ctx.staff.role === "cashier"
-      ? rows.map(product => ({ ...product, cost: 0 }))
-      : rows;
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
+    return rows.map(product => redactProductCost(product, canReadCost));
   }),
 
   searchExternalProduct: publicQuery
@@ -189,7 +210,10 @@ export const catalogRouter = createRouter({
         refId: created.id,
       });
 
-      return ctx.staff.role === "cashier" ? { ...created, cost: 0 } : created;
+      return redactProductCost(
+        created,
+        canPerformBusinessAction(ctx.staff.role, "cost.read")
+      );
     }),
 
   reorderProducts: adminQuery
@@ -237,7 +261,7 @@ export const catalogRouter = createRouter({
       return { ok: true, productIds };
     }),
 
-  createProduct: adminQuery
+  createProduct: businessActionQuery("cost.manage")
     .input(
       z.object({
         expectedBranchId: z.number().int().positive().optional(),
@@ -269,7 +293,7 @@ export const catalogRouter = createRouter({
       return { ok: true };
     }),
 
-  updateProduct: adminQuery
+  updateProduct: businessActionQuery("cost.manage")
     .input(
       z.object({
         id: z.number(),
@@ -417,13 +441,17 @@ export const catalogRouter = createRouter({
         where: eq(fuelTanks.branchId, branchId),
       }),
     ]);
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
     return pumpRows.map(p => ({
       ...p,
       nozzles: nozzleRows
         .filter(n => n.pumpId === p.id)
         .map(n => ({
           ...n,
-          product: prodRows.find(pr => pr.id === n.productId) ?? null,
+          product: redactProductCost(
+            prodRows.find(pr => pr.id === n.productId) ?? null,
+            canReadCost
+          ),
           tank: tankRows.find(tank => tank.id === n.tankId) ?? null,
         })),
     }));
@@ -732,6 +760,7 @@ export const catalogRouter = createRouter({
         ),
       }),
     ]);
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
     const firstNozzleByTank = new Map<number, number>();
     for (const nozzle of nozzleRows) {
       if (nozzle.tankId == null) continue;
@@ -760,7 +789,10 @@ export const catalogRouter = createRouter({
       })
       .map(t => ({
         ...t,
-        product: prodRows.find(p => p.id === t.productId) ?? null,
+        product: redactProductCost(
+          prodRows.find(p => p.id === t.productId) ?? null,
+          canReadCost
+        ),
         percent: Math.round((t.currentLiters / t.capacityLiters) * 100),
         isLow: t.currentLiters <= t.lowAlertAt,
       }));
@@ -1060,14 +1092,18 @@ export const catalogRouter = createRouter({
         where: eq(fuelTanks.branchId, branchId),
       }),
     ]);
+    const canReadCost = canPerformBusinessAction(ctx.staff.role, "cost.read");
     return rows.map(r => ({
       ...r,
+      costPerLiter: canReadCost ? r.costPerLiter : 0,
+      netCostAmount: canReadCost ? r.netCostAmount : null,
+      note: canReadCost ? r.note : null,
       tank: tankRows.find(t => t.id === r.tankId) ?? null,
     }));
   }),
 
   // ---------- ค่าวัดระดับถังจริง (กระทบยอด) ----------
-  addTankReading: publicQuery
+  addTankReading: businessActionQuery("meter.create")
     .input(
       z.object({
         tankId: z.number(),
@@ -1178,19 +1214,9 @@ export const catalogRouter = createRouter({
     }),
 
   // ---------- ตั้งค่า ----------
-  getSettings: publicQuery.query(async ({ ctx }) => {
-    // ตัด shop_logo ออก — ขนาดใหญ่ ดึงเฉพาะจุดผ่าน getShopLogo
-    const rows = await getDb()
-      .select()
-      .from(settings)
-      .where(
-        and(
-          eq(settings.branchId, ctx.staff.branchId),
-          ne(settings.key, "shop_logo")
-        )
-      );
-    return mergeSettingDefaults(rows.map(r => [r.key, r.value] as const));
-  }),
+  getSettings: publicQuery.query(({ ctx }) =>
+    readClientSettings(ctx.staff.branchId)
+  ),
 
   getShopLogo: publicQuery.query(async ({ ctx }) => {
     const row = await getDb().query.settings.findFirst({
@@ -1202,9 +1228,8 @@ export const catalogRouter = createRouter({
     return row?.value || null;
   }),
 
-  // ข้อมูลสำหรับเชื่อมต่อจากเครื่องอื่นใน LAN (multi-station) — urls คืนเสมอให้หน้า Settings preview ได้
-  // ส่วนหน้า Login จะแสดงเฉพาะตอน enabled (เปิดใน Settings แล้วรีสตาร์ทแอป)
-  lanInfo: anonymousQuery.query(async () => {
+  // แสดงที่อยู่ LAN สำหรับการตั้งค่าและการตรวจนับสต๊อกหลังเข้าสู่ระบบ
+  lanInfo: publicQuery.query(async () => {
     // LAN discovery is a local-development legacy feature. Never disclose
     // container interface addresses from the public cloud endpoint.
     if (isPublicCloudRuntime()) {
@@ -1268,20 +1293,9 @@ export const catalogRouter = createRouter({
       }
 
       // อ่านกลับจากฐานข้อมูลจริงให้ client ใช้เป็น source of truth ทันทีหลังบันทึก
-      const rows = await db
-        .select()
-        .from(settings)
-        .where(
-          and(
-            eq(settings.branchId, ctx.staff.branchId),
-            ne(settings.key, "shop_logo")
-          )
-        );
       return {
         ok: true,
-        settings: mergeSettingDefaults(
-          rows.map(r => [r.key, r.value] as const)
-        ),
+        settings: await readClientSettings(ctx.staff.branchId),
       };
     }),
 
@@ -1385,20 +1399,9 @@ export const catalogRouter = createRouter({
         refType: "settings",
       });
 
-      const rows = await db
-        .select()
-        .from(settings)
-        .where(
-          and(
-            eq(settings.branchId, ctx.staff.branchId),
-            ne(settings.key, "shop_logo")
-          )
-        );
       return {
         ok: true,
-        settings: mergeSettingDefaults(
-          rows.map(row => [row.key, row.value] as const)
-        ),
+        settings: await readClientSettings(ctx.staff.branchId),
       };
     }),
 
@@ -1449,20 +1452,9 @@ export const catalogRouter = createRouter({
         refType: "settings",
       });
 
-      const rows = await db
-        .select()
-        .from(settings)
-        .where(
-          and(
-            eq(settings.branchId, ctx.staff.branchId),
-            ne(settings.key, "shop_logo")
-          )
-        );
       return {
         ok: true,
-        settings: mergeSettingDefaults(
-          rows.map(row => [row.key, row.value] as const)
-        ),
+        settings: await readClientSettings(ctx.staff.branchId),
       };
     }),
 });

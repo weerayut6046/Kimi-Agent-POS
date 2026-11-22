@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 import { createRouter, publicQuery } from "../middleware";
 import { managerQuery } from "../guard";
+import { canPerformBusinessAction } from "../lib/businessPermissions";
 import { getDb } from "../queries/connection";
 import { dayRange } from "../lib/dates";
 import { attachShiftCashMeter, shiftCashSummary } from "../lib/cash";
@@ -515,7 +516,8 @@ export async function queryFuelStockSummary(
 export async function queryDailyReport(
   db: ReturnType<typeof getDb>,
   date: string,
-  branchId: number
+  branchId: number,
+  visibleShiftStaffId?: number
 ): Promise<DailyReportData> {
   const { start, end } = dayRange(date);
   const inDay = (col: SQLWrapper) => and(gte(col, start), lt(col, end));
@@ -590,6 +592,9 @@ export async function queryDailyReport(
     .where(
       and(
         eq(shifts.branchId, branchId),
+        visibleShiftStaffId === undefined
+          ? undefined
+          : eq(shifts.staffId, visibleShiftStaffId),
         or(
           inDay(shifts.openedAt),
           and(gte(shifts.closedAt, start), lt(shifts.closedAt, end))
@@ -971,7 +976,14 @@ export const reportsRouter = createRouter({
         bills: _bills,
         fuelSales: _fuelSales,
         ...pub
-      } = await queryDailyReport(getDb(), input.date, ctx.staff.branchId);
+      } = await queryDailyReport(
+        getDb(),
+        input.date,
+        ctx.staff.branchId,
+        canPerformBusinessAction(ctx.staff.role, "closing.approve")
+          ? undefined
+          : ctx.staff.id
+      );
       return pub;
     }),
 

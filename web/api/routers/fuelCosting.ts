@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import { createRouter } from "../middleware";
-import { managerQuery } from "../guard";
+import { businessActionQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import {
   fuelCostOpenings,
@@ -32,7 +32,7 @@ const range = z.object({ from: date, to: date }).refine(input => {
 }, "เลือกช่วงวันเรียงลำดับและยาวไม่เกิน 366 วัน");
 
 export const fuelCostingRouter = createRouter({
-  unconfirmedReceipts: managerQuery.query(({ ctx }) => {
+  unconfirmedReceipts: businessActionQuery("cost.read").query(({ ctx }) => {
     const branchId = ctx.staff.branchId;
     return getDb()
       .select({
@@ -71,7 +71,7 @@ export const fuelCostingRouter = createRouter({
       .limit(100);
   }),
 
-  confirmReceiptCost: managerQuery
+  confirmReceiptCost: businessActionQuery("cost.manage")
     .input(
       z.object({
         id: z.number().int().positive(),
@@ -122,7 +122,7 @@ export const fuelCostingRouter = createRouter({
       return { ok: true };
     }),
 
-  openings: managerQuery.query(async ({ ctx }) => {
+  openings: businessActionQuery("cost.read").query(async ({ ctx }) => {
     const branchId = ctx.staff.branchId;
     return getDb()
       .select({
@@ -143,7 +143,7 @@ export const fuelCostingRouter = createRouter({
       );
   }),
 
-  setOpening: managerQuery
+  setOpening: businessActionQuery("cost.manage")
     .input(
       z.object({
         productId: z.number().int().positive(),
@@ -185,140 +185,142 @@ export const fuelCostingRouter = createRouter({
       return { ok: true };
     }),
 
-  report: managerQuery.input(range).query(async ({ input, ctx }) => {
-    const db = getDb(),
-      branchId = ctx.staff.branchId;
-    const from = new Date(input.from + "T00:00:00+07:00");
-    const to = new Date(
-      new Date(input.to + "T00:00:00+07:00").getTime() + 86400000
-    );
-    const [fuels, openings] = await Promise.all([
-      db
-        .select({ id: products.id, name: products.name })
-        .from(products)
-        .where(
-          and(eq(products.branchId, branchId), eq(products.category, "fuel"))
-        ),
-      db
-        .select()
-        .from(fuelCostOpenings)
-        .where(eq(fuelCostOpenings.branchId, branchId)),
-    ]);
-    const active = openings.filter(opening => opening.effectiveAt < to);
-    const first = active.length
-      ? new Date(
-          Math.min(...active.map(opening => opening.effectiveAt.getTime()))
-        )
-      : to;
-    const [receipts, sold] = await Promise.all([
-      db
-        .select({
-          id: tankRefills.id,
-          productId: sql<number>`coalesce(${tankRefills.costProductId}, ${fuelTanks.productId})`,
-          at: tankRefills.createdAt,
-          liters: tankRefills.liters,
-          netAmount: tankRefills.netCostAmount,
-        })
-        .from(tankRefills)
-        .innerJoin(
-          fuelTanks,
-          and(
-            eq(fuelTanks.id, tankRefills.tankId),
-            eq(fuelTanks.branchId, branchId)
-          )
-        )
-        .where(
-          and(
-            eq(tankRefills.branchId, branchId),
-            gte(tankRefills.createdAt, first),
-            lt(tankRefills.createdAt, to)
-          )
-        ),
-      db
-        .select({
-          id: saleItems.id,
-          originalItemId: saleItems.originalSaleItemId,
-          productId: saleItems.productId,
-          at: sales.createdAt,
-          qty: saleItems.qty,
-          amount: saleItems.amount,
-          subtotal: sales.subtotal,
-          total: sales.total,
-          vatAmount: sales.vatAmount,
-          reference: sales.receiptNo,
-          transactionType: sales.transactionType,
-        })
-        .from(saleItems)
-        .innerJoin(
-          sales,
-          and(eq(sales.id, saleItems.saleId), eq(sales.branchId, branchId))
-        )
-        .where(
-          and(
-            eq(saleItems.branchId, branchId),
-            eq(sales.status, "completed"),
-            eq(saleItems.productCategory, "fuel"),
-            gte(sales.createdAt, first),
-            lt(sales.createdAt, to)
-          )
-        ),
-    ]);
-    const items = fuels.map(product => {
-      const opening = openings.find(row => row.productId === product.id);
-      if (!opening || opening.effectiveAt >= to)
-        return { ...product, ledger: null };
-      const events: FuelCostEvent[] = [
-        ...receipts
-          .filter(row => row.productId === product.id)
-          .map(row => ({
-            id: "receipt-" + row.id,
-            at: row.at.toISOString(),
-            kind: "receipt" as const,
-            liters: row.liters,
-            netAmount: row.netAmount,
-            reference: "รับเข้า #" + row.id,
-          })),
-        ...sold
-          .filter(row => row.productId === product.id)
-          .map(row => ({
-            id: String(row.id),
-            originalItemId:
-              row.originalItemId != null
-                ? String(row.originalItemId)
-                : undefined,
-            at: row.at.toISOString(),
-            kind:
-              row.transactionType === "return"
-                ? ("return" as const)
-                : ("sale" as const),
-            liters: Math.abs(row.qty),
-            netAmount:
-              row.subtotal !== 0
-                ? row.amount * ((row.total - row.vatAmount) / row.subtotal)
-                : 0,
-            reference: row.reference,
-          })),
-      ];
-      const ledger = calculateFuelCostLedger(
-        {
-          at: opening.effectiveAt.toISOString(),
-          liters: opening.liters,
-          unitCost: opening.unitCost,
-        },
-        events,
-        from.toISOString(),
-        to.toISOString()
+  report: businessActionQuery("cost.read", "profit.read")
+    .input(range)
+    .query(async ({ input, ctx }) => {
+      const db = getDb(),
+        branchId = ctx.staff.branchId;
+      const from = new Date(input.from + "T00:00:00+07:00");
+      const to = new Date(
+        new Date(input.to + "T00:00:00+07:00").getTime() + 86400000
       );
-      return {
-        ...product,
-        ledger: {
-          ...ledger,
-          eventCount: ledger.rows.length,
-          rows: ledger.rows.slice(-1000),
-          openingAt: opening.effectiveAt,
-        },
-      };
-    });
-    return { from: input.from, to: input.to, items };
-  }),
+      const [fuels, openings] = await Promise.all([
+        db
+          .select({ id: products.id, name: products.name })
+          .from(products)
+          .where(
+            and(eq(products.branchId, branchId), eq(products.category, "fuel"))
+          ),
+        db
+          .select()
+          .from(fuelCostOpenings)
+          .where(eq(fuelCostOpenings.branchId, branchId)),
+      ]);
+      const active = openings.filter(opening => opening.effectiveAt < to);
+      const first = active.length
+        ? new Date(
+            Math.min(...active.map(opening => opening.effectiveAt.getTime()))
+          )
+        : to;
+      const [receipts, sold] = await Promise.all([
+        db
+          .select({
+            id: tankRefills.id,
+            productId: sql<number>`coalesce(${tankRefills.costProductId}, ${fuelTanks.productId})`,
+            at: tankRefills.createdAt,
+            liters: tankRefills.liters,
+            netAmount: tankRefills.netCostAmount,
+          })
+          .from(tankRefills)
+          .innerJoin(
+            fuelTanks,
+            and(
+              eq(fuelTanks.id, tankRefills.tankId),
+              eq(fuelTanks.branchId, branchId)
+            )
+          )
+          .where(
+            and(
+              eq(tankRefills.branchId, branchId),
+              gte(tankRefills.createdAt, first),
+              lt(tankRefills.createdAt, to)
+            )
+          ),
+        db
+          .select({
+            id: saleItems.id,
+            originalItemId: saleItems.originalSaleItemId,
+            productId: saleItems.productId,
+            at: sales.createdAt,
+            qty: saleItems.qty,
+            amount: saleItems.amount,
+            subtotal: sales.subtotal,
+            total: sales.total,
+            vatAmount: sales.vatAmount,
+            reference: sales.receiptNo,
+            transactionType: sales.transactionType,
+          })
+          .from(saleItems)
+          .innerJoin(
+            sales,
+            and(eq(sales.id, saleItems.saleId), eq(sales.branchId, branchId))
+          )
+          .where(
+            and(
+              eq(saleItems.branchId, branchId),
+              eq(sales.status, "completed"),
+              eq(saleItems.productCategory, "fuel"),
+              gte(sales.createdAt, first),
+              lt(sales.createdAt, to)
+            )
+          ),
+      ]);
+      const items = fuels.map(product => {
+        const opening = openings.find(row => row.productId === product.id);
+        if (!opening || opening.effectiveAt >= to)
+          return { ...product, ledger: null };
+        const events: FuelCostEvent[] = [
+          ...receipts
+            .filter(row => row.productId === product.id)
+            .map(row => ({
+              id: "receipt-" + row.id,
+              at: row.at.toISOString(),
+              kind: "receipt" as const,
+              liters: row.liters,
+              netAmount: row.netAmount,
+              reference: "รับเข้า #" + row.id,
+            })),
+          ...sold
+            .filter(row => row.productId === product.id)
+            .map(row => ({
+              id: String(row.id),
+              originalItemId:
+                row.originalItemId != null
+                  ? String(row.originalItemId)
+                  : undefined,
+              at: row.at.toISOString(),
+              kind:
+                row.transactionType === "return"
+                  ? ("return" as const)
+                  : ("sale" as const),
+              liters: Math.abs(row.qty),
+              netAmount:
+                row.subtotal !== 0
+                  ? row.amount * ((row.total - row.vatAmount) / row.subtotal)
+                  : 0,
+              reference: row.reference,
+            })),
+        ];
+        const ledger = calculateFuelCostLedger(
+          {
+            at: opening.effectiveAt.toISOString(),
+            liters: opening.liters,
+            unitCost: opening.unitCost,
+          },
+          events,
+          from.toISOString(),
+          to.toISOString()
+        );
+        return {
+          ...product,
+          ledger: {
+            ...ledger,
+            eventCount: ledger.rows.length,
+            rows: ledger.rows.slice(-1000),
+            openingAt: opening.effectiveAt,
+          },
+        };
+      });
+      return { from: input.from, to: input.to, items };
+    }),
 });

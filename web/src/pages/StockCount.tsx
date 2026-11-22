@@ -41,7 +41,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useStaff } from "@/hooks/useStaff";
 import { fmtDateTime, fmtNum } from "@/lib/format";
-import { trpc } from "@/providers/trpc";
+import { requestHeaders, trpc } from "@/providers/trpc";
 
 type CountScope = "all" | "lubricant" | "other";
 type CategoryFilter = CountScope;
@@ -156,7 +156,9 @@ export default function StockCount() {
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/lan-info", { cache: "no-store" })
+    if (!staff) return;
+    void requestHeaders()
+      .then(headers => fetch("/api/lan-info", { cache: "no-store", headers }))
       .then(async response => {
         if (!response.ok) return null;
         return (await response.json()) as {
@@ -165,17 +167,18 @@ export default function StockCount() {
         };
       })
       .then(result => {
-        if (!active || !Array.isArray(result?.urls)) return;
+        if (!active) return;
+        const urls: unknown[] = Array.isArray(result?.urls) ? result.urls : [];
         setLocalLanUrls(
-          result.urls.filter((url): url is string => typeof url === "string")
+          urls.filter((url): url is string => typeof url === "string")
         );
-        setLocalLanReachable(result.reachable === true);
+        setLocalLanReachable(result?.reachable === true);
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, []);
+  }, [staff]);
 
   useEffect(() => {
     let active = true;

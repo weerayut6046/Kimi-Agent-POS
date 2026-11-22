@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
+import { INITIAL_INSTALLATION_KEY } from "@contracts/initialSetup";
 import { DEFAULT_SETTINGS } from "@contracts/settings";
 import { branches, settings } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
@@ -244,5 +245,47 @@ describe("catalog settings", () => {
         endDate: "2026-08-31",
       })
     ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
+  });
+
+  it("keeps internal branch settings out of reads and mutation responses", async () => {
+    const internalKeys = [INITIAL_INSTALLATION_KEY, "internal_future_setting"];
+    await t.db.insert(settings).values(
+      internalKeys.map(key => ({ branchId: 1, key, value: "internal fixture" }))
+    );
+
+    const admin = t.caller("admin").catalog;
+    const manager = t.caller("manager").catalog;
+    const staff = t.caller("cashier").catalog;
+    const update = await admin.updateSettings({ entries: [] });
+    const bill = await manager.updateBillPromotion({
+      enabled: true,
+      name: "เติมครบ 1,000 ลด 20",
+      minimumFuelSpend: 1000,
+      discount: 20,
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+    });
+    const fuel = await manager.updatePerLiterPromotion({
+      enabled: false,
+      name: "ลดน้ำมัน 50 สตางค์ต่อลิตร",
+      discountPerLiter: 0.5,
+      startDate: "2026-08-01",
+      endDate: "2026-08-31",
+    });
+
+    for (const response of [
+      await admin.getSettings(),
+      await manager.getSettings(),
+      await staff.getSettings(),
+      update.settings,
+      bill.settings,
+      fuel.settings,
+    ]) {
+      expect(response.shop_name).toBeTruthy();
+      expect(response.vat_rate).toBe(DEFAULT_SETTINGS.vat_rate);
+      for (const key of internalKeys) {
+        expect(response).not.toHaveProperty(key);
+      }
+    }
   });
 });
