@@ -26,10 +26,12 @@ const date = z
       Number.isFinite(at.getTime()) && at.toISOString().slice(0, 10) === value
     );
   }, "วันที่ไม่ถูกต้อง");
-const range = z.object({ from: date, to: date }).refine(input => {
-  const days = (Date.parse(input.to) - Date.parse(input.from)) / 86400000;
-  return days >= 0 && days <= 365;
-}, "เลือกช่วงวันเรียงลำดับและยาวไม่เกิน 366 วัน");
+const range = z
+  .object({ from: date, to: date, fullDetails: z.boolean().optional() })
+  .refine(input => {
+    const days = (Date.parse(input.to) - Date.parse(input.from)) / 86400000;
+    return days >= 0 && days <= 365;
+  }, "เลือกช่วงวันเรียงลำดับและยาวไม่เกิน 366 วัน");
 
 export const fuelCostingRouter = createRouter({
   unconfirmedReceipts: managerQuery.query(({ ctx }) => {
@@ -314,7 +316,7 @@ export const fuelCostingRouter = createRouter({
         ledger: {
           ...ledger,
           eventCount: ledger.rows.length,
-          rows: ledger.rows.slice(-1000),
+          rows: input.fullDetails ? ledger.rows : ledger.rows.slice(-1000),
           openingAt: opening.effectiveAt,
         },
       };

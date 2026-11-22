@@ -10,7 +10,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  * void บิลเครดิต → หนี้ลดอัตโนมัติ เพราะนับเฉพาะบิล completed
  */
 export async function outstandingOf(
-  db: ReturnType<typeof getDb>,
+  db: Pick<ReturnType<typeof getDb>, "select">,
   customerId: number,
   branchId?: number,
 ): Promise<number> {

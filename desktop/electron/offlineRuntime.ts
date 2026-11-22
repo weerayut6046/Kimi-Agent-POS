@@ -16,6 +16,16 @@ import { calculateSaleItemValues } from "../../web/contracts/saleItemValues";
 type RemoteSaleInput = DesktopSaleRequest["input"] & {
   clientReceiptNo: string;
   clientCreatedAt: string;
+  offlineReceipt?: Pick<
+    DesktopReceipt["sale"],
+    | "subtotal"
+    | "discount"
+    | "vatRate"
+    | "vatAmount"
+    | "total"
+    | "pointsEarned"
+    | "pointsRedeemed"
+  > & { unitPrices: number[] };
 };
 
 type CachedResponse = {
@@ -619,9 +629,32 @@ export class DesktopOfflineRuntime {
         const queued = this.state.queue[0]!;
         let reachedServer = false;
         try {
-          await this.sendSale(queued.remoteInput, queued.staffToken, () => {
-            reachedServer = true;
-          });
+          const {
+            subtotal,
+            discount,
+            vatRate,
+            vatAmount,
+            total,
+            pointsEarned,
+            pointsRedeemed,
+          } = queued.localReceipt.sale;
+          const offlineReceipt = {
+            subtotal,
+            discount,
+            vatRate,
+            vatAmount,
+            total,
+            pointsEarned,
+            pointsRedeemed,
+            unitPrices: queued.localReceipt.items.map(item => item.unitPrice),
+          };
+          await this.sendSale(
+            { ...queued.remoteInput, offlineReceipt },
+            queued.staffToken,
+            () => {
+              reachedServer = true;
+            }
+          );
           this.state.queue.shift();
           this.state.lastSyncedAt = new Date().toISOString();
           this.lastError = null;

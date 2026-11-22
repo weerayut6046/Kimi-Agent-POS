@@ -44,11 +44,24 @@ describe("reports.fuelStockSummary", () => {
       items: [{ productId: gsh95.id, qty: 10 }],
       paymentMethod: "qr",
     });
-    // ในการใช้งานจริงถังจะถูกหักตอนปิดกะจากมิเตอร์ จำลองผลหลังปิดกะไว้ตรงนี้
-    await test.db
-      .update(fuelTanks)
-      .set({ currentLiters: tank.currentLiters + 90 })
-      .where(and(eq(fuelTanks.id, tank.id), eq(fuelTanks.branchId, 1)));
+    const nozzles = await test.db.query.nozzles.findMany();
+    const nozzle = nozzles.find(n => n.tankId === tank.id)!;
+    const { shiftId } = await test.caller().pos.openShift({
+      staffName: "รายงาน",
+      readings: nozzles.map(n => ({
+        nozzleId: n.id,
+        openMeter: n.currentMeter,
+        openMoney: n.currentMoney,
+      })),
+    });
+    await test.caller().pos.closeShift({
+      shiftId,
+      readings: nozzles.map(n => ({
+        nozzleId: n.id,
+        closeMeter: n.currentMeter + (n.id === nozzle.id ? 10 : 0),
+        closeMoney: n.currentMoney + (n.id === nozzle.id ? 407.4 : 0),
+      })),
+    });
 
     const { year, key } = bangkokYearMonth();
     const report = await test

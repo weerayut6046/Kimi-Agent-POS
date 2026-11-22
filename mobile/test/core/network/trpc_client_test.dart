@@ -89,4 +89,34 @@ void main() {
     );
     expect(wasCalled, isFalse);
   });
+  test('uses the PIN endpoint before a staff session exists', () async {
+    final client = TrpcClient(
+      baseUri: Uri.parse('https://example.test/functions/v1/pos-api'),
+      publishableKey: 'test-key',
+      functionRegion: 'test',
+      accessTokenProvider: () => null,
+      httpClient: MockClient((request) async {
+        expect(request.url.pathSegments.last, 'staffAuth.loginWithPin');
+        expect(request.headers['apikey'], 'test-key');
+        expect(request.headers.containsKey('authorization'), isFalse);
+        expect((jsonDecode(request.body) as Map<String, dynamic>)['json'], {
+          'username': 'worker',
+          'pin': '1234',
+        });
+        return http.Response(
+          jsonEncode({
+            'result': {
+              'data': {
+                'json': {
+                  'authSession': {'refreshToken': 'demo'},
+                },
+              },
+            },
+          }),
+          200,
+        );
+      }),
+    );
+    expect(await client.staffPinSession('worker', '1234'), 'demo');
+  });
 }

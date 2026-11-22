@@ -94,9 +94,8 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
           <g key={point.label}>
             <circle cx={point.x} cy={point.y} r="4" fill="hsl(var(--foreground))">
               <title>
-                {point.label}: รวม ฿{fmtMoney(point.total)} · P จากกะ ฿
-                {fmtMoney(point.shiftTotal ?? 0)} · POS ฿
-                {fmtMoney(point.posTotal ?? 0)}
+                {point.label}: ยอดขาย POS ฿{fmtMoney(point.total)} · มิเตอร์กะ ฿
+                {fmtMoney(point.shiftTotal ?? 0)}
               </title>
             </circle>
             <text
@@ -112,16 +111,15 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
         ))}
       </svg>
       <figcaption className="sr-only">
-        กราฟยอดขายรวมรายวันย้อนหลัง 7 วัน
+        กราฟยอดขาย POS รายวันย้อนหลัง 7 วัน
       </figcaption>
       <table className="sr-only">
-        <caption>ข้อมูลยอดขายรวมรายวันย้อนหลัง 7 วัน</caption>
+        <caption>ข้อมูลยอดขาย POS รายวันย้อนหลัง 7 วัน</caption>
         <thead>
           <tr>
             <th scope="col">วันที่</th>
-            <th scope="col">ยอดขาย</th>
+            <th scope="col">ยอดขาย POS</th>
             <th scope="col">ยอด P จากกะ</th>
-            <th scope="col">ยอด POS</th>
           </tr>
         </thead>
         <tbody>
@@ -130,7 +128,6 @@ export default function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
               <th scope="row">{point.label}</th>
               <td>฿{fmtMoney(point.total)}</td>
               <td>฿{fmtMoney(point.shiftTotal ?? 0)}</td>
-              <td>฿{fmtMoney(point.posTotal ?? 0)}</td>
             </tr>
           ))}
         </tbody>
