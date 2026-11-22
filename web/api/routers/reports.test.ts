@@ -1,4 +1,3 @@
-import { bangkokDateKey } from "../lib/dates";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
@@ -9,7 +8,13 @@ import { setupTestDb, type TestDb } from "../test/testDb";
 // seed: WATER 10฿ / TISSUE 20฿ / GSH95 น้ำมัน 40.74฿/ลิตร
 let t: TestDb;
 
-const todayStr = () => bangkokDateKey(new Date());
+/** วันนี้ "YYYY-MM-DD" แบบ local (ฝั่ง client ส่งรูปแบบนี้) */
+const todayStr = () => {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+};
 
 beforeAll(async () => {
   t = await setupTestDb();

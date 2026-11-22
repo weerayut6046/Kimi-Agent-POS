@@ -26,7 +26,7 @@ export interface ShiftCashSummary {
  * = เงินทอนเริ่มกะ + ขายเงินสด + รับชำระหนี้เงินสด − ค่าใช้จ่าย
  */
 export async function shiftCashSummary(
-  db: Pick<ReturnType<typeof getDb>, "select">,
+  db: ReturnType<typeof getDb>,
   shift: Pick<Shift, "id" | "branchId" | "openingFloat">
 ): Promise<ShiftCashSummary> {
   const [[saleRow], [posRow], [debtRow], [expenseRow]] = await Promise.all([
@@ -151,7 +151,7 @@ export async function shiftFuelSalesTotals(
 export interface ShiftCashMeterColumns {
   /** เงินสดควรมีเมื่อใช้ยอด P แทนยอดขายน้ำมันใน POS (null ถ้าไม่มี expectedCash หรือยอด P) */
   cashExpectedP: number | null;
-  /** เงินสดที่นับจริง − cashExpectedP */
+  /** ยอดนับได้รวม − cashExpectedP */
   cashDiffP: number | null;
 }
 
@@ -246,7 +246,7 @@ export async function attachShiftLubricantSales<T extends { id: number }>(
  * แนบคอลัมน์เงินสดเทียบยอด P ให้แถวข้อมูลกะ
  * cashExpectedP = expectedCash + ยอด P − ยอดขายน้ำมันตามบิล POS
  * (แทนยอดขายน้ำมันใน POS ด้วยยอดจากมิเตอร์เงิน P เพื่อจับบิลที่ลืมเปิดใน POS)
- * ส่วนต่างใช้เงินสดที่นับจริงเป็นฝั่งยอดจริง
+ * ส่วนต่างใช้ยอดนับได้รวมเป็นฝั่งยอดจริง
  * คิดเฉพาะกะที่มี expectedCash และยอด P > 0 — กะเก่าก่อนระบบ P ได้ null
  */
 export async function attachShiftCashMeter<
@@ -254,7 +254,7 @@ export async function attachShiftCashMeter<
     id: number;
     expectedCash: number | null;
     totalMoneyMeter: number;
-    countedCash: number | null;
+    countedTotal: number | null;
   },
 >(
   db: ReturnType<typeof getDb>,
@@ -280,7 +280,7 @@ export async function attachShiftCashMeter<
       ...r,
       cashExpectedP,
       cashDiffP:
-        r.countedCash != null ? r2(r.countedCash - cashExpectedP) : null,
+        r.countedTotal != null ? r2(r.countedTotal - cashExpectedP) : null,
     };
   });
 }

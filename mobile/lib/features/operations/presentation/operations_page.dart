@@ -1994,8 +1994,16 @@ class _StaffEditorSheetState extends State<_StaffEditorSheet> {
   String? _validatePassword(String? value) {
     final password = value ?? '';
     if (_isEditing && password.isEmpty) return null;
-    if (!RegExp(r'^\d{4,6}$').hasMatch(password)) {
-      return 'PIN ต้องเป็นตัวเลข 4–6 หลัก';
+    if (password.length < 10) {
+      return 'รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร';
+    }
+    if (password.length > 128) {
+      return 'รหัสผ่านต้องไม่เกิน 128 ตัวอักษร';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(password) ||
+        !RegExp(r'[A-Z]').hasMatch(password) ||
+        !RegExp(r'\d').hasMatch(password)) {
+      return 'ต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข';
     }
     return null;
   }
@@ -2139,7 +2147,6 @@ class _StaffEditorSheetState extends State<_StaffEditorSheet> {
                           TextFormField(
                             key: const Key('staff-password'),
                             controller: _passwordController,
-                            keyboardType: TextInputType.number,
                             obscureText: _obscurePassword,
                             autocorrect: false,
                             enableSuggestions: false,
@@ -2148,16 +2155,17 @@ class _StaffEditorSheetState extends State<_StaffEditorSheet> {
                             onFieldSubmitted: (_) => _submit(),
                             decoration: InputDecoration(
                               labelText: _isEditing
-                                  ? 'PIN ใหม่ (ไม่เปลี่ยนให้เว้นว่าง)'
-                                  : 'PIN',
-                              helperText: 'ตัวเลข 4–6 หลัก',
+                                  ? 'รหัสผ่านใหม่ (ไม่เปลี่ยนให้เว้นว่าง)'
+                                  : 'รหัสผ่าน',
+                              helperText:
+                                  'อย่างน้อย 10 ตัว มี A–Z, a–z และตัวเลข',
                               prefixIcon: const Icon(
                                 Icons.lock_outline_rounded,
                               ),
                               suffixIcon: IconButton(
                                 tooltip: _obscurePassword
-                                    ? 'แสดง PIN'
-                                    : 'ซ่อน PIN',
+                                    ? 'แสดงรหัสผ่าน'
+                                    : 'ซ่อนรหัสผ่าน',
                                 onPressed: () => setState(
                                   () => _obscurePassword = !_obscurePassword,
                                 ),
@@ -2590,6 +2598,14 @@ String _staffErrorMessage(Object error) {
   final message = '$error';
   if (message.contains('Username must use')) {
     return 'ชื่อผู้ใช้ต้องเป็นตัวอักษรอังกฤษ ตัวเลข จุด ขีดกลาง หรือขีดล่าง 3–64 ตัว';
+  }
+  if (message.contains('too_small') || message.contains('อย่างน้อย 10')) {
+    return 'รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร';
+  }
+  if (message.contains('lowercase') ||
+      message.contains('uppercase') ||
+      message.contains('ตัวพิมพ์เล็ก')) {
+    return 'รหัสผ่านต้องมีตัวพิมพ์เล็ก ตัวพิมพ์ใหญ่ และตัวเลข';
   }
   return message;
 }

@@ -93,13 +93,12 @@ Future<bool> restoreDatabase({
   }
   final bytes = await file.readAsBytes();
   if (!context.mounted) return false;
-  var confirmation = '';
+  final controller = TextEditingController();
   final confirmed = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) => AlertDialog(
-        scrollable: true,
         icon: const Icon(
           Icons.warning_amber_rounded,
           color: Color(0xFFB42318),
@@ -118,15 +117,13 @@ Future<bool> restoreDatabase({
               ),
               const SizedBox(height: 10),
               const Text(
-                'การกู้คืนจะแทนที่ข้อมูลทุกสาขาด้วยข้อมูลในไฟล์ ควรสำรองข้อมูลปัจจุบันก่อนยืนยัน '
-                'ไฟล์รุ่น 1 ไม่มีต้นทุนยกมาน้ำมันและประวัติเข้าออกงาน หากกู้คืนจากรุ่นนี้ ข้อมูลสองส่วนนี้จะว่าง '
-                'ผู้ที่ใช้ Passkey ต้องลงทะเบียน Passkey ใหม่หลังกู้คืนทุกเวอร์ชัน',
+                'ข้อมูลในฐานข้อมูลจะถูกแทนที่แบบ atomic ด้วยข้อมูลจากไฟล์นี้ การทำงานนี้มีผลกับทุกสาขาและย้อนกลับไม่ได้หากไม่มีไฟล์สำรองปัจจุบัน',
               ),
               const SizedBox(height: 12),
               TextField(
+                controller: controller,
                 autofocus: true,
-                onChanged: (value) =>
-                    setDialogState(() => confirmation = value),
+                onChanged: (_) => setDialogState(() {}),
                 decoration: const InputDecoration(
                   labelText: 'พิมพ์ “กู้คืนข้อมูล” เพื่อยืนยัน',
                   prefixIcon: Icon(Icons.shield_outlined),
@@ -144,7 +141,7 @@ Future<bool> restoreDatabase({
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFB42318),
             ),
-            onPressed: confirmation.trim() == 'กู้คืนข้อมูล'
+            onPressed: controller.text.trim() == 'กู้คืนข้อมูล'
                 ? () => Navigator.pop(dialogContext, true)
                 : null,
             child: const Text('กู้คืนฐานข้อมูล'),
@@ -153,6 +150,7 @@ Future<bool> restoreDatabase({
       ),
     ),
   );
+  controller.dispose();
   if (confirmed != true || !context.mounted) return false;
 
   final busy = showDialog<void>(
@@ -184,20 +182,10 @@ Future<bool> restoreDatabase({
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
     await busy;
     if (!context.mounted) return true;
-    final summary =
-        'กู้คืน ${_int(restored['totalRows'])} แถวจาก ${_text(restored['fileName'])} สำเร็จ';
-    if (restored['legacyBackup'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 12),
-          content: Text(
-            '$summary\nกรุณาตรวจสอบต้นทุนยกมาน้ำมันและประวัติเข้าออกงานจากบันทึกเดิมก่อนใช้รายงานกำไรหรือคำนวณค่าแรง',
-          ),
-        ),
-      );
-    } else {
-      _message(context, summary);
-    }
+    _message(
+      context,
+      'กู้คืน ${_int(restored['totalRows'])} แถวจาก ${_text(restored['fileName'])} สำเร็จ',
+    );
     return true;
   } catch (error) {
     if (context.mounted) {

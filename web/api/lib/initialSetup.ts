@@ -76,7 +76,6 @@ const operationalTables = [
   "sale_items",
   "shifts",
   "shift_readings",
-  "tank_withdrawals",
   "attendance_sessions",
   "attendance_events",
   "employee_profiles",

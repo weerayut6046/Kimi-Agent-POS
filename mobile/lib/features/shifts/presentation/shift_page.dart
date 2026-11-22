@@ -286,6 +286,8 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
         content: Text(
           'ยอดจากมิเตอร์เงิน ${_money(preview.money)}\n'
           'ยอด POS ทั้งหมด ${_money(shift.posSales)}\n'
+          'รวมยอดกะ (P + POS ทั้งหมด) '
+          '${_money(_shiftSalesTotal(preview, shift.posSales))}\n'
           'ปริมาณรวม ${_quantity(preview.liters)} ลิตร\n\n'
           'ยอดนับได้รวม ${_money(countedTotal)}\n'
           '= เงินสด + โอน + POS − ค่าใช้จ่าย\n\n'
@@ -466,7 +468,9 @@ class _OpenShiftForm extends StatelessWidget {
                   : const Icon(Icons.play_circle_outline_rounded),
               label: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 13),
-                child: Text(submitting ? 'กำลังเปิดกะ...' : 'เปิดกะ'),
+                child: Text(
+                  submitting ? 'กำลังเปิดกะ...' : 'เปิดกะ',
+                ),
               ),
             ),
           ],
@@ -1027,6 +1031,11 @@ double _shiftCountedTotal({
 }) {
   final total = countedCash + transferAmount + posAmount - expensesTotal;
   return (total * 100).roundToDouble() / 100;
+}
+
+double _shiftSalesTotal(_ClosePreview preview, double posAmount) {
+  final meterAmount = preview.money > 0 ? preview.money : preview.amount;
+  return ((meterAmount + posAmount) * 100).roundToDouble() / 100;
 }
 
 String _cashDenominationLabel(String denomination) {

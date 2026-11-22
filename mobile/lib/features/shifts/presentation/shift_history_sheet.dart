@@ -275,7 +275,7 @@ class _ShiftHistorySheetState extends State<_ShiftHistorySheet> {
                             spacing: 12,
                             runSpacing: 3,
                             children: [
-                              Text('ยอด POS ${_money(_num(row['posAmount']))}'),
+                              Text('ยอดกะ ${_money(_shiftSalesTotal(row))}'),
                               Text(
                                 '${_quantity(_num(row['totalLiters']))} ลิตร',
                               ),
@@ -471,6 +471,10 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
                     ),
                     _InfoRow('ยอด POS', _money(_num(detail['posAmount']))),
                     _InfoRow(
+                      'รวมยอดกะ (P + POS ทั้งหมด)',
+                      _money(_shiftSalesTotal(detail)),
+                    ),
+                    _InfoRow(
                       'น้ำมันเครื่อง',
                       _money(_num(detail['lubricantAmount'])),
                     ),
@@ -527,7 +531,7 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
                       'เงินสดต่าง',
                       _nullableMoney(
                         _difference(
-                          detail['countedCash'],
+                          detail['countedTotal'],
                           detail['expectedCash'] ??
                               _mapOrEmpty(detail['cash'])['expectedCash'],
                         ),
@@ -542,7 +546,7 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
                       _nullableMoney(
                         detail['cashDiffP'] ??
                             _difference(
-                              detail['countedCash'],
+                              detail['countedTotal'],
                               detail['cashExpectedP'],
                             ),
                       ),
@@ -1103,6 +1107,12 @@ int _int(Object? value) =>
 
 double _num(Object? value) =>
     value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+double _shiftSalesTotal(Map<String, dynamic> shift) {
+  final moneyMeter = _num(shift['totalMoneyMeter']);
+  final meterAmount = moneyMeter > 0 ? moneyMeter : _num(shift['totalAmount']);
+  return ((meterAmount + _num(shift['posAmount'])) * 100).roundToDouble() / 100;
+}
 
 double? _difference(Object? actual, Object? expected) {
   if (actual == null || expected == null) return null;

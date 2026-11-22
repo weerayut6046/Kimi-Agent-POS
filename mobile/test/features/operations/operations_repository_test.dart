@@ -260,7 +260,7 @@ void main() {
         branchId: 7,
         name: 'สมชาย ใจดี',
         username: 'Somchai.01',
-        password: '1472',
+        password: 'ValidPass1',
         role: 'cashier',
         accessGroupId: 3,
         menuPermissions: const {'dashboard', 'pos'},
@@ -278,7 +278,7 @@ void main() {
           branchIds: <int>[7, 8],
           menuPermissions: <String>{'dashboard', 'reports'},
         ),
-        password: '5816',
+        password: 'ValidEdit2',
       );
       await repository.deleteStaff(branchId: 7, staffId: 22);
 
@@ -302,7 +302,7 @@ void main() {
 
       final create = _mutationInput(requests[0]);
       expect(create['username'], 'somchai.01');
-      expect(create['pin'], '1472');
+      expect(create['password'], 'ValidPass1');
       expect(create['role'], 'cashier');
       expect(create['branchIds'], [7, 8]);
       expect(create['accessGroupId'], 3);
@@ -312,7 +312,7 @@ void main() {
       expect(update, containsPair('id', 22));
       expect(update, containsPair('role', 'manager'));
       expect(update, containsPair('active', false));
-      expect(update, containsPair('pin', '5816'));
+      expect(update, containsPair('password', 'ValidEdit2'));
       expect(update, containsPair('accessGroupId', 4));
       expect(update['branchIds'], [7, 8]);
       expect(update['menuPermissions'], containsAll(['dashboard', 'reports']));

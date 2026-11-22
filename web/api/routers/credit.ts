@@ -100,23 +100,29 @@ export const creditRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      const customer = await db.query.customers.findFirst({
+        where: eq(customers.id, input.customerId),
+      });
+      if (!customer) throw new Error("ไม่พบลูกค้า");
       const amount = r2(input.amount);
       if (amount <= 0) throw new Error("จำนวนเงินต้องมากกว่า 0");
-      const { paymentId, customer } = await db.transaction(async tx => {
-        const [openShift] = await tx
-          .select({ id: shifts.id })
-          .from(shifts)
-          .where(and(eq(shifts.branchId, branchId), eq(shifts.status, "open")))
-          .for("share");
-        const [customer] = await tx
-          .select()
-          .from(customers)
-          .where(eq(customers.id, input.customerId))
-          .for("update");
-        if (!customer) throw new Error("ไม่พบลูกค้า");
-        const outstanding = await outstandingOf(tx, customer.id, branchId);
-        if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
-        const paymentNo = await nextDocNo(tx, "debt_payment", branchId);
+      const outstanding = await outstandingOf(db, customer.id, branchId);
+      if (amount > outstanding) throw new Error("ยอดชำระมากกว่ายอดค้างชำระ");
+
+      // ถ้ามีกะเปิดอยู่ให้ผูก shiftId อัตโนมัติ (เหมือนค่าใช้จ่าย) — ต้องหาก่อนเข้า tx
+      const openShift = await db.query.shifts.findFirst({
+        where: and(
+          eq(shifts.branchId, branchId),
+          eq(shifts.status, "open"),
+        ),
+      });
+
+      const paymentId = await db.transaction(async tx => {
+        const paymentNo = await nextDocNo(
+          tx,
+          "debt_payment",
+          branchId,
+        );
         const [{ id }] = await tx
           .insert(debtPayments)
           .values({
@@ -130,7 +136,7 @@ export const creditRouter = createRouter({
             note: input.note,
           })
           .returning({ id: debtPayments.id });
-        return { paymentId: id, customer };
+        return id;
       });
       const payment = await db.query.debtPayments.findFirst({
         where: and(
