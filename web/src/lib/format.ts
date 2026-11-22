@@ -61,7 +61,7 @@ export const cashDenomLabel = (d: number) =>
   d >= 20 ? `แบงก์ ${fmtNum(d)}` : d >= 1 ? `เหรียญ ${fmtNum(d)}` : `เหรียญ ${fmtNum(d * 100)} สตางค์`;
 
 export const roleLabel: Record<string, string> = {
-  admin: "ผู้ดูแลระบบ",
-  manager: "ผู้จัดการสาขา",
-  cashier: "พนักงานขาย",
+  admin: "เจ้าของกิจการ (Owner)",
+  manager: "ผู้จัดการสาขา (Manager)",
+  cashier: "พนักงาน (Staff)",
 };

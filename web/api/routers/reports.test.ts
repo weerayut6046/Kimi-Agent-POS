@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
 import ExcelJS from "exceljs";
-import { products, settings } from "@db/schema";
+import { products, sales, settings, shifts } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
 // เทสรายงานปิดวัน (Z-report) ผ่าน tRPC caller จริงลง SQLite ชั่วคราว (migrate + seed)
@@ -149,6 +149,53 @@ describe("reports.daily — Z-report", () => {
     await expect(
       t.caller().reports.daily({ date: "18/07/2026" })
     ).rejects.toThrow();
+  });
+
+  it("scopes detailed shift rows without changing the branch totals", async () => {
+    const date = "2025-02-10";
+    const openedAt = new Date(`${date}T10:00:00+07:00`);
+    const closedAt = new Date(`${date}T11:00:00+07:00`);
+    const [own, other] = await t.db
+      .insert(shifts)
+      .values([
+        {
+          staffId: 3,
+          staffName: "กะของฉัน",
+          openedAt,
+          closedAt,
+          status: "closed",
+        },
+        {
+          staffId: 2,
+          staffName: "กะอื่น",
+          openedAt,
+          closedAt,
+          status: "closed",
+        },
+      ])
+      .returning({ id: shifts.id });
+    await t.db.insert(sales).values({
+      shiftId: other!.id,
+      receiptNo: "Z-REPORT-SHIFT-SCOPE",
+      subtotal: 25,
+      total: 25,
+      paymentMethod: "cash",
+      createdAt: openedAt,
+    });
+
+    const staffReport = await t.caller("cashier").reports.daily({ date });
+    const managerReport = await t.caller("manager").reports.daily({ date });
+    expect(staffReport.shifts.map(shift => shift.id)).toEqual([own!.id]);
+    expect(managerReport.shifts.map(shift => shift.id)).toEqual(
+      expect.arrayContaining([own!.id, other!.id])
+    );
+    expect(staffReport).toMatchObject({
+      totalSales: 25,
+      expectedCash: 25,
+      billCount: 1,
+    });
+    expect(staffReport.totalSales).toBe(managerReport.totalSales);
+    expect(staffReport.expectedCash).toBe(managerReport.expectedCash);
   });
 });
 

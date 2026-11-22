@@ -19,13 +19,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   History,
-  Pencil,
   Plus,
   Search,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAppConfirm } from "@/components/AppConfirmDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -85,7 +83,6 @@ type HistoryFilters = {
 };
 
 type HistoryForm = {
-  id?: number;
   staffId: string;
   staffName: string;
   openedAt: string;
@@ -101,7 +98,7 @@ type HistoryForm = {
   transferAmount: string;
   expectedCash: string;
   note: string;
-  readings: HistoryReadingForm[] | null;
+  readings: HistoryReadingForm[];
 };
 
 type HistoryReadingForm = {
@@ -136,29 +133,6 @@ function historyMonthLabel(monthKey: string) {
     year: "numeric",
     timeZone: "Asia/Bangkok",
   }).format(new Date(Date.UTC(year, month - 1, 15)));
-}
-
-function historyCashCountsFromStored(value: unknown): Record<string, string> {
-  let parsed: unknown = value;
-  if (typeof value === "string") {
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      return {};
-    }
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-  const record = parsed as Record<string, unknown>;
-  const result: Record<string, string> = {};
-  for (const denomination of CASH_DENOMINATIONS) {
-    const key = String(denomination);
-    if (!(key in record)) continue;
-    const count = Number(record[key]);
-    if (Number.isInteger(count) && count >= 0) {
-      result[key] = String(count);
-    }
-  }
-  return result;
 }
 
 function historyCashCountsPayload(values: Record<string, string>): {
@@ -695,7 +669,6 @@ function ShiftPageHeader() {
 }
 
 export default function Shifts() {
-  const confirmAction = useAppConfirm();
   const { staff } = useStaff();
   const isAdmin = staff?.role === "admin";
   const utils = trpc.useUtils();
@@ -764,27 +737,7 @@ export default function Shifts() {
     { id: detailId! },
     { enabled: detailId != null }
   );
-  const { data: editHistoryDetail, isLoading: editHistoryDetailLoading } =
-    trpc.pos.shiftDetail.useQuery(
-      { id: historyForm?.id ?? 0 },
-      { enabled: isAdmin && historyForm?.id != null }
-    );
-  const historyReadings =
-    historyForm?.readings ??
-    (historyForm?.id && editHistoryDetail?.id === historyForm.id
-      ? editHistoryDetail.readings.map(reading => ({
-          nozzleId: reading.nozzleId,
-          label: reading.nozzle?.label ?? `หัวจ่าย #${reading.nozzleId}`,
-          productName: reading.product?.name ?? "ไม่ทราบชนิดน้ำมัน",
-          openMeter: reading.openMeter,
-          closeMeter:
-            reading.closeMeter == null ? "" : String(reading.closeMeter),
-          openMoney: reading.openMoney,
-          closeMoney:
-            reading.closeMoney == null ? "" : String(reading.closeMoney),
-          pricePerLiter: reading.pricePerLiter,
-        }))
-      : null);
+  const historyReadings = historyForm?.readings ?? null;
 
   const invalidateRelated = () => {
     utils.pos.shiftHistory.invalidate();
@@ -841,24 +794,6 @@ export default function Shifts() {
     },
     onError: e => setErr(e.message),
   });
-  const updateShiftHistory = trpc.pos.updateShiftHistory.useMutation({
-    onSuccess: () => {
-      invalidate();
-      setHistoryForm(null);
-      setErr("");
-      setNotice("แก้ไขประวัติการตัดกะแล้ว");
-    },
-    onError: e => setErr(e.message),
-  });
-  const deleteShiftHistory = trpc.pos.deleteShiftHistory.useMutation({
-    onSuccess: () => {
-      invalidate();
-      setDetailId(null);
-      setErr("");
-      setNotice("ลบประวัติการตัดกะแล้ว");
-    },
-    onError: e => setErr(e.message),
-  });
 
   const submitHistoryForm = () => {
     if (!historyForm) return;
@@ -910,34 +845,17 @@ export default function Shifts() {
           : Number(historyForm.expectedCash),
       note: historyForm.note.trim() || null,
     };
-    if (historyForm.id) {
-      updateShiftHistory.mutate({
-        id: historyForm.id,
-        ...values,
-        ...(cashCounts !== undefined ? { cashCounts } : {}),
-        ...(historyForm.readings && historyForm.readings.length > 0
-          ? {
-              readings: historyForm.readings.map(reading => ({
-                nozzleId: reading.nozzleId,
-                closeMeter: Number(reading.closeMeter),
-                closeMoney: Number(reading.closeMoney),
-              })),
-            }
-          : {}),
-      });
-    } else {
-      createShiftHistory.mutate({
-        ...values,
-        ...(cashCounts !== undefined ? { cashCounts } : {}),
-        readings: historyForm.readings?.map(reading => ({
-          nozzleId: reading.nozzleId,
-          openMeter: Number(reading.openMeter),
-          closeMeter: Number(reading.closeMeter),
-          openMoney: Number(reading.openMoney),
-          closeMoney: Number(reading.closeMoney),
-        })),
-      });
-    }
+    createShiftHistory.mutate({
+      ...values,
+      ...(cashCounts !== undefined ? { cashCounts } : {}),
+      readings: historyForm.readings.map(reading => ({
+        nozzleId: reading.nozzleId,
+        openMeter: Number(reading.openMeter),
+        closeMeter: Number(reading.closeMeter),
+        openMoney: Number(reading.openMoney),
+        closeMoney: Number(reading.closeMoney),
+      })),
+    });
   };
 
   const nozzleList = useMemo(
@@ -1213,8 +1131,17 @@ export default function Shifts() {
             </Card>
           )}
 
+          {currentShift?.canSubmit === false && (
+            <Card>
+              <CardContent className="py-5">
+                กะของ {currentShift.staffName} กำลังเปิดอยู่
+                ผู้เปิดกะหรือผู้ดูแลสาขาสามารถปิดกะได้
+              </CardContent>
+            </Card>
+          )}
+
           {/* ============ ปิดกะ ============ */}
-          {currentShift && (
+          {currentShift && currentShift.canSubmit !== false && (
             <Card className="border-green-300">
               <CardHeader>
                 <CardTitle className="font-heading flex items-center gap-2 flex-wrap">
@@ -1929,74 +1856,6 @@ export default function Shifts() {
                             >
                               <Eye className="w-4 h-4" />
                             </Button>
-                            {isAdmin && s.status === "closed" && s.closedAt && (
-                              <>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8"
-                                  title="แก้ไขประวัติ"
-                                  onClick={() => {
-                                    setNotice("");
-                                    setErr("");
-                                    setHistoryForm({
-                                      id: s.id,
-                                      staffId: s.staffId
-                                        ? String(s.staffId)
-                                        : "manual",
-                                      staffName: s.staffName,
-                                      openedAt: toDateTimeLocal(s.openedAt),
-                                      closedAt: toDateTimeLocal(s.closedAt!),
-                                      totalLiters: String(s.totalLiters),
-                                      totalAmount: String(s.totalAmount),
-                                      totalMoneyMeter: String(
-                                        s.totalMoneyMeter
-                                      ),
-                                      posAmount: String(s.posAmount),
-                                      openingFloat: String(s.openingFloat),
-                                      countedCash:
-                                        s.countedCash == null
-                                          ? ""
-                                          : String(s.countedCash),
-                                      cashCounts: historyCashCountsFromStored(
-                                        s.cashCounts
-                                      ),
-                                      cashCountsTouched: false,
-                                      transferAmount:
-                                        s.transferAmount == null
-                                          ? ""
-                                          : String(s.transferAmount),
-                                      expectedCash:
-                                        s.expectedCash == null
-                                          ? ""
-                                          : String(s.expectedCash),
-                                      note: s.note ?? "",
-                                      readings: null,
-                                    });
-                                  }}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8 text-destructive hover:text-destructive"
-                                  title="ลบประวัติ"
-                                  disabled={deleteShiftHistory.isPending}
-                                  onClick={async () => {
-                                    if (
-                                      await confirmAction(
-                                        `ลบประวัติกะ #${s.id} ของ ${s.staffName}?\n\nรายการขาย รับชำระ และค่าใช้จ่ายจะยังอยู่ แต่จะไม่ผูกกับกะนี้`
-                                      )
-                                    ) {
-                                      deleteShiftHistory.mutate({ id: s.id });
-                                    }
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </>
-                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -2019,7 +1878,7 @@ export default function Shifts() {
         </TabsContent>
       </Tabs>
 
-      {/* เพิ่ม/แก้ไขประวัติตัดกะ — admin เท่านั้น */}
+      {/* เพิ่มประวัติตัดกะ — เจ้าของเท่านั้น */}
       <Dialog
         open={isAdmin && historyForm != null}
         onOpenChange={open => !open && setHistoryForm(null)}
@@ -2038,18 +1897,14 @@ export default function Shifts() {
                     Shift history
                   </span>
                   <Badge className="h-5 border border-white/15 bg-white/10 px-2 text-[10px] text-white shadow-none hover:bg-white/10">
-                    {historyForm?.id ? "โหมดแก้ไข" : "รายการใหม่"}
+                    รายการใหม่
                   </Badge>
                 </div>
                 <DialogTitle className="font-heading text-xl font-bold leading-tight text-white sm:text-2xl">
-                  {historyForm?.id
-                    ? `แก้ไขประวัติกะ #${historyForm.id}`
-                    : "เพิ่มประวัติการตัดกะ"}
+                  เพิ่มประวัติการตัดกะ
                 </DialogTitle>
                 <DialogDescription className="mt-1 text-xs leading-relaxed text-blue-100/80 sm:text-sm">
-                  {historyForm?.id
-                    ? "ตรวจสอบและแก้ไขข้อมูลกะให้ครบถ้วนก่อนบันทึก"
-                    : "บันทึกข้อมูลกะย้อนหลัง โดยไม่กระทบมิเตอร์และสต๊อกปัจจุบัน"}
+                  บันทึกข้อมูลกะย้อนหลัง โดยไม่กระทบมิเตอร์และสต๊อกปัจจุบัน
                 </DialogDescription>
               </div>
             </div>
@@ -2208,242 +2063,218 @@ export default function Shifts() {
                   </div>
                 </section>
 
-                {historyForm.id && historyReadings === null ? (
-                  <section className="flex min-h-44 items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-                    <div>
-                      <div className="mx-auto mb-3 flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                        <LoaderCircle className="h-5 w-5 animate-spin" />
+                {historyReadings?.length && historyReadingPreview ? (
+                  <section className="space-y-4">
+                    <div className="flex items-center gap-3 px-1">
+                      <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+                        <Gauge className="h-4 w-4" />
                       </div>
-                      <p className="text-sm font-semibold text-slate-700">
-                        {editHistoryDetailLoading
-                          ? "กำลังโหลดเลขมิเตอร์ของกะ..."
-                          : "กำลังเตรียมข้อมูลหัวจ่าย..."}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        กรุณารอสักครู่
-                      </p>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          เลขมิเตอร์เปิด–ปิดกะ
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          ตรวจเลขตั้งต้นและกรอกเลขปิดกะ
+                          ระบบจะคำนวณยอดรวมให้อัตโนมัติ
+                        </p>
+                      </div>
                     </div>
+                    <HistoryMeterEditor
+                      readings={historyReadings}
+                      preview={historyReadingPreview}
+                      editableOpening
+                      onChange={readings =>
+                        setHistoryForm({ ...historyForm, readings })
+                      }
+                    />
                   </section>
                 ) : (
-                  <>
-                    {historyReadings?.length && historyReadingPreview ? (
-                      <section className="space-y-4">
-                        <div className="flex items-center gap-3 px-1">
-                          <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
-                            <Gauge className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-slate-900">
-                              {historyForm.id
-                                ? "เลขมิเตอร์ปิดกะ"
-                                : "เลขมิเตอร์เปิด–ปิดกะ"}
-                            </h3>
-                            <p className="text-[11px] text-slate-500">
-                              {historyForm.id
-                                ? "กรอกเลขปลายทาง ระบบจะคำนวณยอดรวมให้อัตโนมัติ"
-                                : "ตรวจเลขตั้งต้นและกรอกเลขปิดกะ ระบบจะคำนวณยอดรวมให้อัตโนมัติ"}
-                            </p>
-                          </div>
-                        </div>
-                        <HistoryMeterEditor
-                          readings={historyReadings}
-                          preview={historyReadingPreview}
-                          editableOpening={historyForm.id == null}
-                          onChange={readings =>
-                            setHistoryForm({ ...historyForm, readings })
-                          }
-                        />
-                      </section>
-                    ) : (
-                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-                        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
-                          <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
-                            <Gauge className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-slate-900">
-                              ยอดรวมหน้ามิเตอร์
-                            </h3>
-                            <p className="text-[11px] text-slate-500">
-                              ระบุยอดสรุปของกะย้อนหลัง
-                            </p>
-                          </div>
-                        </div>
-                        <div className="grid gap-4 p-4 sm:grid-cols-3 sm:p-5">
-                          <HistoryMetricInput
-                            field="totalLiters"
-                            label="ปริมาณรวม"
-                            unit="liters"
-                            value={historyForm.totalLiters}
-                            onChange={value =>
-                              setHistoryForm({
-                                ...historyForm,
-                                totalLiters: value,
-                              })
-                            }
-                          />
-                          <HistoryMetricInput
-                            field="totalAmount"
-                            label="ยอดจากลิตร"
-                            value={historyForm.totalAmount}
-                            onChange={value =>
-                              setHistoryForm({
-                                ...historyForm,
-                                totalAmount: value,
-                              })
-                            }
-                          />
-                          <HistoryMetricInput
-                            field="totalMoneyMeter"
-                            label="ยอดจาก P"
-                            value={historyForm.totalMoneyMeter}
-                            onChange={value =>
-                              setHistoryForm({
-                                ...historyForm,
-                                totalMoneyMeter: value,
-                              })
-                            }
-                          />
-                        </div>
-                      </section>
-                    )}
+                  <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                    <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
+                      <div className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+                        <Gauge className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          ยอดรวมหน้ามิเตอร์
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          ระบุยอดสรุปของกะย้อนหลัง
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid gap-4 p-4 sm:grid-cols-3 sm:p-5">
+                      <HistoryMetricInput
+                        field="totalLiters"
+                        label="ปริมาณรวม"
+                        unit="liters"
+                        value={historyForm.totalLiters}
+                        onChange={value =>
+                          setHistoryForm({
+                            ...historyForm,
+                            totalLiters: value,
+                          })
+                        }
+                      />
+                      <HistoryMetricInput
+                        field="totalAmount"
+                        label="ยอดจากลิตร"
+                        value={historyForm.totalAmount}
+                        onChange={value =>
+                          setHistoryForm({
+                            ...historyForm,
+                            totalAmount: value,
+                          })
+                        }
+                      />
+                      <HistoryMetricInput
+                        field="totalMoneyMeter"
+                        label="ยอดจาก P"
+                        value={historyForm.totalMoneyMeter}
+                        onChange={value =>
+                          setHistoryForm({
+                            ...historyForm,
+                            totalMoneyMeter: value,
+                          })
+                        }
+                      />
+                    </div>
+                  </section>
+                )}
 
-                    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
-                      <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
-                        <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                          <WalletCards className="h-4 w-4" />
+                <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
+                  <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                      <WalletCards className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        สรุปการเงิน
+                      </h3>
+                      <p className="text-[11px] text-slate-500">
+                        ยอดขาย เงินสด และยอดโอนของกะ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
+                    <HistoryMetricInput
+                      field="posAmount"
+                      label="ยอดขาย POS"
+                      value={historyForm.posAmount}
+                      onChange={value =>
+                        setHistoryForm({
+                          ...historyForm,
+                          posAmount: value,
+                        })
+                      }
+                    />
+                    <HistoryMetricInput
+                      field="openingFloat"
+                      label="เงินทอนเริ่มกะ"
+                      value={historyForm.openingFloat}
+                      onChange={value =>
+                        setHistoryForm({
+                          ...historyForm,
+                          openingFloat: value,
+                        })
+                      }
+                    />
+                    <HistoryMetricInput
+                      field="expectedCash"
+                      label="เงินสดควรมี"
+                      optional
+                      value={historyForm.expectedCash}
+                      onChange={value =>
+                        setHistoryForm({
+                          ...historyForm,
+                          expectedCash: value,
+                        })
+                      }
+                    />
+                    <HistoryMetricInput
+                      field="transferAmount"
+                      label="ยอดเงินโอน"
+                      optional
+                      value={historyForm.transferAmount}
+                      onChange={value =>
+                        setHistoryForm({
+                          ...historyForm,
+                          transferAmount: value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="border-t border-slate-100 p-4 sm:p-5">
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex size-9 items-center justify-center rounded-xl bg-green-100 text-green-700">
+                          <Banknote className="h-4 w-4" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-slate-900">
-                            สรุปการเงิน
-                          </h3>
+                          <h4 className="text-sm font-bold text-slate-900">
+                            นับเงินสดในลิ้นชัก
+                          </h4>
                           <p className="text-[11px] text-slate-500">
-                            ยอดขาย เงินสด และยอดโอนของกะ
+                            กรอกจำนวนแยกตามชนิดแบงก์และเหรียญ
+                            ระบบจะรวมยอดให้อัตโนมัติ
                           </p>
                         </div>
                       </div>
-                      <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
-                        <HistoryMetricInput
-                          field="posAmount"
-                          label="ยอดขาย POS"
-                          value={historyForm.posAmount}
-                          onChange={value =>
+                      {(Object.keys(historyForm.cashCounts).length > 0 ||
+                        historyForm.countedCash !== "") && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-slate-600"
+                          onClick={() =>
                             setHistoryForm({
                               ...historyForm,
-                              posAmount: value,
+                              countedCash: "",
+                              cashCounts: {},
+                              cashCountsTouched: true,
                             })
                           }
-                        />
-                        <HistoryMetricInput
-                          field="openingFloat"
-                          label="เงินทอนเริ่มกะ"
-                          value={historyForm.openingFloat}
-                          onChange={value =>
-                            setHistoryForm({
-                              ...historyForm,
-                              openingFloat: value,
-                            })
-                          }
-                        />
-                        <HistoryMetricInput
-                          field="expectedCash"
-                          label="เงินสดควรมี"
-                          optional
-                          value={historyForm.expectedCash}
-                          onChange={value =>
-                            setHistoryForm({
-                              ...historyForm,
-                              expectedCash: value,
-                            })
-                          }
-                        />
-                        <HistoryMetricInput
-                          field="transferAmount"
-                          label="ยอดเงินโอน"
-                          optional
-                          value={historyForm.transferAmount}
-                          onChange={value =>
-                            setHistoryForm({
-                              ...historyForm,
-                              transferAmount: value,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="border-t border-slate-100 p-4 sm:p-5">
-                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex size-9 items-center justify-center rounded-xl bg-green-100 text-green-700">
-                              <Banknote className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-bold text-slate-900">
-                                นับเงินสดในลิ้นชัก
-                              </h4>
-                              <p className="text-[11px] text-slate-500">
-                                กรอกจำนวนแยกตามชนิดแบงก์และเหรียญ
-                                ระบบจะรวมยอดให้อัตโนมัติ
-                              </p>
-                            </div>
-                          </div>
-                          {(Object.keys(historyForm.cashCounts).length > 0 ||
-                            historyForm.countedCash !== "") && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-slate-600"
-                              onClick={() =>
-                                setHistoryForm({
-                                  ...historyForm,
-                                  countedCash: "",
-                                  cashCounts: {},
-                                  cashCountsTouched: true,
-                                })
-                              }
-                            >
-                              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                              ล้างการนับ
-                            </Button>
-                          )}
+                        >
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          ล้างการนับ
+                        </Button>
+                      )}
+                    </div>
+                    {Object.keys(historyForm.cashCounts).length === 0 &&
+                      !historyForm.cashCountsTouched &&
+                      historyForm.countedCash !== "" && (
+                        <div
+                          data-slot="notice"
+                          data-tone="info"
+                          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                        >
+                          รายการเดิมบันทึกเฉพาะยอดรวม ฿
+                          {fmtMoney(Number(historyForm.countedCash))}
+                          โดยไม่มีรายละเอียดแบงก์/เหรียญ
+                          กรอกด้านล่างเพื่อเพิ่มรายละเอียด
+                          หรือปล่อยว่างเพื่อคงยอดเดิม
                         </div>
-                        {Object.keys(historyForm.cashCounts).length === 0 &&
-                          !historyForm.cashCountsTouched &&
-                          historyForm.countedCash !== "" && (
-                            <div
-                              data-slot="notice"
-                              data-tone="info"
-                              className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
-                            >
-                              รายการเดิมบันทึกเฉพาะยอดรวม ฿
-                              {fmtMoney(Number(historyForm.countedCash))}
-                              โดยไม่มีรายละเอียดแบงก์/เหรียญ
-                              กรอกด้านล่างเพื่อเพิ่มรายละเอียด
-                              หรือปล่อยว่างเพื่อคงยอดเดิม
-                            </div>
-                          )}
-                        <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                          <CashDenomCounter
-                            value={historyForm.cashCounts}
-                            onChange={cashCounts => {
-                              const parsed =
-                                historyCashCountsPayload(cashCounts);
-                              setHistoryForm({
-                                ...historyForm,
-                                cashCounts,
-                                cashCountsTouched: true,
-                                countedCash:
-                                  parsed.valid && parsed.counts != null
-                                    ? String(sumCashCounts(parsed.counts))
-                                    : "",
-                              });
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </section>
-                  </>
-                )}
+                      )}
+                    <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                      <CashDenomCounter
+                        value={historyForm.cashCounts}
+                        onChange={cashCounts => {
+                          const parsed = historyCashCountsPayload(cashCounts);
+                          setHistoryForm({
+                            ...historyForm,
+                            cashCounts,
+                            cashCountsTouched: true,
+                            countedCash:
+                              parsed.valid && parsed.counts != null
+                                ? String(sumCashCounts(parsed.counts))
+                                : "",
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </section>
 
                 <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/50">
                   <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3.5 sm:px-5">
@@ -2533,18 +2364,15 @@ export default function Shifts() {
                       historyTiming.invalid ||
                       !historyReadings?.length ||
                       historyReadingPreview?.valid === false ||
-                      createShiftHistory.isPending ||
-                      updateShiftHistory.isPending
+                      createShiftHistory.isPending
                     }
                   >
-                    {createShiftHistory.isPending ||
-                    updateShiftHistory.isPending ? (
+                    {createShiftHistory.isPending ? (
                       <LoaderCircle className="h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    {createShiftHistory.isPending ||
-                    updateShiftHistory.isPending
+                    {createShiftHistory.isPending
                       ? "กำลังบันทึก..."
                       : "บันทึกประวัติ"}
                   </Button>

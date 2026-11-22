@@ -1,10 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
-import {
-  activeStaffSessionFromRequest,
-  clearActiveStaffCache,
-} from "./lib/authorization";
+import { activeStaffSessionFromRequest } from "./lib/authorization";
 import { publishRealtimeInvalidation } from "./lib/realtime";
 import { eq } from "drizzle-orm";
 import { staffAccessGroups, staffUsers } from "@db/schema";
@@ -126,8 +123,8 @@ function permissionSnapshotForRequest(
   return pending;
 }
 
-async function canUseProcedureMenu(
-  staff: TrpcContext["staff"] & NonNullable<TrpcContext["staff"]>,
+export async function canUseProcedureMenu(
+  staff: NonNullable<TrpcContext["staff"]>,
   path: string,
   request: Request
 ): Promise<boolean> {
@@ -158,11 +155,8 @@ export const publicQuery = authenticatedStaffAction.use(
       });
     }
     const result = await next();
-    if (type === "mutation" && result.ok) {
-      if (path.startsWith("auth.")) clearActiveStaffCache();
-      if (getDeploymentMode() === "business") {
-        publishRealtimeInvalidation(ctx.staff.branchId);
-      }
+    if (type === "mutation" && result.ok && getDeploymentMode() === "business") {
+      publishRealtimeInvalidation(ctx.staff.branchId);
     }
     return result;
   }

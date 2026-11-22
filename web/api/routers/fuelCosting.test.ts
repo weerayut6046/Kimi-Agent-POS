@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterAll(() => t.cleanup());
 
 describe("fuel costing APIs", () => {
-  it("requires a manager, checks the branch and rejects invalid report dates", async () => {
+  it("requires an Owner, checks the branch and rejects invalid report dates", async () => {
     await expect(t.caller("cashier").fuelCosting.openings()).rejects.toThrow(
       "สิทธิ์"
     );
@@ -29,7 +29,12 @@ describe("fuel costing APIs", () => {
         .fuelCosting.report({ from: "2026-01-01", to: "2026-01-31" })
     ).rejects.toThrow("สิทธิ์");
     await expect(
-      t.caller("manager").fuelCosting.setOpening({
+      t.caller("manager").fuelCosting.openings()
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      t.caller("admin").fuelCosting.setOpening({
         productId: 999999,
         effectiveAt: new Date("2026-01-01"),
         liters: 1,
@@ -39,12 +44,12 @@ describe("fuel costing APIs", () => {
     ).rejects.toThrow("ไม่พบ");
     await expect(
       t
-        .caller("manager")
+        .caller("admin")
         .fuelCosting.report({ from: "2026-02-30", to: "2026-03-01" })
     ).rejects.toThrow();
   });
   it("saves an immutable opening and uses invoice amounts, discounts and VAT", async () => {
-    await t.caller("manager").fuelCosting.setOpening({
+    await t.caller("admin").fuelCosting.setOpening({
       productId,
       effectiveAt: new Date("2026-01-01T00:00:00+07:00"),
       liters: 2000,
@@ -52,7 +57,7 @@ describe("fuel costing APIs", () => {
       note: "ตรวจใบซื้อแล้ว",
     });
     await expect(
-      t.caller("manager").fuelCosting.setOpening({
+      t.caller("admin").fuelCosting.setOpening({
         productId,
         effectiveAt: new Date("2026-01-01"),
         liters: 1,
@@ -93,7 +98,7 @@ describe("fuel costing APIs", () => {
       amount: 36380,
     });
     const r = await t
-      .caller("manager")
+      .caller("admin")
       .fuelCosting.report({ from: "2026-01-01", to: "2026-01-31" });
     const ledger = r.items.find(item => item.id === productId)!.ledger!;
     expect(ledger.complete).toBe(true);
@@ -105,7 +110,7 @@ describe("fuel costing APIs", () => {
       .set({ cost: 999, price: 999 })
       .where(eq(products.id, productId));
     const again = await t
-      .caller("manager")
+      .caller("admin")
       .fuelCosting.report({ from: "2026-01-01", to: "2026-01-31" });
     expect(
       again.items.find(item => item.id === productId)!.ledger!.grossProfit
@@ -133,17 +138,17 @@ describe("fuel costing APIs", () => {
       .values({ branchId: 1, tankId, liters: 20, costPerLiter: 32.1 })
       .returning();
     expect(
-      (await t.caller("manager").fuelCosting.unconfirmedReceipts()).some(
+      (await t.caller("admin").fuelCosting.unconfirmedReceipts()).some(
         r => r.id === receipt.id
       )
     ).toBe(true);
-    await t.caller("manager").fuelCosting.confirmReceiptCost({
+    await t.caller("admin").fuelCosting.confirmReceiptCost({
       id: receipt.id,
       netAmount: 600,
       note: "ยืนยันใบซื้อ",
     });
     await expect(
-      t.caller("manager").fuelCosting.confirmReceiptCost({
+      t.caller("admin").fuelCosting.confirmReceiptCost({
         id: receipt.id,
         netAmount: 50,
         note: "overwrite",

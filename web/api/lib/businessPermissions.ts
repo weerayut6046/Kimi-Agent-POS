@@ -9,13 +9,17 @@ export type BusinessRole = "admin" | "manager" | "cashier";
 
 export const BUSINESS_ACTIONS = [
   "cost.read",
+  "cost.manage",
   "profit.read",
   "closing.approve",
   "closing.adjust.request",
+  "closing.history.manage",
   "users.manage_staff",
   "audit.read",
+  "audit.manage",
   "meter.create",
   "shift.submit",
+  "shift.history.create",
 ] as const;
 
 export type BusinessAction = (typeof BUSINESS_ACTIONS)[number];

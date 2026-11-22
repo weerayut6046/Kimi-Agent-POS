@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { paymentSessions, products, sales } from "@db/schema";
+import { branches, paymentSessions, products, sales } from "@db/schema";
 import { setupTestDb, type TestDb } from "../test/testDb";
 import {
   computeSaleSnapshot,
@@ -234,6 +234,34 @@ describe("handleIncomingPaymentRequest — HTTP shim", () => {
       })
     );
     expect(noToken.status).toBe(401);
+  });
+
+  it("keeps duplicate references and receipts in the credential's branch", async () => {
+    const [otherBranch] = await t.db
+      .insert(branches)
+      .values({ code: "WEBHOOK-OTHER", name: "Other branch" })
+      .returning({ id: branches.id });
+    const { savePaymentConfig } = await import("./paymentConfig");
+    const otherConfig = await savePaymentConfig({
+      branchId: otherBranch!.id,
+      thungngernEnabled: true,
+      promptpayId: "0812345678",
+      regenerateWebhookToken: true,
+    });
+    const session = await makeSession(8);
+    const payload = { amount: 80, ref: "notification-branch-scope" };
+    const settled = await processIncomingPayment({ branchId: 1, token: webhookToken, payload });
+    expect(settled.body).toMatchObject({ matched: true, refCode: session.refCode });
+
+    const response = await handleIncomingPaymentRequest(
+      new Request(`http://test.local/api/payments/incoming?branch=${otherBranch!.id}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${otherConfig.webhookToken}` },
+        body: JSON.stringify(payload),
+      })
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ ok: false, error: "ไม่สามารถใช้รหัสแจ้งเตือนนี้ได้" });
   });
 
   it("ปิดบิลผ่าน HTTP จริง: token ใน Bearer header + branch ใน query", async () => {

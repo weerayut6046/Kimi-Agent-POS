@@ -17,6 +17,8 @@ import {
 import { handleIncomingPaymentRequest } from "./payments/incomingPaymentHttp";
 import { getLanUrls, isPublicCloudRuntime } from "./lib/lan";
 import { getDeploymentMode } from "./lib/deployment";
+import { systemAccessForRequest } from "./lib/systemAccess";
+import { canUseProcedureMenu } from "./middleware";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -38,6 +40,7 @@ const businessHttpPaths = new Set([
   "/api/internal/database-backup",
   "/api/realtime",
   "/api/payments/incoming",
+  "/api/lan-info",
 ]);
 
 app.use("/api/*", async (c, next) => {
@@ -123,7 +126,25 @@ app.get("/api/realtime", async c => {
     stream.onAbort(stop);
     enqueue("ready", "{}");
 
-    const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
+    let heartbeat: ReturnType<typeof setTimeout>;
+    const refreshLease = async () => {
+      try {
+        // A separate Request rechecks the staff account and branch instead of
+        // reusing the identity attached during the original handshake.
+        const current = await activeStaffSessionFromRequest(c.req.raw.clone());
+        if (current?.id !== session.id || current.branchId !== session.branchId) {
+          stop();
+          return;
+        }
+        if (active) {
+          enqueue("heartbeat", "{}");
+          heartbeat = setTimeout(() => void refreshLease(), 15_000);
+        }
+      } catch {
+        stop();
+      }
+    };
+    heartbeat = setTimeout(() => void refreshLease(), 15_000);
     const expiresInMs = Math.max(1, session.exp * 1_000 - Date.now());
     const expiry = setTimeout(stop, expiresInMs);
 
@@ -131,7 +152,7 @@ app.get("/api/realtime", async c => {
       await done;
       await writes;
     } finally {
-      clearInterval(heartbeat);
+      clearTimeout(heartbeat);
       clearTimeout(expiry);
       subscription.unsubscribe();
     }
@@ -151,8 +172,17 @@ app.post("/api/payments/incoming", async c => {
   response.headers.set("Cache-Control", "no-store");
   return response;
 });
-app.get("/api/lan-info", c => {
+app.get("/api/lan-info", async c => {
   c.header("Cache-Control", "no-store");
+  const request = c.req.raw;
+  const staff = await activeStaffSessionFromRequest(request);
+  if (!staff) return c.json({ error: "Unauthorized" }, 401);
+  if (
+    !(await canUseProcedureMenu(staff, "stockCount.listSessions", request)) ||
+    !(await systemAccessForRequest(request, staff)).allowed
+  ) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
   if (isPublicCloudRuntime()) {
     return c.json({ port: 0, urls: [] as string[], reachable: false });
   }

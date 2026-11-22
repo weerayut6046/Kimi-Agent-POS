@@ -123,7 +123,7 @@ Existing tests include `pos.shift*`, `pos.sale`, `pos.dashboard`, `branch-isolat
 | getSettings | Q/P | none (shared UI) | Read shared branch settings | Branch rows, arbitrary keys passed through except logo; AI/payment secrets use separate tables |
 | getShopLogo | Q/P | none (shared UI) | Read shared branch logo | Branch setting and single key |
 | lanInfo | Q/N | settings mapped, bypassed | Anonymous local login discovery | Public-cloud response suppressed; local deployment setting and interface addresses |
-| updateSettings | M/A | settings | Administer branch settings | Branch upsert; write input allowlist |
+| updateSettings | M/A | settings | Administer branch settings | Branch upsert with app template value validation |
 | updateTemplate | M/A | settings | Administer branch template | Branch upsert |
 | updateTheme | M/A | settings | Administer branch theme | Branch upsert |
 | updateBillPromotion | M/G | settings | Administer bill promotion | Branch settings and validated effective values |

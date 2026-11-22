@@ -96,13 +96,12 @@ class _ShiftHistorySheetState extends State<_ShiftHistorySheet> {
   Future<void> _open(Map<String, dynamic> row) async {
     final id = _int(row['id']);
     if (id <= 0) return;
-    final changed = await _showShiftDetail(
+    await _showShiftDetail(
       context: context,
       repository: widget.repository,
       staff: widget.staff,
       id: id,
     );
-    if (changed == true) unawaited(_load());
   }
 
   @override
@@ -300,13 +299,13 @@ class _ShiftHistorySheetState extends State<_ShiftHistorySheet> {
   }
 }
 
-Future<bool?> _showShiftDetail({
+Future<void> _showShiftDetail({
   required BuildContext context,
   required ShiftRepository repository,
   required StaffSession staff,
   required int id,
-}) async {
-  return showModalBottomSheet<bool>(
+}) {
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -335,7 +334,6 @@ class _ShiftDetailSheet extends StatefulWidget {
 class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
   Map<String, dynamic>? _detail;
   String? _error;
-  bool _busy = false;
 
   @override
   void initState() {
@@ -356,84 +354,11 @@ class _ShiftDetailSheetState extends State<_ShiftDetailSheet> {
     }
   }
 
-  Future<void> _edit() async {
-    final detail = _detail;
-    if (detail == null) return;
-    final changed = await _showHistoryForm(
-      context: context,
-      repository: widget.repository,
-      staff: widget.staff,
-      initial: detail,
-    );
-    if (changed == true && mounted) {
-      await _load();
-      if (mounted) Navigator.pop(context, true);
-    }
-  }
-
-  Future<void> _delete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('ลบประวัติกะ #${widget.id}?'),
-        content: const Text(
-          'รายการขายและเอกสารการเงินจะยังอยู่ แต่จะไม่ผูกกับกะนี้อีก',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFB42318),
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('ลบประวัติ'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      await widget.repository.mutateProcedure(
-        'pos.deleteShiftHistory',
-        branchId: widget.staff.branch.id,
-        input: {'id': widget.id},
-      );
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = '$error';
-        });
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
     return Scaffold(
-      appBar: AppBar(
-        title: Text('รายละเอียดกะ #${widget.id}'),
-        actions: [
-          if (widget.staff.role == StaffRole.admin && detail != null) ...[
-            IconButton(
-              tooltip: 'แก้ไข',
-              onPressed: _busy ? null : _edit,
-              icon: const Icon(Icons.edit_outlined),
-            ),
-            IconButton(
-              tooltip: 'ลบ',
-              onPressed: _busy ? null : _delete,
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
-          ],
-        ],
-      ),
+      appBar: AppBar(title: Text('รายละเอียดกะ #${widget.id}')),
       body: _error != null
           ? Center(
               child: Padding(
@@ -731,8 +656,6 @@ class _HistoryFormState extends State<_HistoryForm> {
   bool _busy = false;
   String? _error;
 
-  bool get _editing => _int(widget.initial['id']) > 0;
-
   @override
   void initState() {
     super.initState();
@@ -840,7 +763,6 @@ class _HistoryFormState extends State<_HistoryForm> {
     });
     try {
       final input = <String, Object?>{
-        if (_editing) 'id': _int(widget.initial['id']),
         'staffId': widget.initial['staffId'] == null
             ? null
             : _int(widget.initial['staffId']),
@@ -868,7 +790,7 @@ class _HistoryFormState extends State<_HistoryForm> {
           'cashCounts': _cashCounts.isEmpty ? null : _cashCounts,
       };
       await widget.repository.mutateProcedure(
-        _editing ? 'pos.updateShiftHistory' : 'pos.createShiftHistory',
+        'pos.createShiftHistory',
         branchId: widget.staff.branch.id,
         input: input,
       );
@@ -883,9 +805,7 @@ class _HistoryFormState extends State<_HistoryForm> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_editing ? 'แก้ไขประวัติกะ' : 'เพิ่มประวัติกะ'),
-      ),
+      appBar: AppBar(title: const Text('เพิ่มประวัติกะ')),
       body: Form(
         key: _formKey,
         child: ListView(

@@ -26,7 +26,7 @@ export interface ShiftCashSummary {
  * = เงินทอนเริ่มกะ + ขายเงินสด + รับชำระหนี้เงินสด − ค่าใช้จ่าย
  */
 export async function shiftCashSummary(
-  db: ReturnType<typeof getDb>,
+  db: Pick<ReturnType<typeof getDb>, "select">,
   shift: Pick<Shift, "id" | "branchId" | "openingFloat">
 ): Promise<ShiftCashSummary> {
   const [[saleRow], [posRow], [debtRow], [expenseRow]] = await Promise.all([

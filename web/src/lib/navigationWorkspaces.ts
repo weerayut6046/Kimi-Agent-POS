@@ -23,6 +23,7 @@ export function getBusinessLandingPath(
     MENU_PERMISSION_DEFINITIONS.find(
       menu =>
         menu.key !== "platform" &&
+        (menu.key !== "fuel_costing" || role === "admin") &&
         hasMenuPermission(role, permissions, menu.key)
     )?.path ?? null
   );

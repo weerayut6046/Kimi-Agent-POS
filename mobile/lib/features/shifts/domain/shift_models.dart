@@ -83,6 +83,7 @@ class CurrentShift {
     required this.posSales,
     required this.expensesTotal,
     required this.readings,
+    this.canSubmit = true,
   });
 
   factory CurrentShift.fromJson(Map<String, dynamic> json) {
@@ -99,6 +100,7 @@ class CurrentShift {
       expectedCash: _number(cash?['expectedCash']),
       posSales: _number(cash?['posSales']),
       expensesTotal: _number(cash?['expensesTotal']),
+      canSubmit: json['canSubmit'] != false,
       readings: List<ShiftReading>.unmodifiable(
         readings.map((item) => ShiftReading.fromJson(_requiredMap(item))),
       ),
@@ -113,6 +115,7 @@ class CurrentShift {
   final double posSales;
   final double expensesTotal;
   final List<ShiftReading> readings;
+  final bool canSubmit;
 }
 
 class ShiftBootstrap {

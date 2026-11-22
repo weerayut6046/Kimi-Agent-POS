@@ -18,7 +18,6 @@ import {
 } from "@db/schema";
 import { getDb } from "../queries/connection";
 import { env, isDevelopmentRuntime } from "./env";
-import { clearActiveStaffCache } from "./authorization";
 import { hashStaffPin } from "./staffPin";
 import {
   createSupabaseStaffIdentity,
@@ -483,7 +482,6 @@ export async function createInitialOwner(
       message: "สร้างบัญชีเจ้าของไม่สำเร็จ กรุณาลองคำขอเดิมอีกครั้ง",
     });
   }
-  clearActiveStaffCache();
   const staff = await staffSessionResponse(user, branchId);
   if (policy.localSession) {
     return {

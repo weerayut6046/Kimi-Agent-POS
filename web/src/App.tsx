@@ -37,18 +37,18 @@ const Setup = lazy(() => import("@/pages/Setup"));
 
 function MenuRoute({
   permission,
-  managerOnly = false,
+  minimumRole,
   children,
 }: {
   permission: MenuPermissionKey;
-  managerOnly?: boolean;
+  minimumRole?: "admin" | "manager";
   children: ReactNode;
 }) {
   const { staff } = useStaff();
   if (!staff) return <Navigate to="/login" replace />;
   if (
     hasMenuPermission(staff.role, staff.menuPermissions, permission) &&
-    (!managerOnly || staff.role === "admin" || staff.role === "manager")
+    (!minimumRole || staff.role === "admin" || staff.role === minimumRole)
   ) {
     return children;
   }
@@ -258,7 +258,7 @@ export default function App() {
           <Route
             path="/member-cards"
             element={
-              <MenuRoute permission="members" managerOnly>
+              <MenuRoute permission="members" minimumRole="manager">
                 <MemberCardBatches />
               </MenuRoute>
             }
@@ -298,7 +298,7 @@ export default function App() {
           <Route
             path="/reports"
             element={
-              <MenuRoute permission="sales" managerOnly>
+              <MenuRoute permission="sales" minimumRole="manager">
                 <Reports />
               </MenuRoute>
             }
@@ -306,7 +306,7 @@ export default function App() {
           <Route
             path="/reports/fuel-stock"
             element={
-              <MenuRoute permission="stock" managerOnly>
+              <MenuRoute permission="stock" minimumRole="manager">
                 <FuelStockReport />
               </MenuRoute>
             }
@@ -314,7 +314,7 @@ export default function App() {
           <Route
             path="/reports/fuel-costing"
             element={
-              <MenuRoute permission="fuel_costing" managerOnly>
+              <MenuRoute permission="fuel_costing" minimumRole="admin">
                 <FuelCosting />
               </MenuRoute>
             }
@@ -322,7 +322,7 @@ export default function App() {
           <Route
             path="/reports/tank-reconciliation"
             element={
-              <MenuRoute permission="stock" managerOnly>
+              <MenuRoute permission="stock" minimumRole="manager">
                 <TankReconciliation />
               </MenuRoute>
             }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import {
   auditLogs,
+  branches,
   debtPayments,
   expenses,
   sales,
@@ -106,7 +107,7 @@ describe("admin จัดการประวัติการตัดกะ"
     expect(august.map(row => row.id)).not.toContain(shiftId);
   });
 
-  it("admin เพิ่ม แก้ไข และล้างการนับเงินสดแยกแบงก์/เหรียญได้", async () => {
+  it("admin เพิ่มประวัติพร้อมการนับเงินสดแยกแบงก์/เหรียญได้", async () => {
     const created = await t.caller("admin", 1).pos.createShiftHistory({
       ...historyInput,
       staffName: "กะนับเงินย้อนหลัง",
@@ -114,7 +115,7 @@ describe("admin จัดการประวัติการตัดกะ"
       cashCounts: { "1000": 2, "500": 1, "0.5": 3 },
     });
 
-    let stored = await t.db.query.shifts.findFirst({
+    const stored = await t.db.query.shifts.findFirst({
       where: eq(shifts.id, created.id),
     });
     expect(stored).toMatchObject({
@@ -124,34 +125,6 @@ describe("admin จัดการประวัติการตัดกะ"
     expect(
       (await t.caller("admin").pos.shiftDetail({ id: created.id })).cashCounts
     ).toEqual({ "1000": 2, "500": 1, "0.5": 3 });
-
-    await t.caller("admin", 1).pos.updateShiftHistory({
-      id: created.id,
-      ...historyInput,
-      countedCash: 9999,
-      cashCounts: { "100": 3, "20": 2, "0.25": 4 },
-    });
-    stored = await t.db.query.shifts.findFirst({
-      where: eq(shifts.id, created.id),
-    });
-    expect(stored).toMatchObject({
-      countedCash: 341,
-      cashCounts: JSON.stringify({ "100": 3, "20": 2, "0.25": 4 }),
-    });
-
-    await t.caller("admin", 1).pos.updateShiftHistory({
-      id: created.id,
-      ...historyInput,
-      countedCash: null,
-      cashCounts: null,
-    });
-    stored = await t.db.query.shifts.findFirst({
-      where: eq(shifts.id, created.id),
-    });
-    expect(stored).toMatchObject({
-      countedCash: null,
-      cashCounts: null,
-    });
 
     await expect(
       t.caller("admin", 1).pos.createShiftHistory({
@@ -231,92 +204,59 @@ describe("admin จัดการประวัติการตัดกะ"
     ).rejects.toThrow("เลขลิตรปิดกะ");
   });
 
-  it("admin แก้ไขข้อมูลสรุปของกะปิดแล้วได้", async () => {
-    await t.caller("admin", 1).pos.updateShiftHistory({
-      id: shiftId,
-      ...historyInput,
-      staffName: "พนักงานแก้ไขแล้ว",
-      totalLiters: 120,
-      countedCash: null,
-      note: "แก้ข้อมูลแล้ว",
-    });
+  it("requires the linked staff account to belong to the import branch", async () => {
+    const [otherBranch] = await t.db
+      .insert(branches)
+      .values({
+        code: "HISTORY-OTHER",
+        name: "สาขาอื่น",
+      })
+      .returning({ id: branches.id });
 
-    const stored = await t.db.query.shifts.findFirst({
-      where: eq(shifts.id, shiftId),
+    await expect(
+      t.caller("admin", 1, otherBranch.id).pos.createShiftHistory({
+        ...historyInput,
+        staffId: 3,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(
+      await t.db.query.shifts.findFirst({
+        where: eq(shifts.branchId, otherBranch.id),
+      })
+    ).toBeUndefined();
+
+    const created = await t.caller("admin", 1).pos.createShiftHistory({
+      ...historyInput,
+      staffId: 3,
     });
-    expect(stored).toMatchObject({
-      staffName: "พนักงานแก้ไขแล้ว",
-      totalLiters: 120,
-      countedCash: null,
-      note: "แก้ข้อมูลแล้ว",
+    expect(
+      await t.db.query.shifts.findFirst({
+        where: eq(shifts.id, created.id),
+      })
+    ).toMatchObject({ branchId: 1, staffId: 3 });
+    expect(
+      await t.db.query.auditLogs.findFirst({
+        where: eq(auditLogs.refId, created.id),
+      })
+    ).toMatchObject({
+      action: "create_shift_history",
+      actorId: 1,
+      branchId: 1,
     });
   });
 
-  it("แก้เลข P/L ปิดกะรายหัวจ่ายและคำนวณยอดรวมใหม่", async () => {
+  it("preserves finalized totals and meter readings when direct changes are rejected", async () => {
     const nozzle = (await t.db.query.nozzles.findMany())[0]!;
-    const [{ id: meterShiftId }] = await t.db
+    const [{ id }] = await t.db
       .insert(shifts)
       .values({
         staffName: "กะทดสอบมิเตอร์",
         openedAt: historyInput.openedAt,
         closedAt: historyInput.closedAt,
         status: "closed",
-      })
-      .returning({ id: shifts.id });
-    await t.db.insert(shiftReadings).values({
-      shiftId: meterShiftId,
-      nozzleId: nozzle.id,
-      openMeter: 100,
-      closeMeter: 110,
-      openMoney: 1000,
-      closeMoney: 1400,
-      pricePerLiter: 40,
-    });
-
-    const result = await t.caller("admin", 1).pos.updateShiftHistory({
-      id: meterShiftId,
-      ...historyInput,
-      readings: [{ nozzleId: nozzle.id, closeMeter: 112.5, closeMoney: 1502 }],
-    });
-    expect(result).toMatchObject({
-      totalLiters: 12.5,
-      totalAmount: 500,
-      totalMoneyMeter: 502,
-    });
-
-    const stored = await t.db.query.shifts.findFirst({
-      where: eq(shifts.id, meterShiftId),
-    });
-    expect(stored).toMatchObject({
-      totalLiters: 12.5,
-      totalAmount: 500,
-      totalMoneyMeter: 502,
-    });
-    const reading = await t.db.query.shiftReadings.findFirst({
-      where: eq(shiftReadings.shiftId, meterShiftId),
-    });
-    expect(reading).toMatchObject({ closeMeter: 112.5, closeMoney: 1502 });
-
-    await expect(
-      t.caller("admin").pos.updateShiftHistory({
-        id: meterShiftId,
-        ...historyInput,
-        readings: [{ nozzleId: nozzle.id, closeMeter: 99, closeMoney: 1502 }],
-      })
-    ).rejects.toThrow("เลขลิตรปิดกะ");
-  });
-
-  it("แก้ประวัติที่ P ตั้งต้นเป็น 0 แล้วคำนวณยอด P ที่เคยตกหล่นใหม่", async () => {
-    const nozzle = (await t.db.query.nozzles.findMany())[0]!;
-    // จำลองประวัติที่โค้ดเดิมบันทึกยอดรวมเป็น 0 แม้มี P ปิดกะแล้ว
-    const [{ id }] = await t.db
-      .insert(shifts)
-      .values({
-        staffName: "กะเริ่มจากศูนย์",
-        openedAt: historyInput.openedAt,
-        closedAt: historyInput.closedAt,
-        status: "closed",
-        totalMoneyMeter: 0,
+        totalLiters: 10,
+        totalAmount: 400,
+        totalMoneyMeter: 402,
       })
       .returning({ id: shifts.id });
     await t.db.insert(shiftReadings).values({
@@ -329,31 +269,27 @@ describe("admin จัดการประวัติการตัดกะ"
       pricePerLiter: 40,
     });
 
-    const result = await t.caller("admin").pos.updateShiftHistory({
-      id,
-      ...historyInput,
-      readings: [{ nozzleId: nozzle.id, closeMeter: 10, closeMoney: 402 }],
-    });
-    expect(result).toMatchObject({
+    await expect(
+      t.caller("admin", 1).pos.updateShiftHistory({
+        id,
+        ...historyInput,
+        readings: [{ nozzleId: nozzle.id, closeMeter: 12.5, closeMoney: 502 }],
+      })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    const detail = await t.caller("admin").pos.shiftDetail({ id });
+    expect(detail).toMatchObject({
+      staffName: "กะทดสอบมิเตอร์",
       totalLiters: 10,
       totalAmount: 400,
       totalMoneyMeter: 402,
     });
-    expect(
-      await t.db.query.shifts.findFirst({ where: eq(shifts.id, id) })
-    ).toMatchObject({ totalMoneyMeter: 402 });
-    const detail = await t.caller("admin").pos.shiftDetail({ id });
     expect(detail.readings[0]).toMatchObject({
       openMoney: 0,
       closeMoney: 402,
+      closeMeter: 10,
       money: 402,
       diff: 2,
     });
-    expect(
-      (await t.caller("admin").pos.shiftHistory({ month: "2026-07" })).find(
-        row => row.id === id
-      )?.totalMoneyMeter
-    ).toBe(402);
   });
 
   it("ไม่อนุญาตให้แก้ไขหรือลบกะที่กำลังเปิด", async () => {
@@ -373,7 +309,7 @@ describe("admin จัดการประวัติการตัดกะ"
     ).rejects.toThrow("กรุณาปิดกะก่อน");
   });
 
-  it("ลบประวัติได้โดยเก็บเอกสารการเงินและยกเลิกการผูกกะ", async () => {
+  it("เก็บประวัติกะปิดแล้วและการอ้างอิงเอกสารการเงิน", async () => {
     const customer = await t.caller("manager").customers.create({
       name: "ลูกค้าทดสอบประวัติกะ",
     });
@@ -398,26 +334,28 @@ describe("admin จัดการประวัติการตัดกะ"
     await expect(
       t.caller("manager").pos.deleteShiftHistory({ id: shiftId })
     ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
-    await t.caller("admin", 1).pos.deleteShiftHistory({ id: shiftId });
+    await expect(
+      t.caller("admin", 1).pos.deleteShiftHistory({ id: shiftId })
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
     expect(
       await t.db.query.shifts.findFirst({ where: eq(shifts.id, shiftId) })
-    ).toBeUndefined();
+    ).toMatchObject({ status: "closed" });
     expect(
       await t.db.query.sales.findFirst({
         where: eq(sales.receiptNo, "SHIFT-ADMIN-001"),
       })
-    ).toMatchObject({ shiftId: null });
+    ).toMatchObject({ shiftId });
     expect(
       await t.db.query.expenses.findFirst({
         where: eq(expenses.title, "ค่าใช้จ่ายทดสอบ"),
       })
-    ).toMatchObject({ shiftId: null });
+    ).toMatchObject({ shiftId });
     expect(
       await t.db.query.debtPayments.findFirst({
         where: eq(debtPayments.paymentNo, "SHIFT-ADMIN-PAY-001"),
       })
-    ).toMatchObject({ shiftId: null });
+    ).toMatchObject({ shiftId });
 
     const actions = (
       await t.db.query.auditLogs.findMany({
@@ -425,7 +363,7 @@ describe("admin จัดการประวัติการตัดกะ"
       })
     ).map(row => row.action);
     expect(actions).toContain("create_shift_history");
-    expect(actions).toContain("update_shift_history");
-    expect(actions).toContain("delete_shift_history");
+    expect(actions).not.toContain("update_shift_history");
+    expect(actions).not.toContain("delete_shift_history");
   });
 });

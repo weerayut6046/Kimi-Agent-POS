@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { memberCards, members, pointTransactions, rewards } from "@db/schema";
+import {
+  branches,
+  memberCards,
+  members,
+  pointTransactions,
+  rewards,
+} from "@db/schema";
 import { generateMemberCode, isLongMemberCode } from "@contracts/memberCode";
 import { setupTestDb, type TestDb } from "../test/testDb";
 
@@ -138,6 +144,30 @@ describe("member card batches", () => {
       t.caller("cashier").membership.listCardBatches()
     ).rejects.toThrow("สิทธิ์ไม่เพียงพอ");
   });
+
+  it("filters card batch lists and detail to the selected branch", async () => {
+    const [branch] = await t.db
+      .insert(branches)
+      .values({ code: "CARD-OTHER", name: "สาขาอื่น" })
+      .returning();
+    const otherBranchOwner = t.caller("admin", 1, branch.id);
+    const { batch } = await otherBranchOwner.membership.createCardBatch({
+      quantity: 1,
+    });
+
+    const manager = t.caller("manager");
+    const batches = await manager.membership.listCardBatches();
+    expect(batches.map(item => item.id)).not.toContain(batch.id);
+    await expect(
+      manager.membership.getCardBatch({ id: batch.id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      otherBranchOwner.membership.getCardBatch({ id: batch.id })
+    ).resolves.toMatchObject({
+      batch: { id: batch.id },
+      cards: [{ status: "unused" }],
+    });
+  });
 });
 
 describe("find member for POS", () => {
@@ -191,6 +221,9 @@ describe("customer loyalty lookup", () => {
       totalUsed: 8,
     });
     expect(first.transactions).toHaveLength(10);
+    expect(
+      first.transactions.every(transaction => transaction.note === "")
+    ).toBe(true);
     expect(first.nextCursor).toEqual(expect.any(Number));
 
     const second = await t.anonymousCaller().membership.customerPoints({

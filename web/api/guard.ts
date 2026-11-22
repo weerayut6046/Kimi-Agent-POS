@@ -1,7 +1,10 @@
 import { publicQuery } from "./middleware";
 import { staffSessionFromHeader } from "./lib/session";
 import { TRPCError } from "@trpc/server";
-import { canPerformBusinessAction, type BusinessAction } from "./lib/businessPermissions";
+import {
+  canPerformBusinessAction,
+  type BusinessAction,
+} from "./lib/businessPermissions";
 
 /** งานที่อนุญาตเฉพาะ Supabase-authenticated admin */
 export const adminQuery = publicQuery.use(({ ctx, next }) => {
@@ -53,9 +56,17 @@ export function staffIdFromHeader(req: Request): number | null {
  * A passing action check does NOT replace branch/ownership/state checks.
  * Use this guard on a procedure before handling sensitive business data.
  */
-export function businessActionQuery(action: BusinessAction) {
+export function businessActionQuery(
+  action: BusinessAction,
+  ...additionalActions: BusinessAction[]
+) {
+  const requiredActions = [action, ...additionalActions];
   return publicQuery.use(({ ctx, next }) => {
-    if (!canPerformBusinessAction(ctx.staff.role, action)) {
+    if (
+      requiredActions.some(
+        action => !canPerformBusinessAction(ctx.staff.role, action)
+      )
+    ) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "สิทธิ์ไม่เพียงพอสำหรับการดำเนินการนี้",

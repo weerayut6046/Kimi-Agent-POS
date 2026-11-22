@@ -17,7 +17,7 @@ import {
   type MenuPermissionKey,
   type StaffRole,
 } from "@contracts/menuPermissions";
-import { authenticatedStaffAction, createRouter } from "../middleware";
+import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
@@ -34,7 +34,6 @@ import {
   type DeepSeekConversationMessage,
 } from "../lib/deepseek";
 import { OllamaAssistantError, runOllamaAssistant } from "../lib/ollama";
-import { staffSessionFromHeader } from "../lib/session";
 import {
   ADMIN_BUSINESS_SECTIONS,
   queryAdminBusinessSummary,
@@ -996,7 +995,7 @@ export const assistantRouter = createRouter({
       return { ok: true, config: result };
     }),
 
-  executeAction: authenticatedStaffAction
+  executeAction: publicQuery
     .input(
       z.object({
         proposalId: z.string().uuid(),
@@ -1013,13 +1012,10 @@ export const assistantRouter = createRouter({
       });
     }),
 
-  chat: authenticatedStaffAction
+  chat: publicQuery
     .input(chatInputSchema)
     .mutation(async ({ input, ctx }) => {
-      const session = staffSessionFromHeader(ctx.req);
-      if (!session) {
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "เซสชันหมดอายุ" });
-      }
+      const session = ctx.staff;
       let assistantConfig: Awaited<
         ReturnType<typeof getAssistantRuntimeConfig>
       >;

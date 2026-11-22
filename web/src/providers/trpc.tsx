@@ -61,7 +61,7 @@ const queryClient = new QueryClient({
   },
 });
 
-async function requestHeaders() {
+export async function requestHeaders() {
   const token = isLocalAuthEnabled
     ? readLocalSessionToken()
     : await currentSupabaseAccessToken();

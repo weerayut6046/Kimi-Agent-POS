@@ -66,24 +66,28 @@ export const expensesRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
-      const openShift = await db.query.shifts.findFirst({
-        where: and(
-          eq(shifts.branchId, branchId),
-          eq(shifts.status, "open"),
-        ),
+      const id = await db.transaction(async tx => {
+        // Serialize linking the expense with the shift's cash snapshot at close.
+        const [openShift] = await tx
+          .select({ id: shifts.id })
+          .from(shifts)
+          .where(and(eq(shifts.branchId, branchId), eq(shifts.status, "open")))
+          .limit(1)
+          .for("update");
+        const [expense] = await tx
+          .insert(expenses)
+          .values({
+            branchId,
+            title: input.title,
+            category: input.category,
+            amount: r2(input.amount),
+            shiftId: openShift?.id ?? null,
+            staffName: ctx.staff.name,
+            note: input.note,
+          })
+          .returning({ id: expenses.id });
+        return expense.id;
       });
-      const [{ id }] = await db
-        .insert(expenses)
-        .values({
-          branchId,
-          title: input.title,
-          category: input.category,
-          amount: r2(input.amount),
-          shiftId: openShift?.id ?? null,
-          staffName: input.staffName,
-          note: input.note,
-        })
-        .returning({ id: expenses.id });
       logAudit({
         action: "create_expense",
         ...actorFromReq(ctx.req),

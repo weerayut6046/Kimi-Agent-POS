@@ -32,12 +32,12 @@ describe("บันทึกค่าใช้จ่าย", () => {
       title: "ค่าน้ำแข็ง",
       category: "วัตถุดิบ",
       amount: 100,
-      staffName: "สมชาย",
+      staffName: "ชื่อที่ส่งจากไคลเอนต์",
       note: "ถุงใหญ่",
     });
     expect(created!.shiftId).toBe(shiftId);
     expect(created!.amount).toBe(100);
-    expect(created!.staffName).toBe("สมชาย");
+    expect(created!.staffName).toBe("สมชาย (พนักงาน)");
 
     // เว้นจังหวะให้ createdAt ต่างมิลลิวินาที ไม่อย่างนั้นลำดับใหม่→เก่าไม่นิ่ง
     await new Promise((r) => setTimeout(r, 10));

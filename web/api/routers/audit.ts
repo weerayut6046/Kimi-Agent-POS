@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLogs } from "@db/schema";
-import { adminQuery } from "../guard";
+import { businessActionQuery } from "../guard";
 import { createRouter } from "../middleware";
 import { getDb } from "../queries/connection";
 import { actorFromReq, logAudit } from "../lib/audit";
@@ -58,8 +58,11 @@ function enforceAiAnalysisRateLimit(staffId: number) {
   aiRequestTimesByStaff.set(staffId, recent);
 }
 
+const auditQuery = businessActionQuery("audit.read");
+const auditMutation = businessActionQuery("audit.manage");
+
 export const auditRouter = createRouter({
-  formulaAudit: adminQuery
+  formulaAudit: auditQuery
     .input(auditRangeSchema)
     .query(async ({ input, ctx }) => {
       const report = await loadFormulaAuditReport(
@@ -69,7 +72,7 @@ export const auditRouter = createRouter({
       return presentFormulaAuditReport(report);
     }),
 
-  analyzeFormulaAudit: adminQuery
+  analyzeFormulaAudit: auditQuery
     .input(auditRangeSchema)
     .mutation(async ({ input, ctx }) => {
       enforceAiAnalysisRateLimit(ctx.staff.id);
@@ -172,7 +175,7 @@ export const auditRouter = createRouter({
       }
     }),
 
-  createFormulaAuditFixPlan: adminQuery
+  createFormulaAuditFixPlan: auditMutation
     .input(createFixPlanSchema)
     .mutation(async ({ input, ctx }) => {
       enforceAiAnalysisRateLimit(ctx.staff.id);
@@ -285,7 +288,7 @@ export const auditRouter = createRouter({
       };
     }),
 
-  approveFormulaAuditFixPlan: adminQuery
+  approveFormulaAuditFixPlan: auditMutation
     .input(
       z
         .object({
@@ -310,7 +313,7 @@ export const auditRouter = createRouter({
       return result;
     }),
 
-  createFormulaAuditRemediationWorkOrder: adminQuery
+  createFormulaAuditRemediationWorkOrder: auditMutation
     .input(
       z
         .object({
@@ -333,7 +336,7 @@ export const auditRouter = createRouter({
       return workOrder;
     }),
 
-  startFormulaAuditRemediationWorkOrder: adminQuery
+  startFormulaAuditRemediationWorkOrder: auditMutation
     .input(
       z
         .object({
@@ -358,7 +361,7 @@ export const auditRouter = createRouter({
       return workOrder;
     }),
 
-  verifyFormulaAuditRemediationWorkOrder: adminQuery
+  verifyFormulaAuditRemediationWorkOrder: auditMutation
     .input(
       z
         .object({
@@ -386,7 +389,7 @@ export const auditRouter = createRouter({
     }),
 
   // รายการ audit log (admin เท่านั้น) — เรียงใหม่ → เก่า กรองตาม action และคำค้น (ผู้ทำ/รายละเอียด)
-  list: adminQuery
+  list: auditQuery
     .input(
       z
         .object({

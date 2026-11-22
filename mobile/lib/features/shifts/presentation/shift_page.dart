@@ -143,7 +143,7 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
                 submitting: _submitting,
                 onOpen: () => _openShift(data),
               )
-            else
+            else if (data.currentShift!.canSubmit)
               _CloseShiftForm(
                 shift: data.currentShift!,
                 countedCash: _countedCash,
@@ -163,6 +163,10 @@ class _ShiftPageState extends ConsumerState<ShiftPage> {
                 },
                 onScanMeters: () => _scanMeters(data.currentShift!),
                 onClose: () => _closeShift(data.currentShift!),
+              )
+            else
+              const Text(
+                'ผู้เปิดกะหรือผู้ดูแลสาขาสามารถปิดกะได้',
               ),
             const SizedBox(height: 18),
           ],

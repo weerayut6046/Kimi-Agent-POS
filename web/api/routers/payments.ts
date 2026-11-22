@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "../middleware";
 import { adminQuery } from "../guard";
 import { getDb } from "../queries/connection";
-import { paymentSessions, settings } from "@db/schema";
+import { paymentSessions, settings, shifts } from "@db/schema";
 import { actorFromReq, logAudit } from "../lib/audit";
+import type { StaffSessionClaims } from "../lib/session";
 import {
   buildPromptPayPayload,
   extractMerchantBillInfo,
@@ -29,7 +30,7 @@ import {
 import { Slip2GoError } from "../payments/slip2go-client";
 
 const saleInputSchema = z.object({
-  shiftId: z.number().optional(),
+  shiftId: z.number().int().positive().optional(),
   staffName: z.string().default(""),
   memberId: z.number().optional(),
   items: z
@@ -49,6 +50,35 @@ async function getSettingMap(db: ReturnType<typeof getDb>, branchId: number) {
     string,
     string
   >;
+}
+
+type PaymentOperator = Pick<StaffSessionClaims, "id" | "branchId" | "role">;
+
+function paymentSessionScope(staff: PaymentOperator, sessionId: number) {
+  return and(
+    eq(paymentSessions.id, sessionId),
+    eq(paymentSessions.branchId, staff.branchId),
+    staff.role === "admin" || staff.role === "manager"
+      ? undefined
+      : sql`${paymentSessions.saleSnapshot}->>'staffId' = ${String(staff.id)}`
+  );
+}
+
+async function requirePaymentSession(
+  db: ReturnType<typeof getDb>,
+  staff: PaymentOperator,
+  sessionId: number
+) {
+  const session = await db.query.paymentSessions.findFirst({
+    where: paymentSessionScope(staff, sessionId),
+  });
+  if (!session) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "ไม่พบ session การชำระเงิน",
+    });
+  }
+  return session;
 }
 
 export const paymentsRouter = createRouter({
@@ -213,6 +243,22 @@ export const paymentsRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      if (input.shiftId != null) {
+        const shift = await db.query.shifts.findFirst({
+          columns: { id: true },
+          where: and(
+            eq(shifts.id, input.shiftId),
+            eq(shifts.branchId, branchId),
+            eq(shifts.status, "open")
+          ),
+        });
+        if (!shift) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "ไม่พบกะที่เปิดอยู่ในสาขาปัจจุบัน",
+          });
+        }
+      }
       const summary = await getPaymentConfigSummary(branchId);
       if (!summary.thungngernEnabled) {
         throw new TRPCError({
@@ -225,7 +271,7 @@ export const paymentsRouter = createRouter({
         const snapshot = await computeSaleSnapshot(
           db,
           branchId,
-          input,
+          { ...input, staffName: ctx.staff.name },
           await getSettingMap(db, branchId)
         );
         if (snapshot.total <= 0) {
@@ -254,7 +300,10 @@ export const paymentsRouter = createRouter({
             amount: snapshot.total,
           });
         }
-        const session = await startThungngernSession(db, branchId, snapshot);
+        const session = await startThungngernSession(db, branchId, {
+          ...snapshot,
+          staffId: ctx.staff.id,
+        });
         return {
           sessionId: session.id,
           refCode: session.refCode,
@@ -281,34 +330,24 @@ export const paymentsRouter = createRouter({
     .input(z.object({ sessionId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
       const db = getDb();
-      const branchId = ctx.staff.branchId;
-      let session = await db.query.paymentSessions.findFirst({
-        where: and(
-          eq(paymentSessions.id, input.sessionId),
-          eq(paymentSessions.branchId, branchId)
-        ),
-      });
-      if (!session) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "ไม่พบ session การชำระเงิน",
-        });
-      }
+      let session = await requirePaymentSession(db, ctx.staff, input.sessionId);
       // หมดเวลาแล้วแต่ยังค้าง pending — ปิดสถานะให้ตรงความจริง
       if (
         session.status === "pending" &&
         Date.now() >= session.expiresAt.getTime()
       ) {
-        await db
+        const [expired] = await db
           .update(paymentSessions)
           .set({ status: "expired" })
           .where(
             and(
-              eq(paymentSessions.id, session.id),
+              paymentSessionScope(ctx.staff, session.id),
               eq(paymentSessions.status, "pending")
             )
-          );
-        session = { ...session, status: "expired" };
+          )
+          .returning();
+        session =
+          expired ?? (await requirePaymentSession(db, ctx.staff, session.id));
       }
       return { view: buildSessionView(session), receipt: null };
     }),
@@ -327,6 +366,7 @@ export const paymentsRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await requirePaymentSession(db, ctx.staff, input.sessionId);
       const runtime = await getThungngernRuntimeConfig(branchId);
       if (!runtime) {
         throw new TRPCError({
@@ -388,6 +428,7 @@ export const paymentsRouter = createRouter({
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const branchId = ctx.staff.branchId;
+      await requirePaymentSession(db, ctx.staff, input.sessionId);
       const result = await finalizeThungngernSession(
         db,
         branchId,
@@ -410,31 +451,19 @@ export const paymentsRouter = createRouter({
     .input(z.object({ sessionId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const branchId = ctx.staff.branchId;
       const updated = await db
         .update(paymentSessions)
         .set({ status: "cancelled" })
         .where(
           and(
-            eq(paymentSessions.id, input.sessionId),
-            eq(paymentSessions.branchId, branchId),
+            paymentSessionScope(ctx.staff, input.sessionId),
             eq(paymentSessions.status, "pending")
           )
         )
         .returning({ id: paymentSessions.id });
-      const session = await db.query.paymentSessions.findFirst({
-        where: and(
-          eq(paymentSessions.id, input.sessionId),
-          eq(paymentSessions.branchId, branchId)
-        ),
-      });
-      if (!session) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "ไม่พบ session การชำระเงิน",
-        });
-      }
-      if (!updated[0] && session.status === "confirmed") {
+      if (updated[0]) return { ok: true };
+      const session = await requirePaymentSession(db, ctx.staff, input.sessionId);
+      if (session.status === "confirmed") {
         throw new TRPCError({
           code: "CONFLICT",
           message: "ชำระเงินสำเร็จแล้ว ยกเลิกไม่ได้",

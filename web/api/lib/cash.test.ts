@@ -223,7 +223,7 @@ describe("เงินสดเทียบยอด P", () => {
       })
       .where(eq(shifts.id, shiftA));
 
-    const hist = await t.caller().pos.shiftHistory();
+    const hist = await t.caller("admin").pos.shiftHistory();
     const row = hist.find(s => s.id === shiftA)!;
     expect(row.cashExpectedP).toBe(2960);
     expect(row.cashDiffP).toBe(500); // ยอดนับได้รวม 3460 − 2960

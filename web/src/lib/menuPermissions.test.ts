@@ -37,6 +37,13 @@ describe("menu permissions", () => {
     );
   });
 
+  it("routes assistant administration through settings and leaves per-tool checks to chat and confirmation", () => {
+    expect(getApiMenuPermissions("assistant.config")).toEqual(["settings"]);
+    expect(getApiMenuPermissions("assistant.updateConfig")).toEqual(["settings"]);
+    expect(getApiMenuPermissions("assistant.chat")).toEqual([]);
+    expect(getApiMenuPermissions("assistant.executeAction")).toEqual([]);
+  });
+
   it("keeps POS checkout available through the existing sales permissions", () => {
     for (const role of ["cashier", "manager", "admin"] as const) {
       expect(getRoleMenuPermissions(role)).toContain("pos");
@@ -44,11 +51,24 @@ describe("menu permissions", () => {
     }
     expect(normalizeMenuPermissions("cashier", ["stock"])).not.toContain("pos");
     expect(getApiMenuPermissions("pos.createSale")).toEqual(["pos"]);
-    expect(getApiMenuPermissions("payments.startThungngern")).toEqual([
-      "pos",
-      "sales",
-      "settings",
-    ]);
+    for (const method of [
+      "thungngernStatus",
+      "startThungngern",
+      "sessionStatus",
+      "verifySlip",
+      "manualConfirm",
+      "cancelSession",
+    ]) {
+      expect(getApiMenuPermissions(`payments.${method}`)).toEqual(["pos"]);
+    }
+    for (const method of [
+      "config",
+      "updateConfig",
+      "validateMerchantQr",
+      "testConnection",
+    ]) {
+      expect(getApiMenuPermissions(`payments.${method}`)).toEqual(["settings"]);
+    }
   });
 
   it.each(["cashier", "manager"] as const)(
@@ -265,17 +285,30 @@ describe("menu permissions", () => {
     }
   );
 
-  // Staff reads serve several modules. Access configuration and staff mutations
-  // retain their server-side adminQuery guard and admins always have every menu.
   it.each([
+    "auth.deploymentInfo",
+    "auth.reportLoginAttempt",
+    "auth.realtimeSession",
     "auth.currentStaff",
-    "auth.listStaff",
-    "auth.listStaffAccess",
-    "auth.createStaff",
-    "auth.updateStaff",
-    "auth.deleteStaff",
-  ])("keeps shared staff API %s outside module-specific mappings", path => {
+    "auth.systemAccess",
+    "auth.switchBranch",
+    "auth.listBranches",
+  ])("keeps shared session and shell API %s independent of menus", path => {
     expect(getApiMenuPermissions(path)).toEqual([]);
+  });
+
+  it.each([
+    ["auth.listStaff", ["settings", "shifts", "workforce"]],
+    ["auth.listStaffAccess", ["settings"]],
+    ["auth.createStaff", ["settings", "workforce", "setup"]],
+    ["auth.updateStaff", ["settings"]],
+    ["auth.deleteStaff", ["settings", "workforce"]],
+    ["auth.listAllBranches", ["settings"]],
+    ["auth.updateBranch", ["settings"]],
+    ["auth.createAccessGroup", ["settings"]],
+    ["auth.permissionCatalog", ["settings"]],
+  ])("maps account procedure %s to its consuming modules", (path, menus) => {
+    expect(getApiMenuPermissions(path)).toEqual(menus);
   });
 
   it("maps shared routers to every feature that legitimately consumes them", () => {
@@ -297,7 +330,6 @@ describe("menu permissions", () => {
     expect(getApiMenuPermissions("payments.promptpayQr")).toEqual([
       "pos",
       "sales",
-      "settings",
     ]);
     expect(getApiMenuPermissions("catalog.getSettings")).toEqual([]);
     expect(getApiMenuPermissions("catalog.updateTheme")).toEqual(["settings"]);

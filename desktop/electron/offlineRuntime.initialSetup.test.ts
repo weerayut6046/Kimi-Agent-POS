@@ -88,6 +88,13 @@ function cached(body: unknown) {
   };
 }
 
+function authorization(sub = "staff-a", exp = Math.floor(Date.now() / 1000) + 600) {
+  const claims = Buffer.from(JSON.stringify({ sub, exp })).toString("base64url");
+  return `Bearer header.${claims}.signature`;
+}
+
+const result = (json: unknown) => ({ result: { data: { json } } });
+
 function localRequest(
   url: string,
   method = "GET",
@@ -198,7 +205,7 @@ describe("desktop initial setup requires authoritative online responses", () => 
       )
         return Response.json({ status });
       if (String(url).includes("catalog.listProducts"))
-        return Response.json({ products: ["existing-catalog"] });
+        return Response.json(result([{ name: "existing-catalog", cost: 80 }]));
       return Response.json({ ok: true });
     });
     vi.stubGlobal("fetch", remoteFetch);
@@ -214,11 +221,12 @@ describe("desktop initial setup requires authoritative online responses", () => 
     expect((await localRequest(`${localUrl}${statusPaths[0]}`)).body).toContain(
       "claimed"
     );
-    await localRequest(`${localUrl}${catalogPath}`);
+    const credential = { authorization: authorization(), "x-branch-id": "1" };
+    await localRequest(`${localUrl}${catalogPath}`, "GET", "", credential);
     const stored = JSON.parse(
       fs.readFileSync(path.join(dataDir, "desktop-offline-state.json"), "utf8")
     );
-    expect(Object.keys(stored.cache)).toEqual([cacheKey("GET", catalogPath)]);
+    expect(Object.keys(stored.cache)).toHaveLength(1);
 
     online = false;
     for (const requestPath of statusPaths) {
@@ -227,14 +235,15 @@ describe("desktop initial setup requires authoritative online responses", () => 
       expect(response.headers["x-pos-offline-cache"]).toBeUndefined();
       expect(response.body).not.toContain("unclaimed");
     }
-    const catalog = await localRequest(`${localUrl}${catalogPath}`);
+    const catalog = await localRequest(`${localUrl}${catalogPath}`, "GET", "", credential);
     expect(catalog.status).toBe(200);
     expect(catalog.headers["x-pos-offline-cache"]).toBe("1");
     expect(catalog.body).toContain("existing-catalog");
+    expect(catalog.body).toContain('"cost":0');
     expect(instance.getStatus().pendingCount).toBe(0);
   });
 
-  it("ignores stale installation status already persisted by an older runtime", async () => {
+  it("drops older unscoped caches including stale installation status", async () => {
     const dataDir = tempDirectory();
     const cache = Object.fromEntries(
       statusPaths.map(requestPath => [
@@ -271,9 +280,11 @@ describe("desktop initial setup requires authoritative online responses", () => 
       expect(response.body).not.toContain("oldInstallation");
       expect(response.headers["x-pos-offline-cache"]).toBeUndefined();
     }
-    expect((await localRequest(`${localUrl}${catalogPath}`)).body).toContain(
-      "preserved-catalog"
-    );
+    const catalog = await localRequest(`${localUrl}${catalogPath}`, "GET", "", { authorization: authorization() });
+    expect(catalog.status).toBe(503);
+    expect(catalog.body).not.toContain("preserved-catalog");
+    const state = JSON.parse(fs.readFileSync(path.join(dataDir, "desktop-offline-state.json"), "utf8"));
+    expect(state.cache).toEqual({});
   });
 
   it("never queues first-owner writes or reuses cached owner results when offline, preserving pending sales", async () => {
@@ -324,5 +335,62 @@ describe("desktop initial setup requires authoritative online responses", () => 
     expect(after.queue[0].remoteInput).toEqual(state.queue[0].remoteInput);
     expect(JSON.stringify(after)).not.toContain("one-time-installation-proof");
     expect(JSON.stringify(after.queue)).not.toContain("new-owner");
+  });
+});
+
+describe("desktop offline authorization scope", () => {
+  it("isolates a cached catalog by branch and staff credential, and keeps mixed sensitive batches online", async () => {
+    let online = true;
+    const sensitiveBatch = "/api/trpc/catalog.listProducts%2Creports.profit%3F?batch=1";
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (!online) throw new Error("offline");
+      const branch = new Headers(init?.headers).get("x-branch-id");
+      const catalog = result([{ name: `catalog-branch-${branch}`, cost: 87 }]);
+      return Response.json(url.includes("batch=1") ? [catalog, result({ profit: 88 })] : catalog);
+    }));
+    const localUrl = await runtime().start();
+    const headers = { authorization: authorization(), "x-branch-id": "1" };
+    expect((await localRequest(`${localUrl}${catalogPath}`, "GET", "", headers)).body).toContain('"cost":87');
+    expect((await localRequest(`${localUrl}${sensitiveBatch}`, "GET", "", headers)).body).toContain('"profit":88');
+
+    online = false;
+    const cached = await localRequest(`${localUrl}${catalogPath}`, "GET", "", headers);
+    expect(cached.body).toContain("catalog-branch-1");
+    expect(cached.body).toContain('"cost":0');
+    for (const changed of [
+      { ...headers, "x-branch-id": "2" },
+      { ...headers, authorization: authorization("staff-b") },
+      { "x-branch-id": "1" },
+    ]) {
+      expect((await localRequest(`${localUrl}${catalogPath}`, "GET", "", changed)).status).toBe(503);
+    }
+    expect((await localRequest(`${localUrl}${sensitiveBatch}`, "GET", "", headers)).status).toBe(503);
+  });
+
+  it("expires cached staff data and discards it after a live authorization denial", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let status = 200;
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        if (status === 503) throw new Error("offline");
+        return Response.json(result([{ name: "catalog" }]), { status });
+      }));
+      const localUrl = await runtime().start();
+      const expires = Math.floor(Date.now() / 1000) + 20;
+      const headers = { authorization: authorization("staff-a", expires) };
+      const send = () => localRequest(`${localUrl}${catalogPath}`, "GET", "", headers);
+      expect((await send()).status).toBe(200);
+      status = 403;
+      expect((await send()).status).toBe(403);
+      status = 503;
+      expect((await send()).status).toBe(503);
+      status = 200;
+      expect((await send()).status).toBe(200);
+      status = 503;
+      vi.setSystemTime(expires * 1000);
+      expect((await send()).status).toBe(503);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
