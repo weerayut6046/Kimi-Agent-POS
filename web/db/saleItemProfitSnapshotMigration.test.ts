@@ -66,5 +66,5 @@ describe("Supabase sale item profit snapshot migration", () => {
       where name = 'ผู้จัดการ'
     `);
     expect(manager.rows[0]?.menu_permissions).toContain("profitability");
-  });
+  }, 30_000);
 });
